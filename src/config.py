@@ -28,6 +28,25 @@ class Settings(BaseSettings):
 
     # X 平台 API 配置
     twitter_api_key: str = Field(..., description="X 平台 API 密钥")
+    twitter_bearer_token: str = Field(..., description="X 平台 Bearer 令牌")
+    twitter_base_url: str = Field(
+        default="https://api.twitterapi.io/twitter",
+        description="TwitterAPI.io 基础地址"
+    )
+
+    # 抓取器配置
+    scraper_enabled: bool = Field(
+        default=True, description="是否启用定时抓取"
+    )
+    scraper_interval: int = Field(
+        default=3600, description="抓取间隔（秒），默认 1 小时"
+    )
+    scraper_usernames: str = Field(
+        default="", description="关注用户列表（逗号分隔）"
+    )
+    scraper_limit: int = Field(
+        default=100, ge=1, le=1000, description="单次抓取推文数量限制"
+    )
 
     # 数据库配置
     database_url: str = Field(

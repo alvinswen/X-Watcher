@@ -3,6 +3,7 @@
 提供测试 Fixtures 和配置。
 """
 
+import os
 import tempfile
 from pathlib import Path
 
@@ -14,6 +15,23 @@ from sqlalchemy.orm import sessionmaker
 from src.config import clear_settings_cache, get_settings
 from src.database.models import Base
 from src.main import app
+
+
+@pytest.fixture(autouse=True)
+def reset_env_before_each_test():
+    """在每个测试前重置环境变量。
+
+    这确保测试不依赖本地 .env 文件中的值。
+    """
+    # 保存原始环境变量
+    original_env = os.environ.copy()
+
+    yield
+
+    # 恢复原始环境变量
+    os.environ.clear()
+    os.environ.update(original_env)
+    clear_settings_cache()
 
 
 # 测试数据库引擎 - 使用 SQLite 内存模式
@@ -82,6 +100,7 @@ def test_settings():
         "MINIMAX_API_KEY": "test-api-key",
         "MINIMAX_BASE_URL": "https://api.test.com",
         "TWITTER_API_KEY": "test-twitter-key",
+        "TWITTER_BEARER_TOKEN": "test-bearer-token",
         "DATABASE_URL": "sqlite:///:memory:",
         "LOG_LEVEL": "WARNING",  # 测试时减少日志输出
     }
@@ -137,3 +156,14 @@ def temp_dir():
         yield Path(path)
     finally:
         shutil.rmtree(path, ignore_errors=True)
+
+
+@pytest.fixture(scope="function")
+def clean_registry():
+    """清理任务注册表 Fixture。"""
+    from src.scraper import TaskRegistry
+
+    registry = TaskRegistry.get_instance()
+    registry.clear_all()
+    yield
+    registry.clear_all()

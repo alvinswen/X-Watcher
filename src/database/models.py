@@ -15,22 +15,38 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-from src.config import get_settings
-
-# 获取配置
-settings = get_settings()
-
-# 创建数据库引擎
-engine = create_engine(
-    settings.database_url,
-    echo=settings.log_level == "DEBUG",  # DEBUG 模式下打印 SQL
-)
-
 
 class Base(DeclarativeBase):
     """SQLAlchemy 声明式基类。"""
 
     pass
+
+
+# 延迟初始化引擎
+_engine = None
+
+
+def get_engine():
+    """获取数据库引擎。
+
+    用于同步数据库操作。引擎在首次调用时创建。
+    """
+    global _engine
+    if _engine is None:
+        from src.config import get_settings
+
+        settings = get_settings()
+        _engine = create_engine(
+            settings.database_url,
+            echo=settings.log_level == "DEBUG",
+        )
+    return _engine
+
+
+# 向后兼容的属性
+def engine():
+    """获取数据库引擎单例（向后兼容）。"""
+    return get_engine()
 
 
 class User(Base):
