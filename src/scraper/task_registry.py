@@ -12,6 +12,35 @@ from enum import Enum
 logger = logging.getLogger(__name__)
 
 
+def _update_task_metrics(status: TaskStatus, old_status: TaskStatus | None = None) -> None:
+    """更新 Prometheus 任务指标。
+
+    Args:
+        status: 当前任务状态
+        old_status: 之前的状态（用于转换跟踪）
+    """
+    try:
+        from src.config import get_settings
+
+        settings = get_settings()
+        if not settings.prometheus_enabled:
+            return
+
+        from src.monitoring import metrics
+
+        # 更新任务状态计数器
+        metrics.tasks_total.labels(status=status.value).inc()
+
+        # 更新活跃任务数
+        registry = TaskRegistry.get_instance()
+        active_count = len(registry.get_tasks_by_status(TaskStatus.RUNNING))
+        metrics.active_tasks.set(active_count)
+
+    except Exception:
+        # 静默失败，避免指标更新影响业务逻辑
+        pass
+
+
 class TaskStatus(str, Enum):
     """任务状态枚举。
 
@@ -96,6 +125,9 @@ class TaskRegistry:
         with self._task_lock:
             self._tasks[task_id] = task_data
 
+        # 更新 Prometheus 指标
+        _update_task_metrics(TaskStatus.PENDING)
+
         logger.info(f"创建任务: {task_name} (ID: {task_id})")
         return task_id
 
@@ -140,6 +172,9 @@ class TaskRegistry:
                 if error is not None:
                     task["error"] = error
                 logger.error(f"任务失败: {task_id} - {error}")
+
+            # 更新 Prometheus 指标
+            _update_task_metrics(status, old_status)
 
     def update_progress(
         self,

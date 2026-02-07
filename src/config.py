@@ -26,6 +26,15 @@ class Settings(BaseSettings):
         description="MiniMax API 地址"
     )
 
+    # OpenRouter API 配置（可选）
+    openrouter_api_key: str | None = Field(
+        default=None, description="OpenRouter API 密钥"
+    )
+    openrouter_base_url: str = Field(
+        default="https://openrouter.ai/api/v1",
+        description="OpenRouter API 地址"
+    )
+
     # X 平台 API 配置
     twitter_api_key: str = Field(..., description="X 平台 API 密钥")
     twitter_bearer_token: str = Field(..., description="X 平台 Bearer 令牌")
@@ -59,6 +68,11 @@ class Settings(BaseSettings):
         default="INFO",
         description="日志级别",
         validate_default=True,  # 确保默认值也经过验证
+    )
+
+    # 监控配置
+    prometheus_enabled: bool = Field(
+        default=True, description="是否启用 Prometheus 监控"
     )
 
     model_config = SettingsConfigDict(

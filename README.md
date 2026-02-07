@@ -108,8 +108,24 @@ python -m src.main
 
 ### 访问 API 文档
 
+### 交互式 API 文档
 - Swagger UI: `http://localhost:8000/docs`
 - ReDoc: `http://localhost:8000/redoc`
+
+### API 使用指南
+详细的 API 使用文档请参阅：[docs/api-guide.md](docs/api-guide.md)
+
+**快速链接**：
+- [抓取 API](docs/api-guide.md#抓取-api) - 从 X 平台抓取推文
+- [去重 API](docs/api-guide.md#去重-api) - 推文去重和合并
+- [摘要 API](docs/api-guide.md#摘要-api) - 生成中文摘要
+- [监控 API](docs/api-guide.md#监控-api) - Prometheus 指标
+
+### Python 示例代码
+```bash
+# 运行 API 使用示例
+python examples/api_examples.py
+```
 
 ## 测试
 
@@ -201,6 +217,11 @@ SeriousNewsAgent/
 │   ├── integration/     # 集成测试
 │   └── conftest.py      # pytest 配置
 ├── docs/                # 项目文档
+│   ├── api-guide.md    # API 使用指南
+│   ├── architecture.md # 架构文档
+│   └── news-scraper.md # 抓取模块文档
+├── examples/           # 代码示例
+│   └── api_examples.py # API 使用示例
 ├── scripts/             # 脚本文件
 ├── pyproject.toml       # 项目配置
 ├── .env.example         # 环境变量模板

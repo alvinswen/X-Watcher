@@ -125,6 +125,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 配置 Prometheus 监控中间件（在 CORS 之后）
+from src.monitoring.middleware import PrometheusMiddleware
+
+settings = get_settings()
+if settings.prometheus_enabled:
+    app.add_middleware(PrometheusMiddleware)
+
 
 @app.get("/health")
 async def health_check():
@@ -134,8 +141,17 @@ async def health_check():
 
 # 导入并注册 API 路由
 from src.api.routes import admin
+from src.deduplication.api import routes as deduplication_routes
+from src.summarization.api import routes as summarization_routes
 
 app.include_router(admin.router)
+app.include_router(deduplication_routes.router)
+app.include_router(summarization_routes.router)
+
+# 注册 Prometheus 监控路由
+from src.monitoring import routes as monitoring_routes
+
+app.include_router(monitoring_routes.router)
 
 
 def main():
