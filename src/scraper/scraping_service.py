@@ -314,10 +314,66 @@ class ScrapingService:
                 result = await repo.save_tweets(tweets)
                 # 提交事务
                 await session.commit()
+
+                # 保存成功后，触发去重（仅对新保存的推文）
+                if result.success_count > 0:
+                    await self._trigger_deduplication([t.tweet_id for t in tweets])
+
                 return result
         else:
             # 如果已经有 repository，由调用者管理事务
-            return await self._repository.save_tweets(tweets)
+            save_result = await self._repository.save_tweets(tweets)
+
+            # 保存成功后，触发去重（仅对新保存的推文）
+            if save_result.success_count > 0:
+                await self._trigger_deduplication([t.tweet_id for t in tweets])
+
+            return save_result
+
+    async def _trigger_deduplication(self, tweet_ids: list[str]) -> None:
+        """触发去重任务。
+
+        Args:
+            tweet_ids: 推文 ID 列表
+        """
+        try:
+            from src.database.async_session import get_async_session_maker
+            from src.deduplication.domain.detectors import (
+                ExactDuplicateDetector,
+                SimilarityDetector,
+            )
+            from src.deduplication.infrastructure.repository import (
+                DeduplicationRepository,
+            )
+            from src.deduplication.services.deduplication_service import (
+                DeduplicationService,
+            )
+
+            session_maker = get_async_session_maker()
+
+            async with session_maker() as session:
+                repository = DeduplicationRepository(session)
+                service = DeduplicationService(
+                    repository=repository,
+                    exact_detector=ExactDuplicateDetector(),
+                    similarity_detector=SimilarityDetector(),
+                )
+
+                # 执行去重
+                result = await service.deduplicate_tweets(tweet_ids=tweet_ids)
+
+                await session.commit()
+
+                logger.info(
+                    f"去重完成: 处理 {result.total_tweets} 条推文, "
+                    f"发现 {result.exact_duplicate_count} 个精确重复组, "
+                    f"{result.similar_content_count} 个相似内容组, "
+                    f"耗时 {result.elapsed_seconds:.2f} 秒"
+                )
+
+        except Exception as e:
+            # 去重失败不影响抓取结果，只记录错误
+            logger.warning(f"去重任务执行失败（不影响抓取结果）: {e}")
 
     def _summarize_results(
         self,

@@ -16,14 +16,19 @@ from src.config import clear_settings_cache, get_settings
 from src.database.models import Base
 from src.main import app
 
+# 在测试开始时加载 .env 文件
+from dotenv import load_dotenv
+load_dotenv()
+
 
 @pytest.fixture(autouse=True)
 def reset_env_before_each_test():
     """在每个测试前重置环境变量。
 
     这确保测试不依赖本地 .env 文件中的值。
+    但保留 .env 中加载的 API 密钥用于集成测试。
     """
-    # 保存原始环境变量
+    # 保存原始环境变量（包括从 .env 加载的）
     original_env = os.environ.copy()
 
     yield
@@ -167,3 +172,33 @@ def clean_registry():
     registry.clear_all()
     yield
     registry.clear_all()
+
+
+@pytest.fixture(scope="function")
+async def async_session():
+    """异步数据库会话 Fixture。
+
+    每个测试函数使用独立的内存数据库。
+    """
+    # 创建测试引擎
+    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+
+    test_engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+    )
+
+    # 创建所有表
+    async with test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    # 创建会话工厂
+    test_session_maker = async_sessionmaker(
+        test_engine, class_=AsyncSession, expire_on_commit=False
+    )
+
+    async with test_session_maker() as session:
+        yield session
+
+    # 清理
+    await test_engine.dispose()
