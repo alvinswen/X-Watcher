@@ -7,6 +7,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 import time
 import uuid
 from datetime import datetime, timezone
@@ -22,6 +23,7 @@ from src.summarization.domain.models import (
     PromptConfig,
     SummaryRecord,
     SummaryResult,
+    TweetType,
 )
 from src.summarization.infrastructure.repository import SummarizationRepository
 from src.summarization.logging_utils import get_summary_logger
@@ -44,7 +46,7 @@ class SummarizationService:
     """摘要翻译编排服务。
 
     协调整个摘要翻译流程，包括：
-    - 按去重组处理推文
+    - 处理推文摘要（支持去重组优化和独立推文）
     - 内存缓存管理
     - LLM 调用与降级
     - 结果持久化
@@ -101,40 +103,46 @@ class SummarizationService:
         start_time = time.time()
 
         try:
-            # 1. 加载去重组
+            # 1. 加载去重组（可选优化）
             if deduplication_groups is None:
                 deduplication_groups = await self._load_deduplication_groups(tweet_ids)
 
-            if not deduplication_groups:
-                logger.info("没有去重组需要处理")
-                return Success(
-                    SummaryResult(
-                        total_tweets=len(tweet_ids),
-                        total_groups=0,
-                        cache_hits=0,
-                        cache_misses=0,
-                        total_tokens=0,
-                        total_cost_usd=0.0,
-                        providers_used={},
-                        processing_time_ms=int((time.time() - start_time) * 1000),
+            # 2. 分区：有去重组的推文 vs 独立推文
+            grouped_tweet_ids: set[str] = set()
+            for group in deduplication_groups:
+                grouped_tweet_ids.update(group.tweet_ids)
+
+            independent_tweet_ids = [
+                tid for tid in tweet_ids if tid not in grouped_tweet_ids
+            ]
+
+            # 3. 并发处理去重组 + 独立推文
+            group_results: list[SummaryRecord] = []
+            independent_results: list[SummaryRecord] = []
+
+            if deduplication_groups:
+                group_results = await self._process_groups_concurrent(
+                    deduplication_groups, force_refresh
+                )
+
+            if independent_tweet_ids:
+                independent_results = await self._process_independent_tweets_concurrent(
+                    independent_tweet_ids, force_refresh
+                )
+
+            all_results = group_results + independent_results
+
+            # 4. 检查是否有任何成功的摘要生成
+            if tweet_ids and not all_results:
+                if deduplication_groups or independent_tweet_ids:
+                    return Failure(
+                        Exception("所有 LLM 提供商调用失败，无法生成摘要")
                     )
-                )
 
-            # 2. 并发处理每个去重组
-            results = await self._process_groups_concurrent(
-                deduplication_groups, force_refresh
-            )
-
-            # 检查是否有任何成功的摘要生成
-            # 如果有去重组但没有成功结果，说明所有提供商都失败了
-            if deduplication_groups and not results:
-                return Failure(
-                    Exception("所有 LLM 提供商调用失败，无法生成摘要")
-                )
-
-            # 3. 汇总统计
+            # 5. 汇总统计
             summary_result = self._calculate_summary_result(
-                tweet_ids, deduplication_groups, results, start_time
+                tweet_ids, deduplication_groups, all_results,
+                start_time, len(independent_tweet_ids),
             )
 
             # 使用结构化日志记录批量完成事件
@@ -153,7 +161,8 @@ class SummarizationService:
             logger.info(
                 f"摘要完成: 处理 {summary_result.total_tweets} 条推文, "
                 f"{summary_result.total_groups} 个去重组, "
-                f"缓存命中 {summary_result.cache_hits}/{summary_result.total_groups}, "
+                f"{len(independent_tweet_ids)} 条独立推文, "
+                f"缓存命中 {summary_result.cache_hits}, "
                 f"耗时 {summary_result.processing_time_ms}ms"
             )
 
@@ -175,13 +184,20 @@ class SummarizationService:
             Result[SummaryRecord, Exception]: 摘要记录
         """
         try:
-            # 1. 加载去重组
-            group = await self._load_deduplication_groups([tweet_id])
-            if not group:
-                return Failure(ValueError(f"推文 {tweet_id} 未找到去重组"))
+            # 1. 尝试加载去重组
+            groups = await self._load_deduplication_groups([tweet_id])
 
-            # 2. 强制刷新处理
-            results = await self._process_groups_concurrent(group, force_refresh=True)
+            if groups:
+                # 有去重组：走组处理逻辑
+                results = await self._process_groups_concurrent(
+                    groups, force_refresh=True
+                )
+            else:
+                # 无去重组：独立处理
+                result = await self._process_single_tweet(
+                    tweet_id, force_refresh=True
+                )
+                results = [result] if result else []
 
             if not results:
                 return Failure(ValueError("摘要生成失败"))
@@ -242,14 +258,14 @@ class SummarizationService:
 
     async def _load_tweets(
         self, tweet_ids: list[str]
-    ) -> dict[str, str]:
-        """从数据库加载推文文本。
+    ) -> dict[str, dict[str, str | None]]:
+        """从数据库加载推文文本和元数据。
 
         Args:
             tweet_ids: 推文 ID 列表
 
         Returns:
-            推文 ID 到文本的映射字典
+            推文 ID 到 {"text": ..., "reference_type": ...} 的映射字典
         """
         from sqlalchemy import select
         from src.scraper.infrastructure.models import TweetOrm
@@ -258,7 +274,13 @@ class SummarizationService:
         result = await self._repository._session.execute(stmt)
         orm_tweets = result.scalars().all()
 
-        return {tweet.tweet_id: tweet.text for tweet in orm_tweets}
+        return {
+            tweet.tweet_id: {
+                "text": tweet.text,
+                "reference_type": tweet.reference_type,
+            }
+            for tweet in orm_tweets
+        }
 
     async def _process_groups_concurrent(
         self,
@@ -292,6 +314,54 @@ class SummarizationService:
 
         return results
 
+    async def _process_independent_tweets_concurrent(
+        self,
+        tweet_ids: list[str],
+        force_refresh: bool,
+    ) -> list[SummaryRecord]:
+        """并发处理独立推文（无去重组的推文）。
+
+        Args:
+            tweet_ids: 推文 ID 列表
+            force_refresh: 是否强制刷新
+
+        Returns:
+            摘要记录列表
+        """
+        semaphore = asyncio.Semaphore(self._max_concurrent)
+        results: list[SummaryRecord] = []
+
+        async def process_with_limit(tweet_id: str) -> SummaryRecord | None:
+            async with semaphore:
+                return await self._process_single_tweet(tweet_id, force_refresh)
+
+        tasks = [process_with_limit(tid) for tid in tweet_ids]
+        processed = await asyncio.gather(*tasks)
+
+        for result in processed:
+            if result:
+                results.append(result)
+
+        return results
+
+    @staticmethod
+    def _determine_tweet_type(reference_type: str | None) -> TweetType:
+        """根据 reference_type 判断推文类型。
+
+        Args:
+            reference_type: 数据库中的 reference_type 值
+
+        Returns:
+            TweetType 枚举值
+        """
+        if reference_type == "retweeted":
+            return TweetType.retweeted
+        elif reference_type == "quoted":
+            return TweetType.quoted
+        elif reference_type == "replied_to":
+            return TweetType.replied_to
+        return TweetType.original
+
     async def _process_deduplication_group(
         self,
         group: DeduplicationGroup,
@@ -320,42 +390,44 @@ class SummarizationService:
                 cached = await self._get_from_cache(content_hash)
                 if cached:
                     logger.debug(f"缓存命中: {content_hash[:8]}...")
-                    # 使用结构化日志记录缓存命中
                     structured_logger.log_cache_hit(
                         tweet_id=representative_id,
                         content_hash=content_hash,
                     )
-                    # 从缓存中获取摘要记录
                     summary = await self._repository.find_by_content_hash(content_hash)
                     if summary:
-                        # 更新缓存统计
+                        summary.cached = True
                         await self._save_summary_for_tweets(
                             group.tweet_ids, summary
                         )
                         return summary
 
             logger.debug(f"缓存未命中，生成摘要: {content_hash[:8]}...")
-            # 使用结构化日志记录缓存未命中
             structured_logger.log_cache_miss(
                 tweet_id=representative_id,
                 content_hash=content_hash,
             )
 
-            # 加载该去重组的所有推文文本
+            # 加载该去重组的所有推文文本和元数据
             tweets_map = await self._load_tweets(group.tweet_ids)
-            representative_text = tweets_map.get(representative_id, "")
+            tweet_data = tweets_map.get(representative_id, {})
+            representative_text = tweet_data.get("text") or ""
+            reference_type = tweet_data.get("reference_type")
 
-            # 智能摘要长度策略：检查推文长度
+            # 判断推文类型
+            tweet_type = self._determine_tweet_type(reference_type)
+
+            # 智能摘要策略：检查推文长度
             tweet_length = len(representative_text)
             min_threshold = self._prompt_config.min_tweet_length_for_summary
+            is_short = tweet_length < min_threshold
 
-            if tweet_length < min_threshold:
-                # 推文太短，直接返回原文
+            if is_short:
+                # 短推文：调用 LLM 仅翻译，不生成摘要
                 logger.info(
-                    f"推文长度 ({tweet_length}) 小于阈值 ({min_threshold})，"
-                    f"直接返回原文: {representative_id[:8]}..."
+                    f"短推文 ({tweet_length}字 < {min_threshold})，"
+                    f"仅翻译不摘要: {representative_id[:8]}..."
                 )
-                # 使用结构化日志记录
                 structured_logger.log_summary_skipped(
                     tweet_id=representative_id,
                     reason="tweet_too_short",
@@ -363,55 +435,18 @@ class SummarizationService:
                     threshold=min_threshold,
                 )
 
-                # 创建摘要记录（原文直接返回，标记为非生成摘要）
-                record = SummaryRecord(
-                    summary_id=str(uuid.uuid4()),
-                    tweet_id=representative_id,
-                    summary_text=representative_text,  # 直接使用原文
-                    translation_text=None,  # 短推文不翻译
-                    model_provider="open_source",  # 标记为系统处理
-                    model_name="original_text",
-                    prompt_tokens=0,
-                    completion_tokens=0,
-                    total_tokens=0,
-                    cost_usd=0.0,
-                    cached=False,
-                    is_generated_summary=False,  # 标记为非生成的摘要
-                    content_hash=content_hash,
-                    created_at=datetime.now(timezone.utc),
-                    updated_at=datetime.now(timezone.utc),
-                )
-
-                # 保存到数据库
-                await self._repository.save_summary_record(record)
-
-                # 为组内所有推文保存摘要引用
-                await self._save_summary_for_tweets(group.tweet_ids, record)
-
-                return record
-
-            # 计算动态摘要长度范围
-            min_summary_length = int(
-                tweet_length * self._prompt_config.summary_min_length_ratio
-            )
-            max_summary_length = int(
-                tweet_length * self._prompt_config.summary_max_length_ratio
-            )
-
-            # 调用 LLM 生成摘要和翻译
+            # 调用 LLM 生成摘要+翻译（统一 prompt）
             result = await self._call_llm_with_fallback(
                 representative_id,
                 content_hash,
                 representative_text,
-                min_summary_length,
-                max_summary_length,
+                tweet_type=tweet_type,
+                is_short=is_short,
             )
 
             if isinstance(result, Failure):
-                # Result 类型使用 failure() 方法获取错误值
                 error = result.failure()
                 logger.error(f"LLM 调用失败: {error}")
-                # 使用结构化日志记录错误
                 structured_logger.log_summary_error(
                     tweet_id=representative_id,
                     error_type="llm_call_failed",
@@ -421,10 +456,14 @@ class SummarizationService:
 
             llm_response = result.unwrap()
 
-            # 解析响应（假设 LLM 返回格式为 JSON 或分段文本）
+            # 解析响应
             summary_text, translation_text = self._parse_llm_response(
                 llm_response.content
             )
+
+            # 短推文：summary_text 使用特殊标记
+            if is_short:
+                summary_text = "[SHORT]"
 
             # 创建摘要记录
             record = SummaryRecord(
@@ -439,7 +478,7 @@ class SummarizationService:
                 total_tokens=llm_response.total_tokens,
                 cost_usd=llm_response.cost_usd,
                 cached=False,
-                is_generated_summary=True,  # 标记为生成的摘要
+                is_generated_summary=not is_short,
                 content_hash=content_hash,
                 created_at=datetime.now(timezone.utc),
                 updated_at=datetime.now(timezone.utc),
@@ -460,13 +499,143 @@ class SummarizationService:
             logger.error(f"处理去重组失败 (group_id={group.group_id}): {e}")
             return None
 
+    async def _process_single_tweet(
+        self,
+        tweet_id: str,
+        force_refresh: bool,
+    ) -> SummaryRecord | None:
+        """处理单条独立推文（无去重组）。
+
+        与 _process_deduplication_group 类似，但不依赖去重组，
+        缓存键基于推文自身 ID。
+
+        Args:
+            tweet_id: 推文 ID
+            force_refresh: 是否强制刷新
+
+        Returns:
+            摘要记录或 None（处理失败时）
+        """
+        try:
+            # 缓存键基于 tweet_id（不依赖去重组）
+            content_hash = self._compute_hash(tweet_id, "standalone")
+
+            # 检查缓存
+            if not force_refresh:
+                cached = await self._get_from_cache(content_hash)
+                if cached:
+                    logger.debug(f"缓存命中（独立推文）: {content_hash[:8]}...")
+                    structured_logger.log_cache_hit(
+                        tweet_id=tweet_id,
+                        content_hash=content_hash,
+                    )
+                    summary = await self._repository.find_by_content_hash(
+                        content_hash
+                    )
+                    if summary:
+                        summary.cached = True
+                        return summary
+
+            logger.debug(f"缓存未命中，生成摘要（独立推文）: {content_hash[:8]}...")
+            structured_logger.log_cache_miss(
+                tweet_id=tweet_id,
+                content_hash=content_hash,
+            )
+
+            # 加载推文文本和元数据
+            tweets_map = await self._load_tweets([tweet_id])
+            tweet_data = tweets_map.get(tweet_id, {})
+            tweet_text = tweet_data.get("text") or ""
+            reference_type = tweet_data.get("reference_type")
+
+            # 判断推文类型
+            tweet_type = self._determine_tweet_type(reference_type)
+
+            # 智能摘要策略：检查推文长度
+            tweet_length = len(tweet_text)
+            min_threshold = self._prompt_config.min_tweet_length_for_summary
+            is_short = tweet_length < min_threshold
+
+            if is_short:
+                logger.info(
+                    f"短推文 ({tweet_length}字 < {min_threshold})，"
+                    f"仅翻译不摘要: {tweet_id[:8]}..."
+                )
+                structured_logger.log_summary_skipped(
+                    tweet_id=tweet_id,
+                    reason="tweet_too_short",
+                    tweet_length=tweet_length,
+                    threshold=min_threshold,
+                )
+
+            # 调用 LLM 生成摘要+翻译
+            result = await self._call_llm_with_fallback(
+                tweet_id,
+                content_hash,
+                tweet_text,
+                tweet_type=tweet_type,
+                is_short=is_short,
+            )
+
+            if isinstance(result, Failure):
+                error = result.failure()
+                logger.error(f"LLM 调用失败（独立推文）: {error}")
+                structured_logger.log_summary_error(
+                    tweet_id=tweet_id,
+                    error_type="llm_call_failed",
+                    error_message=str(error),
+                )
+                return None
+
+            llm_response = result.unwrap()
+
+            # 解析响应
+            summary_text, translation_text = self._parse_llm_response(
+                llm_response.content
+            )
+
+            # 短推文：summary_text 使用特殊标记
+            if is_short:
+                summary_text = "[SHORT]"
+
+            # 创建摘要记录
+            record = SummaryRecord(
+                summary_id=str(uuid.uuid4()),
+                tweet_id=tweet_id,
+                summary_text=summary_text,
+                translation_text=translation_text,
+                model_provider=llm_response.provider,  # type: ignore
+                model_name=llm_response.model,
+                prompt_tokens=llm_response.prompt_tokens,
+                completion_tokens=llm_response.completion_tokens,
+                total_tokens=llm_response.total_tokens,
+                cost_usd=llm_response.cost_usd,
+                cached=False,
+                is_generated_summary=not is_short,
+                content_hash=content_hash,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+
+            # 保存到数据库
+            await self._repository.save_summary_record(record)
+
+            # 保存到内存缓存
+            await self._set_cache(content_hash, llm_response)
+
+            return record
+
+        except Exception as e:
+            logger.error(f"处理独立推文失败 (tweet_id={tweet_id}): {e}")
+            return None
+
     async def _call_llm_with_fallback(
         self,
         tweet_id: str,
         content_hash: str,
         tweet_text: str,
-        min_length: int | None = None,
-        max_length: int | None = None,
+        tweet_type: TweetType = TweetType.original,
+        is_short: bool = False,
     ) -> Result[LLMResponse, Exception]:
         """调用 LLM 并实现降级策略。
 
@@ -477,8 +646,8 @@ class SummarizationService:
             tweet_id: 推文 ID
             content_hash: 内容哈希
             tweet_text: 推文文本内容
-            min_length: 摘要最小字数（可选）
-            max_length: 摘要最大字数（可选）
+            tweet_type: 推文类型
+            is_short: 是否为短推文（仅翻译不摘要）
 
         Returns:
             Result[LLMResponse, Exception]: LLM 响应或错误
@@ -487,9 +656,9 @@ class SummarizationService:
 
         for idx, provider in enumerate(self._providers):
             try:
-                # 生成摘要 Prompt - 使用真实的推文文本和动态长度
-                prompt = self._prompt_config.format_summary(
-                    tweet_text, min_length, max_length
+                # 生成统一的摘要+翻译 Prompt
+                prompt = self._prompt_config.format_unified_prompt(
+                    tweet_text, tweet_type, is_short
                 )
 
                 # 尝试调用
@@ -639,9 +808,8 @@ class SummarizationService:
     def _parse_llm_response(self, content: str) -> tuple[str, str | None]:
         """解析 LLM 响应内容。
 
-        假设响应格式为：
-        1. JSON: {"summary": "...", "translation": "..."}
-        2. 分段文本：第一行是摘要，第二行是翻译
+        期望 JSON 格式: {"summary": "...", "translation": "..."}
+        支持清理 markdown 代码块标记和修复常见 JSON 格式问题。
 
         Args:
             content: LLM 返回的内容
@@ -649,23 +817,91 @@ class SummarizationService:
         Returns:
             (摘要文本, 翻译文本) 元组
         """
-        # 尝试 JSON 解析
+        # 清理 markdown 代码块标记
+        cleaned = content.strip()
+        if cleaned.startswith("```json"):
+            cleaned = cleaned[7:]
+        elif cleaned.startswith("```"):
+            cleaned = cleaned[3:]
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3]
+        cleaned = cleaned.strip()
+
+        # 尝试 JSON 解析（直接解析 → 修复引号后解析 → 正则提取）
+        data = self._try_parse_json(cleaned)
+
+        if data is None:
+            # 尝试修复 LLM 常见问题：JSON 字符串值内的未转义双引号
+            fixed = self._fix_json_unescaped_quotes(cleaned)
+            if fixed != cleaned:
+                data = self._try_parse_json(fixed)
+
+        if data is None:
+            # 用正则按字段名提取值
+            data = self._extract_fields_by_regex(cleaned)
+
+        if data is not None and isinstance(data, dict):
+            summary = data.get("summary")
+            translation = data.get("translation")
+            if summary is None:
+                summary = "[SHORT]"
+            return summary, translation if translation else None
+
+        # JSON 解析彻底失败
+        logger.warning(f"JSON 解析失败，内容无法提取有效摘要: {content[:200]}...")
+        return content.strip(), None
+
+    @staticmethod
+    def _try_parse_json(text: str) -> dict | None:
+        """尝试解析 JSON 文本。"""
         try:
-            data = json.loads(content)
+            data = json.loads(text)
             if isinstance(data, dict):
-                summary = data.get("summary", content)
-                translation = data.get("translation")
-                return summary, translation
+                return data
         except (json.JSONDecodeError, ValueError):
             pass
+        return None
 
-        # 分段文本解析
-        lines = content.strip().split("\n")
-        if len(lines) >= 2:
-            return lines[0].strip(), lines[1].strip()
+    @staticmethod
+    def _fix_json_unescaped_quotes(text: str) -> str:
+        """修复 LLM 生成的 JSON 中未转义的双引号。
 
-        # 单行内容：仅摘要
-        return content.strip(), None
+        LLM 经常在 JSON 字符串值内输出未转义的双引号（如中文引号对 "..."），
+        这会导致 json.loads 失败。通过按字段边界分割来安全提取值。
+        """
+        # 匹配 JSON 字段模式: "key": "value"
+        # 策略：找到所有 "key": " 开头的位置，然后找到对应的结束引号
+        # 结束引号的标志是：" 后跟 , 或 } 或换行
+        result = re.sub(
+            r'"(summary|translation)"\s*:\s*"((?:[^"\\]|\\.|"(?![,}\s]))*)"',
+            lambda m: f'"{m.group(1)}": "{m.group(2).replace(chr(34), chr(8220))}"',
+            text,
+        )
+        # 将替换的中文引号恢复为转义引号
+        result = result.replace(chr(8220), '\\"')
+        return result
+
+    @staticmethod
+    def _extract_fields_by_regex(text: str) -> dict | None:
+        """用正则从文本中按字段名提取 summary 和 translation。"""
+        result = {}
+
+        # 匹配 "summary": "..." 或 "summary": null
+        for field in ("summary", "translation"):
+            # 匹配 null 值
+            null_match = re.search(rf'"{field}"\s*:\s*null', text)
+            if null_match:
+                result[field] = None
+                continue
+
+            # 匹配字符串值：找 "field": " 后面的内容直到匹配的结束标记
+            # 结束标记："}\n 或 ",\n 或 " 在行尾
+            pattern = rf'"{field}"\s*:\s*"(.*?)"(?:\s*[,}}\n])'
+            match = re.search(pattern, text, re.DOTALL)
+            if match:
+                result[field] = match.group(1).replace('\\"', '"')
+
+        return result if result else None
 
     async def _save_summary_for_tweets(
         self,
@@ -752,6 +988,7 @@ class SummarizationService:
         groups: list[DeduplicationGroup],
         summaries: list[SummaryRecord],
         start_time: float,
+        independent_count: int = 0,
     ) -> SummaryResult:
         """计算摘要处理结果统计。
 
@@ -760,6 +997,7 @@ class SummarizationService:
             groups: 去重组列表
             summaries: 生成的摘要列表
             start_time: 开始时间
+            independent_count: 独立处理的推文数
 
         Returns:
             摘要结果统计
@@ -783,6 +1021,7 @@ class SummarizationService:
         return SummaryResult(
             total_tweets=len(tweet_ids),
             total_groups=len(groups),
+            independent_tweets=independent_count,
             cache_hits=cache_hits,
             cache_misses=cache_misses,
             total_tokens=total_tokens,

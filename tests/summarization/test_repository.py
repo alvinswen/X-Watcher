@@ -344,11 +344,15 @@ class TestSummarizationRepository:
         assert result.cached is True
 
     @pytest.mark.asyncio
-    async def test_find_by_content_hash_not_cached(self, session):
-        """测试根据内容哈希查询非缓存摘要应返回 None。"""
+    async def test_find_by_content_hash_regardless_of_cached_flag(self, session):
+        """测试根据内容哈希查询时不受 cached 字段影响。
+
+        find_by_content_hash 用于缓存复用查询，应该能找到任何已存在的
+        摘要记录（无论 cached 字段为 True 还是 False），以避免重复调用 LLM。
+        """
         repository = SummarizationRepository(session)
 
-        # 保存非缓存记录
+        # 保存 cached=False 的记录（首次 LLM 生成的摘要）
         summary_text = "这是一条非缓存的摘要记录，内容足够长以满足最小长度验证要求。" * 2
         record = SummaryRecord(
             summary_id=str(uuid4()),
@@ -368,11 +372,17 @@ class TestSummarizationRepository:
         )
         await repository.save_summary_record(record)
 
-        # 根据内容哈希查询（非缓存应返回 None）
+        # 根据内容哈希查询 — 应该能找到记录
         result = await repository.find_by_content_hash("hash456")
 
         # 验证结果
-        assert result is None
+        assert result is not None
+        assert result.content_hash == "hash456"
+        assert result.tweet_id == "tweet_not_cached"
+
+        # 不存在的哈希应返回 None
+        result_none = await repository.find_by_content_hash("nonexistent_hash")
+        assert result_none is None
 
     @pytest.mark.asyncio
     async def test_transaction_rollback_on_error(self, session):

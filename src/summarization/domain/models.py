@@ -20,6 +20,18 @@ class LLMErrorType(str, Enum):
     permanent = "permanent"  # 永久错误：401、402
 
 
+class TweetType(str, Enum):
+    """推文类型枚举。
+
+    根据 reference_type 区分推文类型，用于生成不同风格的摘要。
+    """
+
+    original = "original"       # 原创推文
+    retweeted = "retweeted"     # 转推（无用户评论，摘要为原推内容）
+    quoted = "quoted"           # 引用推文（用户附带评论）
+    replied_to = "replied_to"   # 回复推文
+
+
 class LLMResponse(BaseModel):
     """LLM 响应模型。
 
@@ -86,6 +98,7 @@ class SummaryResult(BaseModel):
 
     total_tweets: int = Field(..., ge=0, description="处理的总推文数")
     total_groups: int = Field(..., ge=0, description="处理的去重组数")
+    independent_tweets: int = Field(0, ge=0, description="独立处理的推文数")
     cache_hits: int = Field(..., ge=0, description="缓存命中数")
     cache_misses: int = Field(..., ge=0, description="缓存未命中数")
     total_tokens: int = Field(..., ge=0, description="总 token 使用数")
@@ -128,7 +141,7 @@ class PromptConfig(BaseModel):
 
 推文内容：{tweet_text}
 """,
-        description="摘要生成 Prompt 模板",
+        description="摘要生成 Prompt 模板（向后兼容，核心逻辑已改用 format_unified_prompt）",
     )
 
     translation_prompt: str = Field(
@@ -141,7 +154,7 @@ class PromptConfig(BaseModel):
 
 推文内容：{tweet_text}
 """,
-        description="翻译 Prompt 模板",
+        description="翻译 Prompt 模板（向后兼容，核心逻辑已改用 format_unified_prompt）",
     )
 
     def format_summary(
@@ -150,7 +163,7 @@ class PromptConfig(BaseModel):
         min_length: int | None = None,
         max_length: int | None = None,
     ) -> str:
-        """格式化摘要 Prompt。
+        """格式化摘要 Prompt（向后兼容）。
 
         Args:
             tweet_text: 推文文本
@@ -160,7 +173,6 @@ class PromptConfig(BaseModel):
         Returns:
             格式化后的 Prompt
         """
-        # 如果提供了长度参数，动态生成 Prompt
         if min_length is not None and max_length is not None:
             prompt = f"""请提取以下推文的关键信息，生成 {min_length}-{max_length} 字的中文摘要。
 要求：
@@ -171,11 +183,10 @@ class PromptConfig(BaseModel):
 推文内容：{tweet_text}
 """
             return prompt
-        # 使用默认模板
         return self.summary_prompt.format(tweet_text=tweet_text)
 
     def format_translation(self, tweet_text: str) -> str:
-        """格式化翻译 Prompt。
+        """格式化翻译 Prompt（向后兼容）。
 
         Args:
             tweet_text: 推文文本
@@ -185,21 +196,74 @@ class PromptConfig(BaseModel):
         """
         return self.translation_prompt.format(tweet_text=tweet_text)
 
+    def format_unified_prompt(
+        self,
+        tweet_text: str,
+        tweet_type: "TweetType",
+        is_short: bool,
+    ) -> str:
+        """格式化统一的摘要+翻译 Prompt。
+
+        将摘要和翻译合并为一个 prompt，要求 LLM 返回 JSON 格式。
+
+        Args:
+            tweet_text: 推文文本
+            tweet_type: 推文类型
+            is_short: 是否为短推文（仅翻译不摘要）
+
+        Returns:
+            格式化后的 Prompt
+        """
+        # 根据推文类型生成摘要指令
+        if is_short:
+            summary_instruction = (
+                "这是一条短推文，不需要生成摘要。"
+                "summary 字段请返回 null。"
+            )
+        elif tweet_type == TweetType.retweeted:
+            summary_instruction = (
+                "这是一条转载推文（转推）。"
+                "请生成简洁的中文摘要，格式为：「转载推文：（原推内容摘要）」"
+            )
+        elif tweet_type == TweetType.quoted:
+            summary_instruction = (
+                "这是一条引用推文，用户引用了别人的推文并附带了自己的评论。"
+                "请生成简洁的中文摘要，格式为：「引用推文，并发表观点：（概括用户的评论和观点）」"
+            )
+        elif tweet_type == TweetType.replied_to:
+            summary_instruction = (
+                "这是一条回复推文，用户对某条推文发表了回复。"
+                "请生成简洁的中文摘要，格式为：「回复推文，并发表观点：（概括回复的核心观点）」"
+            )
+        else:
+            summary_instruction = (
+                "这是一条原创推文。"
+                "请提取关键信息，生成简洁的中文摘要（50-150字）。"
+                "保留人名、公司名、产品名等关键实体。"
+            )
+
+        return f"""请分析以下推文并同时完成摘要和翻译任务。
+
+## 推文内容
+{tweet_text}
+
+## 摘要要求
+{summary_instruction}
+
+## 翻译要求
+将原文翻译为流畅的中文：
+- 保持原文的语气和情感倾向
+- 技术术语和专有名词保留原文或提供中英文对照
+- URL 链接保持不变，不翻译
+
+## 输出格式
+严格返回以下 JSON 格式，不要添加任何 markdown 标记或其他内容：
+{{"summary": "中文摘要内容或null", "translation": "中文翻译内容"}}
+"""
+
     # 智能摘要长度配置
     min_tweet_length_for_summary: int = Field(
-        default=30,
+        default=100,
         ge=1,
-        description="推文最小长度，低于此值直接返回原文"
-    )
-    summary_min_length_ratio: float = Field(
-        default=0.5,
-        ge=0.1,
-        le=1.0,
-        description="摘要最小长度为原文的比例"
-    )
-    summary_max_length_ratio: float = Field(
-        default=1.5,
-        ge=1.0,
-        le=3.0,
-        description="摘要最大长度为原文的比例"
+        description="推文最小长度阈值，低于此值仅翻译不摘要",
     )

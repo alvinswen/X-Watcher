@@ -141,17 +141,82 @@ async def health_check():
 
 # 导入并注册 API 路由
 from src.api.routes import admin
+from src.api.routes.tweets import router as tweets_router
 from src.deduplication.api import routes as deduplication_routes
 from src.summarization.api import routes as summarization_routes
 
 app.include_router(admin.router)
+app.include_router(tweets_router)
 app.include_router(deduplication_routes.router)
 app.include_router(summarization_routes.router)
+
+# 注册偏好管理 API 路由
+from src.preference.api.routes import scraper_config_router, preference_router
+
+app.include_router(scraper_config_router)
+app.include_router(preference_router)
+
+# 注册 Feed API 路由
+from src.feed.api.routes import router as feed_router
+
+app.include_router(feed_router)
+
+# 注册用户管理 API 路由
+from src.user.api import auth_router, user_router, admin_user_router
+
+app.include_router(auth_router)
+app.include_router(user_router)
+app.include_router(admin_user_router)
 
 # 注册 Prometheus 监控路由
 from src.monitoring import routes as monitoring_routes
 
 app.include_router(monitoring_routes.router)
+
+# 配置前端静态资源服务（如果存在）
+import os
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+
+web_dir = os.path.join(os.path.dirname(__file__), "web", "dist")
+if os.path.exists(web_dir):
+    # 挂载静态资源目录
+    assets_dir = os.path.join(web_dir, "assets")
+    if os.path.exists(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="web-assets")
+
+    # 创建 SPA 中间件
+    class SPAMiddleware(BaseHTTPMiddleware):
+        """SPA 前端中间件 - 为非 API 路径返回 index.html"""
+
+        async def dispatch(self, request: Request, call_next):
+            """处理请求"""
+            path = request.url.path
+
+            # 跳过 API 路径和系统路径
+            if (path.startswith("/api") or
+                path.startswith("/docs") or
+                path.startswith("/redoc") or
+                path.startswith("/openapi") or
+                path.startswith("/metrics") or
+                path == "/health" or
+                path.startswith("/assets")):
+                return await call_next(request)
+
+            # 对于其他路径，返回 index.html（如果存在）
+            index_path = os.path.join(web_dir, "index.html")
+            if os.path.exists(index_path):
+                return FileResponse(index_path)
+
+            # 如果 index.html 不存在，正常处理
+            return await call_next(request)
+
+    # 添加 SPA 中间件（必须在所有路由注册之后）
+    app.add_middleware(SPAMiddleware)
+
+    logger.info(f"前端 SPA 中间件已启用: {web_dir}")
 
 
 def main():

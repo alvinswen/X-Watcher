@@ -5,9 +5,12 @@
 ## 目录
 
 - [快速开始](#快速开始)
+- [推文 API](#推文-api)
 - [抓取 API](#抓取-api)
+- [抓取配置 API](#抓取配置-api)
 - [去重 API](#去重-api)
 - [摘要 API](#摘要-api)
+- [偏好 API](#偏好-api)
 - [监控 API](#监控-api)
 - [错误处理](#错误处理)
 - [代码示例](#代码示例)
@@ -25,7 +28,7 @@
 
 ### 认证
 
-当前版本无需认证，所有 API 端点均可直接访问。
+大部分 API 端点无需认证即可访问。管理员抓取配置端点（`/api/admin/scraping/*`）需要通过 `X-API-Key` header 传递管理员 API Key 进行认证。
 
 ### 健康检查
 
@@ -39,6 +42,68 @@ curl http://localhost:8000/health
   "status": "healthy"
 }
 ```
+
+---
+
+## 推文 API
+
+推文 API 用于查询已抓取的推文列表和详情。
+
+### 1. 获取推文列表
+
+**端点**: `GET /api/tweets`
+
+**查询参数**:
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| page | integer | 否 | 页码，从 1 开始，默认 1 |
+| page_size | integer | 否 | 每页数量，1-100，默认 20 |
+| author | string | 否 | 按作者用户名筛选 |
+
+**请求示例**:
+```bash
+# 获取第一页
+curl "http://localhost:8000/api/tweets?page=1&page_size=20"
+
+# 按作者筛选
+curl "http://localhost:8000/api/tweets?author=elonmusk"
+```
+
+**响应**:
+```json
+{
+  "items": [
+    {
+      "tweet_id": "1234567890",
+      "text": "Hello World",
+      "author_username": "elonmusk",
+      "author_display_name": "Elon Musk",
+      "created_at": "2026-02-06T09:31:48",
+      "reference_type": "retweeted",
+      "referenced_tweet_id": null,
+      "has_summary": true,
+      "has_deduplication": false,
+      "media_count": 0
+    }
+  ],
+  "total": 100,
+  "page": 1,
+  "page_size": 20,
+  "total_pages": 5
+}
+```
+
+### 2. 获取推文详情
+
+**端点**: `GET /api/tweets/{tweet_id}`
+
+**请求示例**:
+```bash
+curl "http://localhost:8000/api/tweets/1234567890"
+```
+
+**响应**: 在列表项字段基础上，额外包含 `media`（媒体附件）、`summary`（摘要信息）、`deduplication`（去重信息）。
 
 ---
 
@@ -94,9 +159,14 @@ curl "http://localhost:8000/api/admin/scrape/a1b2c3d4-e5f6-7890-abcd-ef123456789
   "task_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
   "status": "completed",
   "result": {
+    "total_users": 3,
+    "successful_users": 3,
+    "failed_users": 0,
     "total_tweets": 150,
-    "successful": 145,
-    "failed": 5
+    "new_tweets": 140,
+    "skipped_tweets": 10,
+    "total_errors": 0,
+    "elapsed_seconds": 8.5
   },
   "progress": {
     "current": 150,
@@ -155,6 +225,78 @@ curl -X DELETE "http://localhost:8000/api/admin/scrape/a1b2c3d4-e5f6-7890-abcd-e
 {
   "message": "任务 a1b2c3d4-e5f6-7890-abcd-ef1234567890 已删除"
 }
+```
+
+---
+
+## 抓取配置 API
+
+抓取配置 API 用于管理平台级抓取账号。所有端点需要 `X-API-Key` header 认证。
+
+### 认证方式
+
+```bash
+-H "X-API-Key: your_admin_api_key"
+```
+
+### 1. 添加抓取账号
+
+**端点**: `POST /api/admin/scraping/follows`
+
+**请求参数**:
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| username | string | 是 | Twitter 用户名 |
+| reason | string | 是 | 添加理由（至少 5 个字符） |
+| added_by | string | 否 | 添加者 |
+
+**请求示例**:
+```bash
+curl -X POST "http://localhost:8000/api/admin/scraping/follows" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your_admin_api_key" \
+  -d '{"username": "elonmusk", "reason": "Tesla CEO, AI leader", "added_by": "admin"}'
+```
+
+### 2. 获取抓取账号列表
+
+**端点**: `GET /api/admin/scraping/follows`
+
+**查询参数**:
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| include_inactive | boolean | 否 | 是否包含非活跃账号，默认 false |
+
+**请求示例**:
+```bash
+curl "http://localhost:8000/api/admin/scraping/follows" \
+  -H "X-API-Key: your_admin_api_key"
+```
+
+### 3. 更新抓取账号
+
+**端点**: `PUT /api/admin/scraping/follows/{username}`
+
+**请求示例**:
+```bash
+curl -X PUT "http://localhost:8000/api/admin/scraping/follows/elonmusk" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your_admin_api_key" \
+  -d '{"reason": "Updated reason", "is_active": true}'
+```
+
+### 4. 删除抓取账号
+
+软删除（标记为非活跃）。
+
+**端点**: `DELETE /api/admin/scraping/follows/{username}`
+
+**请求示例**:
+```bash
+curl -X DELETE "http://localhost:8000/api/admin/scraping/follows/elonmusk" \
+  -H "X-API-Key: your_admin_api_key"
 ```
 
 ---
@@ -393,6 +535,110 @@ curl -X DELETE "http://localhost:8000/api/summaries/tasks/c3d4e5f6-g7h8-9012-cde
 
 ---
 
+## 偏好 API
+
+偏好 API 用于管理用户的关注列表、过滤规则和排序偏好。
+
+### 1. 关注管理
+
+#### 添加关注
+
+**端点**: `POST /api/preferences/follows?user_id={user_id}`
+
+**请求参数**:
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| username | string | 是 | Twitter 用户名 |
+| priority | integer | 否 | 优先级（1-10） |
+
+**请求示例**:
+```bash
+curl -X POST "http://localhost:8000/api/preferences/follows?user_id=1" \
+  -H "Content-Type: application/json" \
+  -d '{"username": "elonmusk", "priority": 9}'
+```
+
+#### 获取关注列表
+
+**端点**: `GET /api/preferences/follows?user_id={user_id}`
+
+#### 删除关注
+
+**端点**: `DELETE /api/preferences/follows/{username}?user_id={user_id}`
+
+#### 更新优先级
+
+**端点**: `PUT /api/preferences/follows/{username}/priority?user_id={user_id}`
+
+### 2. 过滤规则
+
+#### 添加过滤规则
+
+**端点**: `POST /api/preferences/filters?user_id={user_id}`
+
+**请求参数**:
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| filter_type | string | 是 | 类型: keyword / hashtag / content_type |
+| value | string | 是 | 规则值 |
+
+**请求示例**:
+```bash
+curl -X POST "http://localhost:8000/api/preferences/filters?user_id=1" \
+  -H "Content-Type: application/json" \
+  -d '{"filter_type": "keyword", "value": "AI"}'
+```
+
+#### 获取过滤规则列表
+
+**端点**: `GET /api/preferences/filters?user_id={user_id}`
+
+#### 删除过滤规则
+
+**端点**: `DELETE /api/preferences/filters/{rule_id}?user_id={user_id}`
+
+### 3. 排序偏好
+
+#### 设置排序方式
+
+**端点**: `PUT /api/preferences/sorting?user_id={user_id}`
+
+**请求参数**:
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| sort_type | string | 是 | 排序方式: time / relevance / priority |
+
+#### 获取排序设置
+
+**端点**: `GET /api/preferences/sorting?user_id={user_id}`
+
+### 4. 获取综合偏好
+
+**端点**: `GET /api/preferences?user_id={user_id}`
+
+返回用户的关注列表、过滤规则和排序偏好的综合信息。
+
+### 5. 个性化新闻流
+
+**端点**: `GET /api/preferences/news?user_id={user_id}`
+
+**查询参数**:
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| sort | string | 否 | 排序方式: time / relevance / priority |
+| limit | integer | 否 | 返回数量，默认 20 |
+
+**请求示例**:
+```bash
+curl "http://localhost:8000/api/preferences/news?user_id=1&sort=relevance&limit=20"
+```
+
+---
+
 ## 监控 API
 
 系统提供 Prometheus 格式的监控指标。
@@ -613,7 +859,10 @@ a1b2c3d4-e5f6-7890-abcd-ef1234567890
 
 ### 分页支持
 
-当前版本列表端点返回所有数据，后续版本将添加分页支持。
+推文列表端点 (`GET /api/tweets`) 支持分页查询：
+- `page`: 页码（从 1 开始，默认 1）
+- `page_size`: 每页数量（1-100，默认 20）
+- `author`: 按作者用户名筛选（可选）
 
 ---
 

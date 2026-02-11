@@ -193,18 +193,50 @@ class TestTweetRepository:
 
     @pytest.mark.asyncio
     async def test_save_tweet_with_reference(
-        self, session: AsyncSession, sample_tweet_with_reference: Tweet
+        self, session: AsyncSession, sample_tweet: Tweet, sample_tweet_with_reference: Tweet
     ):
         """测试保存带引用的推文。"""
         from src.scraper.infrastructure.repository import TweetRepository
 
         repo = TweetRepository(session)
 
+        # 先保存被引用的推文（FK 约束要求被引用推文存在）
+        await repo.save_tweets([sample_tweet])
+
         result = await repo.save_tweets([sample_tweet_with_reference])
 
         assert result.success_count == 1
 
         # 验证引用数据
+        from sqlalchemy import select
+
+        stmt = TweetOrm.tweet_id == sample_tweet_with_reference.tweet_id
+        orm_tweet = await session.execute(select(TweetOrm).where(stmt))
+        tweet = orm_tweet.scalar_one_or_none()
+
+        assert tweet is not None
+        assert tweet.referenced_tweet_id == "1234567890"
+        assert tweet.reference_type == "retweeted"
+
+    @pytest.mark.asyncio
+    async def test_save_tweet_with_missing_reference_preserves_id(
+        self, session: AsyncSession, sample_tweet_with_reference: Tweet
+    ):
+        """测试被引用推文不存在时，referenced_tweet_id 和 reference_type 都完整保留。
+
+        抓取到的数据应完整保存——referenced_tweet_id 是外部引用（无 FK 约束），
+        不要求被引用推文已存在于数据库中。
+        """
+        from src.scraper.infrastructure.repository import TweetRepository
+
+        repo = TweetRepository(session)
+
+        # 不先保存被引用推文，直接保存引用推文
+        result = await repo.save_tweets([sample_tweet_with_reference])
+
+        assert result.success_count == 1
+
+        # 验证 referenced_tweet_id 和 reference_type 都完整保留
         from sqlalchemy import select
 
         stmt = TweetOrm.tweet_id == sample_tweet_with_reference.tweet_id

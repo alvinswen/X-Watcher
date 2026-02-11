@@ -237,12 +237,6 @@ class TwitterClient:
                             users_map = {}
 
                             for tweet in tweets_array:
-                                # 提取用户信息（注意：TwitterAPI.io 用户名在 userName 字段）
-                                # TwitterAPI.io 返回的用户信息格式:
-                                # - 有些推文有 author 字段（包含完整用户信息）
-                                # - 有些推文直接包含在顶层（通过 username 参数查询）
-                                # 我们需要从上下文中获取用户名，或者假设所有推文属于同一个用户
-
                                 # 从 tweet 中提取基本信息
                                 tweet_id = tweet.get("id")
                                 tweet_text = tweet.get("text", "")
@@ -251,22 +245,58 @@ class TwitterClient:
                                 # 转换日期格式：TwitterAPI.io -> ISO 8601
                                 created_at_iso = _convert_twitterapi_date_to_iso(created_at_raw)
 
-                                # TwitterAPI.io 的响应中没有 author_id，我们需要处理这个问题
-                                # 暂时使用一个占位符，后续在服务层处理
+                                # 从 TwitterAPI.io 字段构建 referenced_tweets（Twitter v2 格式）
+                                # 优先级：retweeted > quoted > replied_to
+                                referenced_tweets = []
+                                retweeted_tweet_obj = tweet.get("retweeted_tweet")
+                                quoted_tweet_obj = tweet.get("quoted_tweet")
+
+                                if isinstance(retweeted_tweet_obj, dict) and retweeted_tweet_obj.get("id"):
+                                    referenced_tweets.append({
+                                        "type": "retweeted",
+                                        "id": str(retweeted_tweet_obj["id"]),
+                                    })
+                                elif isinstance(quoted_tweet_obj, dict) and quoted_tweet_obj.get("id"):
+                                    referenced_tweets.append({
+                                        "type": "quoted",
+                                        "id": str(quoted_tweet_obj["id"]),
+                                    })
+                                elif tweet.get("isReply") and tweet.get("inReplyToId"):
+                                    referenced_tweets.append({
+                                        "type": "replied_to",
+                                        "id": str(tweet["inReplyToId"]),
+                                    })
+
                                 standard_tweet = {
                                     "id": tweet_id,
                                     "text": tweet_text,
                                     "created_at": created_at_iso,
-                                    # 注意：author_id 将在服务层从参数中获取
                                 }
+                                if referenced_tweets:
+                                    standard_tweet["referenced_tweets"] = referenced_tweets
+
+                                # 提取 author 信息
+                                author_obj = tweet.get("author")
+                                if isinstance(author_obj, dict):
+                                    author_id_val = str(author_obj.get("id") or author_obj.get("userName", ""))
+                                    if author_id_val:
+                                        standard_tweet["author_id"] = author_id_val
+                                        users_map[author_id_val] = {
+                                            "username": author_obj.get("userName"),
+                                            "name": author_obj.get("name"),
+                                        }
 
                                 tweets_data.append(standard_tweet)
 
-                            # 构造标准响应格式（不包含 users，因为我们没有用户信息）
-                            standard_response = {
-                                "data": tweets_data,
-                                # 不添加 includes.users，因为 TwitterAPI.io 不返回用户详细信息
-                            }
+                            # 构造标准响应格式
+                            standard_response = {"data": tweets_data}
+                            if users_map:
+                                standard_response["includes"] = {
+                                    "users": [
+                                        {"id": uid, "username": info["username"], "name": info["name"]}
+                                        for uid, info in users_map.items()
+                                    ]
+                                }
 
                             logger.info(f"转换完成：{len(tweets_data)} 条推文")
                             logger.debug(f"第一条推文: {str(tweets_data[0]) if tweets_data else 'N/A'}")

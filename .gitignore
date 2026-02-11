@@ -67,3 +67,13 @@ logs/
 
 # Alembic
 alembic/versions/*.pyc
+
+# 临时文件
+*.bak
+nul
+result_*.txt
+*tmp*.json
+kill_port.ps1
+Developmentnanobot/
+AgentTeam_example.md
+openapi*.json

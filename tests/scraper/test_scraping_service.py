@@ -336,3 +336,155 @@ class TestScrapingService:
         assert result["fetched"] == 1
         assert result["new"] == 0
         assert result["skipped"] == 1
+
+
+class TestAutoSummarization:
+    """测试自动摘要功能。"""
+
+    def setup_method(self):
+        """每个测试方法前执行：重置单例。"""
+        TaskRegistry._instance = None
+        TaskRegistry._initialized = False
+
+    @pytest.fixture
+    def mock_repository(self):
+        """Mock TweetRepository。"""
+        repo = AsyncMock()
+        repo.save_tweets = AsyncMock()
+        return repo
+
+    @pytest.fixture
+    def service(self, mock_repository):
+        """创建 ScrapingService 实例。"""
+        return ScrapingService(repository=mock_repository)
+
+    @pytest.mark.asyncio
+    async def test_auto_summarization_disabled_skips_trigger(self, service, monkeypatch):
+        """测试禁用自动摘要时不触发。"""
+        # 禁用自动摘要
+        monkeypatch.setenv("AUTO_SUMMARIZATION_ENABLED", "false")
+        from src.config import clear_settings_cache
+        clear_settings_cache()
+
+        tweet_ids = ["tweet1", "tweet2"]
+
+        # Mock asyncio.create_task 以验证是否被调用
+        import asyncio
+        original_create_task = asyncio.create_task
+        create_task_called = []
+
+        def mock_create_task(coroutine):
+            create_task_called.append(True)
+            # 返回一个模拟的 Task
+            task = original_create_task(
+                asyncio.sleep(0)  # 空协程
+            )
+            return task
+
+        monkeypatch.setattr("asyncio.create_task", mock_create_task)
+
+        # 触发摘要
+        await service._trigger_summarization(tweet_ids)
+
+        # 验证 create_task 没有被调用（因为配置禁用）
+        assert len(create_task_called) == 0
+
+    @pytest.mark.asyncio
+    async def test_empty_tweet_list_skips_summarization(self, service, monkeypatch):
+        """测试空推文列表跳过摘要。"""
+        # 启用自动摘要
+        monkeypatch.setenv("AUTO_SUMMARIZATION_ENABLED", "true")
+        from src.config import clear_settings_cache
+        clear_settings_cache()
+
+        # Mock asyncio.create_task
+        import asyncio
+        original_create_task = asyncio.create_task
+        create_task_called = []
+
+        def mock_create_task(coroutine):
+            create_task_called.append(True)
+            task = original_create_task(asyncio.sleep(0))
+            return task
+
+        monkeypatch.setattr("asyncio.create_task", mock_create_task)
+
+        # 触发摘要（空列表）
+        await service._trigger_summarization([])
+
+        # 验证 create_task 没有被调用
+        assert len(create_task_called) == 0
+
+    @pytest.mark.asyncio
+    async def test_auto_summarization_triggered_with_tweets(self, service, monkeypatch):
+        """测试有推文时触发摘要。"""
+        # 启用自动摘要
+        monkeypatch.setenv("AUTO_SUMMARIZATION_ENABLED", "true")
+        from src.config import clear_settings_cache
+        clear_settings_cache()
+
+        tweet_ids = ["tweet1", "tweet2"]
+
+        # Mock asyncio.create_task
+        import asyncio
+        original_create_task = asyncio.create_task
+        create_task_called_with = []
+
+        def mock_create_task(coroutine):
+            create_task_called_with.append(True)
+            task = original_create_task(asyncio.sleep(0))
+            return task
+
+        monkeypatch.setattr("asyncio.create_task", mock_create_task)
+
+        # 触发摘要
+        await service._trigger_summarization(tweet_ids)
+
+        # 验证 create_task 被调用
+        assert len(create_task_called_with) == 1
+
+    @pytest.mark.asyncio
+    async def test_save_tweets_triggers_summarization(
+        self, service, mock_repository, monkeypatch
+    ):
+        """测试保存推文后触发摘要。"""
+        # 启用自动摘要
+        monkeypatch.setenv("AUTO_SUMMARIZATION_ENABLED", "true")
+        from src.config import clear_settings_cache
+        clear_settings_cache()
+
+        # Mock 保存结果
+        mock_repository.save_tweets.return_value = SaveResult(
+            success_count=2, skipped_count=0, error_count=0
+        )
+
+        # Mock _trigger_summarization
+        trigger_summarization_called = []
+
+        async def mock_trigger_summarization(tweet_ids):
+            trigger_summarization_called.append(tweet_ids)
+
+        service._trigger_summarization = mock_trigger_summarization
+
+        # 创建测试推文
+        tweets = [
+            Tweet(
+                tweet_id="tweet1",
+                text="Test 1",
+                created_at=datetime.now(),
+                author_username="user1",
+            ),
+            Tweet(
+                tweet_id="tweet2",
+                text="Test 2",
+                created_at=datetime.now(),
+                author_username="user2",
+            ),
+        ]
+
+        # 保存推文
+        await service._save_tweets(tweets)
+
+        # 验证摘要被触发
+        assert len(trigger_summarization_called) == 1
+        assert set(trigger_summarization_called[0]) == {"tweet1", "tweet2"}

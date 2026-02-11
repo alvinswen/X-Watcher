@@ -12,7 +12,7 @@ import pytest
 from sqlalchemy import select
 
 from src.deduplication.domain.models import DeduplicationGroup, DeduplicationType
-from src.deduplication.infrastructure.models import DeduplicationGroupOrm
+from src.scraper.infrastructure.models import DeduplicationGroupOrm
 from src.scraper.domain.models import Tweet
 from src.scraper.infrastructure.models import TweetOrm
 from src.summarization.domain.models import PromptConfig

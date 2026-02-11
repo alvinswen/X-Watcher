@@ -12,9 +12,11 @@ from typing import Any
 
 from returns.result import Failure, Success
 
+from src.config import get_settings
 from src.scraper.client import TwitterClient, TwitterClientError
 from src.scraper.domain.models import SaveResult, Tweet
 from src.scraper.parser import TweetParser
+from src.scraper.services.limit_calculator import LimitCalculator
 from src.scraper.task_registry import TaskRegistry, TaskStatus
 from src.scraper.validator import TweetValidator
 
@@ -39,6 +41,7 @@ class ScrapingService:
         validator: TweetValidator | None = None,
         repository: Any | None = None,
         max_concurrent: int = 3,
+        limit_calculator: LimitCalculator | None = None,
     ) -> None:
         """初始化抓取服务。
 
@@ -48,6 +51,7 @@ class ScrapingService:
             validator: 推文验证器（为 None 时创建新实例）
             repository: 推文仓库（为 None 时创建新实例）
             max_concurrent: 最大并发请求数
+            limit_calculator: 动态 Limit 计算器（为 None 时从配置创建）
         """
         self._client = client or TwitterClient()
         self._parser = parser or TweetParser()
@@ -55,6 +59,17 @@ class ScrapingService:
         self._repository = repository
         self._max_concurrent = max_concurrent
         self._registry = TaskRegistry.get_instance()
+
+        if limit_calculator is not None:
+            self._limit_calculator = limit_calculator
+        else:
+            settings = get_settings()
+            self._limit_calculator = LimitCalculator(
+                default_limit=settings.scraper_limit,
+                min_limit=settings.scraper_min_limit,
+                max_limit=settings.scraper_max_limit,
+                ema_alpha=settings.scraper_ema_alpha,
+            )
 
     async def scrape_users(
         self,
@@ -170,9 +185,12 @@ class ScrapingService:
     ) -> dict[str, Any]:
         """抓取单个用户的推文。
 
+        使用动态 limit 策略：根据历史抓取统计自动调整每次 API 请求的 limit，
+        减少重复推文的 API 调用成本。
+
         Args:
             username: 用户名
-            limit: 抓取的推文数量限制
+            limit: 抓取的推文数量限制（作为上限参考，实际 limit 由动态计算决定）
             since_id: 只获取此 ID 之后的推文
 
         Returns:
@@ -198,12 +216,20 @@ class ScrapingService:
         }
 
         try:
-            logger.info(f"开始抓取用户: {username}")
+            # 0. 查询历史统计，计算动态 limit
+            fetch_stats = await self._get_fetch_stats(username)
+            dynamic_limit = self._limit_calculator.calculate_next_limit(fetch_stats)
+            actual_limit = min(dynamic_limit, limit)  # 不超过传入的上限
+
+            logger.info(
+                "开始抓取用户: %s (动态 limit=%d, 传入上限=%d)",
+                username, actual_limit, limit,
+            )
 
             # 1. 调用 Twitter API
             api_result = await self._client.fetch_user_tweets(
                 username,
-                limit=limit,
+                limit=actual_limit,
                 since_id=since_id,
             )
 
@@ -274,9 +300,19 @@ class ScrapingService:
                     result["errors"] = save_result.error_count
 
             result["success"] = True
+
+            # 5. 更新抓取统计（用于下次动态 limit 计算）
+            await self._update_fetch_stats(
+                username=username,
+                old_stats=fetch_stats,
+                fetched_count=result["fetched"],
+                new_count=result["new"],
+            )
+
             logger.info(
-                f"用户 {username} 抓取完成: 获取 {result['fetched']} 条, "
-                f"新增 {result['new']} 条, 跳过 {result['skipped']} 条"
+                "用户 %s 抓取完成: 获取 %d 条, 新增 %d 条, 跳过 %d 条 (limit=%d)",
+                username, result["fetched"], result["new"], result["skipped"],
+                actual_limit,
             )
 
         except TwitterClientError as e:
@@ -293,6 +329,71 @@ class ScrapingService:
 
         return result
 
+    async def _get_fetch_stats(self, username: str):
+        """查询用户的历史抓取统计。
+
+        Args:
+            username: 用户名
+
+        Returns:
+            FetchStats | None: 统计数据，不存在时返回 None
+        """
+        try:
+            from src.database.async_session import get_async_session_maker
+            from src.scraper.infrastructure.fetch_stats_repository import (
+                FetchStatsRepository,
+            )
+
+            session_maker = get_async_session_maker()
+            async with session_maker() as session:
+                repo = FetchStatsRepository(session)
+                return await repo.get_stats(username)
+        except Exception as e:
+            logger.warning("查询抓取统计失败（使用默认 limit）: %s", e)
+            return None
+
+    async def _update_fetch_stats(
+        self,
+        username: str,
+        old_stats,
+        fetched_count: int,
+        new_count: int,
+    ) -> None:
+        """更新用户的抓取统计。
+
+        Args:
+            username: 用户名
+            old_stats: 旧的统计数据
+            fetched_count: 本次 API 返回的推文数
+            new_count: 本次新增的推文数
+        """
+        try:
+            from src.database.async_session import get_async_session_maker
+            from src.scraper.infrastructure.fetch_stats_repository import (
+                FetchStatsRepository,
+            )
+
+            updated = self._limit_calculator.update_stats_after_fetch(
+                stats=old_stats,
+                username=username,
+                fetched_count=fetched_count,
+                new_count=new_count,
+            )
+
+            session_maker = get_async_session_maker()
+            async with session_maker() as session:
+                repo = FetchStatsRepository(session)
+                await repo.upsert_stats(updated)
+                await session.commit()
+
+            logger.debug(
+                "用户 %s 统计已更新: avg_rate=%.2f, empty=%d",
+                username, updated.avg_new_rate, updated.consecutive_empty_fetches,
+            )
+        except Exception as e:
+            # 统计更新失败不影响抓取结果
+            logger.warning("更新抓取统计失败（不影响抓取结果）: %s", e)
+
     async def _save_tweets(self, tweets: list[Tweet]) -> SaveResult:
         """保存推文到数据库。
 
@@ -302,6 +403,9 @@ class ScrapingService:
         Returns:
             SaveResult: 保存结果
         """
+        settings = get_settings()
+        early_stop = settings.scraper_early_stop_threshold
+
         if self._repository is None:
             # 延迟导入避免循环依赖
             from src.database.async_session import get_async_session_maker
@@ -311,22 +415,28 @@ class ScrapingService:
 
             async with session_maker() as session:
                 repo = TweetRepository(session)
-                result = await repo.save_tweets(tweets)
+                result = await repo.save_tweets(tweets, early_stop_threshold=early_stop)
                 # 提交事务
                 await session.commit()
 
                 # 保存成功后，触发去重（仅对新保存的推文）
                 if result.success_count > 0:
-                    await self._trigger_deduplication([t.tweet_id for t in tweets])
+                    tweet_ids = [t.tweet_id for t in tweets]
+                    await self._trigger_deduplication(tweet_ids)
+                    await self._trigger_summarization(tweet_ids)
 
                 return result
         else:
             # 如果已经有 repository，由调用者管理事务
-            save_result = await self._repository.save_tweets(tweets)
+            save_result = await self._repository.save_tweets(
+                tweets, early_stop_threshold=early_stop
+            )
 
             # 保存成功后，触发去重（仅对新保存的推文）
             if save_result.success_count > 0:
-                await self._trigger_deduplication([t.tweet_id for t in tweets])
+                tweet_ids = [t.tweet_id for t in tweets]
+                await self._trigger_deduplication(tweet_ids)
+                await self._trigger_summarization(tweet_ids)
 
             return save_result
 
@@ -374,6 +484,126 @@ class ScrapingService:
         except Exception as e:
             # 去重失败不影响抓取结果，只记录错误
             logger.warning(f"去重任务执行失败（不影响抓取结果）: {e}")
+
+    async def _trigger_summarization(self, tweet_ids: list[str]) -> None:
+        """触发摘要生成任务。
+
+        在抓取完成后自动触发摘要生成，使用后台任务模式。
+
+        Args:
+            tweet_ids: 推文 ID 列表
+        """
+        try:
+            from src.config import get_settings
+
+            settings = get_settings()
+
+            # 检查是否启用自动摘要
+            if not settings.auto_summarization_enabled:
+                logger.debug("自动摘要已禁用，跳过摘要生成")
+                return
+
+            if not tweet_ids:
+                return
+
+            logger.info(f"准备触发自动摘要任务: {len(tweet_ids)} 条推文")
+
+            # 使用后台任务触发摘要
+            asyncio.create_task(
+                self._run_summarization_background(tweet_ids)
+            )
+
+        except Exception as e:
+            # 摘要触发失败不影响抓取结果
+            logger.warning(f"触发摘要任务失败（不影响抓取结果）: {e}")
+
+    async def _run_summarization_background(self, tweet_ids: list[str]) -> None:
+        """在后台运行摘要任务。
+
+        Args:
+            tweet_ids: 推文 ID 列表
+        """
+        task_id = None
+
+        try:
+            from src.database.async_session import get_async_session_maker
+            from src.summarization.domain.models import PromptConfig
+            from src.summarization.infrastructure.repository import SummarizationRepository
+            from src.summarization.llm.config import LLMProviderConfig
+            from src.summarization.services.summarization_service import (
+                create_summarization_service,
+            )
+
+            # 创建任务记录
+            task_id = self._registry.create_task(
+                task_name=f"自动摘要 {len(tweet_ids)} 条推文",
+                metadata={
+                    "tweet_count": len(tweet_ids),
+                    "tweet_ids": tweet_ids[:10],  # 只记录前 10 个
+                    "triggered_by": "scraping",
+                },
+            )
+
+            logger.info(f"开始后台摘要任务: {len(tweet_ids)} 条推文 (task_id={task_id})")
+
+            # 创建数据库会话
+            session_maker = get_async_session_maker()
+            async with session_maker() as session:
+                # 创建摘要服务
+                repository = SummarizationRepository(session)
+                config = LLMProviderConfig.from_env()
+                service = create_summarization_service(
+                    repository=repository,
+                    config=config,
+                    prompt_config=PromptConfig(),
+                )
+
+                # 执行摘要
+                result = await service.summarize_tweets(
+                    tweet_ids=tweet_ids,
+                    force_refresh=False,
+                )
+
+                # 检查结果
+                if isinstance(result, Failure):
+                    error = result.failure()
+                    logger.error(f"后台摘要任务失败: {error}")
+                    self._registry.update_task_status(
+                        task_id, TaskStatus.FAILED, error=str(error)
+                    )
+                    return
+
+                summary_result = result.unwrap()
+
+                logger.info(
+                    f"后台摘要任务完成: "
+                    f"{summary_result.total_groups} 个组, "
+                    f"缓存命中 {summary_result.cache_hits}, "
+                    f"成本 ${summary_result.total_cost_usd:.4f}"
+                )
+
+                self._registry.update_task_status(
+                    task_id,
+                    TaskStatus.COMPLETED,
+                    result={
+                        "total_tweets": summary_result.total_tweets,
+                        "total_groups": summary_result.total_groups,
+                        "cache_hits": summary_result.cache_hits,
+                        "cache_misses": summary_result.cache_misses,
+                        "total_tokens": summary_result.total_tokens,
+                        "total_cost_usd": summary_result.total_cost_usd,
+                        "providers_used": summary_result.providers_used,
+                    },
+                )
+
+                await session.commit()
+
+        except Exception as e:
+            logger.exception(f"后台摘要任务异常: {e}")
+            if task_id:
+                self._registry.update_task_status(
+                    task_id, TaskStatus.FAILED, error=str(e)
+                )
 
     def _summarize_results(
         self,

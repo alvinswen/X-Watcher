@@ -75,6 +75,64 @@ class Settings(BaseSettings):
         default=True, description="是否启用 Prometheus 监控"
     )
 
+    # 管理员 API 配置
+    admin_api_key: str | None = Field(
+        default=None,
+        description="管理员 API Key，用于管理员 API 认证"
+    )
+
+    # JWT 认证配置
+    jwt_secret_key: str = Field(
+        default="change-me-in-production",
+        description="JWT 签名密钥"
+    )
+    jwt_expire_hours: int = Field(
+        default=24,
+        description="JWT 过期时间（小时）"
+    )
+
+    # 自动摘要配置
+    auto_summarization_enabled: bool = Field(
+        default=True,
+        description="是否在抓取后自动生成摘要"
+    )
+    auto_summarization_wait_for_completion: bool = Field(
+        default=False,
+        description="是否等待摘要完成再标记抓取任务完成（False 为后台模式）"
+    )
+    auto_summarization_batch_size: int = Field(
+        default=50,
+        ge=1,
+        le=500,
+        description="自动摘要批次大小"
+    )
+
+    # 动态 limit 配置
+    scraper_min_limit: int = Field(
+        default=5, ge=1, le=100,
+        description="动态 limit 最小值（退避下限）"
+    )
+    scraper_max_limit: int = Field(
+        default=300, ge=100, le=1000,
+        description="动态 limit 最大值（上限保护）"
+    )
+    scraper_ema_alpha: float = Field(
+        default=0.3, ge=0.1, le=0.9,
+        description="EMA 平滑系数，越大越重视近期数据"
+    )
+    scraper_early_stop_threshold: int = Field(
+        default=5, ge=0, le=50,
+        description="连续已存在推文阈值，达到后提前终止（0 禁用）"
+    )
+
+    # Feed API 配置
+    feed_max_tweets: int = Field(
+        default=200,
+        ge=1,
+        le=1000,
+        description="Feed API 单次最大返回推文数量"
+    )
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

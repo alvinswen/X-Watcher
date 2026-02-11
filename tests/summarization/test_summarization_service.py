@@ -5,7 +5,8 @@
 - 并发控制
 - 降级逻辑
 - 错误分类
-- 按去重组分组
+- 去重组优化处理
+- 独立推文处理（无去重组）
 """
 
 from datetime import datetime, timezone
@@ -228,7 +229,7 @@ class TestSummarizationService:
             return_value=[sample_deduplication_group]
         )
         service._load_tweets = AsyncMock(
-            return_value={"rep_tweet_123": "This is a representative tweet that is long enough to trigger summarization"}
+            return_value={"rep_tweet_123": {"text": "This is a representative tweet that is long enough to trigger summarization and translation by the LLM provider service", "reference_type": None}}
         )
 
         result = await service.summarize_tweets(
@@ -261,7 +262,7 @@ class TestSummarizationService:
             return_value=[sample_deduplication_group]
         )
         service._load_tweets = AsyncMock(
-            return_value={"rep_tweet_123": "This is a representative tweet that is long enough to trigger summarization"}
+            return_value={"rep_tweet_123": {"text": "This is a representative tweet that is long enough to trigger summarization and translation by the LLM provider service", "reference_type": None}}
         )
 
         # 第一次调用
@@ -305,7 +306,7 @@ class TestSummarizationService:
             return_value=[sample_deduplication_group]
         )
         service._load_tweets = AsyncMock(
-            return_value={"rep_tweet_123": "This is a representative tweet that is long enough to trigger summarization"}
+            return_value={"rep_tweet_123": {"text": "This is a representative tweet that is long enough to trigger summarization and translation by the LLM provider service", "reference_type": None}}
         )
 
         # 第一次调用
@@ -360,7 +361,7 @@ class TestSummarizationService:
         service._load_deduplication_groups = AsyncMock(return_value=groups)
         # Mock _load_tweets to return text for each representative tweet
         tweets_map = {
-            f"rep_tweet_{i}": f"This is representative tweet {i} with enough text to trigger summarization"
+            f"rep_tweet_{i}": {"text": f"This is representative tweet {i} with enough text to trigger summarization and translation by the LLM provider service", "reference_type": None}
             for i in range(10)
         }
         service._load_tweets = AsyncMock(return_value=tweets_map)
@@ -416,7 +417,7 @@ class TestSummarizationService:
             return_value=[sample_deduplication_group]
         )
         service._load_tweets = AsyncMock(
-            return_value={"rep_tweet_123": "This is a representative tweet that is long enough to trigger summarization"}
+            return_value={"rep_tweet_123": {"text": "This is a representative tweet that is long enough to trigger summarization and translation by the LLM provider service", "reference_type": None}}
         )
 
         result = await service.summarize_tweets(
@@ -470,7 +471,7 @@ class TestSummarizationService:
             return_value=[sample_deduplication_group]
         )
         service._load_tweets = AsyncMock(
-            return_value={"rep_tweet_123": "This is a representative tweet that is long enough to trigger summarization"}
+            return_value={"rep_tweet_123": {"text": "This is a representative tweet that is long enough to trigger summarization and translation by the LLM provider service", "reference_type": None}}
         )
 
         result = await service.summarize_tweets(
@@ -615,8 +616,12 @@ class TestSummarizationService:
         assert translation == "测试翻译"
 
     @pytest.mark.asyncio
-    async def test_parse_llm_response_multiline(self):
-        """测试解析多行格式的 LLM 响应。"""
+    async def test_parse_llm_response_non_json_fallback(self):
+        """测试非 JSON 格式的 LLM 响应回退处理。
+
+        当 LLM 返回非 JSON 格式的纯文本时，整段文本作为摘要返回，
+        翻译为 None。
+        """
         provider = MockLLMProvider("openrouter")
         service = SummarizationService(
             repository=MockRepository(),  # type: ignore
@@ -626,8 +631,9 @@ class TestSummarizationService:
         multiline_content = "这是摘要内容\n这是翻译内容"
         summary, translation = service._parse_llm_response(multiline_content)
 
-        assert summary == "这是摘要内容"
-        assert translation == "这是翻译内容"
+        # 非 JSON 格式时，整段文本作为摘要返回
+        assert summary == "这是摘要内容\n这是翻译内容"
+        assert translation is None
 
     @pytest.mark.asyncio
     async def test_parse_llm_response_single_line(self):
@@ -684,6 +690,7 @@ class TestSummarizationService:
         summary = result.unwrap()
         assert summary.total_tweets == 0
         assert summary.total_groups == 0
+        assert summary.independent_tweets == 0
 
     @pytest.mark.asyncio
     async def test_shared_summary_for_deduplication_group(
@@ -703,7 +710,7 @@ class TestSummarizationService:
             return_value=[sample_deduplication_group]
         )
         service._load_tweets = AsyncMock(
-            return_value={"rep_tweet_123": "This is a representative tweet that is long enough to trigger summarization"}
+            return_value={"rep_tweet_123": {"text": "This is a representative tweet that is long enough to trigger summarization and translation by the LLM provider service", "reference_type": None}}
         )
 
         await service.summarize_tweets(
@@ -717,6 +724,113 @@ class TestSummarizationService:
             assert summary is not None
             # 同一去重组的摘要应该有相同的 content_hash
             assert summary.content_hash == summary.content_hash
+
+
+    @pytest.mark.asyncio
+    async def test_summarize_independent_tweets_no_dedup_groups(
+        self,
+        mock_repository,
+        mock_llm_response,
+    ):
+        """测试无去重组时独立处理推文。"""
+        provider = MockLLMProvider("openrouter", responses=[mock_llm_response])
+        service = SummarizationService(
+            repository=mock_repository,  # type: ignore
+            providers=[provider],
+        )
+
+        service._load_deduplication_groups = AsyncMock(return_value=[])
+        service._load_tweets = AsyncMock(
+            return_value={
+                "tweet_standalone": {
+                    "text": "A standalone tweet with enough text to trigger summarization and translation by the LLM provider service",
+                    "reference_type": None,
+                }
+            }
+        )
+
+        result = await service.summarize_tweets(tweet_ids=["tweet_standalone"])
+
+        assert isinstance(result, Success)
+        summary_result = result.unwrap()
+        assert summary_result.total_tweets == 1
+        assert summary_result.total_groups == 0
+        assert summary_result.independent_tweets == 1
+        assert summary_result.cache_misses == 1
+
+    @pytest.mark.asyncio
+    async def test_summarize_mixed_grouped_and_independent(
+        self,
+        mock_repository,
+        mock_llm_response,
+        sample_deduplication_group,
+    ):
+        """测试同时处理有去重组和无去重组的推文。"""
+        provider = MockLLMProvider(
+            "openrouter", responses=[mock_llm_response, mock_llm_response]
+        )
+        service = SummarizationService(
+            repository=mock_repository,  # type: ignore
+            providers=[provider],
+        )
+
+        service._load_deduplication_groups = AsyncMock(
+            return_value=[sample_deduplication_group]
+        )
+        service._load_tweets = AsyncMock(
+            return_value={
+                "rep_tweet_123": {
+                    "text": "This is a grouped tweet with enough text to trigger summarization and translation by the LLM provider service",
+                    "reference_type": None,
+                },
+                "standalone_1": {
+                    "text": "This is a standalone tweet with enough text to trigger summarization and translation by the LLM provider service",
+                    "reference_type": None,
+                },
+            }
+        )
+
+        result = await service.summarize_tweets(
+            tweet_ids=["rep_tweet_123", "tweet_456", "standalone_1"],
+            deduplication_groups=[sample_deduplication_group],
+        )
+
+        assert isinstance(result, Success)
+        summary_result = result.unwrap()
+        assert summary_result.total_groups == 1
+        assert summary_result.independent_tweets == 1
+        # 应该有 2 个 cache miss（1 个去重组 + 1 个独立推文）
+        assert summary_result.cache_misses == 2
+
+    @pytest.mark.asyncio
+    async def test_regenerate_summary_without_dedup_group(
+        self,
+        mock_repository,
+        mock_llm_response,
+    ):
+        """测试无去重组时重新生成摘要。"""
+        provider = MockLLMProvider("openrouter", responses=[mock_llm_response])
+        service = SummarizationService(
+            repository=mock_repository,  # type: ignore
+            providers=[provider],
+        )
+
+        service._load_deduplication_groups = AsyncMock(return_value=[])
+        service._load_tweets = AsyncMock(
+            return_value={
+                "orphan_tweet": {
+                    "text": "An orphan tweet without dedup group with enough text to trigger summarization and translation by the LLM provider service",
+                    "reference_type": None,
+                }
+            }
+        )
+
+        result = await service.regenerate_summary("orphan_tweet")
+
+        assert isinstance(result, Success)
+        record = result.unwrap()
+        assert record.tweet_id == "orphan_tweet"
+        assert record.content_hash.startswith("")  # 非空哈希
 
 
 class TestCreateSummarizationService:

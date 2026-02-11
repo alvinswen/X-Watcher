@@ -125,8 +125,12 @@ class TestStructuredLogging:
         assert len(caplog.records) > 0
 
         # 检查是否有包含推文 ID 的日志
-        log_messages = [record.message for record in caplog.records]
-        assert any("test_tweet_1" in msg for msg in log_messages)
+        # tweet_id 可能在 message 中，也可能在结构化日志的 extra 字段中
+        assert any(
+            "test_tweet_1" in record.message
+            or getattr(record, "tweet_id", None) == "test_tweet_1"
+            for record in caplog.records
+        )
 
         # 验证成功日志包含摘要信息
         from returns.result import Failure
@@ -279,6 +283,9 @@ class TestStructuredLogging:
             # 创建摘要服务
             repo = SummarizationRepository(async_session)
             from src.summarization.services.summarization_service import SummarizationService
+
+            from returns.result import Success
+            from src.summarization.domain.models import LLMResponse
 
             mock_provider = MagicMock()
             mock_provider.get_provider_name = MagicMock(return_value="openrouter")

@@ -11,6 +11,7 @@ news-scraper 是 SeriousNewsAgent 的核心抓取模块，负责从 X 平台（T
 - ✅ 推文内容验证和清理
 - ✅ 异步任务队列管理
 - ✅ 定时自动抓取
+- ✅ 推文引用关系提取（转推/引用/回复）
 - ✅ 完善的错误处理和重试机制
 - ✅ 集成 TwitterAPI.io API
 
@@ -55,10 +56,14 @@ news-scraper 是 SeriousNewsAgent 的核心抓取模块，负责从 X 平台（T
 4. 遍历用户列表:
    a. TwitterClient.fetch_user_tweets() → 获取原始数据
    b. 响应格式转换 (TwitterAPI.io → 标准 Twitter API v2)
+      - 提取引用关系: retweeted_tweet / quoted_tweet / isReply
+      - 提取作者信息: author 对象 → includes.users
    c. TweetParser.parse_tweet_response() → 解析为 Tweet 模型
    d. TweetValidator.validate_and_clean_batch() → 验证和清理
    e. TweetRepository.save_tweets() → 保存到数据库
+      - FK 保护: 被引用推文不在数据库中时，保留 reference_type 但清除 FK
 5. 更新任务状态 → TaskRegistry (状态: completed/failed)
+6. (可选) 自动去重和摘要 → 如果 AUTO_SUMMARIZATION_ENABLED=true
 ```
 
 ## 配置说明
@@ -68,11 +73,12 @@ news-scraper 是 SeriousNewsAgent 的核心抓取模块，负责从 X 平台（T
 | 变量名 | 说明 | 必需 | 默认值 |
 |--------|------|------|--------|
 | `TWITTER_API_KEY` | TwitterAPI.io API 密钥 | ✅ | - |
+| `TWITTER_BEARER_TOKEN` | X 平台 Bearer 令牌 | ✅ | - |
 | `TWITTER_BASE_URL` | TwitterAPI.io API 地址 | ❌ | `https://api.twitterapi.io/twitter` |
 | `SCRAPER_ENABLED` | 是否启用定时抓取 | ❌ | `true` |
 | `SCRAPER_INTERVAL` | 抓取间隔（秒） | ❌ | `3600` (1小时) |
 | `SCRAPER_USERNAMES` | 关注用户列表（逗号分隔） | ❌ | - |
-| `SCRAPER_LIMIT` | 单次抓取数量限制 | ❌ | `100` |
+| `SCRAPER_LIMIT` | 单次抓取数量限制（1-1000） | ❌ | `100` |
 | `LOG_LEVEL` | 日志级别 | ❌ | `INFO` |
 
 ### TwitterAPI.io 集成
@@ -101,12 +107,33 @@ news-scraper 是 SeriousNewsAgent 的核心抓取模块，负责从 X 平台（T
       {
         "id": "1234567890",
         "text": "Hello World",
-        "createdAt": "Fri Feb 06 09:31:48 +0000 2026"
+        "createdAt": "Fri Feb 06 09:31:48 +0000 2026",
+        "isReply": false,
+        "inReplyToId": null,
+        "retweeted_tweet": null,
+        "quoted_tweet": null,
+        "author": {
+          "id": "44196397",
+          "userName": "elonmusk",
+          "name": "Elon Musk"
+        }
       }
     ]
   }
 }
 ```
+
+**引用关系字段说明**:
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `retweeted_tweet` | object/null | 转推的原始推文对象，包含 `id` 字段 |
+| `quoted_tweet` | object/null | 引用推文对象，包含 `id` 字段 |
+| `isReply` | boolean | 是否为回复 |
+| `inReplyToId` | string/null | 回复的目标推文 ID |
+| `author` | object | 推文作者信息（`id`, `userName`, `name`） |
+
+**引用类型优先级**: `retweeted` > `quoted` > `replied_to`
 
 ## 使用示例
 
@@ -239,14 +266,12 @@ pytest tests/scraper/ --cov=src/scraper --cov-report=html
 
 ### 测试覆盖率
 
-当前测试覆盖率：**80%**
+scraper 模块测试覆盖完整，包含 TwitterClient、TweetParser、TweetValidator、TweetRepository、TaskRegistry、ScrapingService 等组件的全面测试。
 
-- TwitterClient: 74%
-- TweetParser: 81%
-- TweetValidator: 86%
-- TweetRepository: 100%
-- TaskRegistry: 97%
-- ScrapingService: 73%
+运行测试查看当前覆盖率：
+```bash
+pytest tests/scraper/ --cov=src/scraper --cov-report=term-missing
+```
 
 ## 性能优化
 

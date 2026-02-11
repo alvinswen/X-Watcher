@@ -16,6 +16,12 @@ from src.config import clear_settings_cache, get_settings
 from src.database.models import Base
 from src.main import app
 
+# 导入所有 ORM 模型以确保它们被注册到 Base.metadata
+# 这些导入不会在代码中使用，但确保 SQLAlchemy 能够找到所有表
+from src.scraper.infrastructure.models import TweetOrm, DeduplicationGroupOrm  # noqa: F401
+from src.scraper.infrastructure.fetch_stats_models import FetchStatsOrm  # noqa: F401
+from src.summarization.infrastructure.models import SummaryOrm  # noqa: F401
+
 # 在测试开始时加载 .env 文件
 from dotenv import load_dotenv
 load_dotenv()
@@ -202,3 +208,34 @@ async def async_session():
 
     # 清理
     await test_engine.dispose()
+
+
+@pytest.fixture(scope="function")
+async def async_client(async_session):
+    """异步 HTTP 客户端 Fixture。
+
+    使用 httpx.AsyncClient 测试 FastAPI 应用。
+    """
+    from httpx import AsyncClient, ASGITransport
+    from src.database.async_session import get_db_session
+
+    # 使用 ASGI 传输
+    transport = ASGITransport(app=app)
+
+    # 覆写依赖注入，返回测试会话
+    async def override_get_db_session():
+        yield async_session
+
+    # 使用 FastAPI 的 app.dependency_overrides
+    original_override = app.dependency_overrides.get(get_db_session)
+    app.dependency_overrides[get_db_session] = override_get_db_session
+
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            yield ac
+    finally:
+        # 恢复原始依赖
+        if original_override:
+            app.dependency_overrides[get_db_session] = original_override
+        else:
+            app.dependency_overrides.pop(get_db_session, None)

@@ -233,10 +233,9 @@ class SummarizationRepository:
         try:
             stmt = select(SummaryOrm).where(
                 SummaryOrm.content_hash == content_hash,
-                SummaryOrm.cached == True,
-            )
+            ).limit(1)
             result = await self._session.execute(stmt)
-            orm_summary = result.scalar_one_or_none()
+            orm_summary = result.scalars().first()
 
             if orm_summary:
                 return orm_summary.to_domain()

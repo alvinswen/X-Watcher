@@ -17,12 +17,12 @@ SeriousNewsAgent 是一个基于 AI 的智能新闻助理，专为科技公司�
 | 层级 | 技术 |
 |------|------|
 | **Web 框架** | FastAPI |
-| **Agent 框架** | HKUDS/nanobot |
-| **LLM** | MiniMax M2.1 |
+| **LLM** | MiniMax M2.1 / OpenRouter (Claude Sonnet 4.5) |
 | **数据库** | SQLite → PostgreSQL |
 | **ORM** | SQLAlchemy 2.0 |
 | **测试** | pytest + pytest-asyncio |
 | **代码质量** | Ruff + Black |
+| **Agent 框架** | HKUDS/nanobot（计划中） |
 
 ## 安装
 
@@ -116,9 +116,12 @@ python -m src.main
 详细的 API 使用文档请参阅：[docs/api-guide.md](docs/api-guide.md)
 
 **快速链接**：
+- [推文 API](docs/api-guide.md#推文-api) - 推文列表和详情查询
 - [抓取 API](docs/api-guide.md#抓取-api) - 从 X 平台抓取推文
+- [抓取配置 API](docs/api-guide.md#抓取配置-api) - 平台抓取账号管理
 - [去重 API](docs/api-guide.md#去重-api) - 推文去重和合并
 - [摘要 API](docs/api-guide.md#摘要-api) - 生成中文摘要
+- [偏好 API](docs/api-guide.md#偏好-api) - 用户个性化配置
 - [监控 API](docs/api-guide.md#监控-api) - Prometheus 指标
 
 ### Python 示例代码
@@ -142,9 +145,7 @@ pytest tests/scraper/test_twitter_client.py
 
 ### 测试覆盖率
 
-当前测试覆盖率：
-- **scraper 模块**: 80% (127 个测试全部通过)
-- **整体覆盖率**: 约 80%
+当前测试规模：510+ 个测试函数，39 个测试文件，覆盖抓取、去重、摘要、偏好、API 等全部模块。
 
 ## API 端点
 
@@ -204,28 +205,53 @@ ruff check --fix src/ tests/
 ```
 SeriousNewsAgent/
 ├── src/
-│   ├── api/routes/      # API 路由
-│   ├── agent/           # Nanobot Agent 配置
-│   ├── tools/           # 工具函数
-│   ├── models/          # 数据模型 (Pydantic)
-│   ├── database/        # 数据库操作
-│   ├── services/        # 业务服务
-│   ├── config.py        # 配置管理
-│   └── main.py          # FastAPI 应用入口
+│   ├── api/routes/          # API 路由（admin, tweets）
+│   ├── agent/               # Agent 配置（计划中）
+│   ├── scraper/             # 推文抓取模块
+│   │   ├── domain/          # 领域模型（Tweet, Media 等）
+│   │   └── infrastructure/  # ORM 模型和仓库
+│   ├── deduplication/       # 内容去重模块
+│   │   ├── domain/          # 领域模型和检测器
+│   │   ├── infrastructure/  # 仓库
+│   │   ├── services/        # 去重服务
+│   │   └── api/             # 去重 API 端点
+│   ├── summarization/       # AI 摘要模块
+│   │   ├── domain/          # 领域模型
+│   │   ├── infrastructure/  # ORM 模型和仓库
+│   │   ├── services/        # 摘要服务
+│   │   ├── llm/             # LLM 集成（MiniMax, OpenRouter）
+│   │   └── api/             # 摘要 API 端点
+│   ├── preference/          # 用户偏好管理模块
+│   │   ├── domain/          # 领域模型和验证
+│   │   ├── infrastructure/  # 仓库
+│   │   ├── services/        # 偏好和相关性服务
+│   │   └── api/             # 偏好 API 端点
+│   ├── monitoring/          # Prometheus 监控
+│   ├── database/            # 数据库（ORM 模型, 异步会话）
+│   ├── web/                 # 前端 SPA（Vue 3 + Element Plus）
+│   ├── config.py            # 配置管理
+│   └── main.py              # FastAPI 应用入口
 ├── tests/
-│   ├── unit/            # 单元测试
-│   ├── integration/     # 集成测试
-│   └── conftest.py      # pytest 配置
-├── docs/                # 项目文档
-│   ├── api-guide.md    # API 使用指南
-│   ├── architecture.md # 架构文档
-│   └── news-scraper.md # 抓取模块文档
-├── examples/           # 代码示例
-│   └── api_examples.py # API 使用示例
-├── scripts/             # 脚本文件
-├── pyproject.toml       # 项目配置
-├── .env.example         # 环境变量模板
-└── README.md            # 本文件
+│   ├── unit/                # 单元测试
+│   ├── scraper/             # 抓取模块测试
+│   ├── deduplication/       # 去重模块测试
+│   ├── summarization/       # 摘要模块测试
+│   ├── preference/          # 偏好模块测试
+│   ├── api/                 # API 端点测试
+│   ├── integration/         # 集成测试
+│   └── conftest.py          # pytest 配置
+├── alembic/                 # 数据库迁移脚本
+├── docs/                    # 项目文档
+│   ├── api-guide.md         # API 使用指南
+│   ├── architecture.md      # 架构文档
+│   ├── news-scraper.md      # 抓取模块文档
+│   └── user-guide.md        # 使用指南
+├── examples/                # 代码示例
+├── scripts/                 # 脚本（seed_admin.py 等）
+├── pyproject.toml           # 项目配置
+├── alembic.ini              # 数据库迁移配置
+├── .env.example             # 环境变量模板
+└── README.md                # 本文件
 ```
 
 ## 开发指南

@@ -20,6 +20,15 @@ SYSTEM_PROMPT = """你是 SeriousNewsAgent，一个面向科技公司高管的�
 2. 调用合适的工具来抓取、分析和处理新闻
 3. 提供简洁、有价值的新闻摘要
 
+可用工具：
+- fetch_feed: 通过 GET /api/feed 接口按时间区间获取增量推文，支持 since/until 参数和摘要加载
+- fetch_tweet_detail: 通过 GET /api/tweets/{tweet_id} 获取单条推文完整详情
+
+增量拉取策略：
+- 使用 since 参数传入上次查询返回的 until 值
+- 检查 has_more 标志判断是否需要后续请求
+- 根据需要使用 include_summary 控制是否加载摘要
+
 请使用中文与用户交流。
 """
 
@@ -81,3 +90,10 @@ def create_agent():
         "Nanobot Agent 集成待实现。"
         "请先安装 nanobot-ai: pip install git+https://github.com/HKUDS/nanobot.git"
     )
+
+
+# 注册 Feed API 工具元数据
+from src.agent.tools import get_feed_tools
+
+for _tool_meta in get_feed_tools():
+    register_tool(_tool_meta["name"], _tool_meta)

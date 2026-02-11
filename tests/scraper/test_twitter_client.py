@@ -144,7 +144,8 @@ class TestTwitterClient:
             mock_response_success,
         ]
 
-        with patch("httpx.AsyncClient", return_value=mock_httpx_client):
+        with patch("httpx.AsyncClient", return_value=mock_httpx_client), \
+             patch("src.scraper.client.asyncio.sleep", new_callable=AsyncMock):
             result = await client.fetch_user_tweets("testuser")
 
         assert isinstance(result, Success)
@@ -169,7 +170,8 @@ class TestTwitterClient:
             mock_response_success,
         ]
 
-        with patch("httpx.AsyncClient", return_value=mock_httpx_client):
+        with patch("httpx.AsyncClient", return_value=mock_httpx_client), \
+             patch("src.scraper.client.asyncio.sleep", new_callable=AsyncMock):
             result = await client.fetch_user_tweets("testuser")
 
         assert isinstance(result, Success)
@@ -185,7 +187,8 @@ class TestTwitterClient:
 
         mock_httpx_client.get.return_value = mock_response
 
-        with patch("httpx.AsyncClient", return_value=mock_httpx_client):
+        with patch("httpx.AsyncClient", return_value=mock_httpx_client), \
+             patch("src.scraper.client.asyncio.sleep", new_callable=AsyncMock):
             result = await client.fetch_user_tweets("testuser")
 
         assert isinstance(result, Failure)
@@ -197,7 +200,8 @@ class TestTwitterClient:
         """测试网络超时。"""
         mock_httpx_client.get.side_effect = httpx.TimeoutException("Request timeout")
 
-        with patch("httpx.AsyncClient", return_value=mock_httpx_client):
+        with patch("httpx.AsyncClient", return_value=mock_httpx_client), \
+             patch("src.scraper.client.asyncio.sleep", new_callable=AsyncMock):
             result = await client.fetch_user_tweets("testuser")
 
         assert isinstance(result, Failure)
@@ -209,7 +213,8 @@ class TestTwitterClient:
         """测试网络连接错误。"""
         mock_httpx_client.get.side_effect = httpx.NetworkError("Connection failed")
 
-        with patch("httpx.AsyncClient", return_value=mock_httpx_client):
+        with patch("httpx.AsyncClient", return_value=mock_httpx_client), \
+             patch("src.scraper.client.asyncio.sleep", new_callable=AsyncMock):
             result = await client.fetch_user_tweets("testuser")
 
         assert isinstance(result, Failure)
@@ -230,9 +235,7 @@ class TestTwitterClient:
 
     @pytest.mark.asyncio
     async def test_exponential_backoff(self, client, mock_httpx_client):
-        """测试指数退避延迟。"""
-        import time
-
+        """测试指数退避延迟参数正确。"""
         mock_response_500 = Mock()
         mock_response_500.status_code = 500
 
@@ -250,14 +253,16 @@ class TestTwitterClient:
             mock_response_success,
         ]
 
-        with patch("httpx.AsyncClient", return_value=mock_httpx_client):
-            start_time = time.time()
+        mock_sleep = AsyncMock()
+        with patch("httpx.AsyncClient", return_value=mock_httpx_client), \
+             patch("src.scraper.client.asyncio.sleep", mock_sleep):
             result = await client.fetch_user_tweets("testuser")
-            elapsed_time = time.time() - start_time
 
         assert isinstance(result, Success)
-        # 验证有延迟（1 + 2 + 4 = 7秒左右）
-        assert elapsed_time >= 6  # 允许一些误差
+        # 验证 sleep 被调用 3 次，参数为指数退避：1, 2, 4
+        assert mock_sleep.call_count == 3
+        delays = [call.args[0] for call in mock_sleep.call_args_list]
+        assert delays == [1, 2, 4]
 
     @pytest.mark.asyncio
     async def test_custom_max_retries(self, test_settings, mock_httpx_client):
@@ -270,7 +275,8 @@ class TestTwitterClient:
         # 创建自定义重试次数的客户端
         client = TwitterClient(max_retries=2)
 
-        with patch("httpx.AsyncClient", return_value=mock_httpx_client):
+        with patch("httpx.AsyncClient", return_value=mock_httpx_client), \
+             patch("src.scraper.client.asyncio.sleep", new_callable=AsyncMock):
             result = await client.fetch_user_tweets("testuser")
 
         assert isinstance(result, Failure)
@@ -279,9 +285,7 @@ class TestTwitterClient:
 
     @pytest.mark.asyncio
     async def test_custom_base_delay(self, test_settings, mock_httpx_client):
-        """测试自定义基础延迟。"""
-        import time
-
+        """测试自定义基础延迟参数正确。"""
         mock_response_500 = Mock()
         mock_response_500.status_code = 500
 
@@ -300,15 +304,15 @@ class TestTwitterClient:
         # 使用较短的基础延迟
         client = TwitterClient(base_delay=0.1)
 
-        with patch("httpx.AsyncClient", return_value=mock_httpx_client):
-            start_time = time.time()
+        mock_sleep = AsyncMock()
+        with patch("httpx.AsyncClient", return_value=mock_httpx_client), \
+             patch("src.scraper.client.asyncio.sleep", mock_sleep):
             result = await client.fetch_user_tweets("testuser")
-            elapsed_time = time.time() - start_time
 
         assert isinstance(result, Success)
-        # 延迟应该很短（约 0.1 秒）
-        assert elapsed_time >= 0.08
-        assert elapsed_time < 1
+        # 验证 sleep 被调用 1 次，参数为自定义基础延迟 0.1
+        assert mock_sleep.call_count == 1
+        assert mock_sleep.call_args_list[0].args[0] == 0.1
 
     @pytest.mark.asyncio
     async def test_fetch_user_tweets_empty_username(self, client):
@@ -346,3 +350,222 @@ class TestTwitterClient:
 
         # 验证关闭方法被调用
         # 注意：由于 mock 设置方式，可能需要调整验证逻辑
+
+
+class TestTwitterClientReferenceTypeConversion:
+    """测试 TwitterAPI.io 响应中引用关系字段的转换。"""
+
+    @pytest.fixture
+    def mock_httpx_client(self):
+        """Mock httpx 异步客户端。"""
+        client = AsyncMock()
+        client.get = AsyncMock()
+        return client
+
+    @pytest.fixture
+    def client(self, test_settings):
+        """创建 TwitterClient 实例。"""
+        return TwitterClient()
+
+    def _make_twitterapi_response(self, tweets):
+        """构造 TwitterAPI.io 格式的 mock 响应。"""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"tweets": tweets}
+        return mock_response
+
+    @pytest.mark.asyncio
+    async def test_fetch_converts_retweeted_tweet(self, client, mock_httpx_client):
+        """测试转推的 retweeted_tweet 字段被正确转换为 referenced_tweets。"""
+        mock_response = self._make_twitterapi_response([
+            {
+                "id": "111",
+                "text": "RT @someone: original text",
+                "createdAt": "Fri Feb 07 09:00:00 +0000 2026",
+                "retweeted_tweet": {
+                    "id": "222",
+                    "text": "original text",
+                },
+                "author": {
+                    "userName": "testuser",
+                    "name": "Test User",
+                },
+            }
+        ])
+        mock_httpx_client.get.return_value = mock_response
+
+        with patch("httpx.AsyncClient", return_value=mock_httpx_client):
+            result = await client.fetch_user_tweets("testuser", limit=10)
+
+        assert isinstance(result, Success)
+        data = result.unwrap()
+        tweet = data["data"][0]
+        assert "referenced_tweets" in tweet
+        assert tweet["referenced_tweets"] == [{"type": "retweeted", "id": "222"}]
+
+    @pytest.mark.asyncio
+    async def test_fetch_converts_quoted_tweet(self, client, mock_httpx_client):
+        """测试引用推文的 quoted_tweet 字段被正确转换为 referenced_tweets。"""
+        mock_response = self._make_twitterapi_response([
+            {
+                "id": "333",
+                "text": "Great insight here!",
+                "createdAt": "Fri Feb 07 10:00:00 +0000 2026",
+                "quoted_tweet": {
+                    "id": "444",
+                    "text": "Some quoted content",
+                },
+                "author": {
+                    "userName": "quoter",
+                    "name": "Quote User",
+                },
+            }
+        ])
+        mock_httpx_client.get.return_value = mock_response
+
+        with patch("httpx.AsyncClient", return_value=mock_httpx_client):
+            result = await client.fetch_user_tweets("quoter", limit=10)
+
+        assert isinstance(result, Success)
+        data = result.unwrap()
+        tweet = data["data"][0]
+        assert "referenced_tweets" in tweet
+        assert tweet["referenced_tweets"] == [{"type": "quoted", "id": "444"}]
+
+    @pytest.mark.asyncio
+    async def test_fetch_converts_reply(self, client, mock_httpx_client):
+        """测试回复推文的 isReply + inReplyToId 被正确转换为 referenced_tweets。"""
+        mock_response = self._make_twitterapi_response([
+            {
+                "id": "555",
+                "text": "I agree with this!",
+                "createdAt": "Fri Feb 07 11:00:00 +0000 2026",
+                "isReply": True,
+                "inReplyToId": "666",
+                "author": {
+                    "userName": "replier",
+                    "name": "Reply User",
+                },
+            }
+        ])
+        mock_httpx_client.get.return_value = mock_response
+
+        with patch("httpx.AsyncClient", return_value=mock_httpx_client):
+            result = await client.fetch_user_tweets("replier", limit=10)
+
+        assert isinstance(result, Success)
+        data = result.unwrap()
+        tweet = data["data"][0]
+        assert "referenced_tweets" in tweet
+        assert tweet["referenced_tweets"] == [{"type": "replied_to", "id": "666"}]
+
+    @pytest.mark.asyncio
+    async def test_fetch_no_reference_for_original_tweet(self, client, mock_httpx_client):
+        """测试原创推文不包含 referenced_tweets。"""
+        mock_response = self._make_twitterapi_response([
+            {
+                "id": "777",
+                "text": "Just a regular tweet",
+                "createdAt": "Fri Feb 07 12:00:00 +0000 2026",
+                "author": {
+                    "userName": "original",
+                    "name": "Original User",
+                },
+            }
+        ])
+        mock_httpx_client.get.return_value = mock_response
+
+        with patch("httpx.AsyncClient", return_value=mock_httpx_client):
+            result = await client.fetch_user_tweets("original", limit=10)
+
+        assert isinstance(result, Success)
+        data = result.unwrap()
+        tweet = data["data"][0]
+        assert "referenced_tweets" not in tweet
+
+    @pytest.mark.asyncio
+    async def test_fetch_retweet_precedence_over_quote(self, client, mock_httpx_client):
+        """测试同时存在 retweeted_tweet 和 quoted_tweet 时，retweeted 优先。"""
+        mock_response = self._make_twitterapi_response([
+            {
+                "id": "888",
+                "text": "RT with quote",
+                "createdAt": "Fri Feb 07 13:00:00 +0000 2026",
+                "retweeted_tweet": {"id": "999"},
+                "quoted_tweet": {"id": "1000"},
+                "author": {
+                    "userName": "both",
+                    "name": "Both User",
+                },
+            }
+        ])
+        mock_httpx_client.get.return_value = mock_response
+
+        with patch("httpx.AsyncClient", return_value=mock_httpx_client):
+            result = await client.fetch_user_tweets("both", limit=10)
+
+        assert isinstance(result, Success)
+        data = result.unwrap()
+        tweet = data["data"][0]
+        assert tweet["referenced_tweets"] == [{"type": "retweeted", "id": "999"}]
+
+    @pytest.mark.asyncio
+    async def test_fetch_extracts_author_info(self, client, mock_httpx_client):
+        """测试 author 对象被正确提取到 includes.users。"""
+        mock_response = self._make_twitterapi_response([
+            {
+                "id": "1100",
+                "text": "Author test",
+                "createdAt": "Fri Feb 07 14:00:00 +0000 2026",
+                "author": {
+                    "id": "author_id_123",
+                    "userName": "testuser",
+                    "name": "Real Display Name",
+                },
+            }
+        ])
+        mock_httpx_client.get.return_value = mock_response
+
+        with patch("httpx.AsyncClient", return_value=mock_httpx_client):
+            result = await client.fetch_user_tweets("testuser", limit=10)
+
+        assert isinstance(result, Success)
+        data = result.unwrap()
+
+        # 验证 author_id 被设置在推文上
+        tweet = data["data"][0]
+        assert tweet["author_id"] == "author_id_123"
+
+        # 验证 includes.users 包含正确的用户信息
+        assert "includes" in data
+        users = data["includes"]["users"]
+        assert len(users) == 1
+        assert users[0]["id"] == "author_id_123"
+        assert users[0]["username"] == "testuser"
+        assert users[0]["name"] == "Real Display Name"
+
+    @pytest.mark.asyncio
+    async def test_fetch_isreply_false_no_reference(self, client, mock_httpx_client):
+        """测试 isReply=False 时不生成 replied_to 引用。"""
+        mock_response = self._make_twitterapi_response([
+            {
+                "id": "1200",
+                "text": "Not a reply",
+                "createdAt": "Fri Feb 07 15:00:00 +0000 2026",
+                "isReply": False,
+                "inReplyToId": "some_id",
+                "author": {
+                    "userName": "notreply",
+                    "name": "Not Reply",
+                },
+            }
+        ])
+        mock_httpx_client.get.return_value = mock_response
+
+        with patch("httpx.AsyncClient", return_value=mock_httpx_client):
+            result = await client.fetch_user_tweets("notreply", limit=10)
+
+        assert isinstance(result, Success)
+        data = result.unwrap()
+        tweet = data["data"][0]
+        assert "referenced_tweets" not in tweet

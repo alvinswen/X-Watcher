@@ -50,7 +50,7 @@ class TweetOrm(Base):
         String(255), comment="作者显示名称"
     )
     referenced_tweet_id: Mapped[str | None] = mapped_column(
-        String(255), ForeignKey("tweets.tweet_id", ondelete="SET NULL"), comment="引用的推文 ID"
+        String(255), comment="引用的推文 ID（外部引用，不设 FK 约束）"
     )
     reference_type: Mapped[str | None] = mapped_column(
         String(20), comment="引用类型：retweeted, quoted, replied_to"
@@ -79,12 +79,6 @@ class TweetOrm(Base):
     )
 
     # 关系
-    referenced_by: Mapped[list["TweetOrm"]] = relationship(
-        "TweetOrm",
-        backref="references",
-        foreign_keys=[referenced_tweet_id],
-        remote_side="[TweetOrm.tweet_id]",
-    )
     deduplication_group: Mapped["DeduplicationGroupOrm"] = relationship(
         "DeduplicationGroupOrm",
         backref="tweets",

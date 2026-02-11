@@ -139,7 +139,26 @@ async def get_async_session() -> AsyncSession:
     Yields:
         AsyncSession: 异步数据库会话
     """
-    async with get_async_session_maker() as session:
+    session_maker = get_async_session_maker()
+    async with session_maker() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+
+
+async def get_db_session():
+    """FastAPI 依赖注入：获取异步数据库会话。
+
+    用于 API 路由的依赖注入，确保每个请求使用独立的会话。
+
+    Yields:
+        AsyncSession: 异步数据库会话
+    """
+    session_maker = get_async_session_maker()
+    async with session_maker() as session:
         yield session
 
 

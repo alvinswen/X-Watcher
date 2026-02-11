@@ -30,6 +30,7 @@ class TestSummaryOrm:
             "total_tokens": 300,
             "cost_usd": 0.002,
             "cached": False,
+            "is_generated_summary": True,
             "content_hash": "abc123def456",
             "created_at": datetime.now(timezone.utc),
             "updated_at": datetime.now(timezone.utc),
