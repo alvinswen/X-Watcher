@@ -60,7 +60,6 @@ dmypy.json
 .ruff_cache/
 
 # 项目特定
-.kiro/
 .claude/
 logs/
 *.log
