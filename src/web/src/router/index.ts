@@ -53,8 +53,8 @@ export const router = createRouter({
 router.beforeEach((to) => {
   const title = to.meta.title as string | undefined
   if (title) {
-    document.title = `${title} - SeriousNewsAgent`
+    document.title = `${title} - X-watcher`
   } else {
-    document.title = "SeriousNewsAgent"
+    document.title = "X-watcher"
   }
 })

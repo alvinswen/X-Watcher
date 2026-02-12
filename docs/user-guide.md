@@ -1,6 +1,6 @@
-# SeriousNewsAgent 用户手册
+# X-watcher 用户手册
 
-本手册将帮助你从零开始启动 SeriousNewsAgent 智能新闻助理系统，并通过 Web 前端验证各项功能。
+本手册将帮助你从零开始启动 X-watcher 智能信息监控系统，并通过 Web 前端验证各项功能。
 
 ## 目录
 
@@ -26,7 +26,7 @@
 ### 安装后端依赖
 
 ```bash
-cd SeriousNewsAgent
+cd X-watcher
 
 # 创建虚拟环境（推荐）
 python -m venv .venv
@@ -138,7 +138,7 @@ python -m src.main
 uvicorn src.main:app --reload
 
 # 方式三：安装后使用命令
-serious-news
+x-watcher
 ```
 
 后端服务默认运行在 `http://localhost:8000`。

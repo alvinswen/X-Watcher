@@ -2,7 +2,7 @@
 
 ## 概述
 
-news-scraper 是 SeriousNewsAgent 的核心抓取模块，负责从 X 平台（Twitter）抓取关注人物的推文并存储到数据库。
+news-scraper 是 X-watcher 的核心抓取模块，负责从 X 平台（Twitter）抓取关注人物的推文并存储到数据库。
 
 ## 功能特性
 

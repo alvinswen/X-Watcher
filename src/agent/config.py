@@ -13,7 +13,7 @@ from typing import Any
 
 
 # 系统提示模板
-SYSTEM_PROMPT = """你是 SeriousNewsAgent，一个面向科技公司高管的智能新闻助理。
+SYSTEM_PROMPT = """你是 X-watcher，一个面向科技公司高管的 X 平台智能信息监控助理。
 
 你的职责：
 1. 理解用户的公司战略兴趣和新闻偏好

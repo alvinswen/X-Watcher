@@ -1,27 +1,35 @@
-# SeriousNewsAgent
+# X-watcher
 
-智能新闻助理系统 - 面向科技公司高管的个性化新闻流
+X 平台智能信息监控助理 - 面向科技公司高管的个性化信息流
 
 ## 项目简介
 
-SeriousNewsAgent 是一个基于 AI 的智能新闻助理，专为科技公司高管设计。系统能够：
+X-watcher 是一个基于 AI 的 X 平台（Twitter）智能信息监控助理，专为科技公司高管设计。系统能够：
 
-- 从 X（Twitter）等平台抓取关注人物的动态
-- 根据公司战略需求动态过滤新闻
+- 从 X（Twitter）平台抓取关注人物的动态
+- 根据公司战略需求动态过滤信息
 - 自动去重和合并相似内容
-- 生成简洁的中文摘要
+- 生成简洁的中文摘要和翻译
 - 支持动态调整关注列表和偏好
+- 提供 Web 管理界面（Vue 3 + Element Plus）
+- 用户认证和权限管理
+- Prometheus 监控指标
 
 ## 技术栈
 
 | 层级 | 技术 |
 |------|------|
-| **Web 框架** | FastAPI |
+| **Web 框架** | FastAPI + Uvicorn |
+| **前端** | Vue 3 + Element Plus + TypeScript |
 | **LLM** | MiniMax M2.1 / OpenRouter (Claude Sonnet 4.5) |
-| **数据库** | SQLite → PostgreSQL |
-| **ORM** | SQLAlchemy 2.0 |
-| **测试** | pytest + pytest-asyncio |
-| **代码质量** | Ruff + Black |
+| **数据库** | SQLite（开发）→ PostgreSQL（生产） |
+| **ORM** | SQLAlchemy 2.0 + Alembic |
+| **任务调度** | APScheduler |
+| **测试** | pytest + pytest-asyncio（510+ 测试） |
+| **代码质量** | Ruff + Black + mypy |
+| **监控** | Prometheus |
+| **数据源** | TwitterAPI.io |
+| **认证** | JWT + bcrypt |
 | **Agent 框架** | HKUDS/nanobot（计划中） |
 
 ## 安装
@@ -29,6 +37,7 @@ SeriousNewsAgent 是一个基于 AI 的智能新闻助理，专为科技公司�
 ### 前置要求
 
 - Python 3.11+
+- Node.js >= 18（前端开发）
 - Git
 
 ### 步骤
@@ -36,7 +45,7 @@ SeriousNewsAgent 是一个基于 AI 的智能新闻助理，专为科技公司�
 1. 克隆仓库
 ```bash
 git clone <repository-url>
-cd SeriousNewsAgent
+cd X-watcher
 ```
 
 2. 安装依赖
@@ -47,6 +56,12 @@ pip install -e .
 3. 安装开发依赖（可选）
 ```bash
 pip install -e ".[dev]"
+```
+
+4. 安装前端依赖（可选）
+```bash
+cd src/web
+npm install
 ```
 
 ## 配置
@@ -68,17 +83,24 @@ TWITTER_API_KEY=your_twitterapi_io_api_key_here
 TWITTER_BEARER_TOKEN=dummy_placeholder
 TWITTER_BASE_URL=https://api.twitterapi.io/twitter
 
+# 管理员 API Key
+ADMIN_API_KEY=your_admin_api_key
+
 # 抓取器配置
 SCRAPER_ENABLED=true
 SCRAPER_INTERVAL=3600
 SCRAPER_USERNAMES=elonmusk,OpenAI,nvidia
-SCRAPER_LIMIT=10
+SCRAPER_LIMIT=100
 
 # 数据库配置
 DATABASE_URL=sqlite:///./news_agent.db
 
 # 日志级别
 LOG_LEVEL=INFO
+
+# 自动摘要
+AUTO_SUMMARIZATION_ENABLED=true
+AUTO_SUMMARIZATION_BATCH_SIZE=50
 ```
 
 ### TwitterAPI.io 配置说明
@@ -92,23 +114,35 @@ LOG_LEVEL=INFO
 
 ## 运行
 
-### 启动开发服务器
+### 启动后端服务
 
 ```bash
-uvicorn src.main:app --reload
-```
+# 初始化数据库和管理员账户
+python -m scripts.seed_admin
 
-或使用：
-
-```bash
+# 启动开发服务器
 python -m src.main
+
+# 或使用 uvicorn
+uvicorn src.main:app --reload
+
+# 或使用安装后的命令
+x-watcher
 ```
 
 应用将在 `http://localhost:8000` 启动。
 
+### 启动前端开发服务器
+
+```bash
+cd src/web
+npm run dev
+```
+
+前端运行在 `http://localhost:5173`，已配置 API 代理。
+
 ### 访问 API 文档
 
-### 交互式 API 文档
 - Swagger UI: `http://localhost:8000/docs`
 - ReDoc: `http://localhost:8000/redoc`
 
@@ -122,6 +156,7 @@ python -m src.main
 - [去重 API](docs/api-guide.md#去重-api) - 推文去重和合并
 - [摘要 API](docs/api-guide.md#摘要-api) - 生成中文摘要
 - [偏好 API](docs/api-guide.md#偏好-api) - 用户个性化配置
+- [Feed API](docs/api-guide.md#feed-api) - 个性化信息流
 - [监控 API](docs/api-guide.md#监控-api) - Prometheus 指标
 
 ### Python 示例代码
@@ -145,7 +180,20 @@ pytest tests/scraper/test_twitter_client.py
 
 ### 测试覆盖率
 
-当前测试规模：510+ 个测试函数，39 个测试文件，覆盖抓取、去重、摘要、偏好、API 等全部模块。
+当前测试规模：510+ 个测试函数，39 个测试文件，覆盖抓取、去重、摘要、偏好、用户管理、Feed API 等全部模块。
+
+## 功能模块
+
+| 模块 | 说明 |
+|------|------|
+| **推文抓取** | 从 X 平台抓取关注人物推文，支持定时和手动触发 |
+| **内容去重** | 基于文本相似度识别和合并重复/相似推文 |
+| **AI 摘要** | 使用 MiniMax/OpenRouter 生成中文摘要和翻译 |
+| **用户偏好** | 动态管理关注列表、过滤规则和排序偏好 |
+| **个性化 Feed** | 基于用户偏好的增量信息流 API |
+| **用户管理** | 用户注册、JWT 认证、管理员权限 |
+| **Web 管理** | Vue 3 前端 SPA（推文浏览、关注管理、任务监控） |
+| **系统监控** | Prometheus 指标（HTTP 请求、任务状态、数据库连接） |
 
 ## API 端点
 
@@ -203,10 +251,10 @@ ruff check --fix src/ tests/
 ## 项目结构
 
 ```
-SeriousNewsAgent/
+X-watcher/
 ├── src/
 │   ├── api/routes/          # API 路由（admin, tweets）
-│   ├── agent/               # Agent 配置（计划中）
+│   ├── agent/               # Agent 配置（nanobot 集成）
 │   ├── scraper/             # 推文抓取模块
 │   │   ├── domain/          # 领域模型（Tweet, Media 等）
 │   │   └── infrastructure/  # ORM 模型和仓库
@@ -226,6 +274,10 @@ SeriousNewsAgent/
 │   │   ├── infrastructure/  # 仓库
 │   │   ├── services/        # 偏好和相关性服务
 │   │   └── api/             # 偏好 API 端点
+│   ├── feed/                # 个性化信息流模块
+│   │   └── api/             # Feed API 端点
+│   ├── user/                # 用户管理模块
+│   │   └── api/             # 认证和用户 API
 │   ├── monitoring/          # Prometheus 监控
 │   ├── database/            # 数据库（ORM 模型, 异步会话）
 │   ├── web/                 # 前端 SPA（Vue 3 + Element Plus）
@@ -245,7 +297,8 @@ SeriousNewsAgent/
 │   ├── api-guide.md         # API 使用指南
 │   ├── architecture.md      # 架构文档
 │   ├── news-scraper.md      # 抓取模块文档
-│   └── user-guide.md        # 使用指南
+│   ├── user-guide.md        # 使用指南
+│   └── nanobot-integration-plan.md  # Nanobot 集成计划
 ├── examples/                # 代码示例
 ├── scripts/                 # 脚本（seed_admin.py 等）
 ├── pyproject.toml           # 项目配置

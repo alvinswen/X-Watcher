@@ -2,7 +2,7 @@
 
 ## Context
 
-SeriousNewsAgent 的 Feed API（`GET /api/feed`）已开发完成并验证通过（803 条推文，200 OK）。现在需要让 nanobot 定时调用此接口，实现：
+X-watcher 的 Feed API（`GET /api/feed`）已开发完成并验证通过（803 条推文，200 OK）。现在需要让 nanobot 定时调用此接口，实现：
 1. **增量拉取**推文数据（含摘要和翻译）
 2. **存入记忆**供后续对话查询
 3. **推送摘要**到聊天渠道（本阶段暂不配置渠道，预留接口）
@@ -31,7 +31,7 @@ SeriousNewsAgent 的 Feed API（`GET /api/feed`）已开发完成并验证通过
 └───────────────────────────┼─────────────────────┘
                             │ HTTP GET + X-API-Key
                     ┌───────▼───────────────┐
-                    │ SeriousNewsAgent       │
+                    │ X-watcher       │
                     │ GET /api/feed          │
                     │ localhost:8000         │
                     └───────────────────────┘
@@ -41,7 +41,7 @@ SeriousNewsAgent 的 Feed API（`GET /api/feed`）已开发完成并验证通过
 
 ## 现有环境
 
-- **SeriousNewsAgent** 运行在 `http://localhost:8000`
+- **X-watcher** 运行在 `http://localhost:8000`
 - **nanobot** 已安装在 `C:\Development\nanobot`，配置在 `~/.nanobot/config.json`
 - **nanobot 用户 API Key**：`sna_fb4fedfc801a37f3a5e587aa7155bc89`
 - **nanobot workspace**：`C:\Development\nanobot\workspace\`（或 `~/.nanobot/workspace/`）
@@ -136,7 +136,7 @@ Feed API 精简参考文档（供 agent 按需查阅）：
 ---
 name: sna-feed
 description: >
-  Fetch and analyze news from SeriousNewsAgent Feed API.
+  Fetch and analyze news from X-watcher Feed API.
   Use when: (1) the user asks about recent news, tech trends, or tweet summaries,
   (2) a scheduled cron job triggers periodic news pull,
   (3) the user wants to set up or manage news monitoring.
@@ -167,7 +167,7 @@ description: >
 
 3. **Cron 设置** — 定时拉取指令示例：
    ```
-   cron(action="add", message="Execute sna-feed skill: pull latest news from SeriousNewsAgent, save to daily memory file", every_seconds=3600)
+   cron(action="add", message="Execute sna-feed skill: pull latest news from X-watcher, save to daily memory file", every_seconds=3600)
    ```
 
 4. **配置说明** — `sna-feed.json` 字段含义，如何切换生产环境 URL
@@ -207,7 +207,7 @@ description: >
 
 - `state.json` 由脚本首次运行时自动创建
 - **nanobot 源码** — 零修改
-- **SeriousNewsAgent** — 零修改
+- **X-watcher** — 零修改
 
 ---
 

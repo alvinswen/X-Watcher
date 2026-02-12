@@ -46,7 +46,7 @@ onMounted(() => {
 <template>
   <div class="app">
     <header class="app-header">
-      <h1 class="app-title">SeriousNewsAgent</h1>
+      <h1 class="app-title">X-watcher</h1>
       <div class="app-header-right">
         <nav class="app-nav">
           <RouterLink to="/tweets" class="nav-link">推文</RouterLink>

@@ -110,8 +110,8 @@ async def lifespan(app: FastAPI):  # noqa: ARG001 - app 参数是 FastAPI 要求
 
 # 创建 FastAPI 应用
 app = FastAPI(
-    title="SeriousNewsAgent",
-    description="智能新闻助理系统 - 面向科技公司高管的个性化新闻流",
+    title="X-watcher",
+    description="X 平台智能信息监控助理 - 面向科技公司高管的个性化信息流",
     version="0.1.0",
     lifespan=lifespan,
 )

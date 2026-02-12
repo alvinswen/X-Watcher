@@ -1,6 +1,6 @@
 # API 使用指南
 
-本文档详细介绍 SeriousNewsAgent 的 API 接口使用方法。
+本文档详细介绍 X-watcher 的 API 接口使用方法。
 
 ## 目录
 
@@ -668,7 +668,7 @@ curl http://localhost:8000/metrics
 ```yaml
 # prometheus.yml
 scrape_configs:
-  - job_name: 'serious-news-agent'
+  - job_name: 'x-watcher'
     static_configs:
       - targets: ['localhost:8000']
     metrics_path: '/metrics'

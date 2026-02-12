@@ -1,6 +1,6 @@
-"""SeriousNewsAgent API 使用示例。
+"""X-watcher API 使用示例。
 
-本示例演示如何使用 SeriousNewsAgent 的各种 API 接口。
+本示例演示如何使用 X-watcher 的各种 API 接口。
 """
 
 import time
@@ -13,7 +13,7 @@ BASE_URL = "http://localhost:8000"
 
 
 class NewsAgentClient:
-    """SeriousNewsAgent API 客户端。"""
+    """X-watcher API 客户端。"""
 
     def __init__(self, base_url: str = BASE_URL):
         """初始化客户端。

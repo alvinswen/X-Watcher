@@ -3,16 +3,16 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "serious-news-agent"
+name = "x-watcher"
 version = "0.1.0"
-description = "智能新闻助理系统 - 面向科技公司高管的个性化新闻流"
+description = "X 平台智能信息监控助理 - 面向科技公司高管的个性化信息流"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
     {name = "Development Team"}
 ]
-keywords = ["news", "agent", "ai", "fastapi"]
+keywords = ["x", "twitter", "watcher", "monitor", "ai", "fastapi"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -81,11 +81,11 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/your-org/serious-news-agent"
-Repository = "https://github.com/your-org/serious-news-agent"
+Homepage = "https://github.com/your-org/x-watcher"
+Repository = "https://github.com/your-org/x-watcher"
 
 [project.scripts]
-serious-news = "src.main:main"
+x-watcher = "src.main:main"
 
 # Black 配置
 [tool.black]
