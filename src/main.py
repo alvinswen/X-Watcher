@@ -205,9 +205,10 @@ app.include_router(deduplication_routes.router)
 app.include_router(summarization_routes.router)
 
 # 注册偏好管理 API 路由
-from src.preference.api.routes import scraper_config_router, preference_router
+from src.preference.api.routes import scraper_config_router, scraper_public_router, preference_router
 
 app.include_router(scraper_config_router)
+app.include_router(scraper_public_router)
 app.include_router(preference_router)
 
 # 注册 Feed API 路由

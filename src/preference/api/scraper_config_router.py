@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.async_session import get_async_session
-from src.user.api.auth import get_current_admin_user
+from src.user.api.auth import get_current_admin_user, get_current_user
 from src.user.domain.models import UserDomain
 from src.preference.api.schemas import (
     CreateScraperFollowRequest,
@@ -30,10 +30,16 @@ from src.preference.services.scraper_config_service import ScraperConfigService
 
 logger = logging.getLogger(__name__)
 
-# 创建路由器
+# 管理员路由器（需要管理员权限）
 router = APIRouter(
     prefix="/api/admin/scraping",
     tags=["admin"],
+)
+
+# 公共只读路由器（普通用户可访问）
+public_router = APIRouter(
+    prefix="/api/scraping",
+    tags=["scraping"],
 )
 
 
@@ -262,4 +268,51 @@ async def delete_scraper_follow(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="删除抓取账号失败"
+        ) from e
+
+
+# ==================== 公共只读端点 ====================
+
+
+@public_router.get(
+    "/follows",
+    response_model=list[ScraperFollowResponse],
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {"model": ErrorResponse},
+    },
+)
+async def get_scraper_follows_public(
+    service: ScraperConfigService = Depends(_get_scraper_config_service),
+    current_user: UserDomain = Depends(get_current_user),
+) -> list[ScraperFollowResponse]:
+    """获取平台抓取账号列表（只读）。
+
+    普通用户可访问此端点查看平台正在抓取的账号及其描述信息。
+    仅返回活跃账号。
+
+    Args:
+        service: 抓取配置服务
+        current_user: 当前认证用户（普通用户即可）
+
+    Returns:
+        list[ScraperFollowResponse]: 活跃抓取账号列表
+    """
+    try:
+        result = await service.get_all_follows(include_inactive=False)
+        return [
+            ScraperFollowResponse(
+                id=f.id,
+                username=f.username,
+                added_at=f.added_at,
+                reason=f.reason,
+                added_by=f.added_by,
+                is_active=f.is_active,
+            )
+            for f in result
+        ]
+    except Exception as e:
+        logger.error(f"获取抓取账号列表失败: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="获取抓取账号列表失败"
         ) from e

@@ -4,6 +4,7 @@
 """
 
 from src.preference.api.scraper_config_router import router as scraper_config_router
+from src.preference.api.scraper_config_router import public_router as scraper_public_router
 from src.preference.api.preference_router import router as preference_router
 
-__all__ = ["scraper_config_router", "preference_router"]
+__all__ = ["scraper_config_router", "scraper_public_router", "preference_router"]
