@@ -207,6 +207,28 @@ class TwitterFollow(Base):
     )
 
 
+class ScraperScheduleConfig(Base):
+    """调度配置模型。
+
+    管理员动态调整的抓取调度参数（singleton 单行，id=1）。
+    """
+
+    __tablename__ = "scraper_schedule_config"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    interval_seconds: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=43200
+    )
+    next_run_time: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    updated_by: Mapped[str] = mapped_column(String(100), nullable=False)
+
+
 class FilterRule(Base):
     """过滤规则模型。
 

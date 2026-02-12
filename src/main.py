@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.config import get_settings
 from src.database.models import Base
 from src.database.models import get_engine as engine
+from src.scheduler_accessor import register_scheduler, unregister_scheduler
 from src.scraper import ScrapingService, TaskRegistry, TaskStatus
 
 logger = logging.getLogger(__name__)
@@ -119,6 +120,35 @@ def _scheduled_scrape_job():
         logger.exception(f"定时抓取任务失败: {e}")
 
 
+def _get_schedule_config_from_db() -> tuple[int | None, datetime | None]:
+    """从数据库获取调度配置。
+
+    Returns:
+        tuple: (interval_seconds, next_run_time) 或 (None, None) 如果无配置
+    """
+    try:
+        import asyncio
+
+        from src.database.async_session import get_async_session_maker
+        from src.preference.infrastructure.schedule_repository import (
+            ScraperScheduleRepository,
+        )
+
+        async def _fetch():
+            session_maker = get_async_session_maker()
+            async with session_maker() as session:
+                repo = ScraperScheduleRepository(session)
+                config = await repo.get_schedule_config()
+                if config:
+                    return (config.interval_seconds, config.next_run_time)
+                return (None, None)
+
+        return asyncio.run(_fetch())
+    except Exception as e:
+        logger.warning(f"从数据库获取调度配置失败，将使用环境变量: {e}")
+        return (None, None)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # noqa: ARG001 - app 参数是 FastAPI 要求的
     """应用生命周期管理。
@@ -137,27 +167,41 @@ async def lifespan(app: FastAPI):  # noqa: ARG001 - app 参数是 FastAPI 要求
     if settings.scraper_enabled:
         _scheduler = BackgroundScheduler(timezone="Asia/Shanghai")
 
-        # 添加定时任务（启动时立即执行首次抓取）
+        # 从 DB 加载调度配置
+        db_interval, db_next_run = _get_schedule_config_from_db()
+
+        interval = db_interval if db_interval is not None else settings.scraper_interval
+        next_run = db_next_run if db_next_run is not None else datetime.now()
+
+        # 添加定时任务
         _scheduler.add_job(
             _scheduled_scrape_job,
             "interval",
-            seconds=settings.scraper_interval,
+            seconds=interval,
             id="scraper_job",
             name="定时抓取推文",
             max_instances=1,  # 防止任务重复执行
             replace_existing=True,
-            next_run_time=datetime.now(),  # 启动后立即执行第一次
+            next_run_time=next_run,
         )
 
         _scheduler.start()
-        logger.info(
-            f"调度器已启动，间隔: {settings.scraper_interval} 秒"
-        )
+        register_scheduler(_scheduler)
+
+        if db_interval is not None:
+            logger.info(
+                f"调度器已启动（使用 DB 配置），间隔: {interval} 秒"
+            )
+        else:
+            logger.info(
+                f"调度器已启动（使用默认配置），间隔: {interval} 秒"
+            )
 
     yield
 
     # 关闭时的清理工作
     if _scheduler:
+        unregister_scheduler()
         _scheduler.shutdown(wait=True)
         logger.info("调度器已停止")
 

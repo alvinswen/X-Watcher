@@ -290,6 +290,37 @@ class UpdateScraperFollowRequest(BaseModel):
     )
 
 
+# ==================== 调度配置管理 API 模型 ====================
+
+
+class UpdateScheduleIntervalRequest(BaseModel):
+    """更新抓取间隔请求模型。"""
+
+    interval_seconds: int = Field(
+        ..., ge=300, le=604800,
+        description="抓取间隔（秒），300-604800",
+    )
+
+
+class UpdateScheduleNextRunRequest(BaseModel):
+    """更新下次触发时间请求模型。"""
+
+    next_run_time: datetime = Field(
+        ..., description="下次触发时间（ISO 8601，必须为未来时间）",
+    )
+
+
+class ScheduleConfigResponse(BaseModel):
+    """调度配置响应模型。"""
+
+    interval_seconds: int = Field(..., description="当前抓取间隔（秒）")
+    next_run_time: datetime | None = Field(None, description="下次触发时间")
+    scheduler_running: bool = Field(..., description="调度器是否运行中")
+    updated_at: datetime | None = Field(None, description="最后配置更新时间")
+    updated_by: str | None = Field(None, description="最后更新人")
+    message: str | None = Field(None, description="附加信息（如调度器未运行提示）")
+
+
 # ==================== 新闻流响应模型 ====================
 
 

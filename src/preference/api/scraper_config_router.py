@@ -18,6 +18,9 @@ from src.preference.api.schemas import (
     UpdateScraperFollowRequest,
     DeleteResponse,
     ErrorResponse,
+    ScheduleConfigResponse,
+    UpdateScheduleIntervalRequest,
+    UpdateScheduleNextRunRequest,
 )
 from src.preference.infrastructure.scraper_config_repository import (
     ScraperConfigRepository,
@@ -268,6 +271,103 @@ async def delete_scraper_follow(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="删除抓取账号失败"
+        ) from e
+
+
+# ==================== 调度配置管理端点 ====================
+
+
+async def _get_schedule_service(
+    session: AsyncSession = Depends(get_async_session),
+):
+    """获取 ScraperScheduleService 实例。"""
+    from src.preference.infrastructure.schedule_repository import ScraperScheduleRepository
+    from src.preference.services.schedule_service import ScraperScheduleService
+
+    repository = ScraperScheduleRepository(session)
+    return ScraperScheduleService(repository)
+
+
+@router.get(
+    "/schedule",
+    response_model=ScheduleConfigResponse,
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {"model": ErrorResponse},
+        status.HTTP_403_FORBIDDEN: {"model": ErrorResponse},
+    },
+)
+async def get_schedule_config(
+    service=Depends(_get_schedule_service),
+    admin: UserDomain = Depends(get_current_admin_user),
+) -> ScheduleConfigResponse:
+    """查看当前调度配置。"""
+    try:
+        return await service.get_schedule_config()
+    except Exception as e:
+        logger.error(f"获取调度配置失败: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="获取调度配置失败",
+        ) from e
+
+
+@router.put(
+    "/schedule/interval",
+    response_model=ScheduleConfigResponse,
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {"model": ErrorResponse},
+        status.HTTP_403_FORBIDDEN: {"model": ErrorResponse},
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {"model": ErrorResponse},
+    },
+)
+async def update_schedule_interval(
+    request: UpdateScheduleIntervalRequest,
+    service=Depends(_get_schedule_service),
+    admin: UserDomain = Depends(get_current_admin_user),
+) -> ScheduleConfigResponse:
+    """更新抓取间隔。"""
+    try:
+        return await service.update_interval(
+            interval_seconds=request.interval_seconds,
+            updated_by=admin.name,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"更新调度间隔失败: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="调度器操作失败",
+        ) from e
+
+
+@router.put(
+    "/schedule/next-run",
+    response_model=ScheduleConfigResponse,
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {"model": ErrorResponse},
+        status.HTTP_403_FORBIDDEN: {"model": ErrorResponse},
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {"model": ErrorResponse},
+    },
+)
+async def update_schedule_next_run(
+    request: UpdateScheduleNextRunRequest,
+    service=Depends(_get_schedule_service),
+    admin: UserDomain = Depends(get_current_admin_user),
+) -> ScheduleConfigResponse:
+    """设置下次触发时间。"""
+    try:
+        return await service.update_next_run_time(
+            next_run_time=request.next_run_time,
+            updated_by=admin.name,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"设置下次触发时间失败: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="调度器操作失败",
         ) from e
 
 

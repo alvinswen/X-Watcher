@@ -31,6 +31,27 @@ class SortType(str, Enum):
     PRIORITY = "priority"  # 按人物优先级排序
 
 
+class ScraperScheduleConfig(BaseModel):
+    """调度配置领域模型。"""
+
+    id: int
+    interval_seconds: int
+    next_run_time: datetime | None
+    updated_at: datetime
+    updated_by: str
+
+    @classmethod
+    def from_orm(cls, orm_obj) -> "ScraperScheduleConfig":
+        """从 ORM 模型转换为领域模型。"""
+        return cls(
+            id=orm_obj.id,
+            interval_seconds=orm_obj.interval_seconds,
+            next_run_time=orm_obj.next_run_time,
+            updated_at=orm_obj.updated_at,
+            updated_by=orm_obj.updated_by,
+        )
+
+
 class ScraperFollow(BaseModel):
     """抓取账号领域模型。
 
