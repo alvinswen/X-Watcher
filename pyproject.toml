@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "x-watcher"
 version = "0.1.0"
-description = "X 平台智能信息监控助理 - 面向科技公司高管的个性化信息流"
+description = "面向 Agent 的 X 平台智能信息监控服务"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}

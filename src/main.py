@@ -2,6 +2,7 @@
 
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI
@@ -17,12 +18,49 @@ logger = logging.getLogger(__name__)
 # 全局调度器实例
 _scheduler: BackgroundScheduler | None = None
 
+# 上次定时抓取完成时间（模块级变量，用于日志追踪）
+_last_scrape_time: datetime | None = None
+
+
+def _get_active_follows_from_db() -> list[str]:
+    """从数据库获取活跃关注账号列表。
+
+    优先从 ScraperFollow 表读取活跃账号，用于定时抓取。
+    如果查询失败，返回空列表（由调用方降级到环境变量）。
+
+    Returns:
+        list[str]: 活跃关注账号的用户名列表
+    """
+    try:
+        import asyncio
+
+        from src.database.async_session import get_async_session_maker
+        from src.preference.infrastructure.scraper_config_repository import (
+            ScraperConfigRepository,
+        )
+
+        async def _fetch():
+            session_maker = get_async_session_maker()
+            async with session_maker() as session:
+                repo = ScraperConfigRepository(session)
+                follows = await repo.get_all_follows(include_inactive=False)
+                return [f.username for f in follows]
+
+        return asyncio.run(_fetch())
+    except Exception as e:
+        logger.warning(f"从数据库获取关注列表失败，将使用环境变量: {e}")
+        return []
+
 
 def _scheduled_scrape_job():
     """定时抓取任务。
 
     由 APScheduler 定期调用，执行推文抓取。
+    优先从数据库 ScraperFollow 表读取关注列表，
+    如果数据库中没有数据，降级到环境变量 SCRAPER_USERNAMES。
     """
+    global _last_scrape_time
+
     settings = get_settings()
 
     # 检查是否启用抓取
@@ -30,18 +68,29 @@ def _scheduled_scrape_job():
         logger.debug("抓取器已禁用，跳过定时任务")
         return
 
-    # 解析用户名列表
-    usernames = [
-        u.strip()
-        for u in settings.scraper_usernames.split(",")
-        if u.strip()
-    ]
+    # 1. 优先从数据库获取活跃关注列表
+    usernames = _get_active_follows_from_db()
+
+    # 2. 降级：如果数据库无数据，使用环境变量
+    if not usernames:
+        usernames = [
+            u.strip()
+            for u in settings.scraper_usernames.split(",")
+            if u.strip()
+        ]
+        if usernames:
+            logger.info(f"数据库无关注列表，使用环境变量配置: {usernames}")
 
     if not usernames:
-        logger.warning("未配置关注用户列表，跳过定时任务")
+        logger.warning("未配置关注用户列表（数据库和环境变量均为空），跳过定时任务")
         return
 
-    logger.info(f"定时抓取任务开始，用户: {usernames}")
+    # 打印距上次抓取的时间间隔
+    if _last_scrape_time:
+        elapsed = datetime.now() - _last_scrape_time
+        logger.info(f"定时抓取任务开始，距上次抓取: {elapsed}，用户: {usernames}")
+    else:
+        logger.info(f"定时抓取任务开始（首次执行），用户: {usernames}")
 
     # 检查是否有相同的任务正在运行
     registry = TaskRegistry.get_instance()
@@ -61,7 +110,11 @@ def _scheduled_scrape_job():
                 limit=settings.scraper_limit,
             )
         )
-        logger.info(f"定时抓取任务完成: {task_id}")
+        _last_scrape_time = datetime.now()
+        logger.info(
+            f"定时抓取任务完成: {task_id}，"
+            f"下次执行: {settings.scraper_interval} 秒后"
+        )
     except Exception as e:
         logger.exception(f"定时抓取任务失败: {e}")
 
@@ -84,7 +137,7 @@ async def lifespan(app: FastAPI):  # noqa: ARG001 - app 参数是 FastAPI 要求
     if settings.scraper_enabled:
         _scheduler = BackgroundScheduler(timezone="Asia/Shanghai")
 
-        # 添加定时任务
+        # 添加定时任务（启动时立即执行首次抓取）
         _scheduler.add_job(
             _scheduled_scrape_job,
             "interval",
@@ -93,6 +146,7 @@ async def lifespan(app: FastAPI):  # noqa: ARG001 - app 参数是 FastAPI 要求
             name="定时抓取推文",
             max_instances=1,  # 防止任务重复执行
             replace_existing=True,
+            next_run_time=datetime.now(),  # 启动后立即执行第一次
         )
 
         _scheduler.start()
@@ -111,7 +165,7 @@ async def lifespan(app: FastAPI):  # noqa: ARG001 - app 参数是 FastAPI 要求
 # 创建 FastAPI 应用
 app = FastAPI(
     title="X-watcher",
-    description="X 平台智能信息监控助理 - 面向科技公司高管的个性化信息流",
+    description="面向 Agent 的 X 平台智能信息监控服务",
     version="0.1.0",
     lifespan=lifespan,
 )

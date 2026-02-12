@@ -48,7 +48,7 @@ class Settings(BaseSettings):
         default=True, description="是否启用定时抓取"
     )
     scraper_interval: int = Field(
-        default=3600, description="抓取间隔（秒），默认 1 小时"
+        default=43200, description="抓取间隔（秒），默认 12 小时"
     )
     scraper_usernames: str = Field(
         default="", description="关注用户列表（逗号分隔）"
