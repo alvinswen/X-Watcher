@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.config import clear_settings_cache
+from src.database.models import Base
 from src.main import app
 from src.scraper import TaskRegistry
 from src.summarization.domain.models import (
@@ -18,6 +19,7 @@ from src.summarization.domain.models import (
     SummaryRecord,
 )
 from src.summarization.infrastructure.models import SummaryOrm
+from tests.conftest import TestSessionLocal, test_engine
 
 
 @pytest.fixture(autouse=True)
@@ -32,15 +34,38 @@ def reset_task_registry():
 @pytest.fixture(autouse=True)
 def setup_test_env():
     """设置测试环境变量。"""
-    # 设置 LLM API 密钥
     os.environ["OPENROUTER_API_KEY"] = "test-openrouter-key"
     os.environ["MINIMAX_API_KEY"] = "test-minimax-key"
+    os.environ["SCRAPER_ENABLED"] = "false"
+    clear_settings_cache()
 
     yield
 
-    # 清理环境变量
     os.environ.pop("OPENROUTER_API_KEY", None)
     os.environ.pop("MINIMAX_API_KEY", None)
+    os.environ.pop("SCRAPER_ENABLED", None)
+    clear_settings_cache()
+
+
+@pytest.fixture(scope="class")
+def db_session():
+    """Class-scoped 数据库会话，同一 class 内共享。"""
+    Base.metadata.create_all(bind=test_engine)
+    session = TestSessionLocal()
+    try:
+        yield session
+    finally:
+        session.close()
+        Base.metadata.drop_all(bind=test_engine)
+
+
+@pytest.fixture(scope="class")
+def client(db_session):
+    """Class-scoped TestClient，同一 class 内共享。"""
+    os.environ["SCRAPER_ENABLED"] = "false"
+    clear_settings_cache()
+    with TestClient(app) as test_client:
+        yield test_client
     clear_settings_cache()
 
 
@@ -154,7 +179,7 @@ class TestBatchSummaryEndpoint:
 class TestGetTweetSummaryEndpoint:
     """测试查询单条推文摘要端点。"""
 
-    def test_get_existing_summary_returns_data(
+    async def test_get_existing_summary_returns_data(
         self,
         client: TestClient,
         async_session,
@@ -164,10 +189,7 @@ class TestGetTweetSummaryEndpoint:
         # 创建摘要记录
         orm_record = SummaryOrm.from_domain(sample_summary_record)
         async_session.add(orm_record)
-        # 注意：此处在同步上下文中调用异步 commit，会触发警告但不影响功能
-        # 更好的方式是在 fixture 中预先创建数据
-        import asyncio
-        asyncio.run(async_session.commit())
+        await async_session.commit()
 
         # 模拟 get_async_session_maker 返回测试会话
         with patch(
