@@ -201,6 +201,8 @@ class PromptConfig(BaseModel):
         tweet_text: str,
         tweet_type: "TweetType",
         is_short: bool,
+        author_username: str | None = None,
+        original_author: str | None = None,
     ) -> str:
         """格式化统一的摘要+翻译 Prompt。
 
@@ -210,10 +212,16 @@ class PromptConfig(BaseModel):
             tweet_text: 推文文本
             tweet_type: 推文类型
             is_short: 是否为短推文（仅翻译不摘要）
+            author_username: 发布推文的用户名（如 elonmusk）
+            original_author: 被转推/引用的原作者用户名（如 Handrev）
 
         Returns:
             格式化后的 Prompt
         """
+        # 构建作者上下文描述
+        author_tag = f"@{author_username}" if author_username else "用户"
+        original_tag = f"@{original_author}" if original_author else "他人"
+
         # 根据推文类型生成摘要指令
         if is_short:
             summary_instruction = (
@@ -222,24 +230,59 @@ class PromptConfig(BaseModel):
             )
         elif tweet_type == TweetType.retweeted:
             summary_instruction = (
-                "这是一条转载推文（转推）。"
-                "请生成简洁的中文摘要，格式为：「转载推文：（原推内容摘要）」"
+                f"这是 {author_tag} 转推了 {original_tag} 的推文。\n"
+                f"请生成简洁的中文摘要（50-150字），格式为：\n"
+                f"「{author_tag} 转推 {original_tag}：（原推内容摘要）」\n"
+                f"摘要应概括原推的核心内容，保留关键实体（人名、公司名、产品名等）。"
             )
         elif tweet_type == TweetType.quoted:
             summary_instruction = (
-                "这是一条引用推文，用户引用了别人的推文并附带了自己的评论。"
-                "请生成简洁的中文摘要，格式为：「引用推文，并发表观点：（概括用户的评论和观点）」"
+                f"这是 {author_tag} 引用了 {original_tag} 的推文并附带了自己的评论。\n"
+                f"推文内容中 [引用原文] 之前是 {author_tag} 的评论，之后是被引用的原文。\n"
+                f"请生成简洁的中文摘要（50-150字），要求：\n"
+                f"1. 摘要必须同时涵盖引用原文的核心内容和 {author_tag} 的态度/观点\n"
+                f"2. 格式为：「{author_tag} 引用 {original_tag}：（先概括引用原文核心内容），"
+                f"并评论：（概括用户的态度或观点）」\n"
+                f"3. 即使用户评论很短（如表情符号、一个词），也要从中推断其态度"
+                f"（如赞同、质疑、嘲讽、惊讶等），并结合引用原文给出有意义的摘要。"
             )
         elif tweet_type == TweetType.replied_to:
             summary_instruction = (
-                "这是一条回复推文，用户对某条推文发表了回复。"
-                "请生成简洁的中文摘要，格式为：「回复推文，并发表观点：（概括回复的核心观点）」"
+                f"这是 {author_tag} 对某条推文的回复。\n"
+                f"请生成简洁的中文摘要，格式为：\n"
+                f"「{author_tag} 回复：（概括回复的核心观点）」"
             )
         else:
             summary_instruction = (
-                "这是一条原创推文。"
+                f"这是 {author_tag} 的原创推文。\n"
                 "请提取关键信息，生成简洁的中文摘要（50-150字）。"
                 "保留人名、公司名、产品名等关键实体。"
+            )
+
+        # 根据推文类型生成翻译指令
+        if tweet_type == TweetType.retweeted:
+            translation_instruction = (
+                f"将原文翻译为流畅的中文，并在翻译开头加上"
+                f"「【{author_tag} 转推 {original_tag}】」前缀：\n"
+                "- 保持原文的语气和情感倾向\n"
+                "- 技术术语和专有名词保留原文或提供中英文对照\n"
+                "- URL 链接保持不变，不翻译"
+            )
+        elif tweet_type == TweetType.quoted:
+            translation_instruction = (
+                f"将原文翻译为流畅的中文，并在翻译开头加上"
+                f"「【{author_tag} 引用 {original_tag}】」前缀：\n"
+                "- 保持原文的语气和情感倾向\n"
+                "- 技术术语和专有名词保留原文或提供中英文对照\n"
+                "- URL 链接保持不变，不翻译\n"
+                "- [引用原文] 标记翻译为「引用原文：」"
+            )
+        else:
+            translation_instruction = (
+                "将原文翻译为流畅的中文：\n"
+                "- 保持原文的语气和情感倾向\n"
+                "- 技术术语和专有名词保留原文或提供中英文对照\n"
+                "- URL 链接保持不变，不翻译"
             )
 
         return f"""请分析以下推文并同时完成摘要和翻译任务。
@@ -251,10 +294,7 @@ class PromptConfig(BaseModel):
 {summary_instruction}
 
 ## 翻译要求
-将原文翻译为流畅的中文：
-- 保持原文的语气和情感倾向
-- 技术术语和专有名词保留原文或提供中英文对照
-- URL 链接保持不变，不翻译
+{translation_instruction}
 
 ## 输出格式
 严格返回以下 JSON 格式，不要添加任何 markdown 标记或其他内容：

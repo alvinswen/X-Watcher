@@ -330,9 +330,10 @@ class TwitterClient:
                                 retweeted_tweet_obj = tweet.get("retweeted_tweet")
                                 quoted_tweet_obj = tweet.get("quoted_tweet")
 
-                                # 被引用推文的完整文本和媒体
+                                # 被引用推文的完整文本、媒体和原作者
                                 referenced_tweet_text = None
                                 referenced_tweet_media = None
+                                referenced_tweet_author_username = None
 
                                 if isinstance(retweeted_tweet_obj, dict) and retweeted_tweet_obj.get("id"):
                                     referenced_tweets.append({
@@ -343,6 +344,10 @@ class TwitterClient:
                                     referenced_tweet_text = retweeted_tweet_obj.get("text")
                                     # 提取原推的媒体
                                     referenced_tweet_media = _extract_media_from_tweet_obj(retweeted_tweet_obj)
+                                    # 提取原推的作者用户名
+                                    rt_author = retweeted_tweet_obj.get("author")
+                                    if isinstance(rt_author, dict):
+                                        referenced_tweet_author_username = rt_author.get("userName")
                                 elif isinstance(quoted_tweet_obj, dict) and quoted_tweet_obj.get("id"):
                                     referenced_tweets.append({
                                         "type": "quoted",
@@ -352,6 +357,10 @@ class TwitterClient:
                                     referenced_tweet_text = quoted_tweet_obj.get("text")
                                     # 提取被引用推文的媒体
                                     referenced_tweet_media = _extract_media_from_tweet_obj(quoted_tweet_obj)
+                                    # 提取被引用推文的作者用户名
+                                    qt_author = quoted_tweet_obj.get("author")
+                                    if isinstance(qt_author, dict):
+                                        referenced_tweet_author_username = qt_author.get("userName")
                                 elif tweet.get("isReply") and tweet.get("inReplyToId"):
                                     referenced_tweets.append({
                                         "type": "replied_to",
@@ -369,6 +378,8 @@ class TwitterClient:
                                     standard_tweet["referenced_tweet_text"] = referenced_tweet_text
                                 if referenced_tweet_media:
                                     standard_tweet["referenced_tweet_media"] = referenced_tweet_media
+                                if referenced_tweet_author_username:
+                                    standard_tweet["referenced_tweet_author_username"] = referenced_tweet_author_username
 
                                 # 提取主推文的媒体
                                 main_media = _extract_media_from_tweet_obj(tweet)

@@ -62,6 +62,9 @@ class TweetOrm(Base):
     referenced_tweet_media: Mapped[dict | None] = mapped_column(
         JSON, comment="被引用/转发推文的媒体附件 JSON"
     )
+    referenced_tweet_author_username: Mapped[str | None] = mapped_column(
+        String(255), comment="被引用/转发推文的原作者用户名"
+    )
     deduplication_group_id: Mapped[str | None] = mapped_column(
         ForeignKey("deduplication_groups.group_id", ondelete="SET NULL"),
         comment="关联的去重组 ID",
@@ -133,6 +136,7 @@ class TweetOrm(Base):
             media=media_list,
             referenced_tweet_text=self.referenced_tweet_text,
             referenced_tweet_media=referenced_tweet_media_list,
+            referenced_tweet_author_username=self.referenced_tweet_author_username,
         )
 
     @classmethod
@@ -167,6 +171,7 @@ class TweetOrm(Base):
             media=media_dict,
             referenced_tweet_text=tweet.referenced_tweet_text,
             referenced_tweet_media=referenced_tweet_media_dict,
+            referenced_tweet_author_username=tweet.referenced_tweet_author_username,
         )
 
 

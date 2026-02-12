@@ -265,7 +265,7 @@ class SummarizationService:
             tweet_ids: 推文 ID 列表
 
         Returns:
-            推文 ID 到 {"text": ..., "reference_type": ...} 的映射字典
+            推文 ID 到 {"text": ..., "reference_type": ..., ...} 的映射字典
         """
         from sqlalchemy import select
         from src.scraper.infrastructure.models import TweetOrm
@@ -279,6 +279,8 @@ class SummarizationService:
                 "text": tweet.text,
                 "reference_type": tweet.reference_type,
                 "referenced_tweet_text": tweet.referenced_tweet_text,
+                "author_username": tweet.author_username,
+                "referenced_tweet_author_username": tweet.referenced_tweet_author_username,
             }
             for tweet in orm_tweets
         }
@@ -344,6 +346,25 @@ class SummarizationService:
                 results.append(result)
 
         return results
+
+    @staticmethod
+    def _extract_original_author(text: str, tweet_type: TweetType) -> str | None:
+        """从推文文本中提取被转推/引用的原作者用户名。
+
+        对于转推，从 "RT @username: ..." 格式中提取。
+
+        Args:
+            text: 推文文本
+            tweet_type: 推文类型
+
+        Returns:
+            原作者用户名或 None
+        """
+        if tweet_type == TweetType.retweeted:
+            match = re.match(r"RT @(\w+):", text)
+            if match:
+                return match.group(1)
+        return None
 
     @staticmethod
     def _determine_tweet_type(reference_type: str | None) -> TweetType:
@@ -415,9 +436,16 @@ class SummarizationService:
             representative_text = tweet_data.get("text") or ""
             reference_type = tweet_data.get("reference_type")
             referenced_tweet_text = tweet_data.get("referenced_tweet_text")
+            author_username = tweet_data.get("author_username")
 
             # 判断推文类型
             tweet_type = self._determine_tweet_type(reference_type)
+
+            # 提取原作者：优先使用数据库存储的原作者，fallback 到正则提取
+            original_author = (
+                tweet_data.get("referenced_tweet_author_username")
+                or self._extract_original_author(representative_text, tweet_type)
+            )
 
             # 用完整的被引用推文内容增强摘要输入
             if referenced_tweet_text:
@@ -455,6 +483,8 @@ class SummarizationService:
                 representative_text,
                 tweet_type=tweet_type,
                 is_short=is_short,
+                author_username=author_username,
+                original_author=original_author,
             )
 
             if isinstance(result, Failure):
@@ -561,9 +591,16 @@ class SummarizationService:
             tweet_text = tweet_data.get("text") or ""
             reference_type = tweet_data.get("reference_type")
             referenced_tweet_text = tweet_data.get("referenced_tweet_text")
+            author_username = tweet_data.get("author_username")
 
             # 判断推文类型
             tweet_type = self._determine_tweet_type(reference_type)
+
+            # 提取原作者：优先使用数据库存储的原作者，fallback 到正则提取
+            original_author = (
+                tweet_data.get("referenced_tweet_author_username")
+                or self._extract_original_author(tweet_text, tweet_type)
+            )
 
             # 用完整的被引用推文内容增强摘要输入
             if referenced_tweet_text:
@@ -598,6 +635,8 @@ class SummarizationService:
                 tweet_text,
                 tweet_type=tweet_type,
                 is_short=is_short,
+                author_username=author_username,
+                original_author=original_author,
             )
 
             if isinstance(result, Failure):
@@ -659,6 +698,8 @@ class SummarizationService:
         tweet_text: str,
         tweet_type: TweetType = TweetType.original,
         is_short: bool = False,
+        author_username: str | None = None,
+        original_author: str | None = None,
     ) -> Result[LLMResponse, Exception]:
         """调用 LLM 并实现降级策略。
 
@@ -671,6 +712,8 @@ class SummarizationService:
             tweet_text: 推文文本内容
             tweet_type: 推文类型
             is_short: 是否为短推文（仅翻译不摘要）
+            author_username: 发布推文的用户名
+            original_author: 被转推/引用的原作者用户名
 
         Returns:
             Result[LLMResponse, Exception]: LLM 响应或错误
@@ -681,7 +724,9 @@ class SummarizationService:
             try:
                 # 生成统一的摘要+翻译 Prompt
                 prompt = self._prompt_config.format_unified_prompt(
-                    tweet_text, tweet_type, is_short
+                    tweet_text, tweet_type, is_short,
+                    author_username=author_username,
+                    original_author=original_author,
                 )
 
                 # 尝试调用

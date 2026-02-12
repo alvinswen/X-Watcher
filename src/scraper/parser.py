@@ -118,8 +118,9 @@ class TweetParser:
         if media_keys:
             media = self._parse_media(media_keys, media_map)
 
-        # 解析被引用推文的完整文本和媒体
+        # 解析被引用推文的完整文本、媒体和原作者
         referenced_tweet_text = tweet_data.get("referenced_tweet_text")
+        referenced_tweet_author_username = tweet_data.get("referenced_tweet_author_username")
 
         referenced_tweet_media = None
         ref_media_data = tweet_data.get("referenced_tweet_media")
@@ -161,6 +162,7 @@ class TweetParser:
             media=media if media else None,
             referenced_tweet_text=referenced_tweet_text,
             referenced_tweet_media=referenced_tweet_media,
+            referenced_tweet_author_username=referenced_tweet_author_username,
         )
 
     def _parse_media(

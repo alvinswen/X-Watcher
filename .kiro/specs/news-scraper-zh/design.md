@@ -211,7 +211,7 @@ sequenceDiagram
 - 实现 Bearer Token 认证
 - 实现指数退避重试策略
 - 处理 API 错误（401, 429, 5xx）
-- 在标准化 API 响应时，从嵌套的 `retweeted_tweet` 或 `quoted_tweet` 对象中提取 `referenced_tweet_text` 和 `referenced_tweet_media`
+- 在标准化 API 响应时，从嵌套的 `retweeted_tweet` 或 `quoted_tweet` 对象中提取 `referenced_tweet_text`、`referenced_tweet_media` 和 `referenced_tweet_author_username`（原作者用户名）
 - 提供 `_extract_media_from_tweet_obj()` 辅助函数从推文对象中提取媒体附件列表
 - 不包含业务逻辑，仅负责 HTTP 调用和响应标准化
 
@@ -644,6 +644,7 @@ erDiagram
         list[Media] media
         string referenced_tweet_text
         list[Media] referenced_tweet_media
+        string referenced_tweet_author_username
     }
     ReferenceType {
         string type
@@ -710,6 +711,7 @@ CREATE TABLE tweets (
     media JSON,
     referenced_tweet_text TEXT,
     referenced_tweet_media JSON,
+    referenced_tweet_author_username VARCHAR(255),
     db_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     db_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     -- 注：referenced_tweet_id 不设外键约束，因为被引用推文大概率不在本库中，
@@ -826,6 +828,7 @@ class Tweet(BaseModel):
     media: Optional[list[Media]] = None
     referenced_tweet_text: Optional[str] = None
     referenced_tweet_media: Optional[list[Media]] = None
+    referenced_tweet_author_username: Optional[str] = None
 
     class Config:
         json_encoders = {

@@ -32,9 +32,9 @@ news-scraper 是 X-watcher 系统的核心数据采集组件，负责从 X（Twi
    - 引用/转发关系（引用推文 ID、转发源推文 ID）
 2. **The** 数据解析 **shall** 兼容 X 平台 API v2 响应格式
 3. **If** 推文包含媒体附件，**the** **parser** **shall** 提取媒体 URL 和类型
-4. **If** 推文为引用推文，**the** **parser** **shall** 保留被引用推文的 ID，并提取被引用推文的完整文本（`referenced_tweet_text`）和媒体附件（`referenced_tweet_media`）
+4. **If** 推文为引用或转发推文，**the** **parser** **shall** 保留被引用推文的 ID，并提取被引用推文的完整文本（`referenced_tweet_text`）、媒体附件（`referenced_tweet_media`）和原作者用户名（`referenced_tweet_author_username`）
 5. **The** 解析后的数据 **shall** 符合预定义的 Pydantic 模型结构
-6. **When** 推文为转发或引用，**the** client **shall** 从 TwitterAPI.io 响应的嵌套 `retweeted_tweet` 或 `quoted_tweet` 对象中提取完整文本和媒体，在传递给 parser 之前完成预处理
+6. **When** 推文为转发或引用，**the** client **shall** 从 TwitterAPI.io 响应的嵌套 `retweeted_tweet` 或 `quoted_tweet` 对象中提取完整文本、媒体和原作者用户名（`referenced_tweet_author_username`），在传递给 parser 之前完成预处理
 
 ### Requirement 3: 数据持久化存储
 **目标**：作为系统，我需要将抓取的推文持久化存储，以便后续处理和检索。

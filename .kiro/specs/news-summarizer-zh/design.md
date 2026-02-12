@@ -661,9 +661,11 @@ class LLMProviderConfig(BaseModel):
 | Owner / Reviewers | Backend Team |
 
 **Responsibilities & Constraints**
-- 定义摘要和翻译的 Prompt 模板
-- 支持变量替换
-- 提供默认模板
+- 定义摘要和翻译的统一 Prompt 模板
+- 根据推文类型（original/retweeted/quoted/replied_to）生成不同风格的 prompt
+- 支持作者上下文：在 RT/QT 摘要和翻译中体现"谁转推/引用了谁"
+- 使用 `referenced_tweet_author_username` 标识原作者，fallback 到正则提取或"他人"
+- 提供默认模板，支持变量替换
 
 **Dependencies**
 - Inbound: SummarizationService — 读取模板 (Critical)
@@ -679,30 +681,34 @@ class LLMProviderConfig(BaseModel):
 
 ```python
 class PromptConfig(BaseModel):
-    summary_prompt: str = """请提取以下推文的关键信息，生成 50-150 字的中文摘要。
-要求：
-- 保留人名、公司名、产品名等关键实体
-- 如果推文包含链接，请在摘要中标注"详情见链接"
-- 摘要应简洁明了，突出核心信息
+    # 旧版 prompt（向后兼容，核心逻辑已改用 format_unified_prompt）
+    summary_prompt: str = "..."
+    translation_prompt: str = "..."
 
-推文内容：{tweet_text}
-"""
+    def format_summary(self, tweet_text: str, ...) -> str: ...
+    def format_translation(self, tweet_text: str) -> str: ...
 
-    translation_prompt: str = """请将以下英文推文翻译为中文。
-要求：
-- 保持原文的语气和情感倾向
-- 技术术语和专有名词保留原文或提供中英文对照
-- URL 链接保持不变，不翻译
-- 翻译应自然流畅，符合中文表达习惯
+    def format_unified_prompt(
+        self,
+        tweet_text: str,
+        tweet_type: TweetType,
+        is_short: bool,
+        author_username: str | None = None,
+        original_author: str | None = None,
+    ) -> str:
+        """统一的摘要+翻译 Prompt，要求 LLM 返回 JSON {"summary": ..., "translation": ...}。
 
-推文内容：{tweet_text}
-"""
+        根据 tweet_type 生成不同风格：
+        - retweeted: 「@author 转推 @original：（原推内容摘要）」
+        - quoted: 「@author 引用 @original：（原文核心），并评论：（态度/观点）」
+        - replied_to: 「@author 回复：（核心观点）」
+        - original: 标准摘要
 
-    def format_summary(self, tweet_text: str) -> str:
-        return self.summary_prompt.format(tweet_text=tweet_text)
-
-    def format_translation(self, tweet_text: str) -> str:
-        return self.translation_prompt.format(tweet_text=tweet_text)
+        翻译前缀：
+        - retweeted: 【@author 转推 @original】
+        - quoted: 【@author 引用 @original】
+        - 其他: 无前缀
+        """
 ```
 
 ### API Layer

@@ -51,6 +51,7 @@ class Tweet(BaseModel):
     media: list[Media] | None = Field(None, description="媒体附件列表")
     referenced_tweet_text: str | None = Field(None, description="被引用/转发推文的完整文本")
     referenced_tweet_media: list[Media] | None = Field(None, description="被引用/转发推文的媒体附件")
+    referenced_tweet_author_username: str | None = Field(None, description="被引用/转发推文的原作者用户名")
 
     model_config = ConfigDict(
         json_encoders={
