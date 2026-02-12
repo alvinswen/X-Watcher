@@ -136,6 +136,9 @@ AUTO_SUMMARIZATION_BATCH_SIZE=10    # 批量摘要大小
 # Feed
 FEED_MAX_TWEETS=200                 # Feed 返回最大推文数
 
+# 抓取调度
+SCRAPER_INTERVAL=43200              # 默认抓取间隔（秒），可通过管理 API 运行时覆盖
+
 # 抓取优化
 SCRAPER_MIN_LIMIT=10                # 动态 limit 最小值
 SCRAPER_MAX_LIMIT=300               # 动态 limit 最大值

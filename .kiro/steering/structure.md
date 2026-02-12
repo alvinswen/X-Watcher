@@ -73,17 +73,19 @@ src/
 │   │   └── validators.py    # 验证逻辑
 │   ├── infrastructure/
 │   │   ├── preference_repository.py
-│   │   └── scraper_config_repository.py
+│   │   ├── scraper_config_repository.py
+│   │   └── schedule_repository.py   # 调度配置仓库（singleton 单行模式）
 │   ├── services/
 │   │   ├── preference_service.py
 │   │   ├── relevance_service.py
-│   │   └── scraper_config_service.py
+│   │   ├── scraper_config_service.py
+│   │   └── schedule_service.py      # 调度配置业务服务
 │   └── api/
 │       ├── routes.py        # 路由导出
 │       ├── auth.py          # API Key 认证
 │       ├── schemas.py       # 请求/响应模型
 │       ├── preference_router.py   # 用户偏好 API
-│       └── scraper_config_router.py  # 管理员抓取配置 + 公共只读 API
+│       └── scraper_config_router.py  # 管理员抓取配置 + 调度管理 + 公共只读 API
 ├── user/                    # 用户管理与认证模块
 │   ├── api/
 │   │   ├── auth.py          # JWT + API Key 统一认证依赖
@@ -109,9 +111,10 @@ src/
 │   ├── middleware.py         # 中间件
 │   └── routes.py            # /metrics 端点
 ├── database/                # 数据库层
-│   ├── models.py            # SQLAlchemy 基础模型（User, Preference 等）
+│   ├── models.py            # SQLAlchemy 基础模型（User, Preference, ScraperScheduleConfig 等）
 │   └── async_session.py     # 异步会话管理
 ├── web/                     # 前端 SPA（Vue 3 + Element Plus）
+├── scheduler_accessor.py    # 调度器全局引用管理（解耦 Service 与 APScheduler）
 ├── config.py                # 全局配置（Pydantic Settings）
 └── main.py                  # FastAPI 应用入口
 ```
@@ -126,7 +129,7 @@ tests/
 ├── scraper/            # 抓取模块测试
 ├── deduplication/      # 去重模块测试
 ├── summarization/      # 摘要模块测试
-├── preference/         # 偏好模块测试（含公共只读端点测试）
+├── preference/         # 偏好模块测试（含调度配置、公共只读端点测试）
 ├── user/               # 用户认证测试
 ├── feed/               # Feed API 测试
 ├── api/                # API 端点测试
