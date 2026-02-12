@@ -118,6 +118,28 @@ class TweetParser:
         if media_keys:
             media = self._parse_media(media_keys, media_map)
 
+        # 解析被引用推文的完整文本和媒体
+        referenced_tweet_text = tweet_data.get("referenced_tweet_text")
+
+        referenced_tweet_media = None
+        ref_media_data = tweet_data.get("referenced_tweet_media")
+        if ref_media_data and isinstance(ref_media_data, list):
+            referenced_tweet_media = [
+                Media(
+                    media_key=m.get("media_key", ""),
+                    type=m.get("type", "unknown"),
+                    url=m.get("url"),
+                    preview_image_url=m.get("preview_image_url"),
+                    width=m.get("width"),
+                    height=m.get("height"),
+                    alt_text=m.get("alt_text"),
+                )
+                for m in ref_media_data
+                if isinstance(m, dict)
+            ]
+            if not referenced_tweet_media:
+                referenced_tweet_media = None
+
         # 解析创建时间
         created_at_str = tweet_data.get("created_at")
         if created_at_str:
@@ -137,6 +159,8 @@ class TweetParser:
             referenced_tweet_id=referenced_tweet_id,
             reference_type=reference_type,
             media=media if media else None,
+            referenced_tweet_text=referenced_tweet_text,
+            referenced_tweet_media=referenced_tweet_media,
         )
 
     def _parse_media(

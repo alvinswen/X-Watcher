@@ -56,6 +56,12 @@ class TweetOrm(Base):
         String(20), comment="引用类型：retweeted, quoted, replied_to"
     )
     media: Mapped[dict | None] = mapped_column(JSON, comment="媒体附件 JSON 数据")
+    referenced_tweet_text: Mapped[str | None] = mapped_column(
+        Text, comment="被引用/转发推文的完整文本"
+    )
+    referenced_tweet_media: Mapped[dict | None] = mapped_column(
+        JSON, comment="被引用/转发推文的媒体附件 JSON"
+    )
     deduplication_group_id: Mapped[str | None] = mapped_column(
         ForeignKey("deduplication_groups.group_id", ondelete="SET NULL"),
         comment="关联的去重组 ID",
@@ -103,6 +109,10 @@ class TweetOrm(Base):
         if self.media:
             media_list = [Media(**m) for m in self.media]
 
+        referenced_tweet_media_list = None
+        if self.referenced_tweet_media:
+            referenced_tweet_media_list = [Media(**m) for m in self.referenced_tweet_media]
+
         reference_type_enum = None
         if self.reference_type:
             reference_type_enum = ReferenceType(self.reference_type)
@@ -121,6 +131,8 @@ class TweetOrm(Base):
             referenced_tweet_id=self.referenced_tweet_id,
             reference_type=reference_type_enum,
             media=media_list,
+            referenced_tweet_text=self.referenced_tweet_text,
+            referenced_tweet_media=referenced_tweet_media_list,
         )
 
     @classmethod
@@ -137,6 +149,13 @@ class TweetOrm(Base):
         if tweet.media:
             media_dict = [m.model_dump(mode="json", exclude_none=True) for m in tweet.media]
 
+        referenced_tweet_media_dict = None
+        if tweet.referenced_tweet_media:
+            referenced_tweet_media_dict = [
+                m.model_dump(mode="json", exclude_none=True)
+                for m in tweet.referenced_tweet_media
+            ]
+
         return cls(
             tweet_id=tweet.tweet_id,
             text=tweet.text,
@@ -146,6 +165,8 @@ class TweetOrm(Base):
             referenced_tweet_id=tweet.referenced_tweet_id,
             reference_type=tweet.reference_type.value if tweet.reference_type else None,
             media=media_dict,
+            referenced_tweet_text=tweet.referenced_tweet_text,
+            referenced_tweet_media=referenced_tweet_media_dict,
         )
 
 

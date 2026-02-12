@@ -402,6 +402,8 @@ class TestTwitterClientReferenceTypeConversion:
         tweet = data["data"][0]
         assert "referenced_tweets" in tweet
         assert tweet["referenced_tweets"] == [{"type": "retweeted", "id": "222"}]
+        # 验证提取了原推的完整文本
+        assert tweet.get("referenced_tweet_text") == "original text"
 
     @pytest.mark.asyncio
     async def test_fetch_converts_quoted_tweet(self, client, mock_httpx_client):
@@ -431,6 +433,8 @@ class TestTwitterClientReferenceTypeConversion:
         tweet = data["data"][0]
         assert "referenced_tweets" in tweet
         assert tweet["referenced_tweets"] == [{"type": "quoted", "id": "444"}]
+        # 验证提取了被引用推文的完整文本
+        assert tweet.get("referenced_tweet_text") == "Some quoted content"
 
     @pytest.mark.asyncio
     async def test_fetch_converts_reply(self, client, mock_httpx_client):

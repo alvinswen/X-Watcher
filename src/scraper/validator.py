@@ -43,8 +43,8 @@ class TweetValidator:
     # 必需字段列表
     REQUIRED_FIELDS = ["tweet_id", "text", "created_at", "author_username"]
 
-    # 最大文本长度（X 平台限制）
-    MAX_TEXT_LENGTH = 280
+    # 最大文本长度（X Premium 支持最多 25000 字符）
+    MAX_TEXT_LENGTH = 25000
 
     def validate_and_clean(self, tweet: Tweet) -> Result[Tweet, ValidationError]:
         """验证并清理单条推文。
@@ -62,12 +62,17 @@ class TweetValidator:
 
         try:
             # 创建清理后的推文副本
-            cleaned = tweet.model_copy(
-                update={
-                    "text": self._clean_text(tweet.text),
-                    "created_at": self._standardize_datetime(tweet.created_at),
-                }
-            )
+            update_dict: dict = {
+                "text": self._clean_text(tweet.text),
+                "created_at": self._standardize_datetime(tweet.created_at),
+            }
+            # 清理被引用推文文本（如有）
+            if tweet.referenced_tweet_text:
+                update_dict["referenced_tweet_text"] = self._clean_text(
+                    tweet.referenced_tweet_text
+                )
+
+            cleaned = tweet.model_copy(update=update_dict)
 
             return Success(cleaned)
 

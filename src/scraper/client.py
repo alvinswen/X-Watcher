@@ -42,6 +42,84 @@ def _convert_twitterapi_date_to_iso(date_str: str | None) -> str | None:
         return date_str  # 返回原始字符串
 
 
+def _extract_media_from_tweet_obj(tweet_obj: dict) -> list[dict]:
+    """从 TwitterAPI.io 推文对象中提取媒体数据。
+
+    支持多种 TwitterAPI.io 媒体字段格式：
+    - tweet.media (直接媒体数组)
+    - tweet.extendedEntities.media (扩展实体中的媒体)
+
+    Args:
+        tweet_obj: TwitterAPI.io 推文对象
+
+    Returns:
+        list[dict]: 标准化的媒体字典列表，每个包含 media_key, type, url 等字段
+    """
+    if not isinstance(tweet_obj, dict):
+        return []
+
+    # 尝试多种路径获取媒体数组
+    media_list: list[dict] = []
+
+    # 路径 1: tweet.media (TwitterAPI.io 常见格式)
+    raw_media = tweet_obj.get("media")
+    if isinstance(raw_media, dict):
+        # 有时 media 是一个包含 photos/videos 等子键的字典
+        for key in ("photos", "videos", "all"):
+            items = raw_media.get(key)
+            if isinstance(items, list):
+                media_list.extend(items)
+        # 如果子键都不存在，可能是 {media_key: ...} 格式，跳过
+    elif isinstance(raw_media, list):
+        media_list.extend(raw_media)
+
+    # 路径 2: tweet.extendedEntities.media
+    if not media_list:
+        extended = tweet_obj.get("extendedEntities")
+        if isinstance(extended, dict):
+            ext_media = extended.get("media")
+            if isinstance(ext_media, list):
+                media_list.extend(ext_media)
+
+    if not media_list:
+        return []
+
+    result = []
+    for idx, m in enumerate(media_list):
+        if not isinstance(m, dict):
+            continue
+
+        # 提取 media_key：优先使用 media_key，其次 id_str，最后用索引生成
+        media_key = (
+            m.get("media_key")
+            or m.get("id_str")
+            or str(m.get("id", f"media_{idx}"))
+        )
+
+        # 提取 URL：优先 media_url_https，其次 url
+        url = m.get("media_url_https") or m.get("url")
+
+        # 提取尺寸
+        width = m.get("width")
+        height = m.get("height")
+        if width is None and isinstance(m.get("sizes"), dict):
+            large = m["sizes"].get("large", {})
+            width = large.get("w")
+            height = large.get("h")
+
+        result.append({
+            "media_key": str(media_key),
+            "type": m.get("type", "photo"),
+            "url": url,
+            "preview_image_url": m.get("preview_image_url"),
+            "width": width,
+            "height": height,
+            "alt_text": m.get("alt_text"),
+        })
+
+    return result
+
+
 class TwitterClientError(Exception):
     """Twitter API 客户端错误。
 
@@ -235,6 +313,7 @@ class TwitterClient:
                             # 转换 TwitterAPI.io 格式为标准 Twitter API v2 格式
                             tweets_data = []
                             users_map = {}
+                            all_media: list[dict] = []  # 收集所有媒体
 
                             for tweet in tweets_array:
                                 # 从 tweet 中提取基本信息
@@ -251,29 +330,52 @@ class TwitterClient:
                                 retweeted_tweet_obj = tweet.get("retweeted_tweet")
                                 quoted_tweet_obj = tweet.get("quoted_tweet")
 
+                                # 被引用推文的完整文本和媒体
+                                referenced_tweet_text = None
+                                referenced_tweet_media = None
+
                                 if isinstance(retweeted_tweet_obj, dict) and retweeted_tweet_obj.get("id"):
                                     referenced_tweets.append({
                                         "type": "retweeted",
                                         "id": str(retweeted_tweet_obj["id"]),
                                     })
+                                    # 提取原推的完整文本
+                                    referenced_tweet_text = retweeted_tweet_obj.get("text")
+                                    # 提取原推的媒体
+                                    referenced_tweet_media = _extract_media_from_tweet_obj(retweeted_tweet_obj)
                                 elif isinstance(quoted_tweet_obj, dict) and quoted_tweet_obj.get("id"):
                                     referenced_tweets.append({
                                         "type": "quoted",
                                         "id": str(quoted_tweet_obj["id"]),
                                     })
+                                    # 提取被引用推文的完整文本
+                                    referenced_tweet_text = quoted_tweet_obj.get("text")
+                                    # 提取被引用推文的媒体
+                                    referenced_tweet_media = _extract_media_from_tweet_obj(quoted_tweet_obj)
                                 elif tweet.get("isReply") and tweet.get("inReplyToId"):
                                     referenced_tweets.append({
                                         "type": "replied_to",
                                         "id": str(tweet["inReplyToId"]),
                                     })
 
-                                standard_tweet = {
+                                standard_tweet: dict[str, Any] = {
                                     "id": tweet_id,
                                     "text": tweet_text,
                                     "created_at": created_at_iso,
                                 }
                                 if referenced_tweets:
                                     standard_tweet["referenced_tweets"] = referenced_tweets
+                                if referenced_tweet_text:
+                                    standard_tweet["referenced_tweet_text"] = referenced_tweet_text
+                                if referenced_tweet_media:
+                                    standard_tweet["referenced_tweet_media"] = referenced_tweet_media
+
+                                # 提取主推文的媒体
+                                main_media = _extract_media_from_tweet_obj(tweet)
+                                if main_media:
+                                    media_keys = [m["media_key"] for m in main_media]
+                                    standard_tweet["attachments"] = {"media_keys": media_keys}
+                                    all_media.extend(main_media)
 
                                 # 提取 author 信息
                                 author_obj = tweet.get("author")
@@ -289,14 +391,17 @@ class TwitterClient:
                                 tweets_data.append(standard_tweet)
 
                             # 构造标准响应格式
-                            standard_response = {"data": tweets_data}
+                            standard_response: dict[str, Any] = {"data": tweets_data}
+                            includes: dict[str, Any] = {}
                             if users_map:
-                                standard_response["includes"] = {
-                                    "users": [
-                                        {"id": uid, "username": info["username"], "name": info["name"]}
-                                        for uid, info in users_map.items()
-                                    ]
-                                }
+                                includes["users"] = [
+                                    {"id": uid, "username": info["username"], "name": info["name"]}
+                                    for uid, info in users_map.items()
+                                ]
+                            if all_media:
+                                includes["media"] = all_media
+                            if includes:
+                                standard_response["includes"] = includes
 
                             logger.info(f"转换完成：{len(tweets_data)} 条推文")
                             logger.debug(f"第一条推文: {str(tweets_data[0]) if tweets_data else 'N/A'}")

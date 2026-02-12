@@ -42,13 +42,15 @@ class Tweet(BaseModel):
     """
 
     tweet_id: str = Field(..., description="推文唯一 ID")
-    text: str = Field(..., max_length=280, description="推文内容")
+    text: str = Field(..., description="推文内容")
     created_at: datetime = Field(..., description="推文创建时间")
     author_username: str = Field(..., description="作者用户名")
     author_display_name: str | None = Field(None, description="作者显示名称")
     referenced_tweet_id: str | None = Field(None, description="引用的推文 ID")
     reference_type: ReferenceType | None = Field(None, description="引用类型")
     media: list[Media] | None = Field(None, description="媒体附件列表")
+    referenced_tweet_text: str | None = Field(None, description="被引用/转发推文的完整文本")
+    referenced_tweet_media: list[Media] | None = Field(None, description="被引用/转发推文的媒体附件")
 
     model_config = ConfigDict(
         json_encoders={

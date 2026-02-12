@@ -94,6 +94,30 @@ def sample_tweet_with_reference() -> Tweet:
     )
 
 
+@pytest.fixture
+def sample_tweet_with_referenced_content() -> Tweet:
+    """创建带完整被引用推文内容的示例推文。"""
+    return Tweet(
+        tweet_id="2222333344",
+        text="RT @someone: truncated...",
+        created_at=datetime.now(timezone.utc),
+        author_username="testuser",
+        author_display_name="Test User",
+        referenced_tweet_id="9999888877",
+        reference_type=ReferenceType.retweeted,
+        referenced_tweet_text="This is the full original tweet text that was truncated in the RT preview.",
+        referenced_tweet_media=[
+            Media(
+                media_key="ref_media_1",
+                type="photo",
+                url="https://example.com/ref_image.jpg",
+                width=1024,
+                height=768,
+            )
+        ],
+    )
+
+
 class TestTweetRepository:
     """TweetRepository 测试类。"""
 
@@ -246,6 +270,39 @@ class TestTweetRepository:
         assert tweet is not None
         assert tweet.referenced_tweet_id == "1234567890"
         assert tweet.reference_type == "retweeted"
+
+    @pytest.mark.asyncio
+    async def test_save_tweet_with_referenced_content(
+        self, session: AsyncSession, sample_tweet_with_referenced_content: Tweet
+    ):
+        """测试保存并读取带被引用推文完整内容的推文。"""
+        from src.scraper.infrastructure.repository import TweetRepository
+
+        repo = TweetRepository(session)
+
+        result = await repo.save_tweets([sample_tweet_with_referenced_content])
+        assert result.success_count == 1
+
+        # 验证被引用推文文本和媒体
+        from sqlalchemy import select
+
+        stmt = TweetOrm.tweet_id == sample_tweet_with_referenced_content.tweet_id
+        orm_tweet = await session.execute(select(TweetOrm).where(stmt))
+        tweet = orm_tweet.scalar_one_or_none()
+
+        assert tweet is not None
+        assert tweet.referenced_tweet_text == "This is the full original tweet text that was truncated in the RT preview."
+        assert tweet.referenced_tweet_media is not None
+        assert len(tweet.referenced_tweet_media) == 1
+        assert tweet.referenced_tweet_media[0]["type"] == "photo"
+        assert tweet.referenced_tweet_media[0]["url"] == "https://example.com/ref_image.jpg"
+
+        # 验证 to_domain 也能正确转换
+        domain_tweet = tweet.to_domain()
+        assert domain_tweet.referenced_tweet_text == "This is the full original tweet text that was truncated in the RT preview."
+        assert domain_tweet.referenced_tweet_media is not None
+        assert len(domain_tweet.referenced_tweet_media) == 1
+        assert domain_tweet.referenced_tweet_media[0].type == "photo"
 
     @pytest.mark.asyncio
     async def test_tweet_exists(self, session: AsyncSession, sample_tweet: Tweet):

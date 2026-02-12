@@ -271,6 +271,93 @@ class TestTweetParser:
 
         assert len(tweets) == 0
 
+    def test_parse_tweet_with_referenced_tweet_text(self):
+        """测试解析带被引用推文完整文本的推文。"""
+        parser = TweetParser()
+
+        raw_data = {
+            "data": [
+                {
+                    "id": "1234567890",
+                    "text": "RT @someone: truncated...",
+                    "created_at": "2024-01-01T12:00:00.000Z",
+                    "author_id": "user123",
+                    "referenced_tweets": [
+                        {
+                            "type": "retweeted",
+                            "id": "9876543210",
+                        }
+                    ],
+                    "referenced_tweet_text": "This is the full original tweet text that was truncated in the RT preview.",
+                }
+            ],
+            "includes": {
+                "users": [
+                    {
+                        "id": "user123",
+                        "username": "testuser",
+                        "name": "Test User",
+                    }
+                ],
+            },
+        }
+
+        tweets = parser.parse_tweet_response(raw_data)
+
+        assert len(tweets) == 1
+        assert tweets[0].referenced_tweet_id == "9876543210"
+        assert tweets[0].reference_type == ReferenceType.retweeted
+        assert tweets[0].referenced_tweet_text == "This is the full original tweet text that was truncated in the RT preview."
+
+    def test_parse_tweet_with_referenced_tweet_media(self):
+        """测试解析带被引用推文媒体的推文。"""
+        parser = TweetParser()
+
+        raw_data = {
+            "data": [
+                {
+                    "id": "1234567890",
+                    "text": "Check this out!",
+                    "created_at": "2024-01-01T12:00:00.000Z",
+                    "author_id": "user123",
+                    "referenced_tweets": [
+                        {
+                            "type": "quoted",
+                            "id": "9876543210",
+                        }
+                    ],
+                    "referenced_tweet_text": "Original with image",
+                    "referenced_tweet_media": [
+                        {
+                            "media_key": "ref_media_1",
+                            "type": "photo",
+                            "url": "https://example.com/ref_image.jpg",
+                            "width": 1024,
+                            "height": 768,
+                        }
+                    ],
+                }
+            ],
+            "includes": {
+                "users": [
+                    {
+                        "id": "user123",
+                        "username": "testuser",
+                        "name": "Test User",
+                    }
+                ],
+            },
+        }
+
+        tweets = parser.parse_tweet_response(raw_data)
+
+        assert len(tweets) == 1
+        assert tweets[0].referenced_tweet_text == "Original with image"
+        assert tweets[0].referenced_tweet_media is not None
+        assert len(tweets[0].referenced_tweet_media) == 1
+        assert tweets[0].referenced_tweet_media[0].type == "photo"
+        assert tweets[0].referenced_tweet_media[0].url == "https://example.com/ref_image.jpg"
+
     def test_parse_tweet_without_display_name(self):
         """测试解析没有显示名称的推文。"""
         parser = TweetParser()

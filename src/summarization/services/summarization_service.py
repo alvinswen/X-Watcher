@@ -278,6 +278,7 @@ class SummarizationService:
             tweet.tweet_id: {
                 "text": tweet.text,
                 "reference_type": tweet.reference_type,
+                "referenced_tweet_text": tweet.referenced_tweet_text,
             }
             for tweet in orm_tweets
         }
@@ -413,9 +414,21 @@ class SummarizationService:
             tweet_data = tweets_map.get(representative_id, {})
             representative_text = tweet_data.get("text") or ""
             reference_type = tweet_data.get("reference_type")
+            referenced_tweet_text = tweet_data.get("referenced_tweet_text")
 
             # 判断推文类型
             tweet_type = self._determine_tweet_type(reference_type)
+
+            # 用完整的被引用推文内容增强摘要输入
+            if referenced_tweet_text:
+                if tweet_type == TweetType.retweeted:
+                    # 转推：用原推完整文本替代截断的 "RT @user: ..."
+                    representative_text = referenced_tweet_text
+                elif tweet_type == TweetType.quoted:
+                    # 引用推文：拼接用户评论 + 原文
+                    representative_text = (
+                        f"{representative_text}\n\n[引用原文]: {referenced_tweet_text}"
+                    )
 
             # 智能摘要策略：检查推文长度
             tweet_length = len(representative_text)
@@ -547,9 +560,19 @@ class SummarizationService:
             tweet_data = tweets_map.get(tweet_id, {})
             tweet_text = tweet_data.get("text") or ""
             reference_type = tweet_data.get("reference_type")
+            referenced_tweet_text = tweet_data.get("referenced_tweet_text")
 
             # 判断推文类型
             tweet_type = self._determine_tweet_type(reference_type)
+
+            # 用完整的被引用推文内容增强摘要输入
+            if referenced_tweet_text:
+                if tweet_type == TweetType.retweeted:
+                    tweet_text = referenced_tweet_text
+                elif tweet_type == TweetType.quoted:
+                    tweet_text = (
+                        f"{tweet_text}\n\n[引用原文]: {referenced_tweet_text}"
+                    )
 
             # 智能摘要策略：检查推文长度
             tweet_length = len(tweet_text)

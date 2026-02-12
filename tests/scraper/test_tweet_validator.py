@@ -86,13 +86,12 @@ class TestTweetValidator:
         # 多个空格被替换为单个空格
         assert "   " not in cleaned.text
 
-    def test_truncate_long_text(self):
-        """测试截断过长文本。"""
+    def test_long_text_preserved(self):
+        """测试长文本不再被截断（X Premium 支持最多 25000 字符）。"""
         validator = TweetValidator()
 
-        # 由于 Pydantic 验证，我们需要使用 model_copy 绕过验证
-        # 或者创建一个不超过 280 字符的推文
-        long_text = "a" * 280
+        # 创建超过 280 字符的推文（模拟 X Premium 长推文）
+        long_text = "a" * 1000
 
         tweet = Tweet(
             tweet_id="123",
@@ -104,8 +103,27 @@ class TestTweetValidator:
         result = validator.validate_and_clean(tweet)
         cleaned = result.unwrap()
 
-        # 文本应该保留（正好 280 字符）
-        assert len(cleaned.text) <= 280
+        # 1000 字符应该被完整保留
+        assert len(cleaned.text) == 1000
+
+    def test_referenced_tweet_text_cleaned(self):
+        """测试被引用推文文本也被清理。"""
+        validator = TweetValidator()
+
+        tweet = Tweet(
+            tweet_id="123",
+            text="My comment",
+            created_at=datetime.now(timezone.utc),
+            author_username="testuser",
+            referenced_tweet_text="Original  text\nwith  newlines\n\nand  spaces",
+        )
+
+        result = validator.validate_and_clean(tweet)
+        cleaned = result.unwrap()
+
+        # 被引用推文文本应该被清理（移除换行和多余空格）
+        assert "\n" not in cleaned.referenced_tweet_text
+        assert "  " not in cleaned.referenced_tweet_text
 
     def test_validate_and_clean_multiple_tweets(self):
         """测试验证和清理多条推文。"""
