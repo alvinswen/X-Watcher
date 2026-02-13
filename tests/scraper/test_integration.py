@@ -15,9 +15,17 @@ from src.scraper import TaskRegistry, TaskStatus
 
 @pytest.fixture
 def integration_client(test_settings):
-    """创建集成测试客户端。"""
+    """创建集成测试客户端，禁用调度器避免 lifespan 阻塞。"""
+    import os
+
+    from src.config import clear_settings_cache
+
+    os.environ["SCRAPER_ENABLED"] = "false"
+    clear_settings_cache()
     with patch("src.api.routes.admin.BackgroundTasks.add_task"):
-        yield TestClient(app)
+        with TestClient(app) as c:
+            yield c
+    clear_settings_cache()
 
 
 class TestManualScrapingFlow:

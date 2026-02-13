@@ -4,6 +4,7 @@
 使用 TestClient 的同步接口，通过依赖覆盖确保数据库隔离。
 """
 
+import os
 from datetime import datetime, timezone
 
 import pytest
@@ -12,6 +13,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from src.config import clear_settings_cache
 from src.database.async_session import get_db_session
 from src.database.models import Base
 from src.main import app
@@ -32,9 +34,9 @@ _SyncTestSession = sessionmaker(
 )
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="module")
 def _isolated_db():
-    """创建隔离的测试数据库并覆盖 FastAPI 依赖。"""
+    """创建隔离的测试数据库并覆盖 FastAPI 依赖（模块级共享）。"""
     # 创建表
     Base.metadata.create_all(bind=_sync_test_engine)
 
@@ -90,16 +92,19 @@ def _isolated_db():
     Base.metadata.drop_all(bind=_sync_test_engine)
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def client(_isolated_db) -> TestClient:
-    """FastAPI 测试客户端。"""
+    """模块级 FastAPI 测试客户端，禁用调度器避免 lifespan 阻塞。"""
+    os.environ["SCRAPER_ENABLED"] = "false"
+    clear_settings_cache()
     with TestClient(app) as test_client:
         yield test_client
+    clear_settings_cache()
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def seed_test_tweets(_isolated_db) -> list[TweetOrm]:
-    """准备测试推文数据。"""
+    """准备测试推文数据（模块级共享）。"""
     from datetime import timedelta
 
     session_maker, loop = _isolated_db
