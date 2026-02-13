@@ -4,7 +4,6 @@
 """
 
 from datetime import datetime, timezone
-import uuid
 
 from sqlalchemy import (
     Boolean,
@@ -15,7 +14,6 @@ from sqlalchemy import (
     Text,
     create_engine,
     UniqueConstraint,
-    CheckConstraint,
     Index,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -69,17 +67,11 @@ class User(Base):
     )
 
     # 关系
-    preferences: Mapped[list["Preference"]] = relationship(
-        "Preference", back_populates="user", cascade="all, delete-orphan"
-    )
     news_items: Mapped[list["NewsItem"]] = relationship(
         "NewsItem", back_populates="user", cascade="all, delete-orphan"
     )
     twitter_follows: Mapped[list["TwitterFollow"]] = relationship(
         "TwitterFollow", back_populates="user", cascade="all, delete-orphan"
-    )
-    filter_rules: Mapped[list["FilterRule"]] = relationship(
-        "FilterRule", back_populates="user", cascade="all, delete-orphan"
     )
     api_keys: Mapped[list["ApiKey"]] = relationship(
         "ApiKey", back_populates="user", cascade="all, delete-orphan"
@@ -112,22 +104,6 @@ class ApiKey(Base):
         Index("idx_api_keys_key_hash", "key_hash"),
         Index("idx_api_keys_user_id", "user_id"),
     )
-
-
-class Preference(Base):
-    """用户偏好模型。"""
-
-    __tablename__ = "preferences"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
-    )
-    key: Mapped[str] = mapped_column(String(100), nullable=False)
-    value: Mapped[str] = mapped_column(String(500), nullable=False)
-
-    # 关系
-    user: Mapped["User"] = relationship("User", back_populates="preferences")
 
 
 class NewsItem(Base):
@@ -186,12 +162,8 @@ class TwitterFollow(Base):
         Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     username: Mapped[str] = mapped_column(String(15), nullable=False)
-    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, onupdate=lambda: datetime.now(timezone.utc)
     )
 
     # 关系
@@ -200,10 +172,8 @@ class TwitterFollow(Base):
     # 约束和索引
     __table_args__ = (
         UniqueConstraint("user_id", "username", name="uq_twitter_follows_user_username"),
-        CheckConstraint("priority BETWEEN 1 AND 10", name="ck_twitter_follows_priority_range"),
         Index("idx_twitter_follows_user_id", "user_id"),
         Index("idx_twitter_follows_username", "username"),
-        Index("idx_twitter_follows_priority", "priority"),
     )
 
 
@@ -229,33 +199,3 @@ class ScraperScheduleConfig(Base):
     updated_by: Mapped[str] = mapped_column(String(100), nullable=False)
 
 
-class FilterRule(Base):
-    """过滤规则模型。
-
-    用户配置的内容过滤规则（关键词、话题标签、内容类型）。
-    """
-
-    __tablename__ = "filter_rules"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
-    )
-    filter_type: Mapped[str] = mapped_column(String(20), nullable=False)
-    value: Mapped[str] = mapped_column(String(500), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
-    )
-
-    # 关系
-    user: Mapped["User"] = relationship("User", back_populates="filter_rules")
-
-    # 约束和索引
-    __table_args__ = (
-        CheckConstraint(
-            "filter_type IN ('keyword', 'hashtag', 'content_type')",
-            name="ck_filter_rules_type"
-        ),
-        Index("idx_filter_rules_user_id", "user_id"),
-        Index("idx_filter_rules_type", "filter_type"),
-    )

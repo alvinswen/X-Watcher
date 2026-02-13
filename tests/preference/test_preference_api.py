@@ -1,4 +1,4 @@
-"""用户偏好 API 集成测试。
+"""用户关注列表 API 集成测试。
 
 测试 PreferenceRouter 端点。
 """
@@ -13,13 +13,12 @@ from src.preference.infrastructure.preference_repository import PreferenceReposi
 from src.preference.infrastructure.scraper_config_repository import ScraperConfigRepository
 from src.database.async_session import get_async_session
 from src.database.models import User
-from src.preference.domain.models import FilterType, SortType
 from src.user.api.auth import get_current_user
 from src.user.domain.models import UserDomain
 
 
 class TestPreferenceAPI:
-    """测试用户偏好 API 端点。"""
+    """测试用户关注列表 API 端点。"""
 
     @pytest.fixture
     def app(self, async_session):
@@ -81,10 +80,7 @@ class TestFollowManagementAPI(TestPreferenceAPI):
     @pytest.mark.asyncio
     async def test_create_follow_success(self, client, test_user, setup_scraper_follows):
         """测试成功创建关注。"""
-        request_data = {
-            "username": "testuser1",
-            "priority": 7
-        }
+        request_data = {"username": "testuser1"}
 
         response = await client.post(
             "/api/preferences/follows",
@@ -94,21 +90,8 @@ class TestFollowManagementAPI(TestPreferenceAPI):
         assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
         assert data["username"] == "testuser1"
-        assert data["priority"] == 7
         assert data["user_id"] == test_user.id
-
-    @pytest.mark.asyncio
-    async def test_create_follow_default_priority(self, client, test_user, setup_scraper_follows):
-        """测试创建关注时使用默认优先级。"""
-        request_data = {"username": "testuser1"}
-
-        response = await client.post(
-            "/api/preferences/follows",
-            json=request_data
-        )
-
-        assert response.status_code == status.HTTP_201_CREATED
-        assert response.json()["priority"] == 5
+        assert "created_at" in data
 
     @pytest.mark.asyncio
     async def test_create_follow_invalid_username_format(self, client, test_user):
@@ -156,8 +139,8 @@ class TestFollowManagementAPI(TestPreferenceAPI):
     async def test_get_follows_success(self, client, test_user, async_session, setup_scraper_follows):
         """测试获取关注列表成功。"""
         repo = PreferenceRepository(async_session)
-        await repo.create_follow(test_user.id, "testuser1", priority=8)
-        await repo.create_follow(test_user.id, "testuser2", priority=5)
+        await repo.create_follow(test_user.id, "testuser1")
+        await repo.create_follow(test_user.id, "testuser2")
         await async_session.commit()
 
         response = await client.get(
@@ -170,26 +153,6 @@ class TestFollowManagementAPI(TestPreferenceAPI):
         usernames = {item["username"] for item in data}
         assert "testuser1" in usernames
         assert "testuser2" in usernames
-
-    @pytest.mark.asyncio
-    async def test_get_follows_with_priority_sort(self, client, test_user, async_session, setup_scraper_follows):
-        """测试按优先级排序获取关注列表。"""
-        repo = PreferenceRepository(async_session)
-        await repo.create_follow(test_user.id, "testuser1", priority=3)
-        await repo.create_follow(test_user.id, "testuser2", priority=9)
-        await repo.create_follow(test_user.id, "testuser3", priority=5)
-        await async_session.commit()
-
-        response = await client.get(
-            "/api/preferences/follows?sort=priority"
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        # 应该按优先级降序排列
-        assert data[0]["username"] == "testuser2"  # priority 9
-        assert data[1]["username"] == "testuser3"  # priority 5
-        assert data[2]["username"] == "testuser1"  # priority 3
 
     @pytest.mark.asyncio
     async def test_delete_follow_success(self, client, test_user, async_session, setup_scraper_follows):
@@ -216,261 +179,3 @@ class TestFollowManagementAPI(TestPreferenceAPI):
         )
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
-
-    @pytest.mark.asyncio
-    async def test_update_priority_success(self, client, test_user, async_session, setup_scraper_follows):
-        """测试更新优先级成功。"""
-        repo = PreferenceRepository(async_session)
-        await repo.create_follow(test_user.id, "testuser1", priority=5)
-        await async_session.commit()
-
-        request_data = {"priority": 9}
-        response = await client.put(
-            "/api/preferences/follows/testuser1/priority",
-            json=request_data
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["priority"] == 9
-
-    @pytest.mark.asyncio
-    async def test_update_priority_invalid_range(self, client, test_user):
-        """测试更新无效优先级返回 422。"""
-        request_data = {"priority": 15}  # 超出范围 1-10
-
-        response = await client.put(
-            "/api/preferences/follows/testuser1/priority",
-            json=request_data
-        )
-
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
-
-
-class TestFilterManagementAPI(TestPreferenceAPI):
-    """测试过滤规则管理 API。"""
-
-    @pytest.mark.asyncio
-    async def test_create_keyword_filter_success(self, client, test_user):
-        """测试创建关键词过滤规则成功。"""
-        request_data = {
-            "filter_type": "keyword",
-            "value": "spam"
-        }
-
-        response = await client.post(
-            "/api/preferences/filters",
-            json=request_data
-        )
-
-        assert response.status_code == status.HTTP_201_CREATED
-        data = response.json()
-        assert data["filter_type"] == FilterType.KEYWORD
-        assert data["value"] == "spam"
-        assert "id" in data
-
-    @pytest.mark.asyncio
-    async def test_create_hashtag_filter_success(self, client, test_user):
-        """测试创建话题标签过滤规则成功。"""
-        request_data = {
-            "filter_type": "hashtag",
-            "value": "politics"
-        }
-
-        response = await client.post(
-            "/api/preferences/filters",
-            json=request_data
-        )
-
-        assert response.status_code == status.HTTP_201_CREATED
-        assert response.json()["filter_type"] == FilterType.HASHTAG
-
-    @pytest.mark.asyncio
-    async def test_create_content_type_filter_success(self, client, test_user):
-        """测试创建内容类型过滤规则成功。"""
-        request_data = {
-            "filter_type": "content_type",
-            "value": "retweet"
-        }
-
-        response = await client.post(
-            "/api/preferences/filters",
-            json=request_data
-        )
-
-        assert response.status_code == status.HTTP_201_CREATED
-        assert response.json()["filter_type"] == FilterType.CONTENT_TYPE
-
-    @pytest.mark.asyncio
-    async def test_get_filters_success(self, client, test_user, async_session):
-        """测试获取过滤规则列表成功。"""
-        repo = PreferenceRepository(async_session)
-        await repo.create_filter(test_user.id, FilterType.KEYWORD, "spam")
-        await repo.create_filter(test_user.id, FilterType.HASHTAG, "politics")
-        await async_session.commit()
-
-        response = await client.get(
-            "/api/preferences/filters"
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert len(data) == 2
-        values = {item["value"] for item in data}
-        assert "spam" in values
-        assert "politics" in values
-
-    @pytest.mark.asyncio
-    async def test_delete_filter_success(self, client, test_user, async_session):
-        """测试删除过滤规则成功。"""
-        repo = PreferenceRepository(async_session)
-        filter_rule = await repo.create_filter(test_user.id, FilterType.KEYWORD, "spam")
-        await async_session.commit()
-
-        response = await client.delete(
-            f"/api/preferences/filters/{filter_rule.id}"
-        )
-
-        assert response.status_code == status.HTTP_204_NO_CONTENT
-
-    @pytest.mark.asyncio
-    async def test_delete_filter_not_found(self, client, test_user):
-        """测试删除不存在的过滤规则返回 404。"""
-        response = await client.delete(
-            "/api/preferences/filters/nonexistent-id"
-        )
-
-        assert response.status_code == status.HTTP_404_NOT_FOUND
-
-
-class TestSortingPreferenceAPI(TestPreferenceAPI):
-    """测试排序偏好 API。"""
-
-    @pytest.mark.asyncio
-    async def test_update_sorting_preference_success(self, client, test_user):
-        """测试更新排序偏好成功。"""
-        request_data = {"sort_type": "relevance"}
-
-        response = await client.put(
-            "/api/preferences/sorting",
-            json=request_data
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["sort_type"] == SortType.RELEVANCE
-
-    @pytest.mark.asyncio
-    async def test_get_sorting_preference_default(self, client, test_user):
-        """测试获取默认排序偏好。"""
-        response = await client.get(
-            "/api/preferences/sorting"
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["sort_type"] == SortType.TIME
-
-    @pytest.mark.asyncio
-    async def test_get_all_preferences(self, client, test_user, async_session, setup_scraper_follows):
-        """测试获取所有偏好配置。"""
-        repo = PreferenceRepository(async_session)
-        await repo.create_follow(test_user.id, "testuser1", priority=7)
-        await repo.create_filter(test_user.id, FilterType.KEYWORD, "spam")
-        await repo.set_preference(test_user.id, "sort_type", "relevance")
-        await async_session.commit()
-
-        response = await client.get(
-            "/api/preferences"
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert data["user_id"] == test_user.id
-        assert data["sorting"]["sort_type"] == SortType.RELEVANCE
-        assert len(data["follows"]) == 1
-        assert len(data["filters"]) == 1
-
-
-class TestNewsFeedAPI(TestPreferenceAPI):
-    """测试个性化新闻流 API。"""
-
-    @pytest.mark.asyncio
-    async def test_get_news_by_time_sort(self, client, test_user, async_session, setup_scraper_follows):
-        """测试按时间排序获取新闻。"""
-        # 初始化用户关注列表
-        repo = PreferenceRepository(async_session)
-        await repo.batch_create_follows(test_user.id, ["testuser1", "testuser2"])
-        await async_session.commit()
-
-        response = await client.get(
-            "/api/preferences/news?sort=time&limit=10"
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert isinstance(data, list)
-
-    @pytest.mark.asyncio
-    async def test_get_news_by_priority_sort(self, client, test_user, async_session, setup_scraper_follows):
-        """测试按优先级排序获取新闻。"""
-        repo = PreferenceRepository(async_session)
-        await repo.batch_create_follows(test_user.id, ["testuser1", "testuser2"])
-        await async_session.commit()
-
-        response = await client.get(
-            "/api/preferences/news?sort=priority&limit=10"
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        assert isinstance(response.json(), list)
-
-    @pytest.mark.asyncio
-    async def test_get_news_by_relevance_sort(self, client, test_user, async_session, setup_scraper_follows):
-        """测试按相关性排序获取新闻。"""
-        repo = PreferenceRepository(async_session)
-        await repo.batch_create_follows(test_user.id, ["testuser1", "testuser2"])
-        await async_session.commit()
-
-        response = await client.get(
-            "/api/preferences/news?sort=relevance&limit=10"
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert isinstance(data, list)
-
-    @pytest.mark.asyncio
-    async def test_get_news_applies_filters(self, client, test_user, async_session, setup_scraper_follows):
-        """测试新闻流应用过滤规则。"""
-        repo = PreferenceRepository(async_session)
-        await repo.batch_create_follows(test_user.id, ["testuser1", "testuser2"])
-        await repo.create_filter(test_user.id, FilterType.KEYWORD, "test")
-        await async_session.commit()
-
-        response = await client.get(
-            "/api/preferences/news?sort=time&limit=10"
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        assert isinstance(response.json(), list)
-
-    @pytest.mark.asyncio
-    async def test_get_news_invalid_sort_type(self, client, test_user):
-        """测试无效排序类型返回 422。"""
-        response = await client.get(
-            "/api/preferences/news?sort=invalid&limit=10"
-        )
-
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
-
-    @pytest.mark.asyncio
-    async def test_get_news_respects_limit(self, client, test_user, async_session, setup_scraper_follows):
-        """测试新闻流尊重 limit 参数。"""
-        repo = PreferenceRepository(async_session)
-        await repo.batch_create_follows(test_user.id, ["testuser1", "testuser2"])
-        await async_session.commit()
-
-        response = await client.get(
-            "/api/preferences/news?sort=time&limit=5"
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        assert len(response.json()) <= 5

@@ -34,12 +34,10 @@ class UserService:
             from src.preference.infrastructure.preference_repository import PreferenceRepository
             from src.preference.infrastructure.scraper_config_repository import ScraperConfigRepository
             from src.preference.services.preference_service import PreferenceService
-            from src.preference.services.relevance_service import KeywordRelevanceService
 
             pref_repo = PreferenceRepository(self._session)
             scraper_repo = ScraperConfigRepository(self._session)
-            relevance_svc = KeywordRelevanceService()
-            pref_service = PreferenceService(pref_repo, scraper_repo, relevance_svc)
+            pref_service = PreferenceService(pref_repo, scraper_repo)
             await pref_service.initialize_user_follows(user.id)
         except Exception as e:
             logger.warning(f"初始化关注列表失败（非致命）: {e}")

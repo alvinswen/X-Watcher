@@ -7,10 +7,9 @@
 X-watcher 是一个面向 Agent 的 X 平台（Twitter）智能信息监控服务，为 AI Agent 提供结构化的信息采集、处理和分发能力。系统能够：
 
 - 从 X（Twitter）平台抓取关注人物的动态
-- 根据配置需求动态过滤信息
 - 自动去重和合并相似内容
 - 生成简洁的中文摘要和翻译
-- 支持动态调整关注列表和偏好
+- 支持动态调整关注列表
 - 提供 Web 管理界面（Vue 3 + Element Plus）
 - 用户认证和权限管理
 - Prometheus 监控指标
@@ -155,8 +154,7 @@ npm run dev
 - [抓取配置 API](docs/api-guide.md#抓取配置-api) - 平台抓取账号管理
 - [去重 API](docs/api-guide.md#去重-api) - 推文去重和合并
 - [摘要 API](docs/api-guide.md#摘要-api) - 生成中文摘要
-- [偏好 API](docs/api-guide.md#偏好-api) - 用户个性化配置
-- [Feed API](docs/api-guide.md#feed-api) - 个性化信息流
+- [关注列表 API](docs/api-guide.md#关注列表-api) - 关注列表管理
 - [监控 API](docs/api-guide.md#监控-api) - Prometheus 指标
 
 ### Python 示例代码
@@ -189,8 +187,8 @@ pytest tests/scraper/test_twitter_client.py
 | **推文抓取** | 从 X 平台抓取关注人物推文，支持定时和手动触发 |
 | **内容去重** | 基于文本相似度识别和合并重复/相似推文 |
 | **AI 摘要** | 使用 MiniMax/OpenRouter 生成中文摘要和翻译 |
-| **用户偏好** | 动态管理关注列表、过滤规则和排序偏好 |
-| **个性化 Feed** | 基于用户偏好的增量信息流 API |
+| **关注列表** | 动态管理 Twitter 关注列表 |
+| **Feed** | 增量信息流 API |
 | **用户管理** | 用户注册、JWT 认证、管理员权限 |
 | **Web 管理** | Vue 3 前端 SPA（推文浏览、关注管理、任务监控） |
 | **系统监控** | Prometheus 指标（HTTP 请求、任务状态、数据库连接） |
@@ -269,12 +267,12 @@ X-watcher/
 │   │   ├── services/        # 摘要服务
 │   │   ├── llm/             # LLM 集成（MiniMax, OpenRouter）
 │   │   └── api/             # 摘要 API 端点
-│   ├── preference/          # 用户偏好管理模块
+│   ├── preference/          # 关注列表管理模块
 │   │   ├── domain/          # 领域模型和验证
 │   │   ├── infrastructure/  # 仓库
-│   │   ├── services/        # 偏好和相关性服务
-│   │   └── api/             # 偏好 API 端点
-│   ├── feed/                # 个性化信息流模块
+│   │   ├── services/        # 关注列表服务
+│   │   └── api/             # 关注列表 API 端点
+│   ├── feed/                # 信息流模块
 │   │   └── api/             # Feed API 端点
 │   ├── user/                # 用户管理模块
 │   │   └── api/             # 认证和用户 API
@@ -288,7 +286,7 @@ X-watcher/
 │   ├── scraper/             # 抓取模块测试
 │   ├── deduplication/       # 去重模块测试
 │   ├── summarization/       # 摘要模块测试
-│   ├── preference/          # 偏好模块测试
+│   ├── preference/          # 关注列表模块测试
 │   ├── api/                 # API 端点测试
 │   ├── integration/         # 集成测试
 │   └── conftest.py          # pytest 配置

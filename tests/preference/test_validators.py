@@ -1,13 +1,12 @@
-"""偏好管理验证器单元测试。
+"""关注列表管理验证器单元测试。
 
-测试 Twitter 用户名和优先级验证器。
+测试 Twitter 用户名验证器。
 """
 
 import pytest
 
 from src.preference.domain.validators import (
     TwitterUsernameValidator,
-    PriorityValidator,
     ValidationError,
 )
 
@@ -111,62 +110,4 @@ class TestTwitterUsernameValidator:
 
         assert not result.is_valid
         assert result.error_code == "INVALID_FORMAT"
-        assert result.error_message is not None
-
-
-class TestPriorityValidator:
-    """优先级验证器测试。"""
-
-    def test_validate_valid_priorities(self):
-        """测试验证有效的优先级。"""
-        validator = PriorityValidator()
-
-        for priority in range(1, 11):
-            result = validator.validate(priority)
-            assert result.is_valid
-
-    def test_validate_priority_boundary_values(self):
-        """测试验证边界优先级值。"""
-        validator = PriorityValidator()
-
-        result1 = validator.validate(1)
-        assert result1.is_valid
-
-        result2 = validator.validate(10)
-        assert result2.is_valid
-
-    def test_validate_priority_too_low(self):
-        """测试验证低于 1 的优先级。"""
-        validator = PriorityValidator()
-        invalid_priorities = [0, -1, -100]
-
-        for priority in invalid_priorities:
-            result = validator.validate(priority)
-            assert not result.is_valid
-            assert "1-10" in result.error_message
-
-    def test_validate_priority_too_high(self):
-        """测试验证高于 10 的优先级。"""
-        validator = PriorityValidator()
-        invalid_priorities = [11, 50, 100]
-
-        for priority in invalid_priorities:
-            result = validator.validate(priority)
-            assert not result.is_valid
-            assert "1-10" in result.error_message
-
-    def test_validate_priority_wrong_type(self):
-        """测试验证错误类型的优先级。"""
-        validator = PriorityValidator()
-        result = validator.validate("5")  # 字符串而非整数
-
-        assert not result.is_valid
-
-    def test_validate_error_details(self):
-        """测试验证错误详情。"""
-        validator = PriorityValidator()
-        result = validator.validate(15)
-
-        assert not result.is_valid
-        assert result.error_code == "OUT_OF_RANGE"
         assert result.error_message is not None
