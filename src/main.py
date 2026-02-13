@@ -233,8 +233,44 @@ if settings.prometheus_enabled:
 
 @app.get("/health")
 async def health_check():
-    """健康检查端点。"""
-    return {"status": "healthy"}
+    """健康检查端点。
+
+    检查数据库连接和调度器状态，返回各组件健康信息。
+    始终返回 HTTP 200 以兼容 Docker HEALTHCHECK。
+    """
+    from sqlalchemy import text
+
+    from src.database.async_session import get_async_session_maker
+    from src.scheduler_accessor import get_scheduler
+
+    components = {}
+
+    # 1. 数据库连接检查
+    try:
+        session_maker = get_async_session_maker()
+        async with session_maker() as session:
+            await session.execute(text("SELECT 1"))
+        components["database"] = {"status": "healthy"}
+    except Exception as e:
+        components["database"] = {"status": "unhealthy", "error": str(e)}
+
+    # 2. 调度器状态检查
+    scheduler = get_scheduler()
+    if scheduler is not None:
+        components["scheduler"] = {
+            "status": "healthy" if scheduler.running else "unhealthy",
+            "running": scheduler.running,
+            "jobs": len(scheduler.get_jobs()),
+        }
+    else:
+        components["scheduler"] = {"status": "unhealthy", "error": "not initialized"}
+
+    # 3. 整体状态判定
+    overall = "healthy"
+    if any(c["status"] == "unhealthy" for c in components.values()):
+        overall = "degraded"
+
+    return {"status": overall, "components": components}
 
 
 # 导入并注册 API 路由

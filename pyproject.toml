@@ -45,9 +45,6 @@ dependencies = [
     # 环境配置
     "python-dotenv>=1.0.0",
 
-    # 日志
-    "loguru>=0.7.2",
-
     # Result 类型
     "returns>=0.23.0",
 
