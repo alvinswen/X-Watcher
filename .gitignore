@@ -71,6 +71,9 @@ logs/
 # Alembic
 alembic/versions/*.pyc
 
+# Docker
+.env.docker
+
 # 临时文件
 *.bak
 nul

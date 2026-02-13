@@ -1,6 +1,6 @@
-"""偏好管理验证器。
+"""关注列表管理验证器。
 
-提供 Twitter 用户名和优先级的独立验证器。
+提供 Twitter 用户名的独立验证器。
 """
 
 from dataclasses import dataclass
@@ -13,8 +13,6 @@ class ErrorCode(str, Enum):
     EMPTY_VALUE = "EMPTY_VALUE"
     TOO_LONG = "TOO_LONG"
     INVALID_FORMAT = "INVALID_FORMAT"
-    OUT_OF_RANGE = "OUT_OF_RANGE"
-    INVALID_TYPE = "INVALID_TYPE"
 
 
 @dataclass
@@ -129,66 +127,3 @@ class TwitterUsernameValidator:
                 message=result.error_message or "验证失败",
             )
         return result.normalized  # type: ignore[return-value]
-
-
-class PriorityValidator:
-    """优先级验证器。
-
-    验证优先级是否在有效范围内（1-10）。
-    """
-
-    MIN_VALUE = 1
-    """优先级最小值"""
-
-    MAX_VALUE = 10
-    """优先级最大值"""
-
-    def validate(self, priority: int) -> ValidationResult:
-        """验证优先级值。
-
-        Args:
-            priority: 待验证的优先级值
-
-        Returns:
-            验证结果对象
-        """
-        # 检查类型
-        if not isinstance(priority, int):
-            return ValidationResult(
-                is_valid=False,
-                error_code=ErrorCode.INVALID_TYPE,
-                error_message=f"优先级必须是整数，收到类型: {type(priority).__name__}",
-            )
-
-        # 检查范围
-        if priority < self.MIN_VALUE or priority > self.MAX_VALUE:
-            return ValidationResult(
-                is_valid=False,
-                error_code=ErrorCode.OUT_OF_RANGE,
-                error_message=(
-                    f"优先级必须在 {self.MIN_VALUE}-{self.MAX_VALUE} 之间，"
-                    f"收到: {priority}"
-                ),
-            )
-
-        return ValidationResult(is_valid=True, normalized=str(priority))
-
-    def validate_or_raise(self, priority: int) -> int:
-        """验证优先级，失败时抛出异常。
-
-        Args:
-            priority: 待验证的优先级值
-
-        Returns:
-            验证通过的优先级值
-
-        Raises:
-            ValidationError: 如果验证失败
-        """
-        result = self.validate(priority)
-        if not result.is_valid:
-            raise ValidationError(
-                error_code=result.error_code or "UNKNOWN",
-                message=result.error_message or "验证失败",
-            )
-        return priority

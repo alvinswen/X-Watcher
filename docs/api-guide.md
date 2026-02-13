@@ -10,7 +10,7 @@
 - [抓取配置 API](#抓取配置-api)
 - [去重 API](#去重-api)
 - [摘要 API](#摘要-api)
-- [偏好 API](#偏好-api)
+- [关注列表 API](#关注列表-api)
 - [监控 API](#监控-api)
 - [错误处理](#错误处理)
 - [代码示例](#代码示例)
@@ -535,13 +535,11 @@ curl -X DELETE "http://localhost:8000/api/summaries/tasks/c3d4e5f6-g7h8-9012-cde
 
 ---
 
-## 偏好 API
+## 关注列表 API
 
-偏好 API 用于管理用户的关注列表、过滤规则和排序偏好。
+关注列表 API 用于管理用户的 Twitter 关注列表。
 
-### 1. 关注管理
-
-#### 添加关注
+### 1. 添加关注
 
 **端点**: `POST /api/preferences/follows?user_id={user_id}`
 
@@ -550,91 +548,30 @@ curl -X DELETE "http://localhost:8000/api/summaries/tasks/c3d4e5f6-g7h8-9012-cde
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | username | string | 是 | Twitter 用户名 |
-| priority | integer | 否 | 优先级（1-10） |
 
 **请求示例**:
 ```bash
 curl -X POST "http://localhost:8000/api/preferences/follows?user_id=1" \
   -H "Content-Type: application/json" \
-  -d '{"username": "elonmusk", "priority": 9}'
+  -d '{"username": "elonmusk"}'
 ```
 
-#### 获取关注列表
+### 2. 获取关注列表
 
 **端点**: `GET /api/preferences/follows?user_id={user_id}`
 
-#### 删除关注
+**请求示例**:
+```bash
+curl "http://localhost:8000/api/preferences/follows?user_id=1"
+```
+
+### 3. 删除关注
 
 **端点**: `DELETE /api/preferences/follows/{username}?user_id={user_id}`
 
-#### 更新优先级
-
-**端点**: `PUT /api/preferences/follows/{username}/priority?user_id={user_id}`
-
-### 2. 过滤规则
-
-#### 添加过滤规则
-
-**端点**: `POST /api/preferences/filters?user_id={user_id}`
-
-**请求参数**:
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| filter_type | string | 是 | 类型: keyword / hashtag / content_type |
-| value | string | 是 | 规则值 |
-
 **请求示例**:
 ```bash
-curl -X POST "http://localhost:8000/api/preferences/filters?user_id=1" \
-  -H "Content-Type: application/json" \
-  -d '{"filter_type": "keyword", "value": "AI"}'
-```
-
-#### 获取过滤规则列表
-
-**端点**: `GET /api/preferences/filters?user_id={user_id}`
-
-#### 删除过滤规则
-
-**端点**: `DELETE /api/preferences/filters/{rule_id}?user_id={user_id}`
-
-### 3. 排序偏好
-
-#### 设置排序方式
-
-**端点**: `PUT /api/preferences/sorting?user_id={user_id}`
-
-**请求参数**:
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| sort_type | string | 是 | 排序方式: time / relevance / priority |
-
-#### 获取排序设置
-
-**端点**: `GET /api/preferences/sorting?user_id={user_id}`
-
-### 4. 获取综合偏好
-
-**端点**: `GET /api/preferences?user_id={user_id}`
-
-返回用户的关注列表、过滤规则和排序偏好的综合信息。
-
-### 5. 个性化新闻流
-
-**端点**: `GET /api/preferences/news?user_id={user_id}`
-
-**查询参数**:
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| sort | string | 否 | 排序方式: time / relevance / priority |
-| limit | integer | 否 | 返回数量，默认 20 |
-
-**请求示例**:
-```bash
-curl "http://localhost:8000/api/preferences/news?user_id=1&sort=relevance&limit=20"
+curl -X DELETE "http://localhost:8000/api/preferences/follows/elonmusk?user_id=1"
 ```
 
 ---

@@ -50,19 +50,6 @@ X-watcher 采用分层架构设计，结合 AI 摘要能力，为 Agent 提供�
 - `is_admin`: 是否管理员
 - `created_at`: 创建时间
 
-#### Preference (偏好)
-- `id`: 主键
-- `user_id`: 用户 ID（外键）
-- `key`: 偏好键
-- `value`: 偏好值
-
-#### NewsItem (新闻)
-- `id`: 主键
-- `user_id`: 用户 ID（外键）
-- `content`: 新闻内容
-- `source`: 来源
-- `created_at`: 创建时间
-
 #### ScraperFollow (平台抓取账号)
 - `id`: 主键
 - `username`: Twitter 用户名（唯一）
@@ -75,14 +62,6 @@ X-watcher 采用分层架构设计，结合 AI 摘要能力，为 Agent 提供�
 - `id`: 主键
 - `user_id`: 用户 ID（外键）
 - `username`: Twitter 用户名
-- `priority`: 优先级（1-10）
-- `created_at`, `updated_at`: 时间戳
-
-#### FilterRule (过滤规则)
-- `id`: UUID 主键
-- `user_id`: 用户 ID（外键）
-- `filter_type`: 类型（keyword/hashtag/content_type）
-- `value`: 规则值
 - `created_at`: 创建时间
 
 ### 抓取模型（src/scraper/infrastructure/models.py）
@@ -139,7 +118,7 @@ Infrastructure 层执行操作 (数据库 / 外部 API)
 
 ### 当前阶段: API + Service 层
 - FastAPI 路由直接调用 Service 层
-- Service 层编排业务逻辑（抓取、去重、摘要、偏好）
+- Service 层编排业务逻辑（抓取、去重、摘要、关注列表）
 - 支持双 LLM 提供商（MiniMax / OpenRouter）
 
 ### 未来阶段: Agent 集成 (按需)

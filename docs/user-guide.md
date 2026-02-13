@@ -305,7 +305,7 @@ npm run dev
 | 推文 | `/api/tweets` | 推文列表和详情查询 | 否 |
 | 去重 | `/api/deduplicate` | 推文去重 | 否 |
 | 摘要 | `/api/summaries` | AI 摘要生成 | 否 |
-| 偏好 | `/api/preferences` | 用户个性化配置 | 否 |
+| 关注列表 | `/api/preferences` | 关注列表管理 | 否 |
 | 监控 | `/metrics` | Prometheus 指标 | 否 |
 
 ### 常用 API 示例
@@ -340,12 +340,6 @@ curl -X POST "http://localhost:8000/api/summaries/batch" \
 curl -X POST "http://localhost:8000/api/deduplicate/batch" \
   -H "Content-Type: application/json" \
   -d '{"tweet_ids": ["123", "456", "789"]}'
-```
-
-#### 获取个性化新闻流
-
-```bash
-curl "http://localhost:8000/api/preferences/news?user_id=1&sort=relevance&limit=20"
 ```
 
 #### 查看摘要成本统计
@@ -394,28 +388,18 @@ curl "http://localhost:8000/api/summaries/stats"
 3. 点击任意推文查看详情和 AI 摘要
 4. 使用作者筛选功能查看特定账号的推文
 
-### Step 6：（可选）配置用户偏好
+### Step 6：（可选）管理关注列表
 
-通过 API 设置个性化偏好：
+通过 API 管理用户关注列表：
 
 ```bash
 # 添加关注（user_id=1 为种子脚本创建的管理员）
 curl -X POST "http://localhost:8000/api/preferences/follows?user_id=1" \
   -H "Content-Type: application/json" \
-  -d '{"username": "elonmusk", "priority": 9}'
+  -d '{"username": "elonmusk"}'
 
-# 添加关键词过滤
-curl -X POST "http://localhost:8000/api/preferences/filters?user_id=1" \
-  -H "Content-Type: application/json" \
-  -d '{"filter_type": "keyword", "value": "AI"}'
-
-# 设置排序方式（time / relevance / priority）
-curl -X PUT "http://localhost:8000/api/preferences/sorting?user_id=1" \
-  -H "Content-Type: application/json" \
-  -d '{"sort_type": "relevance"}'
-
-# 获取个性化新闻流
-curl "http://localhost:8000/api/preferences/news?user_id=1&sort=relevance&limit=20"
+# 获取关注列表
+curl "http://localhost:8000/api/preferences/follows?user_id=1"
 ```
 
 ---
