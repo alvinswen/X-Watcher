@@ -61,6 +61,7 @@ dmypy.json
 
 # 项目特定
 .claude/
+CLAUDE.md
 logs/
 *.log
 
