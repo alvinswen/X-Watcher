@@ -573,3 +573,117 @@ class TestTwitterClientReferenceTypeConversion:
         data = result.unwrap()
         tweet = data["data"][0]
         assert "referenced_tweets" not in tweet
+
+
+class TestExtractFullText:
+    """_extract_full_text 辅助函数测试。"""
+
+    def test_prefers_note_tweet(self):
+        """note_tweet.text 存在时应优先使用（最长）。"""
+        from src.scraper.client import _extract_full_text
+
+        tweet_obj = {
+            "text": "Short truncated...",
+            "full_text": "Medium length text here",
+            "note_tweet": {"text": "This is the longest note_tweet text with full content"},
+        }
+        result = _extract_full_text(tweet_obj)
+        assert result == "This is the longest note_tweet text with full content"
+
+    def test_prefers_full_text_over_text(self):
+        """full_text 存在且更长时应优先于 text。"""
+        from src.scraper.client import _extract_full_text
+
+        tweet_obj = {
+            "text": "Truncated at 140...",
+            "full_text": "This is the full_text field which is longer and complete",
+        }
+        result = _extract_full_text(tweet_obj)
+        assert result == "This is the full_text field which is longer and complete"
+
+    def test_falls_back_to_text(self):
+        """只有 text 字段时应正常回退。"""
+        from src.scraper.client import _extract_full_text
+
+        tweet_obj = {"text": "Just a regular tweet"}
+        result = _extract_full_text(tweet_obj)
+        assert result == "Just a regular tweet"
+
+    def test_returns_longest_candidate(self):
+        """多个候选文本时应返回最长的。"""
+        from src.scraper.client import _extract_full_text
+
+        tweet_obj = {
+            "text": "short",
+            "full_text": "a bit longer text",
+            "note_tweet": {"text": "medium"},
+        }
+        result = _extract_full_text(tweet_obj)
+        assert result == "a bit longer text"
+
+    def test_returns_none_for_empty(self):
+        """无文本字段时返回 None。"""
+        from src.scraper.client import _extract_full_text
+
+        assert _extract_full_text({}) is None
+        assert _extract_full_text({"text": ""}) is None
+        assert _extract_full_text({"text": None}) is None
+
+    def test_returns_none_for_non_dict(self):
+        """非字典输入返回 None。"""
+        from src.scraper.client import _extract_full_text
+
+        assert _extract_full_text(None) is None
+        assert _extract_full_text("string") is None
+        assert _extract_full_text(42) is None
+
+    def test_ignores_invalid_note_tweet(self):
+        """note_tweet 不是字典时应忽略。"""
+        from src.scraper.client import _extract_full_text
+
+        tweet_obj = {
+            "text": "Regular text",
+            "note_tweet": "not a dict",
+        }
+        result = _extract_full_text(tweet_obj)
+        assert result == "Regular text"
+
+    @pytest.mark.asyncio
+    async def test_rt_uses_full_text_from_nested_tweet(self, test_settings):
+        """集成测试：RT 的嵌套推文使用 full_text 替代截断的 text。"""
+        client = TwitterClient()
+
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "data": {
+                "tweets": [
+                    {
+                        "id": "rt_001",
+                        "text": "RT @original: This is truncated\u2026",
+                        "createdAt": "Thu Feb 13 10:00:00 +0000 2026",
+                        "retweeted_tweet": {
+                            "id": "orig_001",
+                            "text": "This is truncated\u2026",
+                            "full_text": "This is truncated but full_text has the complete version of the original tweet",
+                            "author": {"userName": "original", "name": "Original Author"},
+                        },
+                        "author": {"userName": "retweeter", "name": "Retweeter"},
+                    }
+                ]
+            }
+        }
+
+        mock_httpx_client = AsyncMock()
+        mock_httpx_client.get = AsyncMock(return_value=mock_response)
+
+        with patch("httpx.AsyncClient", return_value=mock_httpx_client):
+            result = await client.fetch_user_tweets("retweeter", limit=10)
+
+        assert isinstance(result, Success)
+        data = result.unwrap()
+        tweet = data["data"][0]
+        # referenced_tweet_text 应使用 full_text（更长的版本）
+        assert tweet["referenced_tweet_text"] == (
+            "This is truncated but full_text has the complete version of the original tweet"
+        )

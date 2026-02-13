@@ -120,6 +120,49 @@ def _extract_media_from_tweet_obj(tweet_obj: dict) -> list[dict]:
     return result
 
 
+def _extract_full_text(tweet_obj: dict) -> str | None:
+    """从推文对象中提取最完整的文本。
+
+    TwitterAPI.io 可能在不同字段中提供完整文本：
+    - note_tweet.text: X Premium 长推文（>280 字符）
+    - full_text: 部分 API 格式使用此字段替代 text
+    - text: 标准字段（嵌套推文中可能被截断）
+
+    Args:
+        tweet_obj: TwitterAPI.io 推文对象
+
+    Returns:
+        str | None: 最完整的文本，或 None
+    """
+    if not isinstance(tweet_obj, dict):
+        return None
+
+    candidates: list[str] = []
+
+    # 优先级 1: note_tweet（X Premium 长推文）
+    note_tweet = tweet_obj.get("note_tweet")
+    if isinstance(note_tweet, dict):
+        note_text = note_tweet.get("text")
+        if note_text and isinstance(note_text, str):
+            candidates.append(note_text)
+
+    # 优先级 2: full_text 字段
+    full_text = tweet_obj.get("full_text")
+    if full_text and isinstance(full_text, str):
+        candidates.append(full_text)
+
+    # 优先级 3: 标准 text 字段
+    text = tweet_obj.get("text")
+    if text and isinstance(text, str):
+        candidates.append(text)
+
+    if not candidates:
+        return None
+
+    # 返回最长的候选文本（最可能是完整版本）
+    return max(candidates, key=len)
+
+
 class TwitterClientError(Exception):
     """Twitter API 客户端错误。
 
@@ -318,7 +361,7 @@ class TwitterClient:
                             for tweet in tweets_array:
                                 # 从 tweet 中提取基本信息
                                 tweet_id = tweet.get("id")
-                                tweet_text = tweet.get("text", "")
+                                tweet_text = _extract_full_text(tweet) or tweet.get("text", "")
                                 created_at_raw = tweet.get("createdAt")
 
                                 # 转换日期格式：TwitterAPI.io -> ISO 8601
@@ -340,8 +383,8 @@ class TwitterClient:
                                         "type": "retweeted",
                                         "id": str(retweeted_tweet_obj["id"]),
                                     })
-                                    # 提取原推的完整文本
-                                    referenced_tweet_text = retweeted_tweet_obj.get("text")
+                                    # 提取原推的完整文本（优先使用 full_text/note_tweet）
+                                    referenced_tweet_text = _extract_full_text(retweeted_tweet_obj)
                                     # 提取原推的媒体
                                     referenced_tweet_media = _extract_media_from_tweet_obj(retweeted_tweet_obj)
                                     # 提取原推的作者用户名
@@ -353,8 +396,8 @@ class TwitterClient:
                                         "type": "quoted",
                                         "id": str(quoted_tweet_obj["id"]),
                                     })
-                                    # 提取被引用推文的完整文本
-                                    referenced_tweet_text = quoted_tweet_obj.get("text")
+                                    # 提取被引用推文的完整文本（优先使用 full_text/note_tweet）
+                                    referenced_tweet_text = _extract_full_text(quoted_tweet_obj)
                                     # 提取被引用推文的媒体
                                     referenced_tweet_media = _extract_media_from_tweet_obj(quoted_tweet_obj)
                                     # 提取被引用推文的作者用户名
@@ -366,6 +409,17 @@ class TwitterClient:
                                         "type": "replied_to",
                                         "id": str(tweet["inReplyToId"]),
                                     })
+
+                                # 截断检测：嵌套推文文本可能被 API 截断
+                                if referenced_tweet_text and len(referenced_tweet_text) < 300:
+                                    stripped = referenced_tweet_text.rstrip()
+                                    if stripped.endswith("\u2026") or stripped.endswith("..."):
+                                        logger.warning(
+                                            "嵌套推文文本疑似被截断 (%d chars), tweet_id=%s: '...%s'",
+                                            len(referenced_tweet_text),
+                                            tweet_id,
+                                            stripped[-40:],
+                                        )
 
                                 standard_tweet: dict[str, Any] = {
                                     "id": tweet_id,

@@ -84,3 +84,7 @@ This project follows Spec-Driven Development (SDD) with TDD. Always follow the f
 - Load entire `.kiro/steering/` as project memory
 - Default files: `product.md`, `tech.md`, `structure.md`
 - Custom files are supported (managed via `/kiro:steering-custom`)
+
+## Local Development Rules
+- 本机的主要目的是关注最新版本下获取的数据，检测 bad case，修复 bug。
+- 旧版本的历史数据可以直接删除后重新抓取，不需要做数据迁移或 backfill。
