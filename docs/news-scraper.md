@@ -58,6 +58,7 @@ news-scraper 是 X-watcher 的核心抓取模块，负责从 X 平台（Twitter�
    b. 响应格式转换 (TwitterAPI.io → 标准 Twitter API v2)
       - 提取引用关系: retweeted_tweet / quoted_tweet / isReply
       - 提取作者信息: author 对象 → includes.users
+      - 文本完整性: _extract_full_text() 按优先级提取 note_tweet > full_text > text
    c. TweetParser.parse_tweet_response() → 解析为 Tweet 模型
    d. TweetValidator.validate_and_clean_batch() → 验证和清理
    e. TweetRepository.save_tweets() → 保存到数据库
@@ -134,6 +135,18 @@ news-scraper 是 X-watcher 的核心抓取模块，负责从 X 平台（Twitter�
 | `author` | object | 推文作者信息（`id`, `userName`, `name`） |
 
 **引用类型优先级**: `retweeted` > `quoted` > `replied_to`
+
+**推文文本提取策略**:
+
+TwitterAPI.io 对嵌套推文（`retweeted_tweet`、`quoted_tweet`）可能在不同字段中返回文本：
+
+| 字段 | 优先级 | 说明 |
+|------|--------|------|
+| `note_tweet.text` | 1 (最高) | X Premium 长推文（>280 字符） |
+| `full_text` | 2 | 部分 API 响应使用此字段提供完整文本 |
+| `text` | 3 (回退) | 标准字段，嵌套推文中可能被截断至 ~140 字符 |
+
+`_extract_full_text()` 函数收集所有可用候选文本，返回最长的版本。当嵌套推文文本疑似被截断（<300 字符且以省略号结尾）时，会输出 warning 日志。
 
 ## 使用示例
 
