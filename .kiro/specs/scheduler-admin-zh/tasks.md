@@ -114,3 +114,48 @@
   - 确认所有现有测试未被破坏
   - 验证 Alembic 迁移可正常 upgrade/downgrade
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 4.1, 4.2, 4.3, 4.4, 5.1, 5.2, 5.3_
+
+- [x] 9. 惰性调度启动改造
+- [x] 9.1 提取定时任务函数到独立模块
+  - 创建 `src/scraper/scheduled_job.py`，从 `main.py` 提取 `scheduled_scrape_job()` 和 `get_active_follows_from_db()`
+  - 解决 `main.py` 与 `schedule_service.py` 之间的循环导入问题
+  - 更新 `tests/scraper/test_integration.py` 的导入路径和 mock 路径
+  - _Requirements: 6.1_
+
+- [x] 9.2 新增 `is_enabled` 字段
+  - ORM 模型 `src/database/models.py` 新增 `is_enabled: Mapped[bool]` 列
+  - 领域模型 `src/preference/domain/models.py` 新增 `is_enabled: bool` 字段
+  - Repository `upsert_schedule_config()` 新增 `is_enabled: bool | None = None` 参数
+  - API Schema `ScheduleConfigResponse` 新增 `job_active` 和 `is_enabled` 字段
+  - `main.py` lifespan 中执行 `ALTER TABLE` 幂等迁移
+  - _Requirements: 4.1, 4.2, 4.3, 6.1, 6.2_
+
+- [x] 9.3 Service 层惰性 job 管理
+  - 新增 `_ensure_job_exists()` 辅助方法：检查 job 是否存在，不存在则创建
+  - 新增 `_remove_job_if_exists()` 辅助方法：移除 job（如存在）
+  - 修改 `update_interval()`: 设 `is_enabled=True`，job 不存在时创建
+  - 修改 `update_next_run_time()`: 设 `is_enabled=True`，job 不存在时创建
+  - 新增 `enable_schedule()`: DB 有配置时启用，无配置返回 422
+  - 新增 `disable_schedule()`: 暂停调度，移除 job，保留配置
+  - _Requirements: 2.1, 3.1, 6.1, 6.2, 6.3_
+
+- [x] 9.4 API 端点新增启用/暂停
+  - `POST /api/admin/scraping/schedule/enable` — 启用调度
+  - `POST /api/admin/scraping/schedule/disable` — 暂停调度
+  - 复用 `get_current_admin_user` 认证
+  - _Requirements: 6.1, 6.2, 6.4_
+
+- [x] 9.5 Lifespan 惰性启动改造
+  - 始终创建并启动 scheduler + register，但仅在 DB 有 `is_enabled=True` 时 `add_job`
+  - `_get_schedule_config_from_db()` 返回 3-tuple `(interval, next_run, is_enabled)`
+  - 删除 `main.py` 中旧的 `_scheduled_scrape_job` 和 `_get_active_follows_from_db` 定义
+  - Health check 新增 `scraper_job_active` 字段
+  - _Requirements: 4.1, 4.2, 4.3_
+
+- [x] 9.6 测试更新与全量回归
+  - `test_schedule_service.py`: 新增 enable/disable/job 创建测试（共 39 个调度相关测试通过）
+  - `test_schedule_api.py`: 新增 enable/disable 端点测试和认证测试
+  - `test_schedule_repository.py`: 新增 `is_enabled` 字段测试
+  - `test_integration.py`: 修复导入路径（从 `src.main` → `src.scraper.scheduled_job`）
+  - 全量回归：587 passed, 2 skipped, 0 failed
+  - _Requirements: 所有_

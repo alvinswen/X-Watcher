@@ -10,8 +10,10 @@
 
 ### 目标
 - 管理员可运行时查看、修改抓取间隔和下次触发时间
+- 管理员可显式启用/暂停调度（enable/disable）
 - 配置变更立即生效于运行中的 APScheduler job
-- 配置持久化到数据库，重启后自动恢复
+- 配置持久化到数据库，重启时仅恢复已启用（`is_enabled=True`）的配置
+- 启动时调度器保持"空闲"状态（不自动创建 job），需管理员通过 API 显式激活
 - 复用现有管理员认证机制和六边形架构模式
 
 ### 非目标
@@ -19,6 +21,7 @@
 - 不提供前端 UI（仅 API 端点）
 - 不支持多调度 job 管理（仅管理 `scraper_job`）
 - 不修改抓取逻辑本身（仅调度参数）
+- 不在启动时自动创建 job（除非 DB 中有 `is_enabled=True` 的配置）
 
 ## 架构
 
@@ -119,7 +122,7 @@ sequenceDiagram
     API-->>Admin: 200 OK + 配置详情
 ```
 
-### 应用启动恢复流程
+### 应用启动恢复流程（惰性启动）
 
 ```mermaid
 sequenceDiagram
@@ -128,15 +131,35 @@ sequenceDiagram
     participant Scheduler as APScheduler
     participant Accessor as scheduler_accessor
 
+    Main->>DB: ALTER TABLE 迁移（添加 is_enabled 列，已存在则忽略）
     Main->>DB: 查询 scraper_schedule_config
-    alt DB 中有配置
-        DB-->>Main: interval_seconds + next_run_time
+    Main->>Scheduler: start（始终启动调度器）
+    Main->>Accessor: register_scheduler（始终注册）
+    alt DB 中有配置 + is_enabled=True
+        DB-->>Main: interval_seconds + next_run_time + is_enabled=True
         Main->>Scheduler: add_job interval=db_interval next_run_time=db_next_run
+    else DB 中有配置 + is_enabled=False
+        DB-->>Main: is_enabled=False
+        Note over Main: 空闲（不创建 job）
     else DB 中无配置
-        Main->>Scheduler: add_job interval=settings.scraper_interval next_run_time=now
+        Note over Main: 空闲（不创建 job）
     end
-    Main->>Scheduler: start
-    Main->>Accessor: register_scheduler
+```
+
+### 状态转换
+
+```
+[启动] → 读 DB
+  ├── DB 有配置 + is_enabled=True → add_job，调度活跃
+  ├── DB 有配置 + is_enabled=False → 空闲（不创建 job）
+  └── DB 无配置 → 空闲（不创建 job）
+
+[运行中]
+  PUT /schedule/interval  → is_enabled=True + 创建/更新 job
+  PUT /schedule/next-run  → is_enabled=True + 创建/更新 job
+  POST /schedule/enable   → is_enabled=True + 创建 job（无配置则 422）
+  POST /schedule/disable  → is_enabled=False + 移除 job
+  POST /admin/scrape      → 不受影响（手动触发独立于调度器）
 ```
 
 ## 需求追溯
@@ -160,10 +183,14 @@ sequenceDiagram
 | 3.5 | 触发后恢复间隔调度 | APScheduler 内置行为 | — | — |
 | 3.6 | 调度器未运行时仍持久化 | ScraperScheduleService | PUT /schedule/next-run API | 修改流程 |
 | 3.7 | 认证保护 | scraper_config_router | PUT /schedule/next-run API | — |
-| 4.1 | 启动时从 DB 恢复间隔 | main.py lifespan | — | 启动恢复流程 |
-| 4.2 | 启动时从 DB 恢复下次触发时间 | main.py lifespan | — | 启动恢复流程 |
-| 4.3 | 无 DB 配置时使用环境变量默认值 | main.py lifespan | — | 启动恢复流程 |
+| 4.1 | 启动时从 DB 恢复间隔（仅 is_enabled=True） | main.py lifespan | — | 启动恢复流程 |
+| 4.2 | 启动时从 DB 恢复下次触发时间（仅 is_enabled=True） | main.py lifespan | — | 启动恢复流程 |
+| 4.3 | 无 DB 配置时保持空闲（不自动创建 job） | main.py lifespan | — | 启动恢复流程 |
 | 4.4 | 记录更新时间和更新人 | ScraperScheduleRepository | — | — |
+| 6.1 | 启用调度（创建 job） | ScraperScheduleService | POST /schedule/enable API | 启用流程 |
+| 6.2 | 暂停调度（移除 job，保留配置） | ScraperScheduleService | POST /schedule/disable API | 暂停流程 |
+| 6.3 | 无配置时启用返回 422 | ScraperScheduleService | POST /schedule/enable API | — |
+| 6.4 | 启用/暂停需管理员认证 | scraper_config_router | POST /schedule/enable\|disable API | — |
 | 5.1 | 所有端点要求管理员认证 | scraper_config_router | 所有 API | — |
 | 5.2 | 缺少凭证返回 401 | get_current_admin_user | 所有 API | — |
 | 5.3 | 非管理员返回 403 | get_current_admin_user | 所有 API | — |
@@ -174,8 +201,9 @@ sequenceDiagram
 |------|-------|------|----------|----------|------|
 | scheduler_accessor | 调度器访问层 | 提供 APScheduler 实例的安全访问 | 2.1, 3.1 | APScheduler (P0) | Service |
 | ScraperScheduleRepository | Infrastructure | 调度配置的 DB 持久化 | 2.1, 3.1, 4.1-4.4 | AsyncSession (P0) | Service |
-| ScraperScheduleService | Service | 调度配置业务逻辑与调度器操作 | 1.1-1.3, 2.1-2.5, 3.1-3.6 | Repository (P0), Accessor (P0) | Service |
-| scraper_config_router 扩展 | API | 3 个管理员端点 | 1.4, 2.6, 3.7, 5.1-5.3 | Service (P0), Auth (P0) | API |
+| ScraperScheduleService | Service | 调度配置业务逻辑与调度器操作（含 enable/disable） | 1.1-1.3, 2.1-2.5, 3.1-3.6, 6.1-6.3 | Repository (P0), Accessor (P0) | Service |
+| scraper_config_router 扩展 | API | 5 个管理员端点（GET/PUT×2/POST×2） | 1.4, 2.6, 3.7, 5.1-5.3, 6.4 | Service (P0), Auth (P0) | API |
+| scheduled_job | Scraper | 定时抓取任务函数（从 main.py 提取，供 Service 共用） | — | TaskRegistry (P0) | — |
 | ScraperScheduleConfig ORM | Infrastructure | 数据库表映射 | 4.1-4.4 | Base (P0) | — |
 | ScraperScheduleConfig Domain | Domain | 领域数据模型 | — | — | — |
 | main.py lifespan 扩展 | Application | 启动时加载 DB 配置 + 注册 accessor | 4.1-4.3 | Accessor (P0), Repository (P0) | — |
@@ -251,9 +279,11 @@ class ScraperScheduleRepository:
         self,
         interval_seconds: int | None = None,
         next_run_time: datetime | None = None,
+        is_enabled: bool | None = None,
         updated_by: str = "",
     ) -> ScraperScheduleConfigDomain:
-        """创建或更新调度配置。至少需提供一个配置参数。"""
+        """创建或更新调度配置。至少需提供一个配置参数。
+        is_enabled: 创建时默认 True，更新时仅在非 None 时修改。"""
 ```
 
 - 前置条件: session 处于活跃事务中
@@ -279,6 +309,9 @@ class ScraperScheduleConfig(Base):
     next_run_time: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True
     )
+    is_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False,
         default=lambda: datetime.now(timezone.utc)
@@ -300,6 +333,7 @@ class ScraperScheduleConfig(BaseModel):
     id: int
     interval_seconds: int
     next_run_time: datetime | None
+    is_enabled: bool
     updated_at: datetime
     updated_by: str
 
@@ -339,6 +373,7 @@ class ScraperScheduleService:
     async def get_schedule_config(self) -> ScheduleConfigResponse:
         """获取当前调度配置。
         合并 DB 配置 + 调度器运行状态 + 环境变量默认值。
+        返回 job_active 和 is_enabled 状态。
         """
 
     async def update_interval(
@@ -346,7 +381,8 @@ class ScraperScheduleService:
     ) -> ScheduleConfigResponse:
         """更新抓取间隔。
         验证: 300 <= interval_seconds <= 604800
-        操作: 持久化 → reschedule_job（如调度器运行中）
+        操作: 持久化（is_enabled=True）→ 创建/更新 job（如调度器运行中）
+        注意: 首次调用时会创建 job（惰性激活）。
         """
 
     async def update_next_run_time(
@@ -354,7 +390,19 @@ class ScraperScheduleService:
     ) -> ScheduleConfigResponse:
         """设置下次触发时间。
         验证: 未来时间（-30s 容差），不超过 30 天
-        操作: 持久化 → modify_job next_run_time（如调度器运行中）
+        操作: 持久化（is_enabled=True）→ 创建/更新 job（如调度器运行中）
+        注意: job 不存在时从 DB 读取 interval 后创建。
+        """
+
+    async def enable_schedule(self, updated_by: str) -> ScheduleConfigResponse:
+        """显式启用调度。
+        前置条件: DB 中已有配置（否则 422）。
+        操作: is_enabled=True + 创建 job（如不存在）。幂等。
+        """
+
+    async def disable_schedule(self, updated_by: str) -> ScheduleConfigResponse:
+        """暂停调度（保留配置）。
+        操作: is_enabled=False + 移除 job（如存在）。幂等。
         """
 ```
 
@@ -363,10 +411,15 @@ class ScraperScheduleService:
 - 不变量: `ScheduleConfigResponse.scheduler_running` 准确反映调度器状态
 
 **实现备注**
-- `get_schedule_config`: 当 DB 无记录时，使用 `get_settings().scraper_interval` 作为默认值；通过 `scheduler_accessor.get_scheduler()` 获取运行状态和 `next_run_time`
-- `update_interval`: 调用 `scheduler.reschedule_job("scraper_job", trigger="interval", seconds=new_val)`
-- `update_next_run_time`: 调用 `scheduler.modify_job("scraper_job", next_run_time=new_time)`
+- `get_schedule_config`: 当 DB 无记录时，使用 `get_settings().scraper_interval` 作为默认值；通过 `scheduler_accessor.get_scheduler()` 获取运行状态和 `next_run_time`；返回 `job_active` 和 `is_enabled`
+- `update_interval`: 持久化 `is_enabled=True`，job 存在时 `reschedule_job`，不存在时通过 `_ensure_job_exists` 创建
+- `update_next_run_time`: 持久化 `is_enabled=True`，job 存在时 `modify_job`，不存在时从 DB 读取 interval 后通过 `_ensure_job_exists` 创建
+- `enable_schedule`: DB 无配置时抛出 422；DB 有配置时设 `is_enabled=True`，job 不存在则创建（幂等）
+- `disable_schedule`: 设 `is_enabled=False`，job 存在则 `remove_job`（幂等）
+- `_ensure_job_exists(scheduler, interval_seconds, next_run_time)`: 辅助方法，从 `src.scraper.scheduled_job` 惰性导入 `scheduled_scrape_job`，调用 `scheduler.add_job`
+- `_remove_job_if_exists(scheduler)`: 辅助方法，移除 job（如存在）
 - 调度器未运行时: 配置仍持久化，`ScheduleConfigResponse.scheduler_running = False`，添加 `message` 字段提示
+- 定时任务函数从 `src.scraper.scheduled_job` 导入（从 main.py 提取，避免循环导入）
 
 ### API 层
 
@@ -391,6 +444,8 @@ class ScraperScheduleService:
 | GET | /api/admin/scraping/schedule | — | ScheduleConfigResponse | 401, 403, 500 |
 | PUT | /api/admin/scraping/schedule/interval | UpdateScheduleIntervalRequest | ScheduleConfigResponse | 401, 403, 422, 500 |
 | PUT | /api/admin/scraping/schedule/next-run | UpdateScheduleNextRunRequest | ScheduleConfigResponse | 401, 403, 422, 500 |
+| POST | /api/admin/scraping/schedule/enable | — | ScheduleConfigResponse | 401, 403, 422, 500 |
+| POST | /api/admin/scraping/schedule/disable | — | ScheduleConfigResponse | 401, 403, 500 |
 
 ## 数据模型
 
@@ -413,6 +468,7 @@ class ScraperScheduleService:
 | id | INTEGER | PRIMARY KEY | — | 固定为 1（singleton） |
 | interval_seconds | INTEGER | NOT NULL | 43200 | 抓取间隔（秒） |
 | next_run_time | DATETIME | NULLABLE | NULL | 管理员设置的下次触发时间 |
+| is_enabled | BOOLEAN | NOT NULL | TRUE | 调度是否启用（惰性启动控制） |
 | updated_at | DATETIME | NOT NULL | — | 最后更新时间 (UTC) |
 | updated_by | VARCHAR(100) | NOT NULL | — | 最后更新人标识 |
 
@@ -442,6 +498,8 @@ class ScheduleConfigResponse(BaseModel):
     interval_seconds: int = Field(..., description="当前抓取间隔（秒）")
     next_run_time: datetime | None = Field(None, description="下次触发时间")
     scheduler_running: bool = Field(..., description="调度器是否运行中")
+    job_active: bool = Field(False, description="调度任务是否在调度器中活跃")
+    is_enabled: bool = Field(False, description="DB 中的调度启用状态")
     updated_at: datetime | None = Field(None, description="最后配置更新时间")
     updated_by: str | None = Field(None, description="最后更新人")
     message: str | None = Field(None, description="附加信息（如调度器未运行提示）")
@@ -473,13 +531,20 @@ class ScheduleConfigResponse(BaseModel):
 
 ### 单元测试
 - `scheduler_accessor`: register/get/unregister 生命周期、未注册时返回 None
-- `ScraperScheduleRepository`: get（空表/有数据）、upsert（创建/更新）
-- `ScraperScheduleService`: get_config（有/无 DB 配置、调度器运行/未运行）、update_interval（正常/超范围）、update_next_run_time（正常/过去/超 30 天）
+- `ScraperScheduleRepository`: get（空表/有数据）、upsert（创建/更新）、is_enabled 字段（创建/更新/不受其他字段影响）
+- `ScraperScheduleService`:
+  - get_config（有/无 DB 配置、调度器运行/未运行）
+  - update_interval（正常/超范围/job 不存在时创建/调度器未运行时持久化）
+  - update_next_run_time（正常/过去/超 30 天/job 不存在时创建/调度器未运行时持久化）
+  - enable_schedule（有配置时创建 job/无配置时 422/已激活时幂等）
+  - disable_schedule（移除 job/无 job 时幂等）
 
 ### 集成测试
-- API GET /schedule: 默认配置返回、认证保护
+- API GET /schedule: 默认配置返回（含 job_active、is_enabled）、认证保护
 - API PUT /schedule/interval: 正常更新、无效值 422、未认证 401、非管理员 403
 - API PUT /schedule/next-run: 正常更新、过去时间 422、超 30 天 422
+- API POST /schedule/enable: 先设间隔再启用、无配置时 422、认证保护
+- API POST /schedule/disable: 暂停调度、disable-enable 往返测试、认证保护
 - 配合 mock scheduler 验证 Service 层调度器操作调用
 
 ### 测试 fixture 模式
@@ -495,3 +560,9 @@ class ScheduleConfigResponse(BaseModel):
 - `upgrade()`: 创建 `scraper_schedule_config` 表，`server_default='43200'` 为 `interval_seconds`
 - `downgrade()`: 删除 `scraper_schedule_config` 表
 - 迁移为纯增量操作，不影响现有表
+
+### is_enabled 列迁移
+
+- 在 `main.py` lifespan 中执行 `ALTER TABLE scraper_schedule_config ADD COLUMN is_enabled BOOLEAN NOT NULL DEFAULT 1`
+- 使用 try/except 忽略"列已存在"错误（幂等迁移）
+- 不依赖 Alembic，适合本地开发环境

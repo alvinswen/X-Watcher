@@ -24,7 +24,7 @@ Service 层 (业务编排)
 |------|----------|------|
 | **编程语言** | Python 3.11+ | 开发者熟悉，生态成熟 |
 | **Web 框架** | FastAPI | 高性能、异步支持、自动文档 |
-| **任务调度** | APScheduler | 定时抓取新闻任务 |
+| **任务调度** | APScheduler | 定时抓取新闻任务（惰性启动，需管理员 API 显式启用） |
 | **数据库** | SQLite → PostgreSQL | 本地开发用 SQLite，云端升级 |
 | **LLM** | MiniMax M2.1 / OpenRouter (Claude Sonnet 4.5) | 双提供商，高性价比 |
 | **Agent 框架** | HKUDS/nanobot（计划中） | 超轻量（4000 行），微内核设计 |
@@ -137,7 +137,7 @@ AUTO_SUMMARIZATION_BATCH_SIZE=10    # 批量摘要大小
 FEED_MAX_TWEETS=200                 # Feed 返回最大推文数
 
 # 抓取调度
-SCRAPER_INTERVAL=43200              # 默认抓取间隔（秒），可通过管理 API 运行时覆盖
+SCRAPER_INTERVAL=43200              # 默认抓取间隔（秒），仅作为 GET /schedule 的回退默认值；启动时不自动创建 job，需管理员通过 API 显式启用
 
 # 抓取优化
 SCRAPER_MIN_LIMIT=10                # 动态 limit 最小值

@@ -32,6 +32,7 @@ src/
 │   ├── parser.py            # 推文解析器
 │   ├── validator.py         # 数据验证器（MAX_TEXT_LENGTH=25000）
 │   ├── scraping_service.py  # 抓取编排服务（含自动摘要触发）
+│   ├── scheduled_job.py     # 定时抓取任务函数（供 main.py 和 schedule_service 共用）
 │   ├── task_registry.py     # 异步任务注册表
 │   ├── domain/
 │   │   ├── models.py        # 领域模型（Tweet, Media, SaveResult）
@@ -78,13 +79,13 @@ src/
 │   ├── services/
 │   │   ├── preference_service.py
 │   │   ├── scraper_config_service.py
-│   │   └── schedule_service.py      # 调度配置业务服务
+│   │   └── schedule_service.py      # 调度配置业务服务（含启用/暂停、惰性 job 创建）
 │   └── api/
 │       ├── routes.py        # 路由导出
 │       ├── auth.py          # API Key 认证
 │       ├── schemas.py       # 请求/响应模型
 │       ├── preference_router.py   # 关注列表 API
-│       └── scraper_config_router.py  # 管理员抓取配置 + 调度管理 + 公共只读 API
+│       └── scraper_config_router.py  # 管理员抓取配置 + 调度管理（含 enable/disable）+ 公共只读 API
 ├── user/                    # 用户管理与认证模块
 │   ├── api/
 │   │   ├── auth.py          # JWT + API Key 统一认证依赖
@@ -110,12 +111,12 @@ src/
 │   ├── middleware.py         # 中间件
 │   └── routes.py            # /metrics 端点
 ├── database/                # 数据库层
-│   ├── models.py            # SQLAlchemy 基础模型（User, ScraperScheduleConfig 等）
+│   ├── models.py            # SQLAlchemy 基础模型（User, ScraperScheduleConfig[含 is_enabled] 等）
 │   └── async_session.py     # 异步会话管理
 ├── web/                     # 前端 SPA（Vue 3 + Element Plus）
 ├── scheduler_accessor.py    # 调度器全局引用管理（解耦 Service 与 APScheduler）
 ├── config.py                # 全局配置（Pydantic Settings）
-└── main.py                  # FastAPI 应用入口
+└── main.py                  # FastAPI 应用入口（惰性调度启动 + DB 迁移）
 ```
 
 ### 测试代码
