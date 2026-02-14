@@ -83,3 +83,6 @@ kill_port.ps1
 Developmentnanobot/
 AgentTeam_example.md
 openapi*.json
+
+# Debug reports
+debug_reports/

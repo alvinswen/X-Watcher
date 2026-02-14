@@ -56,6 +56,8 @@ class SummarizationService:
     # 默认配置
     DEFAULT_MAX_CONCURRENT = 5
     DEFAULT_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 天
+    DEFAULT_MAX_TOKENS = 2048
+    TRUNCATION_RETRY_MAX_TOKENS = 4096
 
     def __init__(
         self,
@@ -824,17 +826,23 @@ class SummarizationService:
         self,
         provider: LLMProvider,
         prompt: str,
+        max_tokens: int | None = None,
     ) -> Result[LLMResponse, Exception]:
         """调用 LLM 并在临时错误时重试一次。
+
+        当检测到输出被截断（finish_reason="length"）时，
+        使用更大的 max_tokens 重试一次。
 
         Args:
             provider: LLM 提供商
             prompt: 输入提示词
+            max_tokens: 最大输出 token 数，默认使用 DEFAULT_MAX_TOKENS
 
         Returns:
             Result[LLMResponse, Exception]: LLM 响应或错误
         """
-        result = await provider.complete(prompt)
+        actual_max_tokens = max_tokens or self.DEFAULT_MAX_TOKENS
+        result = await provider.complete(prompt, max_tokens=actual_max_tokens)
 
         if isinstance(result, Failure):
             error = result.failure()
@@ -843,7 +851,39 @@ class SummarizationService:
             if error_type == LLMErrorType.temporary:
                 # 临时错误：重试一次
                 logger.debug(f"临时错误，重试一次: {error}")
-                result = await provider.complete(prompt)
+                result = await provider.complete(
+                    prompt, max_tokens=actual_max_tokens
+                )
+
+            return result
+
+        # 检测截断：finish_reason == "length"
+        llm_response = result.unwrap()
+        if (
+            llm_response.finish_reason == "length"
+            and actual_max_tokens < self.TRUNCATION_RETRY_MAX_TOKENS
+        ):
+            logger.warning(
+                f"LLM 输出被截断 (finish_reason=length, "
+                f"completion_tokens={llm_response.completion_tokens}, "
+                f"max_tokens={actual_max_tokens})，"
+                f"使用 max_tokens={self.TRUNCATION_RETRY_MAX_TOKENS} 重试"
+            )
+            # 用更大的 max_tokens 重试一次
+            retry_result = await provider.complete(
+                prompt, max_tokens=self.TRUNCATION_RETRY_MAX_TOKENS
+            )
+            if isinstance(retry_result, Success):
+                retry_response = retry_result.unwrap()
+                if retry_response.finish_reason == "length":
+                    logger.warning(
+                        f"重试后仍被截断 "
+                        f"(completion_tokens={retry_response.completion_tokens})"
+                    )
+                return retry_result
+            # 重试失败（API 错误等），返回原始截断结果而非 Failure
+            logger.warning("截断重试失败，返回原始截断结果")
+            return result
 
         return result
 

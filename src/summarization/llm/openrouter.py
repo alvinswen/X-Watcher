@@ -59,7 +59,7 @@ class OpenRouterProvider(LLMProvider):
     async def complete(
         self,
         prompt: str,
-        max_tokens: int = 500,
+        max_tokens: int = 2048,
         temperature: float = 0.7,
     ) -> Result[LLMResponse, Exception]:
         """调用 OpenRouter API 生成文本。
@@ -113,6 +113,7 @@ class OpenRouterProvider(LLMProvider):
         try:
             choice = response.choices[0]
             content = choice.message.content or ""
+            finish_reason = choice.finish_reason
 
             if not content:
                 return Failure(ValueError("OpenRouter 返回空内容"))
@@ -140,6 +141,7 @@ class OpenRouterProvider(LLMProvider):
                     completion_tokens=completion_tokens,
                     total_tokens=total_tokens,
                     cost_usd=cost_usd,
+                    finish_reason=finish_reason,
                 )
             )
 

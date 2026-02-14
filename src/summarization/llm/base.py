@@ -42,7 +42,7 @@ class LLMProvider(ABC):
     async def complete(
         self,
         prompt: str,
-        max_tokens: int = 500,
+        max_tokens: int = 2048,
         temperature: float = 0.7,
     ) -> Result[LLMResponse, Exception]:
         """调用 LLM 生成文本。

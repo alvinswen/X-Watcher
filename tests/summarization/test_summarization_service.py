@@ -71,12 +71,13 @@ class MockLLMProvider(LLMProvider):
     async def complete(
         self,
         prompt: str,
-        max_tokens: int = 500,
+        max_tokens: int = 2048,
         temperature: float = 0.7,
     ):
         """模拟 LLM 调用。"""
         call_index = self._call_count
         self._call_count += 1
+        self._last_max_tokens = max_tokens
 
         # 如果有预设错误，返回错误
         if call_index < len(self._errors):
@@ -103,6 +104,7 @@ class MockLLMProvider(LLMProvider):
                 completion_tokens=50,
                 total_tokens=150,
                 cost_usd=0.001,
+                finish_reason="stop",
             )
         )
 
@@ -891,3 +893,177 @@ class TestCreateSummarizationService:
                 repository=repository,  # type: ignore
                 config=config,
             )
+
+
+class TestTruncationDetection:
+    """截断检测与重试逻辑测试。"""
+
+    def _make_response(
+        self,
+        content: str = '{"summary": "摘要", "translation": "翻译"}',
+        completion_tokens: int = 200,
+        finish_reason: str | None = "stop",
+    ) -> LLMResponse:
+        """构造测试用 LLMResponse。"""
+        return LLMResponse(
+            content=content,
+            model="mock-model",
+            provider="openrouter",
+            prompt_tokens=100,
+            completion_tokens=completion_tokens,
+            total_tokens=100 + completion_tokens,
+            cost_usd=0.001,
+            finish_reason=finish_reason,
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_retry_when_finish_reason_is_stop(self):
+        """测试正常完成时不重试。"""
+        response = self._make_response(finish_reason="stop")
+        provider = MockLLMProvider("openrouter", responses=[response])
+        service = SummarizationService(
+            repository=MockRepository(),  # type: ignore
+            providers=[provider],
+        )
+
+        result = await service._call_llm_with_retry(provider, "test prompt")
+
+        assert isinstance(result, Success)
+        assert result.unwrap().finish_reason == "stop"
+        assert provider._call_count == 1  # 没有重试
+
+    @pytest.mark.asyncio
+    async def test_no_retry_when_finish_reason_is_none(self):
+        """测试 finish_reason 为 None 时不重试。"""
+        response = self._make_response(finish_reason=None)
+        provider = MockLLMProvider("openrouter", responses=[response])
+        service = SummarizationService(
+            repository=MockRepository(),  # type: ignore
+            providers=[provider],
+        )
+
+        result = await service._call_llm_with_retry(provider, "test prompt")
+
+        assert isinstance(result, Success)
+        assert provider._call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_truncation_detected_and_retried(self):
+        """测试检测到截断后使用更大 max_tokens 重试。"""
+        truncated = self._make_response(
+            content='{"summary": "摘要", "translat',
+            completion_tokens=2048,
+            finish_reason="length",
+        )
+        full = self._make_response(
+            content='{"summary": "完整摘要", "translation": "完整翻译"}',
+            completion_tokens=800,
+            finish_reason="stop",
+        )
+        provider = MockLLMProvider("openrouter", responses=[truncated, full])
+        service = SummarizationService(
+            repository=MockRepository(),  # type: ignore
+            providers=[provider],
+        )
+
+        result = await service._call_llm_with_retry(provider, "test prompt")
+
+        assert isinstance(result, Success)
+        assert result.unwrap().finish_reason == "stop"
+        assert result.unwrap().content == '{"summary": "完整摘要", "translation": "完整翻译"}'
+        assert provider._call_count == 2  # 重试了一次
+        # 验证重试时使用了更大的 max_tokens
+        assert provider._last_max_tokens == SummarizationService.TRUNCATION_RETRY_MAX_TOKENS
+
+    @pytest.mark.asyncio
+    async def test_truncation_retry_still_truncated_returns_retry_result(self):
+        """测试重试后仍截断时，返回重试结果（内容更完整）。"""
+        truncated1 = self._make_response(
+            content='{"summary": "a"',
+            completion_tokens=2048,
+            finish_reason="length",
+        )
+        truncated2 = self._make_response(
+            content='{"summary": "摘要", "translation": "翻译部分内容',
+            completion_tokens=4096,
+            finish_reason="length",
+        )
+        provider = MockLLMProvider("openrouter", responses=[truncated1, truncated2])
+        service = SummarizationService(
+            repository=MockRepository(),  # type: ignore
+            providers=[provider],
+        )
+
+        result = await service._call_llm_with_retry(provider, "test prompt")
+
+        assert isinstance(result, Success)
+        # 返回重试结果（更完整）
+        assert result.unwrap().completion_tokens == 4096
+        assert provider._call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_truncation_retry_failure_returns_original(self):
+        """测试截断重试失败（API 错误）时，返回原始截断结果。"""
+        truncated = self._make_response(
+            content='{"summary": "摘要", "translat',
+            completion_tokens=2048,
+            finish_reason="length",
+        )
+        # 第一次返回截断，第二次返回错误
+        provider = MockLLMProvider(
+            "openrouter",
+            responses=[truncated],
+            errors=[],
+        )
+        service = SummarizationService(
+            repository=MockRepository(),  # type: ignore
+            providers=[provider],
+        )
+
+        # Mock：第二次调用返回 Failure
+        original_complete = provider.complete
+        call_count = 0
+
+        async def mock_complete(prompt, max_tokens=2048, temperature=0.7):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return Success(truncated)
+            return Failure(Exception("API error"))
+
+        provider.complete = mock_complete  # type: ignore
+
+        result = await service._call_llm_with_retry(provider, "test prompt")
+
+        assert isinstance(result, Success)
+        # 返回原始截断结果，而非 Failure
+        assert result.unwrap().completion_tokens == 2048
+
+    @pytest.mark.asyncio
+    async def test_finish_reason_field_defaults_to_none(self):
+        """测试 LLMResponse 的 finish_reason 默认为 None（向后兼容）。"""
+        response = LLMResponse(
+            content="test",
+            model="test",
+            provider="openrouter",
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+            cost_usd=0.001,
+        )
+        assert response.finish_reason is None
+
+    @pytest.mark.asyncio
+    async def test_max_tokens_passed_to_provider(self):
+        """测试 max_tokens 被正确传递给 provider。"""
+        response = self._make_response(finish_reason="stop")
+        provider = MockLLMProvider("openrouter", responses=[response])
+        service = SummarizationService(
+            repository=MockRepository(),  # type: ignore
+            providers=[provider],
+        )
+
+        await service._call_llm_with_retry(provider, "test prompt")
+
+        # 验证使用默认 max_tokens
+        assert provider._last_max_tokens == SummarizationService.DEFAULT_MAX_TOKENS

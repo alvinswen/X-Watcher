@@ -47,6 +47,10 @@ class LLMResponse(BaseModel):
     completion_tokens: int = Field(..., ge=0, description="输出 token 数")
     total_tokens: int = Field(..., ge=0, description="总 token 数")
     cost_usd: float = Field(..., ge=0, description="成本（美元）")
+    finish_reason: str | None = Field(
+        default=None,
+        description="完成原因（stop=正常完成, length=被截断, null=未知）",
+    )
 
     @field_validator("total_tokens")
     @classmethod
