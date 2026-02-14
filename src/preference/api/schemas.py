@@ -7,6 +7,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator
 
+from src.shared.schemas import UTCDatetimeModel
+
 
 def _normalize_username(username: str) -> str:
     """标准化 Twitter 用户名。
@@ -72,7 +74,7 @@ class CreateFollowRequest(BaseModel):
         return normalized
 
 
-class FollowResponse(BaseModel):
+class FollowResponse(UTCDatetimeModel):
     """关注响应模型。
 
     返回用户关注的 Twitter 账号信息。
@@ -141,7 +143,7 @@ class CreateScraperFollowRequest(BaseModel):
         return normalized
 
 
-class ScraperFollowResponse(BaseModel):
+class ScraperFollowResponse(UTCDatetimeModel):
     """抓取账号响应模型。
 
     返回平台级抓取账号信息。
@@ -193,7 +195,7 @@ class UpdateScheduleNextRunRequest(BaseModel):
     )
 
 
-class ScheduleConfigResponse(BaseModel):
+class ScheduleConfigResponse(UTCDatetimeModel):
     """调度配置响应模型。"""
 
     interval_seconds: int = Field(..., description="当前抓取间隔（秒）")

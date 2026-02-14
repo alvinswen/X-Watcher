@@ -1,0 +1,66 @@
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+
+# Environment files (secrets)
+.env
+.env.*
+!.env.docker.example
+
+# Database files
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# IDE
+.vscode/
+.idea/
+
+# Testing
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Linting / Type checking
+.mypy_cache/
+.ruff_cache/
+
+# Logs
+logs/
+*.log
+
+# Documentation
+docs/
+
+# Project management
+.kiro/
+.claude/
+CLAUDE.md
+
+# Node.js (frontend rebuilt in Docker)
+src/web/node_modules/
+src/web/dist/
+
+# Docker (avoid recursive copy)
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Temporary / misc
+*.bak
+nul
+result_*.txt

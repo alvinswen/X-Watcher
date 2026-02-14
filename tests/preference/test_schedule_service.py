@@ -290,19 +290,28 @@ class TestEnableSchedule:
         assert result.scheduler_running is True
 
     @pytest.mark.asyncio
-    async def test_enable_schedule_without_config_returns_422(self):
-        """无 DB 配置时，enable 应返回 422。"""
+    async def test_enable_schedule_without_config_auto_creates(self):
+        """无 DB 配置时，enable 应使用默认间隔自动创建配置。"""
         mock_repo = AsyncMock()
-        mock_repo.get_schedule_config.return_value = None
+        # 第一次 get 返回 None（无配置），upsert 后第二次 get 返回新建配置
+        created_config = _make_config(interval_seconds=3600, is_enabled=True)
+        mock_repo.get_schedule_config.side_effect = [None, created_config, created_config]
 
         service = ScraperScheduleService(mock_repo)
 
-        from fastapi import HTTPException
-        with pytest.raises(HTTPException) as exc_info:
-            await service.enable_schedule("admin")
+        mock_settings = MagicMock()
+        mock_settings.scraper_interval = 3600
 
-        assert exc_info.value.status_code == 422
-        mock_repo.upsert_schedule_config.assert_not_called()
+        with patch("src.preference.services.schedule_service.get_scheduler", return_value=None), \
+             patch("src.preference.services.schedule_service.get_settings", return_value=mock_settings):
+            result = await service.enable_schedule("admin")
+
+        mock_repo.upsert_schedule_config.assert_called_once_with(
+            interval_seconds=3600,
+            is_enabled=True,
+            updated_by="admin",
+        )
+        assert result.is_enabled is True
 
     @pytest.mark.asyncio
     async def test_enable_schedule_already_active(self):

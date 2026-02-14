@@ -1,0 +1,78 @@
+services:
+  # ===========================================================================
+  # 默认服务：SQLite 模式（开发/单机部署）
+  # 使用方式: docker compose up -d
+  # ===========================================================================
+  app:
+    build: .
+    image: x-watcher:latest
+    container_name: x-watcher
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    volumes:
+      - app-data:/app/data
+    env_file:
+      - path: .env.docker
+        required: false
+    environment:
+      DATABASE_URL: sqlite:////app/data/news_agent.db
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ===========================================================================
+  # PostgreSQL 数据库（生产模式）
+  # 使用方式: docker compose --profile prod up -d
+  # ===========================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: x-watcher-postgres
+    restart: unless-stopped
+    profiles: ["prod"]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-xwatcher}
+      POSTGRES_USER: ${POSTGRES_USER:-xwatcher}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-xwatcher} -d ${POSTGRES_DB:-xwatcher}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ===========================================================================
+  # 生产应用（PostgreSQL 模式）
+  # 使用方式: docker compose --profile prod up -d
+  # ===========================================================================
+  app-prod:
+    build: .
+    image: x-watcher:latest
+    container_name: x-watcher-prod
+    restart: unless-stopped
+    profiles: ["prod"]
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - path: .env.docker
+        required: false
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-xwatcher}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-xwatcher}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  app-data:
+  postgres-data:

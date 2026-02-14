@@ -2,6 +2,9 @@
 
 export * from "./tweet"
 export * from "./task"
+export * from "./scheduler"
+export * from "./user"
+export * from "./health"
 
 /** API 错误响应。 */
 export interface ApiError {

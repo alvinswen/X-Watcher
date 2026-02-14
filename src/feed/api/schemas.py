@@ -8,8 +8,10 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from src.shared.schemas import UTCDatetimeModel
 
-class FeedTweetItem(BaseModel):
+
+class FeedTweetItem(UTCDatetimeModel):
     """Feed 推文条目响应模型。"""
 
     tweet_id: str = Field(..., description="推文唯一 ID")
@@ -25,7 +27,7 @@ class FeedTweetItem(BaseModel):
     translation_text: str | None = Field(None, description="中文翻译")
 
 
-class FeedResponse(BaseModel):
+class FeedResponse(UTCDatetimeModel):
     """Feed API 响应模型。"""
 
     items: list[FeedTweetItem] = Field(..., description="推文列表")

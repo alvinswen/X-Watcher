@@ -10,6 +10,14 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api"
 /** API Key 存储键名 */
 const API_KEY_STORAGE_KEY = "admin_api_key"
 
+/** API Key provider（由 Auth Store 注入） */
+let apiKeyProvider: (() => string | null) | null = null
+
+/** 注册 API Key provider（依赖注入，避免循环引用） */
+export function setApiKeyProvider(provider: () => string | null): void {
+  apiKeyProvider = provider
+}
+
 /** 创建 Axios 实例 */
 const client: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
@@ -22,8 +30,8 @@ const client: AxiosInstance = axios.create({
 /** 请求拦截器 */
 client.interceptors.request.use(
   (config) => {
-    // 从 localStorage 读取 API Key 并注入到请求头
-    const apiKey = localStorage.getItem(API_KEY_STORAGE_KEY)
+    // 优先通过 provider 获取 API Key，fallback 到 localStorage
+    const apiKey = apiKeyProvider ? apiKeyProvider() : localStorage.getItem(API_KEY_STORAGE_KEY)
     if (apiKey) {
       config.headers["X-API-Key"] = apiKey
     }

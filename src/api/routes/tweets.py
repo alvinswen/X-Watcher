@@ -4,7 +4,7 @@
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.async_session import get_db_session
 from src.scraper.infrastructure.models import TweetOrm
+from src.shared.schemas import UTCDatetimeModel
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ router = APIRouter(prefix="/api/tweets", tags=["tweets"])
 # ========== 响应模型 ==========
 
 
-class TweetListItem(BaseModel):
+class TweetListItem(UTCDatetimeModel):
     """推文列表项响应模型。"""
 
     tweet_id: str = Field(..., description="推文 ID")
@@ -30,6 +31,7 @@ class TweetListItem(BaseModel):
     author_username: str = Field(..., description="作者用户名")
     author_display_name: str | None = Field(None, description="作者显示名称")
     created_at: datetime = Field(..., description="推文创建时间")
+    db_created_at: datetime = Field(..., description="入库时间")
     reference_type: str | None = Field(None, description="引用类型")
     referenced_tweet_id: str | None = Field(None, description="引用的推文 ID")
     has_summary: bool = Field(False, description="是否有摘要")
@@ -156,6 +158,7 @@ async def list_tweets(
                     author_username=tweet_dict["author_username"],
                     author_display_name=tweet_dict.get("author_display_name"),
                     created_at=tweet_dict["created_at"],
+                    db_created_at=tweet_dict["db_created_at"],
                     reference_type=tweet_dict.get("reference_type"),
                     referenced_tweet_id=tweet_dict.get("referenced_tweet_id"),
                     has_summary=has_summary,
@@ -217,6 +220,7 @@ async def get_tweet_detail(
             TweetOrm.tweet_id,
             TweetOrm.text,
             TweetOrm.created_at,
+            TweetOrm.db_created_at,
             TweetOrm.author_username,
             TweetOrm.author_display_name,
             TweetOrm.referenced_tweet_id,
@@ -239,6 +243,7 @@ async def get_tweet_detail(
             "author_username": row.author_username,
             "author_display_name": row.author_display_name,
             "created_at": row.created_at,
+            "db_created_at": row.db_created_at,
             "reference_type": row.reference_type,
             "referenced_tweet_id": row.referenced_tweet_id,
             "media": row.media,
@@ -256,6 +261,13 @@ async def get_tweet_detail(
             summary_record = await summary_repo.get_summary_by_tweet(tweet_id)
 
             if summary_record:
+                def _utc_iso(dt: datetime | None) -> str | None:
+                    if dt is None:
+                        return None
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    return dt.isoformat()
+
                 summary = {
                     "summary_id": summary_record.summary_id,
                     "summary_text": summary_record.summary_text,
@@ -265,9 +277,7 @@ async def get_tweet_detail(
                     "cost_usd": summary_record.cost_usd,
                     "cached": summary_record.cached,
                     "is_generated_summary": summary_record.is_generated_summary,
-                    "created_at": summary_record.created_at.isoformat()
-                    if summary_record.created_at
-                    else None,
+                    "created_at": _utc_iso(summary_record.created_at),
                 }
                 tweet_dict["has_summary"] = True
         except Exception as e:

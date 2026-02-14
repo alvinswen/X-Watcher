@@ -1,0 +1,22 @@
+{
+  "feature_name": "web-admin-ui-v2",
+  "created_at": "2026-02-14T12:00:00Z",
+  "updated_at": "2026-02-14T14:30:00Z",
+  "language": "zh",
+  "phase": "implemented",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": true
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    },
+    "tasks": {
+      "generated": true,
+      "approved": true
+    }
+  },
+  "ready_for_implementation": true
+}

@@ -2,7 +2,7 @@
 
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI
@@ -93,7 +93,7 @@ async def lifespan(app: FastAPI):  # noqa: ARG001 - app 参数是 FastAPI 要求
         db_interval, db_next_run, db_is_enabled = _get_schedule_config_from_db()
 
         if db_is_enabled and db_interval is not None:
-            next_run = db_next_run if db_next_run is not None else datetime.now()
+            next_run = db_next_run if db_next_run is not None else datetime.now(timezone.utc)
             _scheduler.add_job(
                 scheduled_scrape_job,
                 "interval",

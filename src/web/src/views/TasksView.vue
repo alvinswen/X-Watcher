@@ -80,10 +80,10 @@
         </el-table-column>
         <el-table-column prop="created_at" label="创建时间" width="180">
           <template #default="{ row }">
-            {{ formatTime(row.created_at) }}
+            {{ formatLocalizedDateTime(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="100">
+        <el-table-column label="操作" width="140">
           <template #default="{ row }">
             <el-button
               link
@@ -92,6 +92,15 @@
               @click="handleViewDetail(row)"
             >
               详情
+            </el-button>
+            <el-button
+              v-if="row.status !== 'running'"
+              link
+              type="danger"
+              size="small"
+              @click="handleDeleteTask(row)"
+            >
+              删除
             </el-button>
           </template>
         </el-table-column>
@@ -115,13 +124,13 @@
             </el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="创建时间">
-            {{ formatFullTime(selectedTask.created_at) }}
+            {{ formatFullDateTime(selectedTask.created_at) }}
           </el-descriptions-item>
           <el-descriptions-item label="开始时间" v-if="selectedTask.started_at">
-            {{ formatFullTime(selectedTask.started_at) }}
+            {{ formatFullDateTime(selectedTask.started_at) }}
           </el-descriptions-item>
           <el-descriptions-item label="完成时间" v-if="selectedTask.completed_at">
-            {{ formatFullTime(selectedTask.completed_at) }}
+            {{ formatFullDateTime(selectedTask.completed_at) }}
           </el-descriptions-item>
           <el-descriptions-item label="进度">
             {{ selectedTask.progress.current }} / {{ selectedTask.progress.total }}
@@ -144,8 +153,10 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from "vue"
 import { VideoPlay } from "@element-plus/icons-vue"
-import { tasksApi } from "@/api"
+import { ElMessage, ElMessageBox } from "element-plus"
+import { tasksApi, followsApi } from "@/api"
 import { taskPollingService } from "@/services/polling"
+import { formatLocalizedDateTime, formatFullDateTime } from "@/utils/format"
 import type { TaskListItem, TaskStatusResponse } from "@/types"
 
 /** 任务列表 */
@@ -185,8 +196,19 @@ async function loadTasks() {
 async function handleTriggerScraping() {
   triggering.value = true
   try {
+    // 先获取活跃账号列表
+    const follows = await followsApi.list()
+    const activeFollows = follows.filter((f) => f.is_active)
+
+    if (activeFollows.length === 0) {
+      ElMessage.warning("没有活跃的关注账号，无法抓取")
+      return
+    }
+
+    const usernames = activeFollows.map((f) => f.username).join(",")
+
     const response = await tasksApi.triggerScraping({
-      usernames: "",  // 空字符串表示使用所有配置的账号
+      usernames,
       limit: 100,
     })
 
@@ -250,6 +272,27 @@ function stopPolling() {
   }
 }
 
+/** 删除任务 */
+async function handleDeleteTask(task: TaskListItem) {
+  try {
+    await ElMessageBox.confirm("确定要删除此任务？", "确认删除", {
+      confirmButtonText: "确定",
+      cancelButtonText: "取消",
+      type: "warning",
+    })
+
+    await tasksApi.deleteTask(task.task_id)
+    ElMessage.success("任务已删除")
+    await loadTasks()
+  } catch (error) {
+    // 用户取消时 ElMessageBox 会抛出 'cancel'
+    if (error !== "cancel") {
+      console.error("删除任务失败:", error)
+      ElMessage.error("删除任务失败")
+    }
+  }
+}
+
 /** 查看任务详情 */
 async function handleViewDetail(task: TaskListItem) {
   try {
@@ -284,27 +327,6 @@ function getStatusText(status: string): string {
     failed: "失败",
   }
   return statusMap[status] || status
-}
-
-/** 格式化时间 */
-function formatTime(dateStr: string | null): string {
-  if (!dateStr) return "-"
-  const date = new Date(dateStr)
-  return date.toLocaleString("zh-CN")
-}
-
-/** 格式化完整时间 */
-function formatFullTime(dateStr: string | null): string {
-  if (!dateStr) return "-"
-  const date = new Date(dateStr)
-  return date.toLocaleString("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  })
 }
 
 /** 组件挂载时加载数据 */

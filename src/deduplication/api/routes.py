@@ -11,6 +11,8 @@ from typing import Literal
 from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 
+from src.shared.schemas import UTCDatetimeModel
+
 from src.database.async_session import get_async_session_maker
 from src.deduplication.domain.models import (
     DeduplicationConfig,
@@ -67,7 +69,7 @@ class DeduplicateResponse(BaseModel):
     )
 
 
-class DeduplicationGroupResponse(BaseModel):
+class DeduplicationGroupResponse(UTCDatetimeModel):
     """去重组响应模型。"""
 
     group_id: str = Field(..., description="去重组 ID")

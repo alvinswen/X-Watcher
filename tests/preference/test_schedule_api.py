@@ -221,12 +221,14 @@ class TestScheduleEnableDisableAPI:
             yield ac
 
     @pytest.mark.asyncio
-    async def test_enable_without_config_returns_422(self, client):
-        """无调度配置时启用返回 422。"""
+    async def test_enable_without_config_auto_creates(self, client):
+        """无调度配置时启用应自动使用默认间隔创建配置。"""
         with patch("src.preference.services.schedule_service.get_scheduler", return_value=None):
             response = await client.post("/api/admin/scraping/schedule/enable")
 
-        assert response.status_code == 422
+        assert response.status_code == 200
+        data = response.json()
+        assert data["is_enabled"] is True
 
     @pytest.mark.asyncio
     async def test_enable_after_setting_interval(self, client):

@@ -8,6 +8,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from src.shared.schemas import UTCDatetimeModel
+
 
 class BatchSummaryRequest(BaseModel):
     """批量摘要请求模型。
@@ -63,7 +65,7 @@ class BatchSummaryResponse(BaseModel):
     )
 
 
-class SummaryResponse(BaseModel):
+class SummaryResponse(UTCDatetimeModel):
     """摘要响应模型。
 
     返回单条推文的摘要和翻译结果。
@@ -114,7 +116,7 @@ class SummaryResponse(BaseModel):
         )
 
 
-class CostStatsResponse(BaseModel):
+class CostStatsResponse(UTCDatetimeModel):
     """成本统计响应模型。
 
     返回指定时间范围内的成本统计。

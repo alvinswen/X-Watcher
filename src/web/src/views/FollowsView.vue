@@ -17,7 +17,7 @@
       <el-table-column prop="added_by" label="添加人" width="120" />
       <el-table-column prop="added_at" label="添加时间" width="180">
         <template #default="{ row }">
-          {{ formatTime(row.added_at) }}
+          {{ formatLocalizedDateTime(row.added_at) }}
         </template>
       </el-table-column>
       <el-table-column prop="is_active" label="状态" width="100">
@@ -103,6 +103,7 @@ import { ref, onMounted, reactive } from "vue"
 import { Plus } from "@element-plus/icons-vue"
 import { ElMessageBox, ElMessage, type FormInstance, type FormRules } from "element-plus"
 import { followsApi } from "@/api"
+import { formatLocalizedDateTime } from "@/utils/format"
 import type { ScrapingFollow } from "@/types"
 
 /** 抓取账号列表 */
@@ -259,12 +260,6 @@ async function handleDelete(follow: ScrapingFollow) {
   } finally {
     submitting.value = false
   }
-}
-
-/** 格式化时间 */
-function formatTime(dateStr: string): string {
-  const date = new Date(dateStr)
-  return date.toLocaleString("zh-CN")
 }
 
 /** 组件挂载时加载数据 */

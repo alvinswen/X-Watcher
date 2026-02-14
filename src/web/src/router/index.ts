@@ -7,14 +7,22 @@ const routes: RouteRecordRaw[] = [
   {
     path: "/",
     name: "home",
-    redirect: "/tweets",
+    redirect: "/dashboard",
+  },
+  {
+    path: "/dashboard",
+    name: "dashboard",
+    component: () => import("@/views/DashboardView.vue"),
+    meta: {
+      title: "仪表盘",
+    },
   },
   {
     path: "/tweets",
     name: "tweets",
     component: () => import("@/views/TweetsView.vue"),
     meta: {
-      title: "推文列表",
+      title: "推文管理",
     },
   },
   {
@@ -39,6 +47,22 @@ const routes: RouteRecordRaw[] = [
     component: () => import("@/views/TasksView.vue"),
     meta: {
       title: "任务监控",
+    },
+  },
+  {
+    path: "/scheduler",
+    name: "scheduler",
+    component: () => import("@/views/SchedulerView.vue"),
+    meta: {
+      title: "调度管理",
+    },
+  },
+  {
+    path: "/users",
+    name: "users",
+    component: () => import("@/views/UsersView.vue"),
+    meta: {
+      title: "用户管理",
     },
   },
 ]

@@ -17,7 +17,7 @@
             <span class="author-name">{{ tweet.author_display_name || tweet.author_username }}</span>
             <span class="author-username">@{{ tweet.author_username }}</span>
           </div>
-          <span class="tweet-time">{{ formatFullTime(tweet.created_at) }}</span>
+          <span class="tweet-time">{{ formatFullDateTime(tweet.created_at) }}</span>
         </div>
         <div class="tweet-content">{{ tweet.text }}</div>
         <div v-if="tweet.media && tweet.media.length > 0" class="tweet-media">
@@ -35,8 +35,19 @@
       <el-card v-if="tweet.summary" class="summary-card">
         <template #header>
           <div class="card-header">
-            <span>AI 摘要</span>
-            <el-tag v-if="tweet.summary.cached" type="info" size="small">缓存</el-tag>
+            <div class="card-header-left">
+              <span>AI 摘要</span>
+              <el-tag v-if="tweet.summary.cached" type="info" size="small">缓存</el-tag>
+            </div>
+            <el-button
+              link
+              :icon="Refresh"
+              :loading="regenerating"
+              :disabled="regenerating"
+              @click="handleRegenerateSummary"
+            >
+              重新生成
+            </el-button>
           </div>
         </template>
         <div class="summary-content">
@@ -60,7 +71,17 @@
 
       <!-- 无摘要提示 -->
       <el-card v-else class="info-card">
-        <el-empty description="此推文暂无摘要" :image-size="80" />
+        <el-empty description="此推文暂无摘要" :image-size="80">
+          <el-button
+            type="primary"
+            :icon="Refresh"
+            :loading="regenerating"
+            :disabled="regenerating"
+            @click="handleRegenerateSummary"
+          >
+            生成摘要
+          </el-button>
+        </el-empty>
       </el-card>
 
       <!-- 去重信息卡片 -->
@@ -99,8 +120,10 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue"
 import { useRoute, useRouter } from "vue-router"
-import { ArrowLeft } from "@element-plus/icons-vue"
-import { tweetsApi } from "@/api"
+import { ArrowLeft, Refresh } from "@element-plus/icons-vue"
+import { ElMessage } from "element-plus"
+import { tweetsApi, summariesApi } from "@/api"
+import { formatFullDateTime } from "@/utils/format"
 import type { TweetDetail } from "@/types"
 
 /** 路由实例 */
@@ -112,6 +135,9 @@ const tweet = ref<TweetDetail | null>(null)
 
 /** 加载状态 */
 const loading = ref(false)
+
+/** 摘要再生成状态 */
+const regenerating = ref(false)
 
 /** 加载推文详情 */
 async function loadTweetDetail() {
@@ -135,16 +161,23 @@ function handleGoBack() {
   router.back()
 }
 
-/** 格式化完整时间 */
-function formatFullTime(dateStr: string): string {
-  const date = new Date(dateStr)
-  return date.toLocaleString("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
+/** 重新生成/生成摘要 */
+async function handleRegenerateSummary() {
+  const tweetId = route.params.id as string
+  if (!tweetId) return
+
+  regenerating.value = true
+  try {
+    await summariesApi.regenerate(tweetId)
+    ElMessage.success("摘要生成成功")
+    // 刷新详情
+    tweet.value = await tweetsApi.getDetail(tweetId)
+  } catch (error) {
+    console.error("摘要生成失败:", error)
+    ElMessage.error("摘要生成失败，请稍后重试")
+  } finally {
+    regenerating.value = false
+  }
 }
 
 /** 组件挂载时加载数据 */
@@ -237,6 +270,12 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.card-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .summary-content {

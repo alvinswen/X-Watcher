@@ -12,6 +12,8 @@ export interface TweetListItem {
   author_display_name: string | null
   /** 推文创建时间 */
   created_at: string
+  /** 入库时间 */
+  db_created_at: string
   /** 引用类型 */
   reference_type: string | null
   /** 引用的推文 ID */

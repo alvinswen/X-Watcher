@@ -42,7 +42,7 @@ class ScraperScheduleService:
                 name="定时抓取推文",
                 max_instances=1,
                 replace_existing=True,
-                next_run_time=next_run_time or datetime.now(),
+                next_run_time=next_run_time or datetime.now(timezone.utc),
             )
             logger.info(f"调度任务已创建: 间隔 {interval_seconds} 秒")
             return True
@@ -192,19 +192,23 @@ class ScraperScheduleService:
         """启用调度。
 
         从 DB 恢复配置并创建 scraper_job。
-        如果 DB 无配置，返回 422 提示先设置间隔。
+        如果 DB 无配置，使用环境变量默认间隔自动创建配置。
         """
         db_config = await self._repository.get_schedule_config()
 
         if db_config is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="尚未配置调度参数，请先设置抓取间隔",
+            # 无配置记录时，使用环境变量的默认间隔自动创建
+            settings = get_settings()
+            await self._repository.upsert_schedule_config(
+                interval_seconds=settings.scraper_interval,
+                is_enabled=True,
+                updated_by=updated_by,
             )
-
-        await self._repository.upsert_schedule_config(
-            is_enabled=True, updated_by=updated_by
-        )
+            db_config = await self._repository.get_schedule_config()
+        else:
+            await self._repository.upsert_schedule_config(
+                is_enabled=True, updated_by=updated_by
+            )
 
         scheduler = get_scheduler()
         scheduler_running = scheduler is not None
