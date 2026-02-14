@@ -31,6 +31,7 @@ class TestScraperScheduleRepository:
         assert result.id == 1
         assert result.interval_seconds == 600
         assert result.next_run_time is None
+        assert result.is_enabled is True
         assert result.updated_by == "admin"
         assert result.updated_at is not None
 
@@ -119,3 +120,55 @@ class TestScraperScheduleRepository:
         assert result is not None
         assert result.interval_seconds == 900
         assert result.updated_by == "admin"
+
+    @pytest.mark.asyncio
+    async def test_upsert_is_enabled_field(self, async_session):
+        """测试 is_enabled 字段的创建和更新。"""
+        repo = ScraperScheduleRepository(async_session)
+
+        # 创建配置（默认 is_enabled=True）
+        result = await repo.upsert_schedule_config(
+            interval_seconds=600,
+            updated_by="admin",
+        )
+        await async_session.commit()
+        assert result.is_enabled is True
+
+        # 更新为 False
+        result = await repo.upsert_schedule_config(
+            is_enabled=False,
+            updated_by="admin",
+        )
+        await async_session.commit()
+        assert result.is_enabled is False
+
+        # 重新启用
+        result = await repo.upsert_schedule_config(
+            is_enabled=True,
+            updated_by="admin",
+        )
+        await async_session.commit()
+        assert result.is_enabled is True
+
+    @pytest.mark.asyncio
+    async def test_upsert_is_enabled_not_affected_by_other_updates(self, async_session):
+        """更新 interval 不应影响 is_enabled。"""
+        repo = ScraperScheduleRepository(async_session)
+
+        # 创建并禁用
+        await repo.upsert_schedule_config(
+            interval_seconds=600,
+            is_enabled=False,
+            updated_by="admin",
+        )
+        await async_session.commit()
+
+        # 仅更新 interval（不传 is_enabled）
+        result = await repo.upsert_schedule_config(
+            interval_seconds=1200,
+            updated_by="admin",
+        )
+        await async_session.commit()
+
+        assert result.interval_seconds == 1200
+        assert result.is_enabled is False  # 不受影响

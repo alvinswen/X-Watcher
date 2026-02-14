@@ -371,6 +371,64 @@ async def update_schedule_next_run(
         ) from e
 
 
+@router.post(
+    "/schedule/enable",
+    response_model=ScheduleConfigResponse,
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {"model": ErrorResponse},
+        status.HTTP_403_FORBIDDEN: {"model": ErrorResponse},
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {"model": ErrorResponse},
+    },
+)
+async def enable_schedule(
+    service=Depends(_get_schedule_service),
+    admin: UserDomain = Depends(get_current_admin_user),
+) -> ScheduleConfigResponse:
+    """启用调度。
+
+    从 DB 恢复配置并创建 scraper_job。
+    如果无配置，返回 422 提示先设置间隔。
+    """
+    try:
+        return await service.enable_schedule(updated_by=admin.name)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"启用调度失败: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="启用调度失败",
+        ) from e
+
+
+@router.post(
+    "/schedule/disable",
+    response_model=ScheduleConfigResponse,
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {"model": ErrorResponse},
+        status.HTTP_403_FORBIDDEN: {"model": ErrorResponse},
+    },
+)
+async def disable_schedule(
+    service=Depends(_get_schedule_service),
+    admin: UserDomain = Depends(get_current_admin_user),
+) -> ScheduleConfigResponse:
+    """暂停调度。
+
+    移除 scraper_job 但保留 DB 中的调度配置。
+    """
+    try:
+        return await service.disable_schedule(updated_by=admin.name)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"暂停调度失败: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="暂停调度失败",
+        ) from e
+
+
 # ==================== 公共只读端点 ====================
 
 

@@ -199,6 +199,8 @@ class ScheduleConfigResponse(BaseModel):
     interval_seconds: int = Field(..., description="当前抓取间隔（秒）")
     next_run_time: datetime | None = Field(None, description="下次触发时间")
     scheduler_running: bool = Field(..., description="调度器是否运行中")
+    job_active: bool = Field(False, description="调度任务是否活跃")
+    is_enabled: bool = Field(False, description="调度是否已启用")
     updated_at: datetime | None = Field(None, description="最后配置更新时间")
     updated_by: str | None = Field(None, description="最后更新人")
     message: str | None = Field(None, description="附加信息（如调度器未运行提示）")

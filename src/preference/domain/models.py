@@ -14,6 +14,7 @@ class ScraperScheduleConfig(BaseModel):
     id: int
     interval_seconds: int
     next_run_time: datetime | None
+    is_enabled: bool
     updated_at: datetime
     updated_by: str
 
@@ -24,6 +25,7 @@ class ScraperScheduleConfig(BaseModel):
             id=orm_obj.id,
             interval_seconds=orm_obj.interval_seconds,
             next_run_time=orm_obj.next_run_time,
+            is_enabled=orm_obj.is_enabled,
             updated_at=orm_obj.updated_at,
             updated_by=orm_obj.updated_by,
         )

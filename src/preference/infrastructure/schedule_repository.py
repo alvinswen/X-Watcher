@@ -41,6 +41,7 @@ class ScraperScheduleRepository:
         self,
         interval_seconds: int | None = None,
         next_run_time: datetime | None = None,
+        is_enabled: bool | None = None,
         updated_by: str = "",
     ) -> ScraperScheduleConfigDomain:
         """创建或更新调度配置。至少需提供一个配置参数。"""
@@ -58,6 +59,7 @@ class ScraperScheduleRepository:
                 id=1,
                 interval_seconds=interval_seconds if interval_seconds is not None else 43200,
                 next_run_time=next_run_time,
+                is_enabled=is_enabled if is_enabled is not None else True,
                 updated_at=now,
                 updated_by=updated_by,
             )
@@ -68,6 +70,8 @@ class ScraperScheduleRepository:
                 orm_obj.interval_seconds = interval_seconds
             if next_run_time is not None:
                 orm_obj.next_run_time = next_run_time
+            if is_enabled is not None:
+                orm_obj.is_enabled = is_enabled
             orm_obj.updated_at = now
             orm_obj.updated_by = updated_by
 
@@ -75,6 +79,7 @@ class ScraperScheduleRepository:
 
         logger.debug(
             f"调度配置已更新: interval={orm_obj.interval_seconds}, "
-            f"next_run={orm_obj.next_run_time}, by={updated_by}"
+            f"next_run={orm_obj.next_run_time}, enabled={orm_obj.is_enabled}, "
+            f"by={updated_by}"
         )
         return ScraperScheduleConfigDomain.from_orm(orm_obj)

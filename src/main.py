@@ -12,119 +12,20 @@ from src.config import get_settings
 from src.database.models import Base
 from src.database.models import get_engine as engine
 from src.scheduler_accessor import register_scheduler, unregister_scheduler
-from src.scraper import ScrapingService, TaskRegistry, TaskStatus
+from src.scraper.scheduled_job import scheduled_scrape_job
 
 logger = logging.getLogger(__name__)
 
 # 全局调度器实例
 _scheduler: BackgroundScheduler | None = None
 
-# 上次定时抓取完成时间（模块级变量，用于日志追踪）
-_last_scrape_time: datetime | None = None
 
-
-def _get_active_follows_from_db() -> list[str]:
-    """从数据库获取活跃关注账号列表。
-
-    优先从 ScraperFollow 表读取活跃账号，用于定时抓取。
-    如果查询失败，返回空列表（由调用方降级到环境变量）。
-
-    Returns:
-        list[str]: 活跃关注账号的用户名列表
-    """
-    try:
-        import asyncio
-
-        from src.database.async_session import get_async_session_maker
-        from src.preference.infrastructure.scraper_config_repository import (
-            ScraperConfigRepository,
-        )
-
-        async def _fetch():
-            session_maker = get_async_session_maker()
-            async with session_maker() as session:
-                repo = ScraperConfigRepository(session)
-                follows = await repo.get_all_follows(include_inactive=False)
-                return [f.username for f in follows]
-
-        return asyncio.run(_fetch())
-    except Exception as e:
-        logger.warning(f"从数据库获取关注列表失败，将使用环境变量: {e}")
-        return []
-
-
-def _scheduled_scrape_job():
-    """定时抓取任务。
-
-    由 APScheduler 定期调用，执行推文抓取。
-    优先从数据库 ScraperFollow 表读取关注列表，
-    如果数据库中没有数据，降级到环境变量 SCRAPER_USERNAMES。
-    """
-    global _last_scrape_time
-
-    settings = get_settings()
-
-    # 检查是否启用抓取
-    if not settings.scraper_enabled:
-        logger.debug("抓取器已禁用，跳过定时任务")
-        return
-
-    # 1. 优先从数据库获取活跃关注列表
-    usernames = _get_active_follows_from_db()
-
-    # 2. 降级：如果数据库无数据，使用环境变量
-    if not usernames:
-        usernames = [
-            u.strip()
-            for u in settings.scraper_usernames.split(",")
-            if u.strip()
-        ]
-        if usernames:
-            logger.info(f"数据库无关注列表，使用环境变量配置: {usernames}")
-
-    if not usernames:
-        logger.warning("未配置关注用户列表（数据库和环境变量均为空），跳过定时任务")
-        return
-
-    # 打印距上次抓取的时间间隔
-    if _last_scrape_time:
-        elapsed = datetime.now() - _last_scrape_time
-        logger.info(f"定时抓取任务开始，距上次抓取: {elapsed}，用户: {usernames}")
-    else:
-        logger.info(f"定时抓取任务开始（首次执行），用户: {usernames}")
-
-    # 检查是否有相同的任务正在运行
-    registry = TaskRegistry.get_instance()
-    for task in registry.get_all_tasks():
-        if task["status"] == TaskStatus.RUNNING:
-            logger.info(f"已有任务正在运行: {task['task_id']}，跳过本次执行")
-            return
-
-    # 创建并执行抓取任务
-    try:
-        import asyncio
-
-        service = ScrapingService()
-        task_id = asyncio.run(
-            service.scrape_users(
-                usernames=usernames,
-                limit=settings.scraper_limit,
-            )
-        )
-        _last_scrape_time = datetime.now()
-        logger.info(
-            f"定时抓取任务完成: {task_id}，"
-            f"下次执行: {settings.scraper_interval} 秒后"
-        )
-    except Exception as e:
-        logger.exception(f"定时抓取任务失败: {e}")
-
-
-def _get_schedule_config_from_db() -> tuple[int | None, datetime | None]:
+def _get_schedule_config_from_db() -> tuple[int | None, datetime | None, bool]:
     """从数据库获取调度配置。
 
     Returns:
-        tuple: (interval_seconds, next_run_time) 或 (None, None) 如果无配置
+        tuple: (interval_seconds, next_run_time, is_enabled)
+               无配置时返回 (None, None, False)
     """
     try:
         import asyncio
@@ -140,13 +41,29 @@ def _get_schedule_config_from_db() -> tuple[int | None, datetime | None]:
                 repo = ScraperScheduleRepository(session)
                 config = await repo.get_schedule_config()
                 if config:
-                    return (config.interval_seconds, config.next_run_time)
-                return (None, None)
+                    return (config.interval_seconds, config.next_run_time, config.is_enabled)
+                return (None, None, False)
 
         return asyncio.run(_fetch())
     except Exception as e:
-        logger.warning(f"从数据库获取调度配置失败，将使用环境变量: {e}")
-        return (None, None)
+        logger.warning(f"从数据库获取调度配置失败: {e}")
+        return (None, None, False)
+
+
+def _migrate_schedule_config_table():
+    """为 scraper_schedule_config 表添加 is_enabled 列（如果不存在）。"""
+    try:
+        from sqlalchemy import text
+        eng = engine()
+        with eng.connect() as conn:
+            conn.execute(
+                text("ALTER TABLE scraper_schedule_config ADD COLUMN is_enabled BOOLEAN NOT NULL DEFAULT 1")
+            )
+            conn.commit()
+            logger.info("数据库迁移：已添加 scraper_schedule_config.is_enabled 列")
+    except Exception:
+        # 列已存在或表不存在时忽略
+        pass
 
 
 @asynccontextmanager
@@ -163,39 +80,35 @@ async def lifespan(app: FastAPI):  # noqa: ARG001 - app 参数是 FastAPI 要求
     # 启动时创建数据库表
     Base.metadata.create_all(engine())
 
+    # 迁移：确保 is_enabled 列存在
+    _migrate_schedule_config_table()
+
     # 初始化调度器
     if settings.scraper_enabled:
         _scheduler = BackgroundScheduler(timezone="Asia/Shanghai")
-
-        # 从 DB 加载调度配置
-        db_interval, db_next_run = _get_schedule_config_from_db()
-
-        interval = db_interval if db_interval is not None else settings.scraper_interval
-        next_run = db_next_run if db_next_run is not None else datetime.now()
-
-        # 添加定时任务
-        _scheduler.add_job(
-            _scheduled_scrape_job,
-            "interval",
-            seconds=interval,
-            id="scraper_job",
-            name="定时抓取推文",
-            max_instances=1,  # 防止任务重复执行
-            replace_existing=True,
-            next_run_time=next_run,
-        )
-
         _scheduler.start()
         register_scheduler(_scheduler)
 
-        if db_interval is not None:
+        # 从 DB 加载调度配置，仅在有已启用配置时恢复 job
+        db_interval, db_next_run, db_is_enabled = _get_schedule_config_from_db()
+
+        if db_is_enabled and db_interval is not None:
+            next_run = db_next_run if db_next_run is not None else datetime.now()
+            _scheduler.add_job(
+                scheduled_scrape_job,
+                "interval",
+                seconds=db_interval,
+                id="scraper_job",
+                name="定时抓取推文",
+                max_instances=1,
+                replace_existing=True,
+                next_run_time=next_run,
+            )
             logger.info(
-                f"调度器已启动（使用 DB 配置），间隔: {interval} 秒"
+                f"调度器已启动，从 DB 恢复调度任务，间隔: {db_interval} 秒"
             )
         else:
-            logger.info(
-                f"调度器已启动（使用默认配置），间隔: {interval} 秒"
-            )
+            logger.info("调度器已启动（空闲模式，无调度任务）")
 
     yield
 
@@ -257,10 +170,12 @@ async def health_check():
     # 2. 调度器状态检查
     scheduler = get_scheduler()
     if scheduler is not None:
+        job = scheduler.get_job("scraper_job")
         components["scheduler"] = {
             "status": "healthy" if scheduler.running else "unhealthy",
             "running": scheduler.running,
             "jobs": len(scheduler.get_jobs()),
+            "scraper_job_active": job is not None,
         }
     else:
         components["scheduler"] = {"status": "unhealthy", "error": "not initialized"}

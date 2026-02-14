@@ -146,10 +146,10 @@ class TestSchedulerScrapingFlow:
         os.environ["TWITTER_BEARER_TOKEN"] = "test-token"
 
         # 导入调度器任务函数
-        from src.main import _scheduled_scrape_job
+        from src.scraper.scheduled_job import scheduled_scrape_job as _scheduled_scrape_job
 
         # Mock registry
-        with patch("src.main.TaskRegistry") as mock_registry_cls:
+        with patch("src.scraper.scheduled_job.TaskRegistry") as mock_registry_cls:
             mock_registry = MagicMock()
             mock_registry_cls.get_instance.return_value = mock_registry
             mock_registry.get_all_tasks.return_value = []
@@ -170,10 +170,10 @@ class TestSchedulerScrapingFlow:
         os.environ["SCRAPER_USERNAMES"] = ""
         os.environ["TWITTER_BEARER_TOKEN"] = "test-token"
 
-        from src.main import _scheduled_scrape_job
+        from src.scraper.scheduled_job import scheduled_scrape_job as _scheduled_scrape_job
 
         # Mock registry
-        with patch("src.main.TaskRegistry") as mock_registry_cls:
+        with patch("src.scraper.scheduled_job.TaskRegistry") as mock_registry_cls:
             mock_registry = MagicMock()
             mock_registry_cls.get_instance.return_value = mock_registry
 
@@ -192,10 +192,10 @@ class TestSchedulerScrapingFlow:
         os.environ["SCRAPER_USERNAMES"] = "user1,user2"
         os.environ["TWITTER_BEARER_TOKEN"] = "test-token"
 
-        from src.main import _scheduled_scrape_job
+        from src.scraper.scheduled_job import scheduled_scrape_job as _scheduled_scrape_job
 
         # Mock registry 返回运行中的任务
-        with patch("src.main.TaskRegistry") as mock_registry_cls:
+        with patch("src.scraper.scheduled_job.TaskRegistry") as mock_registry_cls:
             mock_registry = MagicMock()
             mock_registry_cls.get_instance.return_value = mock_registry
             mock_registry.get_all_tasks.return_value = [

@@ -1,6 +1,6 @@
 """调度配置 API 集成测试。
 
-测试 GET/PUT schedule 端点。
+测试 GET/PUT schedule 端点和 POST enable/disable 端点。
 """
 
 import pytest
@@ -107,6 +107,8 @@ class TestScheduleConfigAPI:
         data = response.json()
         assert data["interval_seconds"] == 43200
         assert data["scheduler_running"] is False
+        assert data["job_active"] is False
+        assert data["is_enabled"] is False
 
     @pytest.mark.asyncio
     async def test_put_schedule_interval_success(self, client):
@@ -120,6 +122,7 @@ class TestScheduleConfigAPI:
         assert response.status_code == 200
         data = response.json()
         assert data["interval_seconds"] == 600
+        assert data["is_enabled"] is True
 
     @pytest.mark.asyncio
     async def test_put_schedule_interval_too_small(self, client):
@@ -179,3 +182,115 @@ class TestScheduleConfigAPI:
             )
 
         assert response.status_code == 422
+
+
+class TestScheduleEnableDisableAPI:
+    """测试启用/暂停调度 API 端点。"""
+
+    @pytest.fixture
+    def app(self, async_session):
+        app = FastAPI()
+        app.include_router(scraper_config_router)
+
+        async def get_session_override():
+            yield async_session
+
+        app.dependency_overrides[get_async_session] = get_session_override
+        yield app
+        app.dependency_overrides.clear()
+
+    @pytest.fixture
+    def mock_admin(self, app):
+        admin_user = UserDomain(
+            id=1,
+            name="admin",
+            email="admin@example.com",
+            is_admin=True,
+            created_at=datetime.now(timezone.utc),
+        )
+
+        async def override():
+            return admin_user
+
+        app.dependency_overrides[get_current_admin_user] = override
+        return admin_user
+
+    @pytest.fixture
+    async def client(self, app, mock_admin):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            yield ac
+
+    @pytest.mark.asyncio
+    async def test_enable_without_config_returns_422(self, client):
+        """无调度配置时启用返回 422。"""
+        with patch("src.preference.services.schedule_service.get_scheduler", return_value=None):
+            response = await client.post("/api/admin/scraping/schedule/enable")
+
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_enable_after_setting_interval(self, client):
+        """先设置间隔，再启用。"""
+        with patch("src.preference.services.schedule_service.get_scheduler", return_value=None):
+            # 先设置间隔
+            await client.put(
+                "/api/admin/scraping/schedule/interval",
+                json={"interval_seconds": 600},
+            )
+            # 然后启用
+            response = await client.post("/api/admin/scraping/schedule/enable")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["is_enabled"] is True
+
+    @pytest.mark.asyncio
+    async def test_disable_schedule(self, client):
+        """暂停调度。"""
+        with patch("src.preference.services.schedule_service.get_scheduler", return_value=None):
+            # 先设置间隔
+            await client.put(
+                "/api/admin/scraping/schedule/interval",
+                json={"interval_seconds": 600},
+            )
+            # 暂停
+            response = await client.post("/api/admin/scraping/schedule/disable")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["is_enabled"] is False
+        assert data["message"] == "调度已暂停"
+
+    @pytest.mark.asyncio
+    async def test_disable_enable_roundtrip(self, client):
+        """暂停后重新启用。"""
+        with patch("src.preference.services.schedule_service.get_scheduler", return_value=None):
+            # 设置间隔
+            await client.put(
+                "/api/admin/scraping/schedule/interval",
+                json={"interval_seconds": 600},
+            )
+            # 暂停
+            await client.post("/api/admin/scraping/schedule/disable")
+            # 重新启用
+            response = await client.post("/api/admin/scraping/schedule/enable")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["is_enabled"] is True
+
+    @pytest.mark.asyncio
+    async def test_enable_auth_required(self, app, async_session):
+        """启用端点需要认证。"""
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            response = await ac.post("/api/admin/scraping/schedule/enable")
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    @pytest.mark.asyncio
+    async def test_disable_auth_required(self, app, async_session):
+        """暂停端点需要认证。"""
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            response = await ac.post("/api/admin/scraping/schedule/disable")
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED

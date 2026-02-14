@@ -192,6 +192,9 @@ class ScraperScheduleConfig(Base):
     next_run_time: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True
     )
+    is_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False,
         default=lambda: datetime.now(timezone.utc),
