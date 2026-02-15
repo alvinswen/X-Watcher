@@ -41,6 +41,19 @@ structured_logger = get_summary_logger()
 # 内存缓存类型
 _CacheEntry = tuple[LLMResponse, datetime]  # (响应, 缓存时间)
 
+# 全局 LLM 并发限制（进程级别，所有 SummarizationService 实例共享）
+# 防止多个后台摘要任务同时发起过多 LLM 请求导致限流
+_global_llm_semaphore: asyncio.Semaphore | None = None
+_GLOBAL_MAX_CONCURRENT_LLM = 5
+
+
+def _get_global_llm_semaphore() -> asyncio.Semaphore:
+    """获取全局 LLM 并发限制 Semaphore（懒初始化）。"""
+    global _global_llm_semaphore
+    if _global_llm_semaphore is None:
+        _global_llm_semaphore = asyncio.Semaphore(_GLOBAL_MAX_CONCURRENT_LLM)
+    return _global_llm_semaphore
+
 
 class SummarizationService:
     """摘要翻译编排服务。
@@ -722,105 +735,109 @@ class SummarizationService:
         """
         last_error: Exception | None = None
 
-        for idx, provider in enumerate(self._providers):
-            try:
-                # 生成统一的摘要+翻译 Prompt
-                prompt = self._prompt_config.format_unified_prompt(
-                    tweet_text, tweet_type, is_short,
-                    author_username=author_username,
-                    original_author=original_author,
-                )
+        # 获取全局并发限制，防止多个后台任务同时发起过多 LLM 请求
+        global_semaphore = _get_global_llm_semaphore()
 
-                # 尝试调用
-                result = await self._call_llm_with_retry(provider, prompt)
-
-                if isinstance(result, Success):
-                    logger.info(
-                        f"LLM 调用成功: {provider.get_provider_name()}, "
-                        f"hash={content_hash[:8]}..."
+        async with global_semaphore:
+            for idx, provider in enumerate(self._providers):
+                try:
+                    # 生成统一的摘要+翻译 Prompt
+                    prompt = self._prompt_config.format_unified_prompt(
+                        tweet_text, tweet_type, is_short,
+                        author_username=author_username,
+                        original_author=original_author,
                     )
-                    # 使用结构化日志记录成功
-                    llm_response = result.unwrap()
-                    structured_logger.log_provider_call_success(
-                        provider=provider.get_provider_name(),
-                        model=provider.get_model_name(),
-                        tweet_id=tweet_id,
-                        tokens=llm_response.total_tokens,
-                        cost_usd=llm_response.cost_usd,
-                    )
-                    return result
 
-                # 记录错误
-                error = result.failure()
-                last_error = error
+                    # 尝试调用
+                    result = await self._call_llm_with_retry(provider, prompt)
 
-                # 检查错误类型
-                error_type = self._classify_error_from_exception(error)
+                    if isinstance(result, Success):
+                        logger.info(
+                            f"LLM 调用成功: {provider.get_provider_name()}, "
+                            f"hash={content_hash[:8]}..."
+                        )
+                        # 使用结构化日志记录成功
+                        llm_response = result.unwrap()
+                        structured_logger.log_provider_call_success(
+                            provider=provider.get_provider_name(),
+                            model=provider.get_model_name(),
+                            tweet_id=tweet_id,
+                            tokens=llm_response.total_tokens,
+                            cost_usd=llm_response.cost_usd,
+                        )
+                        return result
 
-                # 获取下一个提供商（用于日志）
-                next_provider = (
-                    self._providers[idx + 1].get_provider_name()
-                    if idx + 1 < len(self._providers)
-                    else None
-                )
+                    # 记录错误
+                    error = result.failure()
+                    last_error = error
 
-                # 使用结构化日志记录降级
-                structured_logger.log_provider_degradation(
-                    from_provider=provider.get_provider_name(),
-                    to_provider=next_provider,
-                    error_type=error_type.value if error_type else "unknown",
-                    error_message=str(error),
-                )
+                    # 检查错误类型
+                    error_type = self._classify_error_from_exception(error)
 
-                if error_type == LLMErrorType.permanent:
-                    # 永久错误：立即降级
-                    logger.warning(
-                        f"提供商 {provider.get_provider_name()} 返回永久错误，"
-                        f"尝试下一个提供商: {error}"
-                    )
-                    continue
-
-                elif error_type == LLMErrorType.temporary:
-                    # 临时错误：记录但继续降级
-                    logger.warning(
-                        f"提供商 {provider.get_provider_name()} 返回临时错误，"
-                        f"尝试下一个提供商: {error}"
-                    )
-                    continue
-
-                else:
-                    # 未知错误类型：降级
-                    logger.warning(
-                        f"提供商 {provider.get_provider_name()} 返回未知错误，"
-                        f"尝试下一个提供商: {error}"
-                    )
-                    continue
-
-            except Exception as e:
-                last_error = e
-                # 使用结构化日志记录异常
-                structured_logger.log_provider_degradation(
-                    from_provider=provider.get_provider_name(),
-                    to_provider=(
+                    # 获取下一个提供商（用于日志）
+                    next_provider = (
                         self._providers[idx + 1].get_provider_name()
                         if idx + 1 < len(self._providers)
                         else None
-                    ),
-                    error_type="exception",
-                    error_message=str(e),
-                )
-                logger.warning(
-                    f"提供商 {provider.get_provider_name()} 调用异常: {e}"
-                )
-                continue
+                    )
 
-        # 所有提供商都失败
-        error_message = (
-            f"所有 LLM 提供商调用失败 (hash={content_hash[:8]}...), "
-            f"最后错误: {last_error}"
-        )
-        logger.error(error_message)
-        return Failure(Exception(error_message))
+                    # 使用结构化日志记录降级
+                    structured_logger.log_provider_degradation(
+                        from_provider=provider.get_provider_name(),
+                        to_provider=next_provider,
+                        error_type=error_type.value if error_type else "unknown",
+                        error_message=str(error),
+                    )
+
+                    if error_type == LLMErrorType.permanent:
+                        # 永久错误：立即降级
+                        logger.warning(
+                            f"提供商 {provider.get_provider_name()} 返回永久错误，"
+                            f"尝试下一个提供商: {error}"
+                        )
+                        continue
+
+                    elif error_type == LLMErrorType.temporary:
+                        # 临时错误：记录但继续降级
+                        logger.warning(
+                            f"提供商 {provider.get_provider_name()} 返回临时错误，"
+                            f"尝试下一个提供商: {error}"
+                        )
+                        continue
+
+                    else:
+                        # 未知错误类型：降级
+                        logger.warning(
+                            f"提供商 {provider.get_provider_name()} 返回未知错误，"
+                            f"尝试下一个提供商: {error}"
+                        )
+                        continue
+
+                except Exception as e:
+                    last_error = e
+                    # 使用结构化日志记录异常
+                    structured_logger.log_provider_degradation(
+                        from_provider=provider.get_provider_name(),
+                        to_provider=(
+                            self._providers[idx + 1].get_provider_name()
+                            if idx + 1 < len(self._providers)
+                            else None
+                        ),
+                        error_type="exception",
+                        error_message=str(e),
+                    )
+                    logger.warning(
+                        f"提供商 {provider.get_provider_name()} 调用异常: {e}"
+                    )
+                    continue
+
+            # 所有提供商都失败
+            error_message = (
+                f"所有 LLM 提供商调用失败 (hash={content_hash[:8]}...), "
+                f"最后错误: {last_error}"
+            )
+            logger.error(error_message)
+            return Failure(Exception(error_message))
 
     async def _call_llm_with_retry(
         self,
