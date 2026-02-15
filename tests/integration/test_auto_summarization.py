@@ -1,6 +1,7 @@
 """抓取-摘要自动化工作流集成测试。
 
 测试完整的抓取 → 去重 → 摘要流程。
+改造后使用 SummarizationQueue 替代 asyncio.create_task。
 """
 
 import asyncio
@@ -71,7 +72,7 @@ async def test_scraping_triggers_summarization_flow():
 
 @pytest.mark.asyncio
 async def test_auto_summarization_with_config_disabled(monkeypatch):
-    """测试配置禁用时不触发摘要。"""
+    """测试配置禁用时不触发摘要（不调用 SummarizationQueue.enqueue）。"""
     TaskRegistry._instance = None
     TaskRegistry._initialized = False
 
@@ -83,26 +84,24 @@ async def test_auto_summarization_with_config_disabled(monkeypatch):
     service = ScrapingService()
     tweet_ids = ["tweet1", "tweet2"]
 
-    # Mock asyncio.create_task
-    original_create_task = asyncio.create_task
-    tasks_created = []
+    # Mock SummarizationQueue 以检测是否调用了 enqueue
+    mock_queue = Mock()
+    mock_queue.enqueue = AsyncMock()
+    mock_queue._loop = asyncio.get_event_loop()
 
-    def mock_create_task(coroutine):
-        tasks_created.append(coroutine)
-        return original_create_task(asyncio.sleep(0))
+    with patch(
+        "src.summarization.services.summarization_queue.SummarizationQueue.get_instance",
+        return_value=mock_queue,
+    ):
+        await service._trigger_summarization(tweet_ids)
 
-    monkeypatch.setattr("asyncio.create_task", mock_create_task)
-
-    # 触发摘要
-    await service._trigger_summarization(tweet_ids)
-
-    # 验证没有创建任务（因为配置禁用）
-    assert len(tasks_created) == 0
+    # 验证没有调用 enqueue（因为配置禁用）
+    mock_queue.enqueue.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_auto_summarization_with_config_enabled(monkeypatch):
-    """测试配置启用时触发摘要。"""
+    """测试配置启用时触发摘要（调用 SummarizationQueue.enqueue）。"""
     TaskRegistry._instance = None
     TaskRegistry._initialized = False
 
@@ -114,21 +113,22 @@ async def test_auto_summarization_with_config_enabled(monkeypatch):
     service = ScrapingService()
     tweet_ids = ["tweet1", "tweet2"]
 
-    # Mock asyncio.create_task
-    original_create_task = asyncio.create_task
-    tasks_created = []
+    # Mock SummarizationQueue 以检测是否调用了 enqueue
+    mock_queue = Mock()
+    mock_queue.enqueue = AsyncMock(return_value="task-123")
+    mock_queue._loop = asyncio.get_event_loop()
 
-    def mock_create_task(coroutine):
-        tasks_created.append(coroutine)
-        return original_create_task(asyncio.sleep(0))
+    with patch(
+        "src.summarization.services.summarization_queue.SummarizationQueue.get_instance",
+        return_value=mock_queue,
+    ):
+        await service._trigger_summarization(tweet_ids)
 
-    monkeypatch.setattr("asyncio.create_task", mock_create_task)
-
-    # 触发摘要
-    await service._trigger_summarization(tweet_ids)
-
-    # 验证创建了任务
-    assert len(tasks_created) == 1
+    # 验证调用了 enqueue
+    mock_queue.enqueue.assert_called_once()
+    call_kwargs = mock_queue.enqueue.call_args
+    assert call_kwargs[0][0] == tweet_ids  # 第一个位置参数
+    assert call_kwargs[1]["source"] == "scraping"
 
 
 @pytest.mark.asyncio
@@ -143,20 +143,22 @@ async def test_summarization_failure_doesnt_affect_scraping(monkeypatch):
     clear_settings_cache()
 
     service = ScrapingService()
-
-    # Mock 摘要服务为失败
-    async def failing_summarization(tweet_ids):
-        raise Exception("摘要服务失败")
-
-    service._run_summarization_background = failing_summarization
-
     tweet_ids = ["tweet1", "tweet2"]
 
-    # 触发摘要（应该捕获异常而不抛出）
-    try:
-        await service._trigger_summarization(tweet_ids)
-        # 如果没有异常，测试通过
-        assert True
-    except Exception:
-        # 不应该抛出异常
-        assert False, "摘要异常不应该传播到抓取服务"
+    # Mock SummarizationQueue.enqueue 抛出异常
+    mock_queue = Mock()
+    mock_queue.enqueue = AsyncMock(side_effect=Exception("摘要服务失败"))
+    mock_queue._loop = asyncio.get_event_loop()
+
+    with patch(
+        "src.summarization.services.summarization_queue.SummarizationQueue.get_instance",
+        return_value=mock_queue,
+    ):
+        # 触发摘要（应该捕获异常而不抛出）
+        try:
+            await service._trigger_summarization(tweet_ids)
+            # 如果没有异常，测试通过
+            assert True
+        except Exception:
+            # 不应该抛出异常
+            assert False, "摘要异常不应该传播到抓取服务"

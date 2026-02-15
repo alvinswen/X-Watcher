@@ -115,43 +115,31 @@ class TestEndToEndDeduplicationSummarization:
         sample_tweets,
         clean_registry,
     ):
-        """测试去重完成后自动触发摘要任务。"""
+        """测试去重完成后自动触发摘要队列入队。"""
         # 1. 保存推文到数据库
         for tweet in sample_tweets:
             orm = TweetOrm.from_domain(tweet)
             async_session.add(orm)
         await async_session.commit()
 
-        # 2. 创建模拟摘要服务
-        mock_summary_service = MagicMock()
+        # 2. Mock SummarizationQueue
+        mock_queue = MagicMock()
+        mock_queue.enqueue = AsyncMock(return_value="mock-task-id")
 
-        # 模拟 summarize_tweets 返回成功结果
-        mock_summary_service.summarize_tweets = AsyncMock(
-            return_value=MagicMock(
-                unwrap=lambda: SummaryResult(
-                    total_tweets=4,
-                    total_groups=2,  # 2 个去重组
-                    cache_hits=0,
-                    cache_misses=2,
-                    total_tokens=300,
-                    total_cost_usd=0.002,
-                    providers_used={"openrouter": 2},
-                    processing_time_ms=1000,
-                )
-            )
-        )
-
-        # 3. 创建去重服务（带摘要集成）
+        # 3. 创建去重服务
         dedup_repo = DeduplicationRepository(async_session)
         dedup_service = DeduplicationService(
             repository=dedup_repo,
-            summarization_service=mock_summary_service,
             task_registry=TaskRegistry.get_instance(),
         )
 
-        # 4. 执行去重
-        tweet_ids = [t.tweet_id for t in sample_tweets]
-        result = await dedup_service.deduplicate_tweets(tweet_ids)
+        # 4. 执行去重（with mocked queue）
+        with patch(
+            "src.summarization.services.summarization_queue.SummarizationQueue.get_instance",
+            return_value=mock_queue,
+        ):
+            tweet_ids = [t.tweet_id for t in sample_tweets]
+            result = await dedup_service.deduplicate_tweets(tweet_ids)
 
         # 5. 验证去重结果
         assert result.total_tweets == 4
@@ -159,23 +147,12 @@ class TestEndToEndDeduplicationSummarization:
         # 相似内容检测取决于算法阈值和实现，这里只验证不为负数
         assert result.similar_content_count >= 0
 
-        # 6. 等待后台摘要任务执行
-        import asyncio
-        await asyncio.sleep(0.2)
-
-        # 验证摘要服务被调用
-        mock_summary_service.summarize_tweets.assert_called_once()
-        call_args = mock_summary_service.summarize_tweets.call_args
-        assert call_args[1]["tweet_ids"]  # 应该传入代表推文 ID 列表
-        assert call_args[1]["force_refresh"] is False
-
-        # 7. 验证任务已创建
-        tasks = TaskRegistry.get_instance().get_all_tasks()
-        summary_tasks = [
-            t for t in tasks
-            if t.get("metadata", {}).get("triggered_by") == "deduplication"
-        ]
-        assert len(summary_tasks) == 1
+        # 6. 验证摘要队列被调用
+        mock_queue.enqueue.assert_called_once()
+        call_args = mock_queue.enqueue.call_args
+        # 代表推文 ID 列表作为第一个位置参数
+        assert len(call_args[0][0]) > 0
+        assert call_args[1]["source"] == "deduplication"
 
     @pytest.mark.asyncio
     async def test_deduplication_without_summarization_service(
@@ -212,46 +189,40 @@ class TestEndToEndDeduplicationSummarization:
         sample_tweets,
         clean_registry,
     ):
-        """测试摘要失败不影响去重结果。"""
+        """测试摘要入队失败不影响去重结果。"""
         # 保存推文
         for tweet in sample_tweets:
             orm = TweetOrm.from_domain(tweet)
             async_session.add(orm)
         await async_session.commit()
 
-        # 创建模拟摘要服务（返回失败）
-        mock_summary_service = MagicMock()
-        from returns.result import Failure
-
-        mock_summary_service.summarize_tweets = AsyncMock(
-            return_value=Failure(Exception("LLM API error"))
+        # Mock SummarizationQueue（enqueue 抛出异常）
+        mock_queue = MagicMock()
+        mock_queue.enqueue = AsyncMock(
+            side_effect=Exception("Queue error")
         )
 
         # 创建去重服务
         dedup_repo = DeduplicationRepository(async_session)
         dedup_service = DeduplicationService(
             repository=dedup_repo,
-            summarization_service=mock_summary_service,
             task_registry=TaskRegistry.get_instance(),
         )
 
-        # 执行去重
-        tweet_ids = [t.tweet_id for t in sample_tweets]
-        result = await dedup_service.deduplicate_tweets(tweet_ids)
+        # 执行去重（with mocked queue that fails）
+        with patch(
+            "src.summarization.services.summarization_queue.SummarizationQueue.get_instance",
+            return_value=mock_queue,
+        ):
+            tweet_ids = [t.tweet_id for t in sample_tweets]
+            result = await dedup_service.deduplicate_tweets(tweet_ids)
 
-        # 验证去重成功完成（即使摘要失败）
+        # 验证去重成功完成（即使摘要入队失败）
         assert result.total_tweets == 4
         assert result.exact_duplicate_count >= 1
 
-        # 验证摘要任务被标记为失败
-        await asyncio.sleep(0.1)  # 等待后台任务
-        tasks = TaskRegistry.get_instance().get_all_tasks()
-        failed_tasks = [
-            t for t in tasks
-            if t["status"] == TaskStatus.FAILED
-            and t.get("metadata", {}).get("triggered_by") == "deduplication"
-        ]
-        assert len(failed_tasks) == 1
+        # 验证 enqueue 被尝试调用
+        mock_queue.enqueue.assert_called_once()
 
 
 class TestCacheMechanism:

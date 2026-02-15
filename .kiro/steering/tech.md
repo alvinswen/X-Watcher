@@ -226,6 +226,15 @@ mypy src/
 - **轻量优先**：4000 行代码 vs 数十万行，易于理解和维护
 - **微内核设计**：只提供核心调度能力，不引入过多抽象
 
+### 为什么用集中式队列替代 fire-and-forget 摘要触发？
+- **并发安全**：原有 `asyncio.create_task()` 散落在多个 Service 中，多用户并发时产生大量协程堆积
+- **背压控制**：有界 `asyncio.PriorityQueue(100)` 提供背压信号，队列满时丢弃并告警而非无限堆积
+- **优先级**：手动 batch API (HIGH) > 自动触发 (NORMAL) > 重试 (LOW)
+- **安全重试**：内置指数退避（5s × 2^n），最多 3 次，替代原有不安全的类级 `_pending_summary_retry` set
+- **跨线程安全**：APScheduler 后台线程通过 `asyncio.run_coroutine_threadsafe()` 安全入队
+- **可观测性**：集成 TaskRegistry + Prometheus 指标（queue_size, enqueued, processed, dropped）
+- **分块处理**：终于使用 `auto_summarization_batch_size` 配置项分块入队
+
 ### 为什么选择 MiniMax + OpenRouter 双 LLM？
 - **MiniMax 成本优势**：比 OpenAI 便宜 10 倍以上，中文友好
 - **OpenRouter 质量优势**：Claude Sonnet 4.5 提供更高质量的摘要

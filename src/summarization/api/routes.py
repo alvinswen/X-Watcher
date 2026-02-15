@@ -3,13 +3,10 @@
 提供摘要相关的 HTTP API 端点。
 """
 
-import asyncio
 import logging
 from datetime import datetime
-from typing import Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,7 +24,6 @@ from src.summarization.api.schemas import (
     SummaryResetRequest,
     SummaryResetResponse,
     SummaryResponse,
-    SummaryResultResponse,
 )
 from src.summarization.infrastructure.models import SummaryOrm
 from src.user.api.auth import get_current_admin_user
@@ -36,7 +32,6 @@ from src.summarization.domain.models import PromptConfig
 from src.summarization.infrastructure.repository import SummarizationRepository
 from src.summarization.llm.config import LLMProviderConfig
 from src.summarization.services.summarization_service import (
-    SummarizationService,
     create_summarization_service,
 )
 
@@ -56,93 +51,6 @@ def get_task_registry() -> TaskRegistry:
     return _task_registry
 
 
-# ========== 后台任务函数 ==========
-
-
-def _run_summarization_task(
-    task_id: str,
-    tweet_ids: list[str],
-    force_refresh: bool,
-) -> None:
-    """在后台运行摘要任务。
-
-    Args:
-        task_id: 任务 ID
-        tweet_ids: 推文 ID 列表
-        force_refresh: 是否强制刷新缓存
-    """
-    registry = get_task_registry()
-    loop = None
-
-    async def _execute() -> None:
-        try:
-            # 创建数据库会话
-            session_maker = get_async_session_maker()
-            async with session_maker() as session:
-                # 创建仓储
-                repository = SummarizationRepository(session)
-
-                # 加载 LLM 配置
-                config = LLMProviderConfig.from_env()
-
-                # 创建摘要服务
-                service = create_summarization_service(
-                    repository=repository,
-                    config=config,
-                    prompt_config=PromptConfig(),
-                )
-
-                # 执行摘要
-                result = await service.summarize_tweets(
-                    tweet_ids=tweet_ids,
-                    force_refresh=force_refresh,
-                )
-
-                # 检查结果类型
-                from returns.result import Failure
-
-                if isinstance(result, Failure):
-                    error = result.failure()
-                    raise error
-
-                summary_result = result.unwrap()
-
-                # 更新任务状态
-                registry.update_task_status(
-                    task_id,
-                    TaskStatus.COMPLETED,
-                    result={
-                        "total_tweets": summary_result.total_tweets,
-                        "total_groups": summary_result.total_groups,
-                        "cache_hits": summary_result.cache_hits,
-                        "cache_misses": summary_result.cache_misses,
-                        "total_tokens": summary_result.total_tokens,
-                        "total_cost_usd": summary_result.total_cost_usd,
-                        "providers_used": summary_result.providers_used,
-                        "processing_time_ms": summary_result.processing_time_ms,
-                    },
-                )
-
-                # 注意：每条推文/group 处理完后已在 service 内部 commit，
-                # 这里的 commit 仅处理可能残留的未提交变更（安全兜底）
-                await session.commit()
-
-        except Exception as e:
-            logger.exception(f"后台摘要任务执行失败: {e}")
-            registry.update_task_status(task_id, TaskStatus.FAILED, error=str(e))
-
-    try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(_execute())
-    except Exception as e:
-        logger.exception(f"后台任务执行异常: {e}")
-        registry.update_task_status(task_id, TaskStatus.FAILED, error=str(e))
-    finally:
-        if loop:
-            loop.close()
-
-
 # ========== API 端点 ==========
 
 
@@ -157,38 +65,30 @@ def _run_summarization_task(
 )
 async def start_batch_summarization(
     request: BatchSummaryRequest,
-    background_tasks: BackgroundTasks,
     _admin: UserDomain = Depends(get_current_admin_user),
 ) -> BatchSummaryResponse:
     """启动批量摘要任务。
 
     对指定的推文列表执行摘要和翻译，返回任务 ID 用于查询进度。
+    通过集中式摘要队列异步处理，支持优先级和背压。
 
     Args:
         request: 批量摘要请求
-        background_tasks: FastAPI 后台任务管理器
 
     Returns:
         BatchSummaryResponse: 包含任务 ID 和状态的响应
     """
-    registry = get_task_registry()
-
-    # 创建任务
-    task_id = registry.create_task(
-        task_name=f"摘要 {len(request.tweet_ids)} 条推文",
-        metadata={
-            "tweet_count": len(request.tweet_ids),
-            "tweet_ids": request.tweet_ids[:10],  # 只记录前 10 个
-            "force_refresh": request.force_refresh,
-        },
+    from src.summarization.services.summarization_queue import (
+        SummarizationPriority,
+        SummarizationQueue,
     )
 
-    # 添加后台任务
-    background_tasks.add_task(
-        _run_summarization_task,
-        task_id,
+    queue = SummarizationQueue.get_instance()
+    task_id = await queue.enqueue(
         request.tweet_ids,
-        request.force_refresh,
+        force_refresh=request.force_refresh,
+        source="batch_api",
+        priority=SummarizationPriority.HIGH,
     )
 
     logger.info(
@@ -564,11 +464,13 @@ async def preview_backfill(
 )
 async def start_backfill(
     request: SummaryBackfillRequest,
-    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_db_session),
     _admin: UserDomain = Depends(get_current_admin_user),
 ) -> SummaryBackfillResponse:
-    """启动摘要补缺任务：为缺少摘要的推文生成摘要。"""
+    """启动摘要补缺任务：为缺少摘要的推文生成摘要。
+
+    通过集中式摘要队列异步处理，支持优先级和背压。
+    """
     tweet_ids = await _query_tweets_without_summary(
         session, request.since, request.until
     )
@@ -579,19 +481,17 @@ async def start_backfill(
             detail="没有找到需要补缺的推文",
         )
 
-    registry = get_task_registry()
-    task_id = registry.create_task(
-        task_name=f"摘要补缺 {len(tweet_ids)} 条推文",
-        metadata={
-            "tweet_count": len(tweet_ids),
-            "tweet_ids": tweet_ids[:10],
-            "force_refresh": False,
-            "operation": "backfill",
-        },
+    from src.summarization.services.summarization_queue import (
+        SummarizationPriority,
+        SummarizationQueue,
     )
 
-    background_tasks.add_task(
-        _run_summarization_task, task_id, tweet_ids, False
+    queue = SummarizationQueue.get_instance()
+    task_id = await queue.enqueue(
+        tweet_ids,
+        force_refresh=False,
+        source="batch_api",
+        priority=SummarizationPriority.HIGH,
     )
 
     logger.info(f"创建摘要补缺任务: {task_id} - {len(tweet_ids)} 条推文")
@@ -632,11 +532,13 @@ async def preview_reset(
 )
 async def start_reset(
     request: SummaryResetRequest,
-    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_db_session),
     _admin: UserDomain = Depends(get_current_admin_user),
 ) -> SummaryResetResponse:
-    """启动摘要重置任务：强制重新生成时间范围内所有推文的摘要。"""
+    """启动摘要重置任务：强制重新生成时间范围内所有推文的摘要。
+
+    通过集中式摘要队列异步处理，支持优先级和背压。
+    """
     tweet_ids = await _query_tweets_in_range(
         session, request.since, request.until
     )
@@ -647,19 +549,17 @@ async def start_reset(
             detail="指定时间范围内没有推文",
         )
 
-    registry = get_task_registry()
-    task_id = registry.create_task(
-        task_name=f"摘要重置 {len(tweet_ids)} 条推文",
-        metadata={
-            "tweet_count": len(tweet_ids),
-            "tweet_ids": tweet_ids[:10],
-            "force_refresh": True,
-            "operation": "reset",
-        },
+    from src.summarization.services.summarization_queue import (
+        SummarizationPriority,
+        SummarizationQueue,
     )
 
-    background_tasks.add_task(
-        _run_summarization_task, task_id, tweet_ids, True
+    queue = SummarizationQueue.get_instance()
+    task_id = await queue.enqueue(
+        tweet_ids,
+        force_refresh=True,
+        source="batch_api",
+        priority=SummarizationPriority.HIGH,
     )
 
     logger.info(f"创建摘要重置任务: {task_id} - {len(tweet_ids)} 条推文")

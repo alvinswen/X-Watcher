@@ -123,43 +123,57 @@ class TestBatchSummaryEndpoint:
         registry = TaskRegistry.get_instance()
         registry.clear_all()
 
-        response = client.post(
-            "/api/summaries/batch",
-            json={
-                "tweet_ids": ["tweet1", "tweet2", "tweet3"],
-                "force_refresh": False,
-            },
-        )
+        # Mock SummarizationQueue（endpoint 内部调用 enqueue）
+        mock_queue = MagicMock()
+        mock_queue.enqueue = AsyncMock(return_value="mock-batch-task-id")
+
+        with patch(
+            "src.summarization.services.summarization_queue.SummarizationQueue.get_instance",
+            return_value=mock_queue,
+        ):
+            response = client.post(
+                "/api/summaries/batch",
+                json={
+                    "tweet_ids": ["tweet1", "tweet2", "tweet3"],
+                    "force_refresh": False,
+                },
+            )
 
         # 验证 API 立即返回 202 和 task_id
         assert response.status_code == 202
         data = response.json()
         assert "task_id" in data
         assert data["status"] == "pending"
+        assert data["task_id"] == "mock-batch-task-id"
 
-        # 验证任务已注册（后台任务可能已经开始执行，所以只验证非 None）
-        task = registry.get_task_status(data["task_id"])
-        assert task is not None
-        assert "task_id" in task
+        # 验证 enqueue 被正确调用
+        mock_queue.enqueue.assert_called_once()
 
     def test_post_batch_with_force_refresh(self, client: TestClient):
         """测试 POST /batch 支持 force_refresh 参数。"""
-        response = client.post(
-            "/api/summaries/batch",
-            json={
-                "tweet_ids": ["tweet1"],
-                "force_refresh": True,
-            },
-        )
+        # Mock SummarizationQueue
+        mock_queue = MagicMock()
+        mock_queue.enqueue = AsyncMock(return_value="mock-refresh-task-id")
+
+        with patch(
+            "src.summarization.services.summarization_queue.SummarizationQueue.get_instance",
+            return_value=mock_queue,
+        ):
+            response = client.post(
+                "/api/summaries/batch",
+                json={
+                    "tweet_ids": ["tweet1"],
+                    "force_refresh": True,
+                },
+            )
 
         assert response.status_code == 202
         data = response.json()
         assert "task_id" in data
 
-        # 验证元数据包含 force_refresh
-        registry = TaskRegistry.get_instance()
-        task = registry.get_task_status(data["task_id"])
-        assert task["metadata"]["force_refresh"] is True
+        # 验证 enqueue 传入了 force_refresh=True
+        call_kwargs = mock_queue.enqueue.call_args[1]
+        assert call_kwargs["force_refresh"] is True
 
     def test_post_batch_empty_tweet_ids_raises_error(self, client: TestClient):
         """测试空 tweet_ids 列表返回 400 错误。"""

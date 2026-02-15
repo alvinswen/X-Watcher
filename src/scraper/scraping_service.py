@@ -34,10 +34,6 @@ class ScrapingService:
     - 生成进度和汇总报告
     """
 
-    # 摘要失败重试队列（类级别，跨实例共享）
-    _pending_summary_retry: set[str] = set()
-    _MAX_RETRY_BATCH = 50  # 每次最多重试的推文数
-
     def __init__(
         self,
         client: TwitterClient | None = None,
@@ -492,7 +488,8 @@ class ScrapingService:
     async def _trigger_summarization(self, tweet_ids: list[str]) -> None:
         """触发摘要生成任务。
 
-        在抓取完成后自动触发摘要生成，使用后台任务模式。
+        将摘要请求入队到集中式摘要队列，由队列 worker 统一处理。
+        支持跨线程入队（APScheduler 后台线程）。
 
         Args:
             tweet_ids: 推文 ID 列表
@@ -510,142 +507,39 @@ class ScrapingService:
             if not tweet_ids:
                 return
 
-            # 合并待重试的 tweet_ids
-            retry_ids = list(ScrapingService._pending_summary_retry)[:self._MAX_RETRY_BATCH]
-            if retry_ids:
-                ScrapingService._pending_summary_retry -= set(retry_ids)
-                tweet_ids = tweet_ids + retry_ids
-                logger.info(
-                    f"准备触发自动摘要任务: {len(tweet_ids)} 条推文"
-                    f"（含 {len(retry_ids)} 条重试）"
-                )
-            else:
-                logger.info(f"准备触发自动摘要任务: {len(tweet_ids)} 条推文")
-
-            # 使用后台任务触发摘要
-            asyncio.create_task(
-                self._run_summarization_background(tweet_ids)
+            from src.summarization.services.summarization_queue import (
+                SummarizationPriority,
+                SummarizationQueue,
             )
+
+            queue = SummarizationQueue.get_instance()
+
+            # 检测当前是否在主事件循环中
+            try:
+                running_loop = asyncio.get_running_loop()
+                if running_loop is queue._loop:
+                    await queue.enqueue(
+                        tweet_ids,
+                        source="scraping",
+                        priority=SummarizationPriority.NORMAL,
+                    )
+                else:
+                    queue.enqueue_threadsafe(
+                        tweet_ids,
+                        source="scraping",
+                        priority=SummarizationPriority.NORMAL,
+                    )
+            except RuntimeError:
+                # 无事件循环（后台线程）
+                queue.enqueue_threadsafe(
+                    tweet_ids,
+                    source="scraping",
+                    priority=SummarizationPriority.NORMAL,
+                )
 
         except Exception as e:
             # 摘要触发失败不影响抓取结果
             logger.warning(f"触发摘要任务失败（不影响抓取结果）: {e}")
-
-    async def _run_summarization_background(self, tweet_ids: list[str]) -> None:
-        """在后台运行摘要任务。
-
-        Args:
-            tweet_ids: 推文 ID 列表
-        """
-        task_id = None
-
-        try:
-            from src.database.async_session import get_async_session_maker
-            from src.summarization.domain.models import PromptConfig
-            from src.summarization.infrastructure.repository import SummarizationRepository
-            from src.summarization.llm.config import LLMProviderConfig
-            from src.summarization.services.summarization_service import (
-                create_summarization_service,
-            )
-
-            # 创建任务记录
-            task_id = self._registry.create_task(
-                task_name=f"自动摘要 {len(tweet_ids)} 条推文",
-                metadata={
-                    "tweet_count": len(tweet_ids),
-                    "tweet_ids": tweet_ids[:10],  # 只记录前 10 个
-                    "triggered_by": "scraping",
-                },
-            )
-
-            logger.info(f"开始后台摘要任务: {len(tweet_ids)} 条推文 (task_id={task_id})")
-
-            # 创建数据库会话
-            session_maker = get_async_session_maker()
-            async with session_maker() as session:
-                # 创建摘要服务
-                repository = SummarizationRepository(session)
-                config = LLMProviderConfig.from_env()
-                service = create_summarization_service(
-                    repository=repository,
-                    config=config,
-                    prompt_config=PromptConfig(),
-                )
-
-                # 执行摘要
-                result = await service.summarize_tweets(
-                    tweet_ids=tweet_ids,
-                    force_refresh=False,
-                )
-
-                # 检查结果
-                if isinstance(result, Failure):
-                    error = result.failure()
-                    logger.error(f"后台摘要任务失败: {error}")
-                    # 将失败的 tweet_ids 加入重试队列
-                    ScrapingService._pending_summary_retry.update(tweet_ids)
-                    logger.info(
-                        f"已将 {len(tweet_ids)} 条推文加入摘要重试队列"
-                        f"（队列总数: {len(ScrapingService._pending_summary_retry)}）"
-                    )
-                    self._registry.update_task_status(
-                        task_id, TaskStatus.FAILED, error=str(error)
-                    )
-                    return
-
-                summary_result = result.unwrap()
-
-                logger.info(
-                    f"后台摘要任务完成: "
-                    f"{summary_result.total_groups} 个组, "
-                    f"缓存命中 {summary_result.cache_hits}, "
-                    f"成本 ${summary_result.total_cost_usd:.4f}"
-                )
-
-                self._registry.update_task_status(
-                    task_id,
-                    TaskStatus.COMPLETED,
-                    result={
-                        "total_tweets": summary_result.total_tweets,
-                        "total_groups": summary_result.total_groups,
-                        "cache_hits": summary_result.cache_hits,
-                        "cache_misses": summary_result.cache_misses,
-                        "total_tokens": summary_result.total_tokens,
-                        "total_cost_usd": summary_result.total_cost_usd,
-                        "providers_used": summary_result.providers_used,
-                    },
-                )
-
-                await session.commit()
-
-                # 检查是否有部分推文未生成摘要（部分成功场景）
-                from sqlalchemy import select
-                from src.summarization.infrastructure.models import SummaryOrm
-                stmt = select(SummaryOrm.tweet_id).where(
-                    SummaryOrm.tweet_id.in_(tweet_ids)
-                )
-                existing_result = await session.execute(stmt)
-                summarized_ids = {row[0] for row in existing_result}
-                failed_ids = [tid for tid in tweet_ids if tid not in summarized_ids]
-                if failed_ids:
-                    ScrapingService._pending_summary_retry.update(failed_ids)
-                    logger.warning(
-                        f"部分推文摘要生成失败，已加入重试队列: "
-                        f"{len(failed_ids)}/{len(tweet_ids)} 条"
-                    )
-
-        except Exception as e:
-            logger.exception(f"后台摘要任务异常: {e}")
-            # 将失败的 tweet_ids 加入重试队列
-            ScrapingService._pending_summary_retry.update(tweet_ids)
-            logger.info(
-                f"已将 {len(tweet_ids)} 条推文加入摘要重试队列"
-                f"（队列总数: {len(ScrapingService._pending_summary_retry)}）"
-            )
-            if task_id:
-                self._registry.update_task_status(
-                    task_id, TaskStatus.FAILED, error=str(e)
-                )
 
     def _summarize_results(
         self,

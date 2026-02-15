@@ -3,7 +3,6 @@
 协调整个去重流程，包括检测、存储和统计。
 """
 
-import asyncio
 import logging
 import time
 from datetime import datetime, timezone
@@ -146,16 +145,11 @@ class DeduplicationService:
     ) -> None:
         """触发摘要任务。
 
-        为每个去重组创建摘要任务。使用后台任务模式，不阻塞去重流程。
+        将去重组的代表推文入队到集中式摘要队列，由队列 worker 统一处理。
 
         Args:
             groups: 去重组列表
         """
-        # 如果没有配置摘要服务，跳过
-        if self._summarization_service is None:
-            return
-
-        # 如果没有去重组，跳过
         if not groups:
             return
 
@@ -166,90 +160,20 @@ class DeduplicationService:
             f"准备触发摘要任务: {len(representative_ids)} 条推文"
         )
 
-        # 使用后台任务触发摘要
-        asyncio.create_task(
-            self._run_summarization_background(representative_ids)
-        )
-
-    async def _run_summarization_background(
-        self, tweet_ids: list[str]
-    ) -> None:
-        """在后台运行摘要任务。
-
-        Args:
-            tweet_ids: 推文 ID 列表
-        """
-        from src.scraper import TaskStatus
-
-        task_id = None
-
         try:
-            # 如果有任务注册表，创建任务记录
-            if self._task_registry is not None:
-                task_id = self._task_registry.create_task(
-                    task_name=f"摘要 {len(tweet_ids)} 条去重推文",
-                    metadata={
-                        "tweet_count": len(tweet_ids),
-                        "tweet_ids": tweet_ids[:10],  # 只记录前 10 个
-                        "triggered_by": "deduplication",
-                    },
-                )
-
-            logger.info(
-                f"开始后台摘要任务: {len(tweet_ids)} 条推文"
+            from src.summarization.services.summarization_queue import (
+                SummarizationPriority,
+                SummarizationQueue,
             )
 
-            # 调用摘要服务
-            result = await self._summarization_service.summarize_tweets(
-                tweet_ids=tweet_ids,
-                force_refresh=False,  # 优先使用缓存
+            queue = SummarizationQueue.get_instance()
+            await queue.enqueue(
+                representative_ids,
+                source="deduplication",
+                priority=SummarizationPriority.NORMAL,
             )
-
-            # 检查结果
-            from returns.result import Failure
-
-            if isinstance(result, Failure):
-                error = result.failure()
-                logger.error(f"后台摘要任务失败: {error}")
-                if task_id and self._task_registry is not None:
-                    self._task_registry.update_task_status(
-                        task_id, TaskStatus.FAILED, error=str(error)
-                    )
-                return
-
-            summary_result = result.unwrap()
-
-            logger.info(
-                f"后台摘要任务完成: "
-                f"{summary_result.total_groups} 个组, "
-                f"缓存命中 {summary_result.cache_hits}, "
-                f"成本 ${summary_result.total_cost_usd:.4f}"
-            )
-
-            if task_id and self._task_registry is not None:
-                self._task_registry.update_task_status(
-                    task_id,
-                    TaskStatus.COMPLETED,
-                    result={
-                        "total_tweets": summary_result.total_tweets,
-                        "total_groups": summary_result.total_groups,
-                        "cache_hits": summary_result.cache_hits,
-                        "cache_misses": summary_result.cache_misses,
-                        "total_tokens": summary_result.total_tokens,
-                        "total_cost_usd": summary_result.total_cost_usd,
-                        "providers_used": summary_result.providers_used,
-                        "processing_time_ms": (
-                            summary_result.processing_time_ms
-                        ),
-                    },
-                )
-
         except Exception as e:
-            logger.error(f"后台摘要任务异常: {e}")
-            if task_id and self._task_registry is not None:
-                self._task_registry.update_task_status(
-                    task_id, TaskStatus.FAILED, error=str(e)
-                )
+            logger.warning(f"触发摘要任务失败（不影响去重结果）: {e}")
 
     async def _load_tweets(self, tweet_ids: list[str]) -> list["Tweet"]:
         """从数据库加载推文。

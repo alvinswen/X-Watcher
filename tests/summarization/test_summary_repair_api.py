@@ -1,9 +1,11 @@
 """摘要修复 API 集成测试。
 
 测试补缺（backfill）和重置（reset）端点。
+改造后使用 SummarizationQueue 替代 BackgroundTasks + _run_summarization_task。
 """
 
 from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from fastapi import HTTPException, status
@@ -55,7 +57,15 @@ async def repair_session():
 
 
 @pytest.fixture
-async def admin_client(repair_session):
+def mock_summarization_queue():
+    """Mock SummarizationQueue 单例，避免实际入队。"""
+    mock_queue = Mock()
+    mock_queue.enqueue = AsyncMock(return_value="mock-task-id")
+    return mock_queue
+
+
+@pytest.fixture
+async def admin_client(repair_session, mock_summarization_queue):
     """带管理员认证的异步客户端。"""
     async def override_get_db_session():
         yield repair_session
@@ -66,9 +76,13 @@ async def admin_client(repair_session):
     app.dependency_overrides[get_db_session] = override_get_db_session
     app.dependency_overrides[get_current_admin_user] = override_admin
 
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        yield ac
+    with patch(
+        "src.summarization.services.summarization_queue.SummarizationQueue.get_instance",
+        return_value=mock_summarization_queue,
+    ):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            yield ac
 
     app.dependency_overrides.pop(get_db_session, None)
     app.dependency_overrides.pop(get_current_admin_user, None)

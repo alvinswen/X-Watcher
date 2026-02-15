@@ -417,7 +417,7 @@ class TestAutoSummarization:
 
     @pytest.mark.asyncio
     async def test_auto_summarization_triggered_with_tweets(self, service, monkeypatch):
-        """测试有推文时触发摘要。"""
+        """测试有推文时触发摘要（通过 SummarizationQueue.enqueue）。"""
         # 启用自动摘要
         monkeypatch.setenv("AUTO_SUMMARIZATION_ENABLED", "true")
         from src.config import clear_settings_cache
@@ -425,23 +425,25 @@ class TestAutoSummarization:
 
         tweet_ids = ["tweet1", "tweet2"]
 
-        # Mock asyncio.create_task
+        # Mock SummarizationQueue
         import asyncio
-        original_create_task = asyncio.create_task
-        create_task_called_with = []
 
-        def mock_create_task(coroutine):
-            create_task_called_with.append(True)
-            task = original_create_task(asyncio.sleep(0))
-            return task
+        mock_queue = Mock()
+        mock_queue.enqueue = AsyncMock(return_value="task-123")
+        mock_queue._loop = asyncio.get_event_loop()
 
-        monkeypatch.setattr("asyncio.create_task", mock_create_task)
+        with patch(
+            "src.summarization.services.summarization_queue.SummarizationQueue.get_instance",
+            return_value=mock_queue,
+        ):
+            # 触发摘要
+            await service._trigger_summarization(tweet_ids)
 
-        # 触发摘要
-        await service._trigger_summarization(tweet_ids)
-
-        # 验证 create_task 被调用
-        assert len(create_task_called_with) == 1
+        # 验证 enqueue 被调用
+        mock_queue.enqueue.assert_called_once()
+        call_args = mock_queue.enqueue.call_args
+        assert call_args[0][0] == tweet_ids
+        assert call_args[1]["source"] == "scraping"
 
     @pytest.mark.asyncio
     async def test_save_tweets_triggers_summarization(

@@ -193,9 +193,17 @@ async def lifespan(app: FastAPI):  # noqa: ARG001 - app 参数是 FastAPI 要求
     # 清理过期的调度器执行日志
     await _cleanup_old_scheduler_logs()
 
+    # 启动摘要任务队列
+    from src.summarization.services.summarization_queue import SummarizationQueue
+
+    _summarization_queue = SummarizationQueue.get_instance()
+    await _summarization_queue.start()
+
     yield
 
-    # 关闭时的清理工作
+    # 关闭时的清理工作（先停队列，再停调度器）
+    await _summarization_queue.stop()
+
     if _scheduler:
         unregister_scheduler()
         _scheduler.shutdown(wait=True)

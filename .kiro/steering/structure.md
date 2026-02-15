@@ -65,7 +65,8 @@ src/
 │   │   ├── models.py        # ORM 模型
 │   │   └── repository.py    # 仓库
 │   ├── services/
-│   │   └── summarization_service.py
+│   │   ├── summarization_service.py
+│   │   └── summarization_queue.py  # 集中式摘要任务队列（PriorityQueue + 单 worker）
 │   ├── llm/                 # LLM 集成
 │   │   ├── base.py          # 抽象基类
 │   │   ├── config.py        # LLM 配置
