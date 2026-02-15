@@ -243,8 +243,12 @@ async def start_scraping(
         usernames = request.get("usernames", "")
         limit = request.get("limit", 100)
 
+        # 兼容 list 和 str 两种格式
+        if isinstance(usernames, list):
+            usernames = ",".join(str(u).strip() for u in usernames if str(u).strip())
+
         scrape_request = ScrapeRequest(usernames=usernames, limit=limit)
-    except ValueError as e:
+    except (ValueError, TypeError, AttributeError) as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),

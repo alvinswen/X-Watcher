@@ -147,6 +147,8 @@ class TaskRegistry:
             result: 可选的结果数据（完成时）
             error: 可选的错误信息（失败时）
         """
+        task_snapshot = None
+
         with self._task_lock:
             task = self._tasks.get(task_id)
             if task is None:
@@ -177,9 +179,13 @@ class TaskRegistry:
             # 更新 Prometheus 指标
             _update_task_metrics(status, old_status)
 
-            # 持久化到数据库（终态时）
+            # 终态时先拷贝快照，在锁外持久化（避免 DB I/O 阻塞锁）
             if status in (TaskStatus.COMPLETED, TaskStatus.FAILED):
-                self._persist_task(task)
+                task_snapshot = self._copy_task_data(task)
+
+        # 在锁外持久化到数据库，避免 DB 写入期间阻塞其他线程访问 TaskRegistry
+        if task_snapshot is not None:
+            self._persist_task(task_snapshot)
 
     def _persist_task(self, task_data: dict) -> None:
         """将完成/失败的任务持久化到数据库。

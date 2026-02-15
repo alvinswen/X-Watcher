@@ -39,8 +39,11 @@ async def get_current_user(
         result = await repo.get_active_key_by_hash(key_hash)
         if result is not None:
             key_info, user_id = result
-            # 更新 last_used_at
-            await repo.update_key_last_used(key_info.id)
+            # 更新 last_used_at（非关键操作，失败时不阻塞认证）
+            try:
+                await repo.update_key_last_used(key_info.id)
+            except Exception:
+                logger.debug(f"更新 API Key last_used_at 失败（不影响认证）: key_id={key_info.id}")
             user = await repo.get_user_by_id(user_id)
             if user:
                 logger.debug(f"API Key 认证成功: user_id={user.id}")
