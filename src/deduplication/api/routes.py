@@ -8,8 +8,11 @@ import logging
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
+
+from src.user.api.auth import get_current_admin_user
+from src.user.domain.models import UserDomain
 
 from src.shared.schemas import UTCDatetimeModel
 
@@ -181,6 +184,7 @@ def _run_deduplication_task(
 async def start_deduplication(
     request: DeduplicateRequest,
     background_tasks: BackgroundTasks,
+    _admin: UserDomain = Depends(get_current_admin_user),
 ) -> DeduplicateResponse:
     """启动批量去重任务。
 
@@ -223,7 +227,10 @@ async def start_deduplication(
         404: {"model": ErrorResponse, "description": "去重组不存在"},
     },
 )
-async def get_deduplication_group(group_id: str) -> DeduplicationGroupResponse:
+async def get_deduplication_group(
+    group_id: str,
+    _admin: UserDomain = Depends(get_current_admin_user),
+) -> DeduplicationGroupResponse:
     """查询去重组详情。
 
     Args:
@@ -256,7 +263,10 @@ async def get_deduplication_group(group_id: str) -> DeduplicationGroupResponse:
         404: {"model": ErrorResponse, "description": "推文不存在或未去重"},
     },
 )
-async def get_tweet_deduplication(tweet_id: str) -> DeduplicationGroupResponse:
+async def get_tweet_deduplication(
+    tweet_id: str,
+    _admin: UserDomain = Depends(get_current_admin_user),
+) -> DeduplicationGroupResponse:
     """查询推文的去重状态。
 
     Args:
@@ -290,7 +300,10 @@ async def get_tweet_deduplication(tweet_id: str) -> DeduplicationGroupResponse:
         409: {"model": ErrorResponse, "description": "冲突"},
     },
 )
-async def delete_deduplication_group(group_id: str) -> dict[str, str]:
+async def delete_deduplication_group(
+    group_id: str,
+    _admin: UserDomain = Depends(get_current_admin_user),
+) -> dict[str, str]:
     """删除去重组（撤销去重）。
 
     Args:
@@ -326,7 +339,10 @@ async def delete_deduplication_group(group_id: str) -> dict[str, str]:
 
 
 @router.get("/tasks/{task_id}")
-async def get_deduplication_task_status(task_id: str) -> dict:
+async def get_deduplication_task_status(
+    task_id: str,
+    _admin: UserDomain = Depends(get_current_admin_user),
+) -> dict:
     """查询去重任务状态。
 
     Args:

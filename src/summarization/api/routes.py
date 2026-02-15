@@ -8,19 +8,30 @@ import logging
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database.async_session import get_async_session_maker
+from src.database.async_session import get_async_session_maker, get_db_session
 from src.scraper import TaskRegistry, TaskStatus
+from src.scraper.infrastructure.models import TweetOrm
 from src.summarization.api.schemas import (
     BatchSummaryRequest,
     BatchSummaryResponse,
     CostStatsResponse,
     ErrorResponse,
+    SummaryBackfillRequest,
+    SummaryBackfillResponse,
+    SummaryPreviewResponse,
+    SummaryResetRequest,
+    SummaryResetResponse,
     SummaryResponse,
     SummaryResultResponse,
 )
+from src.summarization.infrastructure.models import SummaryOrm
+from src.user.api.auth import get_current_admin_user
+from src.user.domain.models import UserDomain
 from src.summarization.domain.models import PromptConfig
 from src.summarization.infrastructure.repository import SummarizationRepository
 from src.summarization.llm.config import LLMProviderConfig
@@ -145,6 +156,7 @@ def _run_summarization_task(
 async def start_batch_summarization(
     request: BatchSummaryRequest,
     background_tasks: BackgroundTasks,
+    _admin: UserDomain = Depends(get_current_admin_user),
 ) -> BatchSummaryResponse:
     """启动批量摘要任务。
 
@@ -193,7 +205,10 @@ async def start_batch_summarization(
         500: {"model": ErrorResponse, "description": "服务器错误"},
     },
 )
-async def get_tweet_summary(tweet_id: str) -> SummaryResponse:
+async def get_tweet_summary(
+    tweet_id: str,
+    _admin: UserDomain = Depends(get_current_admin_user),
+) -> SummaryResponse:
     """查询单条推文的摘要。
 
     Args:
@@ -241,6 +256,7 @@ async def get_tweet_summary(tweet_id: str) -> SummaryResponse:
 async def get_cost_statistics(
     start_date: datetime | None = None,
     end_date: datetime | None = None,
+    _admin: UserDomain = Depends(get_current_admin_user),
 ) -> CostStatsResponse:
     """查询成本统计。
 
@@ -298,7 +314,10 @@ async def get_cost_statistics(
         500: {"model": ErrorResponse, "description": "服务器错误"},
     },
 )
-async def regenerate_tweet_summary(tweet_id: str) -> SummaryResponse:
+async def regenerate_tweet_summary(
+    tweet_id: str,
+    _admin: UserDomain = Depends(get_current_admin_user),
+) -> SummaryResponse:
     """强制重新生成推文摘要。
 
     忽略缓存，重新调用 LLM 生成摘要和翻译。
@@ -362,7 +381,10 @@ async def regenerate_tweet_summary(tweet_id: str) -> SummaryResponse:
         404: {"model": ErrorResponse, "description": "任务不存在"},
     },
 )
-async def get_summarization_task_status(task_id: str) -> dict:
+async def get_summarization_task_status(
+    task_id: str,
+    _admin: UserDomain = Depends(get_current_admin_user),
+) -> dict:
     """查询摘要任务状态。
 
     Args:
@@ -397,7 +419,10 @@ async def get_summarization_task_status(task_id: str) -> dict:
 
 
 @router.delete("/tasks/{task_id}")
-async def delete_summarization_task(task_id: str) -> dict:
+async def delete_summarization_task(
+    task_id: str,
+    _admin: UserDomain = Depends(get_current_admin_user),
+) -> dict:
     """删除摘要任务。
 
     删除已完成的任务记录。正在运行的任务不能被删除。
@@ -435,4 +460,208 @@ async def delete_summarization_task(task_id: str) -> dict:
     raise HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail="删除任务失败",
+    )
+
+
+# ========== 辅助查询函数 ==========
+
+
+async def _count_tweets_without_summary(
+    session: AsyncSession,
+    since: datetime | None = None,
+    until: datetime | None = None,
+) -> int:
+    """统计没有摘要的推文数量。"""
+    stmt = (
+        select(func.count(TweetOrm.tweet_id))
+        .outerjoin(SummaryOrm, TweetOrm.tweet_id == SummaryOrm.tweet_id)
+        .where(SummaryOrm.tweet_id.is_(None))
+    )
+    if since is not None:
+        stmt = stmt.where(TweetOrm.created_at >= since)
+    if until is not None:
+        stmt = stmt.where(TweetOrm.created_at < until)
+    result = await session.execute(stmt)
+    return result.scalar() or 0
+
+
+async def _query_tweets_without_summary(
+    session: AsyncSession,
+    since: datetime | None = None,
+    until: datetime | None = None,
+) -> list[str]:
+    """查询没有摘要的推文 ID 列表。"""
+    stmt = (
+        select(TweetOrm.tweet_id)
+        .outerjoin(SummaryOrm, TweetOrm.tweet_id == SummaryOrm.tweet_id)
+        .where(SummaryOrm.tweet_id.is_(None))
+    )
+    if since is not None:
+        stmt = stmt.where(TweetOrm.created_at >= since)
+    if until is not None:
+        stmt = stmt.where(TweetOrm.created_at < until)
+    result = await session.execute(stmt)
+    return [row[0] for row in result.fetchall()]
+
+
+async def _count_tweets_in_range(
+    session: AsyncSession,
+    since: datetime,
+    until: datetime,
+) -> int:
+    """统计时间范围内的推文数量。"""
+    stmt = (
+        select(func.count(TweetOrm.tweet_id))
+        .where(TweetOrm.created_at >= since)
+        .where(TweetOrm.created_at < until)
+    )
+    result = await session.execute(stmt)
+    return result.scalar() or 0
+
+
+async def _query_tweets_in_range(
+    session: AsyncSession,
+    since: datetime,
+    until: datetime,
+) -> list[str]:
+    """查询时间范围内的推文 ID 列表。"""
+    stmt = (
+        select(TweetOrm.tweet_id)
+        .where(TweetOrm.created_at >= since)
+        .where(TweetOrm.created_at < until)
+    )
+    result = await session.execute(stmt)
+    return [row[0] for row in result.fetchall()]
+
+
+# ========== 摘要修复端点 ==========
+
+
+@router.get(
+    "/backfill/preview",
+    response_model=SummaryPreviewResponse,
+)
+async def preview_backfill(
+    since: datetime | None = Query(None, description="起始时间（含），ISO 8601 格式"),
+    until: datetime | None = Query(None, description="截止时间（不含），ISO 8601 格式"),
+    session: AsyncSession = Depends(get_db_session),
+    _admin: UserDomain = Depends(get_current_admin_user),
+) -> SummaryPreviewResponse:
+    """预览摘要补缺：查询缺少摘要的推文数量。"""
+    count = await _count_tweets_without_summary(session, since, until)
+    return SummaryPreviewResponse(tweet_count=count)
+
+
+@router.post(
+    "/backfill",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=SummaryBackfillResponse,
+    responses={
+        404: {"model": ErrorResponse, "description": "没有需要补缺的推文"},
+    },
+)
+async def start_backfill(
+    request: SummaryBackfillRequest,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_db_session),
+    _admin: UserDomain = Depends(get_current_admin_user),
+) -> SummaryBackfillResponse:
+    """启动摘要补缺任务：为缺少摘要的推文生成摘要。"""
+    tweet_ids = await _query_tweets_without_summary(
+        session, request.since, request.until
+    )
+
+    if not tweet_ids:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="没有找到需要补缺的推文",
+        )
+
+    registry = get_task_registry()
+    task_id = registry.create_task(
+        task_name=f"摘要补缺 {len(tweet_ids)} 条推文",
+        metadata={
+            "tweet_count": len(tweet_ids),
+            "tweet_ids": tweet_ids[:10],
+            "force_refresh": False,
+            "operation": "backfill",
+        },
+    )
+
+    background_tasks.add_task(
+        _run_summarization_task, task_id, tweet_ids, False
+    )
+
+    logger.info(f"创建摘要补缺任务: {task_id} - {len(tweet_ids)} 条推文")
+
+    return SummaryBackfillResponse(
+        task_id=task_id, status="pending", tweet_count=len(tweet_ids)
+    )
+
+
+@router.get(
+    "/reset/preview",
+    response_model=SummaryPreviewResponse,
+)
+async def preview_reset(
+    since: datetime = Query(..., description="起始时间（含），ISO 8601 格式"),
+    until: datetime = Query(..., description="截止时间（不含），ISO 8601 格式"),
+    session: AsyncSession = Depends(get_db_session),
+    _admin: UserDomain = Depends(get_current_admin_user),
+) -> SummaryPreviewResponse:
+    """预览摘要重置：查询时间范围内的推文数量。"""
+    if since >= until:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="until 必须晚于 since",
+        )
+    count = await _count_tweets_in_range(session, since, until)
+    return SummaryPreviewResponse(tweet_count=count)
+
+
+@router.post(
+    "/reset",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=SummaryResetResponse,
+    responses={
+        404: {"model": ErrorResponse, "description": "指定时间范围内没有推文"},
+        422: {"model": ErrorResponse, "description": "无效的时间范围"},
+    },
+)
+async def start_reset(
+    request: SummaryResetRequest,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_db_session),
+    _admin: UserDomain = Depends(get_current_admin_user),
+) -> SummaryResetResponse:
+    """启动摘要重置任务：强制重新生成时间范围内所有推文的摘要。"""
+    tweet_ids = await _query_tweets_in_range(
+        session, request.since, request.until
+    )
+
+    if not tweet_ids:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="指定时间范围内没有推文",
+        )
+
+    registry = get_task_registry()
+    task_id = registry.create_task(
+        task_name=f"摘要重置 {len(tweet_ids)} 条推文",
+        metadata={
+            "tweet_count": len(tweet_ids),
+            "tweet_ids": tweet_ids[:10],
+            "force_refresh": True,
+            "operation": "reset",
+        },
+    )
+
+    background_tasks.add_task(
+        _run_summarization_task, task_id, tweet_ids, True
+    )
+
+    logger.info(f"创建摘要重置任务: {task_id} - {len(tweet_ids)} 条推文")
+
+    return SummaryResetResponse(
+        task_id=task_id, status="pending", tweet_count=len(tweet_ids)
     )

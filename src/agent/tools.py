@@ -61,6 +61,55 @@ FEED_TOOLS: list[dict[str, Any]] = [
 ]
 
 
+SUMMARY_REPAIR_TOOLS: list[dict[str, Any]] = [
+    {
+        "name": "summary_backfill",
+        "description": "批量为缺少摘要的推文生成摘要和翻译",
+        "endpoint": "POST /api/summaries/backfill",
+        "parameters": {
+            "since": {
+                "type": "string",
+                "format": "ISO 8601 datetime",
+                "required": False,
+                "description": "起始时间（含），ISO 8601 格式，可选",
+            },
+            "until": {
+                "type": "string",
+                "format": "ISO 8601 datetime",
+                "required": False,
+                "description": "截止时间（不含），ISO 8601 格式，可选",
+            },
+        },
+        "authentication": "X-API-Key header (admin)",
+    },
+    {
+        "name": "summary_reset",
+        "description": "指定时间范围重新生成所有推文的摘要和翻译",
+        "endpoint": "POST /api/summaries/reset",
+        "parameters": {
+            "since": {
+                "type": "string",
+                "format": "ISO 8601 datetime",
+                "required": True,
+                "description": "起始时间（含），ISO 8601 格式",
+            },
+            "until": {
+                "type": "string",
+                "format": "ISO 8601 datetime",
+                "required": True,
+                "description": "截止时间（不含），ISO 8601 格式",
+            },
+        },
+        "authentication": "X-API-Key header (admin)",
+    },
+]
+
+
 def get_feed_tools() -> list[dict[str, Any]]:
     """获取 Feed API 工具元数据列表。"""
     return FEED_TOOLS.copy()
+
+
+def get_summary_repair_tools() -> list[dict[str, Any]]:
+    """获取摘要修复工具元数据列表。"""
+    return SUMMARY_REPAIR_TOOLS.copy()

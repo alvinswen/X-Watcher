@@ -212,12 +212,15 @@ async def async_session():
 
 @pytest.fixture(scope="function")
 async def async_client(async_session):
-    """异步 HTTP 客户端 Fixture。
+    """异步 HTTP 客户端 Fixture（带管理员认证）。
 
     使用 httpx.AsyncClient 测试 FastAPI 应用。
+    自动注入管理员认证，适用于需要认证的 API 端点。
     """
     from httpx import AsyncClient, ASGITransport
     from src.database.async_session import get_db_session
+    from src.user.api.auth import get_current_admin_user
+    from src.user.domain.models import BOOTSTRAP_ADMIN
 
     # 使用 ASGI 传输
     transport = ASGITransport(app=app)
@@ -226,16 +229,25 @@ async def async_client(async_session):
     async def override_get_db_session():
         yield async_session
 
+    async def override_get_current_admin_user():
+        return BOOTSTRAP_ADMIN
+
     # 使用 FastAPI 的 app.dependency_overrides
-    original_override = app.dependency_overrides.get(get_db_session)
+    original_db_override = app.dependency_overrides.get(get_db_session)
+    original_auth_override = app.dependency_overrides.get(get_current_admin_user)
     app.dependency_overrides[get_db_session] = override_get_db_session
+    app.dependency_overrides[get_current_admin_user] = override_get_current_admin_user
 
     try:
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             yield ac
     finally:
         # 恢复原始依赖
-        if original_override:
-            app.dependency_overrides[get_db_session] = original_override
+        if original_db_override:
+            app.dependency_overrides[get_db_session] = original_db_override
         else:
             app.dependency_overrides.pop(get_db_session, None)
+        if original_auth_override:
+            app.dependency_overrides[get_current_admin_user] = original_auth_override
+        else:
+            app.dependency_overrides.pop(get_current_admin_user, None)

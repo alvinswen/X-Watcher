@@ -55,6 +55,17 @@
             批量去重
           </el-button>
         </el-tooltip>
+        <el-dropdown @command="handleSummaryToolCommand">
+          <el-button type="info" size="small">
+            摘要工具 <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="backfill">摘要补缺</el-dropdown-item>
+              <el-dropdown-item command="reset">摘要重置</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </div>
     </div>
 
@@ -113,13 +124,68 @@
         @size-change="handleSizeChange"
       />
     </div>
+
+    <!-- 摘要补缺对话框 -->
+    <el-dialog v-model="backfillDialogVisible" title="摘要补缺" width="500">
+      <p style="margin-bottom: 1rem; color: #666;">为缺少摘要的推文批量生成摘要和翻译。可选指定时间范围。</p>
+      <el-date-picker
+        v-model="backfillDateRange"
+        type="datetimerange"
+        range-separator="至"
+        start-placeholder="起始时间（可选）"
+        end-placeholder="截止时间（可选）"
+        style="width: 100%; margin-bottom: 1rem;"
+      />
+      <div v-if="backfillPreviewCount !== null" style="margin-bottom: 1rem;">
+        <el-tag type="info" size="large">待补缺推文: {{ backfillPreviewCount }} 条</el-tag>
+      </div>
+      <template #footer>
+        <el-button @click="handleBackfillPreview" :loading="backfillLoading">查询数量</el-button>
+        <el-button
+          type="primary"
+          @click="handleBackfillExecute"
+          :loading="backfillTaskRunning"
+          :disabled="backfillPreviewCount === null || backfillPreviewCount === 0"
+        >
+          执行补缺
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 摘要重置对话框 -->
+    <el-dialog v-model="resetDialogVisible" title="摘要重置" width="500">
+      <el-alert type="warning" title="此操作将覆盖现有摘要" show-icon :closable="false" style="margin-bottom: 1rem;" />
+      <p style="margin-bottom: 1rem; color: #666;">对指定时间范围内所有推文重新生成摘要。必须指定时间范围。</p>
+      <el-date-picker
+        v-model="resetDateRange"
+        type="datetimerange"
+        range-separator="至"
+        start-placeholder="起始时间"
+        end-placeholder="截止时间"
+        style="width: 100%; margin-bottom: 1rem;"
+      />
+      <div v-if="resetPreviewCount !== null" style="margin-bottom: 1rem;">
+        <el-tag type="warning" size="large">范围内推文: {{ resetPreviewCount }} 条</el-tag>
+      </div>
+      <template #footer>
+        <el-button @click="handleResetPreview" :loading="resetLoading" :disabled="!resetDateRange">查询数量</el-button>
+        <el-button
+          type="danger"
+          @click="handleResetExecute"
+          :loading="resetTaskRunning"
+          :disabled="resetPreviewCount === null || resetPreviewCount === 0"
+        >
+          执行重置
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from "vue"
 import { useRouter } from "vue-router"
-import { Refresh, Search } from "@element-plus/icons-vue"
+import { ArrowDown, Refresh, Search } from "@element-plus/icons-vue"
 import { ElMessage } from "element-plus"
 import { tweetsApi, summariesApi, dedupApi } from "@/api"
 import { taskPollingService } from "@/services/polling"
@@ -167,6 +233,20 @@ const batchSummarizing = ref(false)
 
 /** 批量去重状态 */
 const batchDeduplicating = ref(false)
+
+/** 补缺对话框 */
+const backfillDialogVisible = ref(false)
+const backfillDateRange = ref<[Date, Date] | null>(null)
+const backfillPreviewCount = ref<number | null>(null)
+const backfillLoading = ref(false)
+const backfillTaskRunning = ref(false)
+
+/** 重置对话框 */
+const resetDialogVisible = ref(false)
+const resetDateRange = ref<[Date, Date] | null>(null)
+const resetPreviewCount = ref<number | null>(null)
+const resetLoading = ref(false)
+const resetTaskRunning = ref(false)
 
 /** 轮询句柄 */
 let pollingHandle: { cancel: () => void } | null = null
@@ -317,6 +397,126 @@ async function handleBatchDeduplicate() {
     console.error("批量去重失败:", error)
     ElMessage.error("批量去重提交失败")
     batchDeduplicating.value = false
+  }
+}
+
+/** 摘要工具下拉命令 */
+function handleSummaryToolCommand(command: string) {
+  if (command === "backfill") {
+    backfillDateRange.value = null
+    backfillPreviewCount.value = null
+    backfillDialogVisible.value = true
+  } else if (command === "reset") {
+    resetDateRange.value = null
+    resetPreviewCount.value = null
+    resetDialogVisible.value = true
+  }
+}
+
+/** 补缺预览 */
+async function handleBackfillPreview() {
+  backfillLoading.value = true
+  try {
+    const params: { since?: string; until?: string } = {}
+    if (backfillDateRange.value) {
+      params.since = backfillDateRange.value[0].toISOString()
+      params.until = backfillDateRange.value[1].toISOString()
+    }
+    const result = await summariesApi.previewBackfill(params)
+    backfillPreviewCount.value = result.tweet_count
+  } catch (error) {
+    console.error("补缺预览失败:", error)
+    ElMessage.error("查询失败")
+  } finally {
+    backfillLoading.value = false
+  }
+}
+
+/** 执行补缺 */
+async function handleBackfillExecute() {
+  backfillTaskRunning.value = true
+  try {
+    const params: { since?: string; until?: string } = {}
+    if (backfillDateRange.value) {
+      params.since = backfillDateRange.value[0].toISOString()
+      params.until = backfillDateRange.value[1].toISOString()
+    }
+    const response = await summariesApi.startBackfill(params)
+    ElMessage.success(`补缺任务已提交，共 ${response.tweet_count} 条推文`)
+    backfillDialogVisible.value = false
+
+    pollingHandle = taskPollingService.startPolling(
+      response.task_id,
+      async () => await summariesApi.getTaskStatus(response.task_id) as TaskStatusResponse,
+      () => {},
+      () => {
+        ElMessage.success("摘要补缺完成")
+        backfillTaskRunning.value = false
+        loadTweets()
+      },
+      (error) => {
+        console.error("补缺轮询失败:", error)
+        backfillTaskRunning.value = false
+      },
+    )
+  } catch (error) {
+    console.error("补缺执行失败:", error)
+    ElMessage.error("补缺提交失败")
+    backfillTaskRunning.value = false
+  }
+}
+
+/** 重置预览 */
+async function handleResetPreview() {
+  if (!resetDateRange.value) {
+    ElMessage.warning("请选择时间范围")
+    return
+  }
+  resetLoading.value = true
+  try {
+    const result = await summariesApi.previewReset({
+      since: resetDateRange.value[0].toISOString(),
+      until: resetDateRange.value[1].toISOString(),
+    })
+    resetPreviewCount.value = result.tweet_count
+  } catch (error) {
+    console.error("重置预览失败:", error)
+    ElMessage.error("查询失败")
+  } finally {
+    resetLoading.value = false
+  }
+}
+
+/** 执行重置 */
+async function handleResetExecute() {
+  if (!resetDateRange.value) return
+  resetTaskRunning.value = true
+  try {
+    const response = await summariesApi.startReset({
+      since: resetDateRange.value[0].toISOString(),
+      until: resetDateRange.value[1].toISOString(),
+    })
+    ElMessage.success(`重置任务已提交，共 ${response.tweet_count} 条推文`)
+    resetDialogVisible.value = false
+
+    pollingHandle = taskPollingService.startPolling(
+      response.task_id,
+      async () => await summariesApi.getTaskStatus(response.task_id) as TaskStatusResponse,
+      () => {},
+      () => {
+        ElMessage.success("摘要重置完成")
+        resetTaskRunning.value = false
+        loadTweets()
+      },
+      (error) => {
+        console.error("重置轮询失败:", error)
+        resetTaskRunning.value = false
+      },
+    )
+  } catch (error) {
+    console.error("重置执行失败:", error)
+    ElMessage.error("重置提交失败")
+    resetTaskRunning.value = false
   }
 }
 

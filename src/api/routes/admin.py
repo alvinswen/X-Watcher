@@ -8,9 +8,11 @@ import logging
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 
 from src.scraper import ScrapingService, TaskRegistry, TaskStatus
+from src.user.api.auth import get_current_admin_user
+from src.user.domain.models import UserDomain
 
 logger = logging.getLogger(__name__)
 
@@ -219,6 +221,7 @@ def _run_scraping_task(task_id: str, usernames: list[str], limit: int) -> None:
 async def start_scraping(
     request: dict,
     background_tasks: BackgroundTasks,
+    _admin: UserDomain = Depends(get_current_admin_user),
 ) -> dict:
     """启动手动抓取任务。
 
@@ -285,7 +288,10 @@ async def start_scraping(
 
 
 @router.get("/scrape/{task_id}")
-async def get_scraping_status(task_id: str) -> dict:
+async def get_scraping_status(
+    task_id: str,
+    _admin: UserDomain = Depends(get_current_admin_user),
+) -> dict:
     """查询抓取任务状态。
 
     返回任务的当前状态、进度和结果（如果已完成）。
@@ -326,6 +332,7 @@ async def get_scraping_status(task_id: str) -> dict:
 @router.get("/scrape")
 async def list_scraping_tasks(
     status: Literal["pending", "running", "completed", "failed"] | None = None,
+    _admin: UserDomain = Depends(get_current_admin_user),
 ) -> list[dict]:
     """列出所有抓取任务。
 
@@ -360,7 +367,10 @@ async def list_scraping_tasks(
 
 
 @router.delete("/scrape/{task_id}")
-async def delete_scraping_task(task_id: str) -> dict:
+async def delete_scraping_task(
+    task_id: str,
+    _admin: UserDomain = Depends(get_current_admin_user),
+) -> dict:
     """删除抓取任务。
 
     删除已完成的任务记录。正在运行的任务不能被删除。

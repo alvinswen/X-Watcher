@@ -14,6 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.database.async_session import get_db_session
 from src.scraper.infrastructure.models import TweetOrm
 from src.shared.schemas import UTCDatetimeModel
+from src.user.api.auth import get_current_admin_user
+from src.user.domain.models import UserDomain
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +81,7 @@ async def list_tweets(
     page_size: int = Query(20, ge=1, le=100, description="每页数量"),
     author: str | None = Query(None, description="按作者用户名筛选"),
     session: AsyncSession = Depends(get_db_session),
+    _admin: UserDomain = Depends(get_current_admin_user),
 ) -> TweetListResponse:
     """获取推文列表。
 
@@ -197,6 +200,7 @@ async def list_tweets(
 async def get_tweet_detail(
     tweet_id: str,
     session: AsyncSession = Depends(get_db_session),
+    _admin: UserDomain = Depends(get_current_admin_user),
 ) -> TweetDetailResponse:
     """获取推文详情。
 

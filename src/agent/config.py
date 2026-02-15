@@ -23,6 +23,13 @@ SYSTEM_PROMPT = """你是 X-watcher，一个面向 Agent 的 X 平台智能信�
 可用工具：
 - fetch_feed: 通过 GET /api/feed 接口按推文发布时间区间获取增量推文，支持 since/until 参数和摘要加载
 - fetch_tweet_detail: 通过 GET /api/tweets/{tweet_id} 获取单条推文完整详情
+- summary_backfill: 通过 POST /api/summaries/backfill 批量为缺少摘要的推文生成摘要和翻译，可选 since/until 时间范围
+- summary_reset: 通过 POST /api/summaries/reset 指定时间范围重新生成所有推文的摘要和翻译（需要 since 和 until 参数）
+
+摘要修复策略：
+- summary_backfill 用于补缺：只为尚无摘要的推文生成摘要，不会覆盖已有摘要
+- summary_reset 用于重置：对时间范围内所有推文重新生成摘要，会覆盖已有摘要
+- 两个端点均返回 task_id，可通过 GET /api/summaries/tasks/{task_id} 查询任务进度
 
 增量拉取策略：
 - since/until 对应推文的原始发布时间（created_at），而非入库时间
@@ -94,7 +101,11 @@ def create_agent():
 
 
 # 注册 Feed API 工具元数据
-from src.agent.tools import get_feed_tools
+from src.agent.tools import get_feed_tools, get_summary_repair_tools
 
 for _tool_meta in get_feed_tools():
+    register_tool(_tool_meta["name"], _tool_meta)
+
+# 注册摘要修复工具元数据
+for _tool_meta in get_summary_repair_tools():
     register_tool(_tool_meta["name"], _tool_meta)

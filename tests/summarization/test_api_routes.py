@@ -19,6 +19,8 @@ from src.summarization.domain.models import (
     SummaryRecord,
 )
 from src.summarization.infrastructure.models import SummaryOrm
+from src.user.api.auth import get_current_admin_user
+from src.user.domain.models import BOOTSTRAP_ADMIN
 from tests.conftest import TestSessionLocal, test_engine
 
 
@@ -29,6 +31,14 @@ def reset_task_registry():
     registry.clear_all()
     yield
     registry.clear_all()
+
+
+@pytest.fixture(autouse=True)
+def override_auth():
+    """覆盖管理员认证依赖，避免 401。"""
+    app.dependency_overrides[get_current_admin_user] = lambda: BOOTSTRAP_ADMIN
+    yield
+    app.dependency_overrides.pop(get_current_admin_user, None)
 
 
 @pytest.fixture(autouse=True)

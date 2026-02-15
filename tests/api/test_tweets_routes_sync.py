@@ -18,6 +18,8 @@ from src.database.async_session import get_db_session
 from src.database.models import Base
 from src.main import app
 from src.scraper.infrastructure.models import TweetOrm
+from src.user.api.auth import get_current_admin_user
+from src.user.domain.models import BOOTSTRAP_ADMIN
 
 # 导入所有 ORM 模型以确保表注册
 from src.scraper.infrastructure.models import DeduplicationGroupOrm  # noqa: F401
@@ -74,11 +76,13 @@ def _isolated_db():
         yield _shared_session
 
     app.dependency_overrides[get_db_session] = override_get_db_session
+    app.dependency_overrides[get_current_admin_user] = lambda: BOOTSTRAP_ADMIN
 
     yield async_session_maker, loop
 
     # 清理
     app.dependency_overrides.pop(get_db_session, None)
+    app.dependency_overrides.pop(get_current_admin_user, None)
 
     async def _cleanup():
         if _shared_session:

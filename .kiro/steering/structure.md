@@ -26,6 +26,7 @@ src/
 │       ├── admin.py         # 管理功能 API（抓取任务）
 │       └── tweets.py        # 推文列表/详情 API
 ├── agent/                   # Nanobot Agent 配置
+│   ├── tools.py             # API 工具元数据定义（Feed、摘要修复）
 │   └── config.py            # Agent 系统提示和工具注册
 ├── scraper/                 # 推文抓取模块
 │   ├── client.py            # TwitterAPI.io 客户端（含引用推文预处理）

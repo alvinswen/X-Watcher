@@ -8,6 +8,16 @@ from fastapi.testclient import TestClient
 
 from src.main import app
 from src.scraper import TaskRegistry, TaskStatus
+from src.user.api.auth import get_current_admin_user
+from src.user.domain.models import BOOTSTRAP_ADMIN
+
+
+@pytest.fixture(autouse=True)
+def override_auth():
+    """覆盖管理员认证依赖，避免 401。"""
+    app.dependency_overrides[get_current_admin_user] = lambda: BOOTSTRAP_ADMIN
+    yield
+    app.dependency_overrides.pop(get_current_admin_user, None)
 
 
 @pytest.fixture

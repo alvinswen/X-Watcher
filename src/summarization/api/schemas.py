@@ -159,3 +159,54 @@ class ErrorResponse(BaseModel):
 
     detail: str = Field(..., description="错误详情")
     error_code: str | None = Field(None, description="错误代码")
+
+
+# ========== 摘要修复相关模型 ==========
+
+
+class SummaryPreviewResponse(BaseModel):
+    """摘要修复预览响应 — 补缺和重置共用。"""
+
+    tweet_count: int = Field(..., ge=0, description="受影响推文数量")
+
+
+class SummaryBackfillRequest(BaseModel):
+    """摘要补缺请求 — 可选时间范围。"""
+
+    since: datetime | None = Field(None, description="起始时间（含），ISO 8601 格式")
+    until: datetime | None = Field(None, description="截止时间（不含），ISO 8601 格式")
+
+
+class SummaryBackfillResponse(BaseModel):
+    """摘要补缺响应。"""
+
+    task_id: str = Field(..., description="任务 ID")
+    status: Literal["pending", "running", "completed", "failed"] = Field(
+        ..., description="任务状态"
+    )
+    tweet_count: int = Field(..., ge=0, description="补缺推文数量")
+
+
+class SummaryResetRequest(BaseModel):
+    """摘要重置请求 — 必填时间范围，since 必须早于 until。"""
+
+    since: datetime = Field(..., description="起始时间（含），ISO 8601 格式")
+    until: datetime = Field(..., description="截止时间（不含），ISO 8601 格式")
+
+    @field_validator("until")
+    @classmethod
+    def validate_time_range(cls, v: datetime, info) -> datetime:
+        """校验 until 必须晚于 since。"""
+        if info.data.get("since") and v <= info.data["since"]:
+            raise ValueError("until 必须晚于 since")
+        return v
+
+
+class SummaryResetResponse(BaseModel):
+    """摘要重置响应。"""
+
+    task_id: str = Field(..., description="任务 ID")
+    status: Literal["pending", "running", "completed", "failed"] = Field(
+        ..., description="任务状态"
+    )
+    tweet_count: int = Field(..., ge=0, description="重置推文数量")
