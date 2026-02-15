@@ -103,7 +103,7 @@ class TestFollowManagementAPI(TestPreferenceAPI):
             json=request_data
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     @pytest.mark.asyncio
     async def test_create_follow_not_in_scraper_list(self, client, test_user):

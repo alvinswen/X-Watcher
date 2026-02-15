@@ -219,74 +219,93 @@ describe("抓取工作流端到端测试", () => {
 
   describe("进度跟踪", () => {
     it("应该正确跟踪和更新任务进度", async () => {
-      // 1. 触发任务
-      vi.mocked(tasksApi.triggerScraping).mockResolvedValue({
-        task_id: "progress-task",
-        status: "pending",
-      })
+      // 使用 fake timers 控制轮询间隔（POLLING_INTERVAL = 2000ms）
+      vi.useFakeTimers()
 
-      // 2. 模拟进度变化（从 0% 到 100%）
-      let progressIndex = 0
-      const progressSequence: TaskStatusResponse[] = [
-        {
+      try {
+        // 1. 触发任务
+        vi.mocked(tasksApi.triggerScraping).mockResolvedValue({
           task_id: "progress-task",
-          status: "running",
-          result: null,
-          error: null,
-          created_at: new Date().toISOString(),
-          started_at: new Date().toISOString(),
-          completed_at: null,
-          progress: { current: 0, total: 100, percentage: 0 },
-          metadata: { stage: "scraping" },
-        },
-        {
-          task_id: "progress-task",
-          status: "running",
-          result: null,
-          error: null,
-          created_at: new Date().toISOString(),
-          started_at: new Date().toISOString(),
-          completed_at: null,
-          progress: { current: 60, total: 100, percentage: 60 },
-          metadata: { stage: "deduplication" },
-        },
-        {
-          task_id: "progress-task",
-          status: "completed",
-          result: { tweets_count: 60 },
-          error: null,
-          created_at: new Date().toISOString(),
-          started_at: new Date().toISOString(),
-          completed_at: new Date().toISOString(),
-          progress: { current: 100, total: 100, percentage: 100 },
-          metadata: {},
-        },
-      ]
+          status: "pending",
+        })
 
-      vi.mocked(tasksApi.getStatus).mockImplementation(async () => {
-        return progressSequence[progressIndex++]
-      })
+        // 2. 模拟进度变化（从 0% 到 100%）
+        let progressIndex = 0
+        const progressSequence: TaskStatusResponse[] = [
+          {
+            task_id: "progress-task",
+            status: "running",
+            result: null,
+            error: null,
+            created_at: new Date().toISOString(),
+            started_at: new Date().toISOString(),
+            completed_at: null,
+            progress: { current: 0, total: 100, percentage: 0 },
+            metadata: { stage: "scraping" },
+          },
+          {
+            task_id: "progress-task",
+            status: "running",
+            result: null,
+            error: null,
+            created_at: new Date().toISOString(),
+            started_at: new Date().toISOString(),
+            completed_at: null,
+            progress: { current: 60, total: 100, percentage: 60 },
+            metadata: { stage: "deduplication" },
+          },
+          {
+            task_id: "progress-task",
+            status: "completed",
+            result: { tweets_count: 60 },
+            error: null,
+            created_at: new Date().toISOString(),
+            started_at: new Date().toISOString(),
+            completed_at: new Date().toISOString(),
+            progress: { current: 100, total: 100, percentage: 100 },
+            metadata: {},
+          },
+        ]
 
-      // 3. 收集所有状态更新
-      const statusUpdates: TaskStatusResponse[] = []
+        vi.mocked(tasksApi.getStatus).mockImplementation(async () => {
+          const idx = Math.min(progressIndex, progressSequence.length - 1)
+          progressIndex++
+          return progressSequence[idx]
+        })
 
-      taskPollingService.startPolling(
-        "progress-task",
-        () => tasksApi.getStatus("progress-task"),
-        (status) => {
-          statusUpdates.push(status)
-        },
-      )
+        // 3. 收集所有状态更新
+        const statusUpdates: TaskStatusResponse[] = []
 
-      // 4. 等待完成
-      await new Promise(resolve => setTimeout(resolve, 500))
+        taskPollingService.startPolling(
+          "progress-task",
+          () => tasksApi.getStatus("progress-task"),
+          (status) => {
+            statusUpdates.push(status)
+          },
+        )
 
-      // 5. 验证至少收到了初始状态和完成状态
-      expect(statusUpdates.length).toBeGreaterThan(0)
+        // 4. 等待首次立即轮询（微任务）
+        await vi.advanceTimersByTimeAsync(0)
 
-      // 验证至少有一个完成状态
-      const completedStates = statusUpdates.filter(s => s.status === "completed")
-      expect(completedStates.length).toBeGreaterThan(0)
+        // 5. 推进 2000ms 触发第二次轮询
+        await vi.advanceTimersByTimeAsync(2000)
+
+        // 6. 推进 2000ms 触发第三次轮询（completed）
+        await vi.advanceTimersByTimeAsync(2000)
+
+        // 7. 验证收到了所有 3 个状态更新
+        expect(statusUpdates.length).toBe(3)
+
+        // 验证进度顺序：0% -> 60% -> 100%
+        expect(statusUpdates[0].progress.percentage).toBe(0)
+        expect(statusUpdates[1].progress.percentage).toBe(60)
+        expect(statusUpdates[2].progress.percentage).toBe(100)
+
+        // 验证最终状态为 completed
+        expect(statusUpdates[2].status).toBe("completed")
+      } finally {
+        vi.useRealTimers()
+      }
     })
   })
 })

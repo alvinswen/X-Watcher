@@ -242,7 +242,7 @@ class TestFeedAPIValidation:
         """缺少 since 参数返回 422。"""
         response = await feed_client.get("/api/feed")
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     async def test_since_after_until_returns_422(self, feed_client: AsyncClient):
         """since > until 返回 422。"""
@@ -254,7 +254,7 @@ class TestFeedAPIValidation:
             },
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
         data = response.json()
         assert "时间区间无效" in data["detail"]
 
@@ -264,7 +264,7 @@ class TestFeedAPIValidation:
             "/api/feed", params={"since": "not-a-date"}
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
 class TestFeedAPILimitClamping:

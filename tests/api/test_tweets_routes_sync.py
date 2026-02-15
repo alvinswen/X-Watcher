@@ -219,7 +219,7 @@ class TestTweetListAPI:
         """测试无效的页码。"""
         response = client.get("/api/tweets?page=0")
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     def test_list_tweets_invalid_page_size(
         self, client: TestClient, seed_test_tweets: list[TweetOrm]
@@ -227,11 +227,11 @@ class TestTweetListAPI:
         """测试无效的 page_size。"""
         response = client.get("/api/tweets?page_size=0")
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
         response = client.get("/api/tweets?page_size=101")
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     def test_list_tweets_ordering(
         self, client: TestClient, seed_test_tweets: list[TweetOrm]

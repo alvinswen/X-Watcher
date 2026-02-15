@@ -151,14 +151,14 @@ class ScraperScheduleService:
         # 验证：未来时间（-30s 容差）
         if next_run_time < now - timedelta(seconds=30):
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="下次触发时间必须为未来时间",
             )
 
         # 验证：不超过 30 天
         if next_run_time > now + timedelta(days=30):
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="下次触发时间不能超过 30 天后",
             )
 

@@ -3,7 +3,7 @@
 测试推文列表和详情 API 端点。
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi import status
@@ -36,7 +36,7 @@ async def seed_test_tweets(async_session: AsyncSession) -> list[TweetOrm]:
         TweetOrm(
             tweet_id="tweet2",
             text="Second test tweet",
-            created_at=now.replace(second=now.second - 1),  # 早 1 秒
+            created_at=now - timedelta(seconds=1),  # 早 1 秒
             author_username="user1",
             author_display_name="User One",
             media=None,
@@ -44,7 +44,7 @@ async def seed_test_tweets(async_session: AsyncSession) -> list[TweetOrm]:
         TweetOrm(
             tweet_id="tweet3",
             text="Tweet from user2",
-            created_at=now.replace(second=now.second - 2),  # 早 2 秒
+            created_at=now - timedelta(seconds=2),  # 早 2 秒
             author_username="user2",
             author_display_name="User Two",
             media=None,
@@ -134,7 +134,7 @@ class TestTweetListAPI:
         """测试无效的页码。"""
         response = await async_client.get("/api/tweets?page=0")
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     async def test_list_tweets_invalid_page_size(
         self, async_client: AsyncClient, seed_test_tweets: list[TweetOrm]
@@ -142,11 +142,11 @@ class TestTweetListAPI:
         """测试无效的 page_size。"""
         response = await async_client.get("/api/tweets?page_size=0")
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
         response = await async_client.get("/api/tweets?page_size=101")
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     async def test_list_tweets_ordering(
         self, async_client: AsyncClient, seed_test_tweets: list[TweetOrm]

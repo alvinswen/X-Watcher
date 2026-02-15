@@ -62,7 +62,7 @@ async def get_feed(
         # 验证时间区间
         if since >= actual_until:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="时间区间无效: since 必须早于 until",
             )
 

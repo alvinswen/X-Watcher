@@ -140,7 +140,7 @@ class TestScraperConfigAPI:
             json=request_data,
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     @pytest.mark.asyncio
     async def test_create_scraper_follow_duplicate_returns_409(self, client, async_session):
