@@ -20,6 +20,7 @@ from src.main import app
 # 这些导入不会在代码中使用，但确保 SQLAlchemy 能够找到所有表
 from src.scraper.infrastructure.models import TweetOrm, DeduplicationGroupOrm  # noqa: F401
 from src.scraper.infrastructure.fetch_stats_models import FetchStatsOrm  # noqa: F401
+from src.scraper.infrastructure.scheduler_log_models import SchedulerExecutionLogOrm  # noqa: F401
 from src.summarization.infrastructure.models import SummaryOrm  # noqa: F401
 
 # 在测试开始时加载 .env 文件

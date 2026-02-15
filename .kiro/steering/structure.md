@@ -24,6 +24,7 @@ src/
 ├── api/                     # FastAPI 路由和端点
 │   └── routes/
 │       ├── admin.py         # 管理功能 API（抓取任务）
+│       ├── scheduler.py     # 调度器执行历史 API（GET /api/admin/scheduler/history）
 │       └── tweets.py        # 推文列表/详情 API
 ├── agent/                   # Nanobot Agent 配置
 │   ├── tools.py             # API 工具元数据定义（Feed、摘要修复）
@@ -34,15 +35,19 @@ src/
 │   ├── validator.py         # 数据验证器（MAX_TEXT_LENGTH=25000）
 │   ├── scraping_service.py  # 抓取编排服务（含自动摘要触发）
 │   ├── scheduled_job.py     # 定时抓取任务函数（供 main.py 和 schedule_service 共用）
+│   ├── scheduler_listener.py # APScheduler 事件监听器（EXECUTED/ERROR/MISSED → DB + Prometheus）
 │   ├── task_registry.py     # 异步任务注册表
 │   ├── domain/
 │   │   ├── models.py        # 领域模型（Tweet, Media, SaveResult）
-│   │   └── fetch_stats.py   # 抓取统计领域模型（FetchStats）
+│   │   ├── fetch_stats.py   # 抓取统计领域模型（FetchStats）
+│   │   └── scheduler_log.py # 调度器执行日志领域模型（SchedulerEventType, SchedulerExecutionLog）
 │   ├── infrastructure/
 │   │   ├── models.py        # ORM 模型（TweetOrm, DeduplicationGroupOrm）
 │   │   ├── repository.py    # 推文数据仓库
 │   │   ├── fetch_stats_models.py     # FetchStatsOrm
-│   │   └── fetch_stats_repository.py # 抓取统计仓库
+│   │   ├── fetch_stats_repository.py # 抓取统计仓库
+│   │   ├── scheduler_log_models.py     # SchedulerExecutionLogOrm
+│   │   └── scheduler_log_repository.py # 调度器日志仓库（同步写入 + 异步查询）
 │   └── services/
 │       └── limit_calculator.py  # 动态抓取数量计算（EMA 算法）
 ├── deduplication/           # 内容去重模块

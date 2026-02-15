@@ -48,3 +48,28 @@ db_pool_available = Gauge(
     "db_pool_available",
     "Available database connections",
 )
+
+# 调度器任务指标
+scheduler_job_executed_total = Counter(
+    "scheduler_job_executed_total",
+    "Total successful scheduler job executions",
+    ["job_id"],
+)
+
+scheduler_job_error_total = Counter(
+    "scheduler_job_error_total",
+    "Total scheduler job errors",
+    ["job_id"],
+)
+
+scheduler_job_missed_total = Counter(
+    "scheduler_job_missed_total",
+    "Total missed scheduler job executions",
+    ["job_id"],
+)
+
+scheduler_job_duration_seconds = Gauge(
+    "scheduler_job_duration_seconds",
+    "Duration of last scheduler job execution in seconds",
+    ["job_id"],
+)

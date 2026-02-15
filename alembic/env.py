@@ -18,6 +18,7 @@ from src.database.models import Base
 # 必须导入所有继承自 Base 的模型类
 import src.scraper.infrastructure.models  # noqa: F401 导入 TweetOrm, DeduplicationGroupOrm
 import src.scraper.infrastructure.fetch_stats_models  # noqa: F401 导入 FetchStatsOrm
+import src.scraper.infrastructure.scheduler_log_models  # noqa: F401 导入 SchedulerExecutionLogOrm
 import src.summarization.infrastructure.models  # noqa: F401 导入 SummaryOrm
 
 # this is the Alembic Config object, which provides

@@ -66,6 +66,72 @@ def _migrate_schedule_config_table():
         pass
 
 
+def _migrate_scheduler_execution_log_table():
+    """创建 scheduler_execution_log 表（如果不存在）。"""
+    try:
+        from sqlalchemy import text
+
+        eng = engine()
+        with eng.connect() as conn:
+            conn.execute(
+                text(
+                    "CREATE TABLE IF NOT EXISTS scheduler_execution_log ("
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                    "job_id VARCHAR(100) NOT NULL,"
+                    "event_type VARCHAR(20) NOT NULL,"
+                    "executed_at DATETIME NOT NULL,"
+                    "duration_seconds FLOAT,"
+                    "error_type VARCHAR(200),"
+                    "error_message TEXT,"
+                    "next_run_time DATETIME,"
+                    "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"
+                    ")"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_scheduler_log_job_id "
+                    "ON scheduler_execution_log(job_id)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_scheduler_log_event_type "
+                    "ON scheduler_execution_log(event_type)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_scheduler_log_executed_at "
+                    "ON scheduler_execution_log(executed_at)"
+                )
+            )
+            conn.commit()
+    except Exception:
+        pass
+
+
+async def _cleanup_old_scheduler_logs():
+    """清理过期的调度器执行日志。"""
+    try:
+        from src.database.async_session import get_async_session_maker
+        from src.scraper.infrastructure.scheduler_log_repository import (
+            SchedulerExecutionLogRepository,
+        )
+
+        settings = get_settings()
+        session_maker = get_async_session_maker()
+        async with session_maker() as session:
+            repo = SchedulerExecutionLogRepository(session)
+            deleted = await repo.cleanup_old_logs(
+                retention_days=settings.scheduler_log_retention_days
+            )
+            if deleted > 0:
+                logger.info(f"清理了 {deleted} 条过期调度器执行日志")
+    except Exception as e:
+        logger.warning(f"清理调度器执行日志失败: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # noqa: ARG001 - app 参数是 FastAPI 要求的
     """应用生命周期管理。
@@ -82,12 +148,29 @@ async def lifespan(app: FastAPI):  # noqa: ARG001 - app 参数是 FastAPI 要求
 
     # 迁移：确保 is_enabled 列存在
     _migrate_schedule_config_table()
+    # 迁移：确保 scheduler_execution_log 表存在
+    _migrate_scheduler_execution_log_table()
 
     # 初始化调度器
     if settings.scraper_enabled:
         _scheduler = BackgroundScheduler(timezone="Asia/Shanghai")
         _scheduler.start()
         register_scheduler(_scheduler)
+
+        # 注册事件监听器
+        from apscheduler.events import (
+            EVENT_JOB_ERROR,
+            EVENT_JOB_EXECUTED,
+            EVENT_JOB_MISSED,
+        )
+
+        from src.scraper.scheduler_listener import scheduler_event_listener
+
+        _scheduler.add_listener(
+            scheduler_event_listener,
+            EVENT_JOB_EXECUTED | EVENT_JOB_ERROR | EVENT_JOB_MISSED,
+        )
+        logger.info("调度器事件监听器已注册")
 
         # 从 DB 加载调度配置，仅在有已启用配置时恢复 job
         db_interval, db_next_run, db_is_enabled = _get_schedule_config_from_db()
@@ -109,6 +192,9 @@ async def lifespan(app: FastAPI):  # noqa: ARG001 - app 参数是 FastAPI 要求
             )
         else:
             logger.info("调度器已启动（空闲模式，无调度任务）")
+
+    # 清理过期的调度器执行日志
+    await _cleanup_old_scheduler_logs()
 
     yield
 
@@ -222,6 +308,11 @@ app.include_router(admin_user_router)
 from src.monitoring import routes as monitoring_routes
 
 app.include_router(monitoring_routes.router)
+
+# 注册调度器执行历史 API 路由
+from src.api.routes.scheduler import router as scheduler_router
+
+app.include_router(scheduler_router)
 
 # 配置前端静态资源服务（如果存在）
 import os

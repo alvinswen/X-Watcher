@@ -125,6 +125,12 @@ class Settings(BaseSettings):
         description="连续已存在推文阈值，达到后提前终止（0 禁用）"
     )
 
+    # 调度器日志配置
+    scheduler_log_retention_days: int = Field(
+        default=30, ge=1, le=365,
+        description="调度器执行日志保留天数"
+    )
+
     # Feed API 配置
     feed_max_tweets: int = Field(
         default=200,
