@@ -6,8 +6,9 @@
   - 在 `.env.example` 中添加对应的环境变量示例
   - _Requirements: 4.2_
 
-- [ ] 1.2 (P) 创建 Alembic 数据库迁移，为推文入库时间字段添加索引
+- [ ] 1.2 (P) 创建 Alembic 数据库迁移，为推文入库时间字段添加索引（历史遗留）
   - 新增迁移文件，创建 `ix_tweets_db_created_at` 索引
+  - 注意：Feed 查询现已改用 `created_at`（已有索引 `ix_tweets_created_at`）进行时间过滤
   - 包含 downgrade 操作以删除索引
   - 遵循项目现有迁移文件命名和结构模式
   - _Requirements: 1.1_

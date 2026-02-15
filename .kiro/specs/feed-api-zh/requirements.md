@@ -9,8 +9,8 @@
 **目标:** 作为外部 Agent（nanobot），我需要按时间区间获取推文列表，以便增量拉取自上次访问以来的新数据。
 
 #### 验收标准
-1. When 客户端发送 `GET /api/feed` 请求并携带 `since` 参数（ISO 8601 格式）, the Feed API shall 返回 `db_created_at >= since` 的所有推文。
-2. When 客户端同时携带 `since` 和 `until` 参数, the Feed API shall 返回 `db_created_at >= since AND db_created_at < until` 的推文。
+1. When 客户端发送 `GET /api/feed` 请求并携带 `since` 参数（ISO 8601 格式）, the Feed API shall 返回 `created_at >= since` 的所有推文（按推文发布时间过滤）。
+2. When 客户端同时携带 `since` 和 `until` 参数, the Feed API shall 返回 `created_at >= since AND created_at < until` 的推文。
 3. When 客户端未提供 `until` 参数, the Feed API shall 使用当前服务器时间作为默认截止时间。
 4. When 客户端未提供 `since` 参数, the Feed API shall 返回 HTTP 422 错误，提示 `since` 为必填参数。
 5. The Feed API shall 按 `created_at`（推文原始发布时间）倒序排列返回结果。

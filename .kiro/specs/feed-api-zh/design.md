@@ -9,7 +9,7 @@
 **影响**: 在现有系统中新增 `src/feed/` 模块和 `GET /api/feed` 端点，不修改任何现有 API 行为。
 
 ### 目标
-- 提供基于 `db_created_at` 时间区间过滤的推文查询端点
+- 提供基于 `created_at`（推文发布时间）时间区间过滤的推文查询端点
 - 一次返回推文完整内容（含摘要和翻译），无需二次请求
 - 通过 `limit` + `has_more` 机制控制响应大小
 - 为 nanobot 提供工具元数据定义
@@ -79,7 +79,7 @@ graph TB
 | 后端框架 | FastAPI（现有） | Feed API 路由 | 复用 |
 | 数据验证 | Pydantic 2.5+（现有） | 请求/响应模型 | 复用 |
 | ORM | SQLAlchemy 2.0+（现有） | 推文+摘要联合查询 | 复用 TweetOrm, SummaryOrm |
-| 数据库 | SQLite/PostgreSQL（现有） | 数据存储 | 需新增 `db_created_at` 索引 |
+| 数据库 | SQLite/PostgreSQL（现有） | 数据存储 | 已有 `created_at` 索引 |
 | 数据库迁移 | Alembic（现有） | 添加索引 | 新增迁移文件 |
 | 认证 | API Key + JWT（现有） | Feed API 认证 | 复用 `get_current_user` |
 
@@ -105,7 +105,7 @@ graph TB
 | FeedService | Service | 数据库查询编排 | 1.1-1.3, 1.5, 2.2-2.4, 4.1-4.4 | AsyncSession (P0), TweetOrm (P0), SummaryOrm (P1) | Service |
 | Settings 扩展 | Config | feed_max_tweets 配置 | 4.2 | — | — |
 | AgentTools | Agent | 工具元数据定义 | 6.1-6.3 | — | — |
-| Alembic Migration | Infra | db_created_at 索引 | 1.1 (性能) | — | — |
+| Alembic Migration | Infra | db_created_at 索引（历史遗留） | 1.1 (性能) | — | — |
 
 ### API 层
 
@@ -134,8 +134,8 @@ graph TB
 
 | 参数 | 类型 | 必填 | 默认值 | 说明 |
 |------|------|------|--------|------|
-| since | datetime (ISO 8601) | 是 | — | 起始时间，过滤 `db_created_at >= since` |
-| until | datetime (ISO 8601) | 否 | 当前服务器时间 | 截止时间，过滤 `db_created_at < until` |
+| since | datetime (ISO 8601) | 是 | — | 推文发布时间起始（含），过滤 `created_at >= since` |
+| until | datetime (ISO 8601) | 否 | 当前服务器时间 | 推文发布时间截止（不含），过滤 `created_at < until` |
 | limit | int (1-200) | 否 | FEED_MAX_TWEETS | 最大返回条数 |
 | include_summary | bool | 否 | true | 是否包含摘要/翻译 |
 
@@ -176,8 +176,8 @@ graph TB
 | items | list[FeedTweetItem] | 推文列表 |
 | count | int | 本次返回条数 |
 | total | int | 满足条件的总条数 |
-| since | datetime | 实际起始时间 |
-| until | datetime | 实际截止时间 |
+| since | datetime | 推文发布时间区间起始（含） |
+| until | datetime | 推文发布时间区间截止（不含） |
 | has_more | bool | 是否还有更多推文 |
 
 **ErrorResponse** — 复用 `src/api/routes/tweets.py` 中已定义的 `ErrorResponse`。
@@ -231,13 +231,13 @@ class FeedResult:
 
 **查询策略**:
 
-1. **COUNT 查询**: `SELECT COUNT(*) FROM tweets WHERE db_created_at >= :since AND db_created_at < :until` → 得到 `total`
+1. **COUNT 查询**: `SELECT COUNT(*) FROM tweets WHERE created_at >= :since AND created_at < :until` → 得到 `total`
 2. **数据查询** (include_summary=true):
    ```sql
    SELECT tweets.*, summaries.summary_text, summaries.translation_text
    FROM tweets
    LEFT JOIN summaries ON tweets.tweet_id = summaries.tweet_id
-   WHERE tweets.db_created_at >= :since AND tweets.db_created_at < :until
+   WHERE tweets.created_at >= :since AND tweets.created_at < :until
    ORDER BY tweets.created_at DESC
    LIMIT :limit
    ```
@@ -245,7 +245,7 @@ class FeedResult:
    ```sql
    SELECT tweets.*
    FROM tweets
-   WHERE tweets.db_created_at >= :since AND tweets.db_created_at < :until
+   WHERE tweets.created_at >= :since AND tweets.created_at < :until
    ORDER BY tweets.created_at DESC
    LIMIT :limit
    ```
@@ -287,7 +287,7 @@ class FeedResult:
 
 #### Alembic Migration
 
-**新增迁移**: 为 `tweets.db_created_at` 添加索引
+**历史迁移**: 为 `tweets.db_created_at` 添加索引（历史遗留，Feed 查询现已改用 `created_at` 索引 `ix_tweets_created_at`）
 
 ```python
 # upgrade
@@ -305,13 +305,16 @@ Feed 模块无自有领域模型。复用:
 - `TweetOrm` (`src/scraper/infrastructure/models.py`): tweet_id, text, created_at, author_username, author_display_name, referenced_tweet_id, reference_type, media, db_created_at
 - `SummaryOrm` (`src/summarization/infrastructure/models.py`): tweet_id, summary_text, translation_text
 
+Feed 时间过滤使用 `created_at`（推文原始发布时间），而非 `db_created_at`（入库时间），因为 Agent 只知道推文发布时间。
+
 ### 物理数据模型
 
-**变更**: 仅新增索引
+**已有索引**（Feed 查询依赖）:
 
-| 表 | 操作 | 索引名 | 列 |
-|----|------|--------|-----|
-| tweets | CREATE INDEX | ix_tweets_db_created_at | db_created_at |
+| 表 | 索引名 | 列 | 说明 |
+|----|--------|-----|------|
+| tweets | ix_tweets_created_at | created_at | Feed 时间过滤使用 |
+| tweets | ix_tweets_db_created_at | db_created_at | 历史遗留 |
 
 ### 数据契约
 

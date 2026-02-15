@@ -15,13 +15,13 @@ FEED_TOOLS: list[dict[str, Any]] = [
                 "type": "string",
                 "format": "ISO 8601 datetime",
                 "required": True,
-                "description": "起始时间，过滤 db_created_at >= since",
+                "description": "推文发布时间起始（含），ISO 8601 格式",
             },
             "until": {
                 "type": "string",
                 "format": "ISO 8601 datetime",
                 "required": False,
-                "description": "截止时间，默认当前服务器时间",
+                "description": "推文发布时间截止（不含），默认当前服务器时间",
             },
             "limit": {
                 "type": "integer",

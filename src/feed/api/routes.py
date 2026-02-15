@@ -29,10 +29,10 @@ router = APIRouter(prefix="/api/feed", tags=["feed"])
 )
 async def get_feed(
     since: datetime = Query(
-        ..., description="起始时间（ISO 8601 格式），过滤 db_created_at >= since"
+        ..., description="推文发布时间起始（含），ISO 8601 格式"
     ),
     until: datetime | None = Query(
-        None, description="截止时间（ISO 8601 格式），默认当前服务器时间"
+        None, description="推文发布时间截止（不含），默认当前服务器时间"
     ),
     limit: int | None = Query(None, ge=1, description="最大返回条数"),
     include_summary: bool = Query(True, description="是否包含摘要和翻译"),

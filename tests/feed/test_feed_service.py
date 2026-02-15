@@ -18,7 +18,12 @@ from src.summarization.infrastructure.models import SummaryOrm
 async def feed_data(async_session: AsyncSession):
     """准备 Feed 测试数据：3 条推文 + 2 条摘要。
 
-    时间线（db_created_at）：
+    时间线（created_at，用于 Feed 时间过滤）：
+    - tweet_1: base + 30min
+    - tweet_2: base + 20min
+    - tweet_3: base + 10min
+
+    db_created_at（入库时间，与 created_at 故意不同）：
     - tweet_1: base + 10min
     - tweet_2: base + 20min
     - tweet_3: base + 30min
@@ -113,11 +118,11 @@ class TestFeedServiceTimeFiltering:
     """测试时间区间过滤。"""
 
     async def test_since_until_boundary(self, async_session, feed_data):
-        """验证 since/until 边界过滤：仅返回 db_created_at 在 [since, until) 区间的推文。"""
+        """验证 since/until 边界过滤：仅返回 created_at 在 [since, until) 区间的推文。"""
         base = feed_data["base_time"]
         service = FeedService(async_session)
 
-        # 仅包含 tweet_2 (db_created_at = base + 20min)
+        # 仅包含 tweet_2 (created_at = base + 20min)
         result = await service.get_feed(
             since=base + timedelta(minutes=15),
             until=base + timedelta(minutes=25),

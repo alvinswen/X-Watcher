@@ -33,8 +33,8 @@ class FeedResponse(UTCDatetimeModel):
     items: list[FeedTweetItem] = Field(..., description="推文列表")
     count: int = Field(..., description="本次返回条数")
     total: int = Field(..., description="满足条件的总条数")
-    since: datetime = Field(..., description="实际起始时间")
-    until: datetime = Field(..., description="实际截止时间")
+    since: datetime = Field(..., description="推文发布时间区间起始（含）")
+    until: datetime = Field(..., description="推文发布时间区间截止（不含）")
     has_more: bool = Field(..., description="是否还有更多推文")
 
 

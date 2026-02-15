@@ -35,8 +35,8 @@ class FeedService:
         """查询指定时间区间内的推文。
 
         Args:
-            since: 起始时间（含），过滤 db_created_at >= since
-            until: 截止时间（不含），过滤 db_created_at < until
+            since: 起始时间（含），过滤 created_at >= since
+            until: 截止时间（不含），过滤 created_at < until
             limit: 最大返回条数
             include_summary: 是否包含摘要和翻译
 
@@ -48,8 +48,8 @@ class FeedService:
             select(func.count())
             .select_from(TweetOrm)
             .where(
-                TweetOrm.db_created_at >= since,
-                TweetOrm.db_created_at < until,
+                TweetOrm.created_at >= since,
+                TweetOrm.created_at < until,
             )
         )
         count_result = await self._session.execute(count_stmt)
@@ -73,8 +73,8 @@ class FeedService:
                 )
                 .outerjoin(SummaryOrm, TweetOrm.tweet_id == SummaryOrm.tweet_id)
                 .where(
-                    TweetOrm.db_created_at >= since,
-                    TweetOrm.db_created_at < until,
+                    TweetOrm.created_at >= since,
+                    TweetOrm.created_at < until,
                 )
                 .order_by(TweetOrm.created_at.desc())
                 .limit(limit)
@@ -93,8 +93,8 @@ class FeedService:
                     TweetOrm.media,
                 )
                 .where(
-                    TweetOrm.db_created_at >= since,
-                    TweetOrm.db_created_at < until,
+                    TweetOrm.created_at >= since,
+                    TweetOrm.created_at < until,
                 )
                 .order_by(TweetOrm.created_at.desc())
                 .limit(limit)

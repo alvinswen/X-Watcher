@@ -98,7 +98,11 @@ async def feed_client_no_auth(feed_test_session):
 
 @pytest.fixture
 async def seed_feed_data(feed_test_session: AsyncSession):
-    """准备 Feed 测试数据。"""
+    """准备 Feed 测试数据。
+
+    created_at（Feed 时间过滤基准）: base+50, +40, +30, +20, +10 min
+    db_created_at（入库时间，与 created_at 故意不同）: base+10, +20, +30, +40, +50 min
+    """
     now = datetime.now(timezone.utc)
     base_time = now - timedelta(hours=2)
 
