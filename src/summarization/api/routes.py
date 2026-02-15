@@ -123,6 +123,8 @@ def _run_summarization_task(
                     },
                 )
 
+                # 注意：每条推文/group 处理完后已在 service 内部 commit，
+                # 这里的 commit 仅处理可能残留的未提交变更（安全兜底）
                 await session.commit()
 
         except Exception as e:

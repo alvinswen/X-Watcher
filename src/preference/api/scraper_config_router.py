@@ -277,15 +277,15 @@ async def delete_scraper_follow(
 # ==================== 调度配置管理端点 ====================
 
 
-async def _get_schedule_service(
-    session: AsyncSession = Depends(get_async_session),
-):
-    """获取 ScraperScheduleService 实例。"""
-    from src.preference.infrastructure.schedule_repository import ScraperScheduleRepository
+async def _get_schedule_service():
+    """获取 ScraperScheduleService 实例。
+
+    ScraperScheduleService 内部自行管理 session 生命周期，
+    每次 DB 操作使用独立的短生命周期 session，避免 PendingRollbackError。
+    """
     from src.preference.services.schedule_service import ScraperScheduleService
 
-    repository = ScraperScheduleRepository(session)
-    return ScraperScheduleService(repository)
+    return ScraperScheduleService()
 
 
 @router.get(
@@ -304,7 +304,7 @@ async def get_schedule_config(
     try:
         return await service.get_schedule_config()
     except Exception as e:
-        logger.error(f"获取调度配置失败: {e}")
+        logger.error(f"获取调度配置失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="获取调度配置失败",
@@ -334,7 +334,7 @@ async def update_schedule_interval(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"更新调度间隔失败: {e}")
+        logger.error(f"更新调度间隔失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="调度器操作失败",
@@ -364,7 +364,7 @@ async def update_schedule_next_run(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"设置下次触发时间失败: {e}")
+        logger.error(f"设置下次触发时间失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="调度器操作失败",
@@ -394,7 +394,7 @@ async def enable_schedule(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"启用调度失败: {e}")
+        logger.error(f"启用调度失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="启用调度失败",
@@ -422,7 +422,7 @@ async def disable_schedule(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"暂停调度失败: {e}")
+        logger.error(f"暂停调度失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="暂停调度失败",

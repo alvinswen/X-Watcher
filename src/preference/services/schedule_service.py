@@ -3,10 +3,12 @@
 协调调度配置的业务逻辑：验证、持久化、调度器操作。
 """
 
+import asyncio
 import logging
 from datetime import datetime, timezone, timedelta
 
 from fastapi import HTTPException, status
+from sqlalchemy.exc import OperationalError
 
 from src.config import get_settings
 from src.preference.api.schemas import ScheduleConfigResponse
@@ -15,12 +17,75 @@ from src.scheduler_accessor import get_scheduler
 
 logger = logging.getLogger(__name__)
 
+# SQLite 并发写入重试配置
+_RETRY_MAX = 3
+_RETRY_BASE_DELAY = 0.5  # 秒
+
 
 class ScraperScheduleService:
-    """调度配置服务。"""
+    """调度配置服务。
 
-    def __init__(self, repository: ScraperScheduleRepository) -> None:
-        self._repository = repository
+    不再依赖外部注入的 session/repository，每次 DB 操作使用独立的
+    短生命周期 session，避免 PendingRollbackError（session 中毒）。
+    """
+
+    def __init__(self) -> None:
+        pass
+
+    async def _retry_upsert(self, **kwargs):
+        """带重试的 upsert，每次重试使用独立 session。
+
+        解决两个问题：
+        1. 独立 session 避免 PendingRollbackError（旧 session 被 locked 后中毒）
+        2. 指数退避 + busy_timeout=30s 配合，应对长事务持锁
+        """
+        last_error = None
+        for attempt in range(_RETRY_MAX):
+            try:
+                from src.database.async_session import get_async_session_maker
+
+                session_maker = get_async_session_maker()
+                async with session_maker() as session:
+                    repo = ScraperScheduleRepository(session)
+                    result = await repo.upsert_schedule_config(**kwargs)
+                    await session.commit()
+                    return result
+            except OperationalError as e:
+                last_error = e
+                if "database is locked" in str(e) and attempt < _RETRY_MAX - 1:
+                    delay = _RETRY_BASE_DELAY * (2 ** attempt)
+                    logger.warning(
+                        f"数据库写入被锁定，等待重试 ({attempt + 1}/{_RETRY_MAX}), "
+                        f"延迟 {delay}s"
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    raise
+        raise last_error  # type: ignore[misc]
+
+    async def _retry_read(self):
+        """带重试的读取配置，每次重试使用独立 session。"""
+        last_error = None
+        for attempt in range(_RETRY_MAX):
+            try:
+                from src.database.async_session import get_async_session_maker
+
+                session_maker = get_async_session_maker()
+                async with session_maker() as session:
+                    repo = ScraperScheduleRepository(session)
+                    return await repo.get_schedule_config()
+            except OperationalError as e:
+                last_error = e
+                if "database is locked" in str(e) and attempt < _RETRY_MAX - 1:
+                    delay = _RETRY_BASE_DELAY * (2 ** attempt)
+                    logger.warning(
+                        f"数据库读取被锁定，等待重试 ({attempt + 1}/{_RETRY_MAX}), "
+                        f"延迟 {delay}s"
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    raise
+        raise last_error  # type: ignore[misc]
 
     def _ensure_job_exists(
         self, scheduler, interval_seconds: int, next_run_time=None
@@ -65,7 +130,7 @@ class ScraperScheduleService:
 
         合并 DB 配置 + 调度器运行状态 + 环境变量默认值。
         """
-        db_config = await self._repository.get_schedule_config()
+        db_config = await self._retry_read()
         scheduler = get_scheduler()
         scheduler_running = scheduler is not None
 
@@ -110,7 +175,7 @@ class ScraperScheduleService:
 
         隐式启用调度：设置间隔意味着管理员希望调度处于活跃状态。
         """
-        await self._repository.upsert_schedule_config(
+        await self._retry_upsert(
             interval_seconds=interval_seconds,
             is_enabled=True,
             updated_by=updated_by,
@@ -162,7 +227,7 @@ class ScraperScheduleService:
                 detail="下次触发时间不能超过 30 天后",
             )
 
-        await self._repository.upsert_schedule_config(
+        await self._retry_upsert(
             next_run_time=next_run_time,
             is_enabled=True,
             updated_by=updated_by,
@@ -178,7 +243,7 @@ class ScraperScheduleService:
                 scheduler.modify_job("scraper_job", next_run_time=next_run_time)
             else:
                 # 需要 interval 来创建 job，从 DB 读取
-                db_config = await self._repository.get_schedule_config()
+                db_config = await self._retry_read()
                 interval = db_config.interval_seconds if db_config else 43200
                 self._ensure_job_exists(scheduler, interval, next_run_time)
             logger.info(f"下次触发时间已设置为 {next_run_time}, by {updated_by}")
@@ -194,19 +259,19 @@ class ScraperScheduleService:
         从 DB 恢复配置并创建 scraper_job。
         如果 DB 无配置，使用环境变量默认间隔自动创建配置。
         """
-        db_config = await self._repository.get_schedule_config()
+        db_config = await self._retry_read()
 
         if db_config is None:
             # 无配置记录时，使用环境变量的默认间隔自动创建
             settings = get_settings()
-            await self._repository.upsert_schedule_config(
+            await self._retry_upsert(
                 interval_seconds=settings.scraper_interval,
                 is_enabled=True,
                 updated_by=updated_by,
             )
-            db_config = await self._repository.get_schedule_config()
+            db_config = await self._retry_read()
         else:
-            await self._repository.upsert_schedule_config(
+            await self._retry_upsert(
                 is_enabled=True, updated_by=updated_by
             )
 
@@ -229,7 +294,7 @@ class ScraperScheduleService:
 
         移除 scraper_job 但保留 DB 中的调度配置。
         """
-        await self._repository.upsert_schedule_config(
+        await self._retry_upsert(
             is_enabled=False, updated_by=updated_by
         )
 
@@ -246,7 +311,7 @@ class ScraperScheduleService:
         self, scheduler, scheduler_running: bool, message: str | None
     ) -> ScheduleConfigResponse:
         """构建统一的配置响应。"""
-        db_config = await self._repository.get_schedule_config()
+        db_config = await self._retry_read()
 
         next_run_time = None
         job_active = False

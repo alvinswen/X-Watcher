@@ -25,6 +25,21 @@ def _make_config(**overrides):
     return ScraperScheduleConfig(**defaults)
 
 
+def _make_service(read_return=None, upsert_return=None, read_side_effect=None):
+    """创建 service 并 mock 其 _retry_read / _retry_upsert。
+
+    ScraperScheduleService 现在内部自行管理 session，
+    测试通过 mock _retry_read/_retry_upsert 控制 DB 交互。
+    """
+    service = ScraperScheduleService()
+    if read_side_effect is not None:
+        service._retry_read = AsyncMock(side_effect=read_side_effect)
+    else:
+        service._retry_read = AsyncMock(return_value=read_return)
+    service._retry_upsert = AsyncMock(return_value=upsert_return)
+    return service
+
+
 class TestGetScheduleConfig:
     """测试查看调度配置。"""
 
@@ -34,15 +49,13 @@ class TestGetScheduleConfig:
         db_config = _make_config(
             next_run_time=datetime(2026, 3, 1, tzinfo=timezone.utc),
         )
-        mock_repo = AsyncMock()
-        mock_repo.get_schedule_config.return_value = db_config
 
         mock_scheduler = MagicMock()
         mock_job = MagicMock()
         mock_job.next_run_time = datetime(2026, 3, 1, tzinfo=timezone.utc)
         mock_scheduler.get_job.return_value = mock_job
 
-        service = ScraperScheduleService(mock_repo)
+        service = _make_service(read_return=db_config)
 
         with patch("src.preference.services.schedule_service.get_scheduler", return_value=mock_scheduler):
             result = await service.get_schedule_config()
@@ -58,13 +71,10 @@ class TestGetScheduleConfig:
     @pytest.mark.asyncio
     async def test_get_config_without_db_config(self):
         """无 DB 配置时，使用环境变量默认值且 is_enabled=False。"""
-        mock_repo = AsyncMock()
-        mock_repo.get_schedule_config.return_value = None
-
         mock_scheduler = MagicMock()
         mock_scheduler.get_job.return_value = None
 
-        service = ScraperScheduleService(mock_repo)
+        service = _make_service(read_return=None)
 
         with (
             patch("src.preference.services.schedule_service.get_scheduler", return_value=mock_scheduler),
@@ -82,10 +92,7 @@ class TestGetScheduleConfig:
     async def test_get_config_scheduler_not_running(self):
         """调度器未运行时，返回 scheduler_running=False。"""
         db_config = _make_config()
-        mock_repo = AsyncMock()
-        mock_repo.get_schedule_config.return_value = db_config
-
-        service = ScraperScheduleService(mock_repo)
+        service = _make_service(read_return=db_config)
 
         with patch("src.preference.services.schedule_service.get_scheduler", return_value=None):
             result = await service.get_schedule_config()
@@ -102,23 +109,18 @@ class TestUpdateInterval:
     async def test_update_interval_with_existing_job(self):
         """调度器有 job 时，reschedule_job。"""
         db_config = _make_config(interval_seconds=1200)
-        mock_repo = AsyncMock()
-        mock_repo.upsert_schedule_config.return_value = db_config
-        mock_repo.get_schedule_config.return_value = db_config
 
         mock_scheduler = MagicMock()
         mock_job = MagicMock()
         mock_job.next_run_time = datetime(2026, 3, 1, tzinfo=timezone.utc)
         mock_scheduler.get_job.return_value = mock_job
 
-        service = ScraperScheduleService(mock_repo)
+        service = _make_service(read_return=db_config, upsert_return=db_config)
 
         with patch("src.preference.services.schedule_service.get_scheduler", return_value=mock_scheduler):
             result = await service.update_interval(1200, "admin")
 
-        mock_repo.upsert_schedule_config.assert_called_once_with(
-            interval_seconds=1200, is_enabled=True, updated_by="admin"
-        )
+        service._retry_upsert.assert_called()
         mock_scheduler.reschedule_job.assert_called_once_with(
             "scraper_job", trigger="interval", seconds=1200
         )
@@ -129,14 +131,11 @@ class TestUpdateInterval:
     async def test_update_interval_creates_job_when_missing(self):
         """调度器无 job 时，update_interval 应创建 job。"""
         db_config = _make_config(interval_seconds=1200)
-        mock_repo = AsyncMock()
-        mock_repo.upsert_schedule_config.return_value = db_config
-        mock_repo.get_schedule_config.return_value = db_config
 
         mock_scheduler = MagicMock()
         mock_scheduler.get_job.return_value = None  # 无 job
 
-        service = ScraperScheduleService(mock_repo)
+        service = _make_service(read_return=db_config, upsert_return=db_config)
 
         with (
             patch("src.preference.services.schedule_service.get_scheduler", return_value=mock_scheduler),
@@ -151,16 +150,13 @@ class TestUpdateInterval:
     async def test_update_interval_scheduler_not_running(self):
         """调度器未运行时，仍持久化配置。"""
         db_config = _make_config(interval_seconds=1200)
-        mock_repo = AsyncMock()
-        mock_repo.upsert_schedule_config.return_value = db_config
-        mock_repo.get_schedule_config.return_value = db_config
 
-        service = ScraperScheduleService(mock_repo)
+        service = _make_service(read_return=db_config, upsert_return=db_config)
 
         with patch("src.preference.services.schedule_service.get_scheduler", return_value=None):
             result = await service.update_interval(1200, "admin")
 
-        mock_repo.upsert_schedule_config.assert_called_once()
+        service._retry_upsert.assert_called()
         assert result.scheduler_running is False
         assert result.message is not None
 
@@ -173,16 +169,13 @@ class TestUpdateNextRunTime:
         """有效的未来时间应成功更新。"""
         future_time = datetime.now(timezone.utc) + timedelta(hours=1)
         db_config = _make_config(next_run_time=future_time)
-        mock_repo = AsyncMock()
-        mock_repo.upsert_schedule_config.return_value = db_config
-        mock_repo.get_schedule_config.return_value = db_config
 
         mock_scheduler = MagicMock()
         mock_job = MagicMock()
         mock_job.next_run_time = future_time
         mock_scheduler.get_job.return_value = mock_job
 
-        service = ScraperScheduleService(mock_repo)
+        service = _make_service(read_return=db_config, upsert_return=db_config)
 
         with patch("src.preference.services.schedule_service.get_scheduler", return_value=mock_scheduler):
             result = await service.update_next_run_time(future_time, "admin")
@@ -197,14 +190,11 @@ class TestUpdateNextRunTime:
         """调度器无 job 时，update_next_run_time 应创建 job。"""
         future_time = datetime.now(timezone.utc) + timedelta(hours=1)
         db_config = _make_config(interval_seconds=600, next_run_time=future_time)
-        mock_repo = AsyncMock()
-        mock_repo.upsert_schedule_config.return_value = db_config
-        mock_repo.get_schedule_config.return_value = db_config
 
         mock_scheduler = MagicMock()
         mock_scheduler.get_job.return_value = None  # 无 job
 
-        service = ScraperScheduleService(mock_repo)
+        service = _make_service(read_return=db_config, upsert_return=db_config)
 
         with (
             patch("src.preference.services.schedule_service.get_scheduler", return_value=mock_scheduler),
@@ -219,47 +209,42 @@ class TestUpdateNextRunTime:
     async def test_update_next_run_time_past_rejected(self):
         """过去时间应被拒绝。"""
         past_time = datetime.now(timezone.utc) - timedelta(minutes=5)
-        mock_repo = AsyncMock()
 
-        service = ScraperScheduleService(mock_repo)
+        service = _make_service()
 
         from fastapi import HTTPException
         with pytest.raises(HTTPException) as exc_info:
             await service.update_next_run_time(past_time, "admin")
 
         assert exc_info.value.status_code == 422
-        mock_repo.upsert_schedule_config.assert_not_called()
+        service._retry_upsert.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_update_next_run_time_too_far_rejected(self):
         """超过 30 天的时间应被拒绝。"""
         far_time = datetime.now(timezone.utc) + timedelta(days=31)
-        mock_repo = AsyncMock()
 
-        service = ScraperScheduleService(mock_repo)
+        service = _make_service()
 
         from fastapi import HTTPException
         with pytest.raises(HTTPException) as exc_info:
             await service.update_next_run_time(far_time, "admin")
 
         assert exc_info.value.status_code == 422
-        mock_repo.upsert_schedule_config.assert_not_called()
+        service._retry_upsert.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_update_next_run_time_scheduler_not_running(self):
         """调度器未运行时仍持久化。"""
         future_time = datetime.now(timezone.utc) + timedelta(hours=1)
         db_config = _make_config(next_run_time=future_time)
-        mock_repo = AsyncMock()
-        mock_repo.upsert_schedule_config.return_value = db_config
-        mock_repo.get_schedule_config.return_value = db_config
 
-        service = ScraperScheduleService(mock_repo)
+        service = _make_service(read_return=db_config, upsert_return=db_config)
 
         with patch("src.preference.services.schedule_service.get_scheduler", return_value=None):
             result = await service.update_next_run_time(future_time, "admin")
 
-        mock_repo.upsert_schedule_config.assert_called_once()
+        service._retry_upsert.assert_called()
         assert result.scheduler_running is False
         assert result.message is not None
 
@@ -271,14 +256,15 @@ class TestEnableSchedule:
     async def test_enable_schedule_with_config(self):
         """有 DB 配置时，enable 应创建 job。"""
         db_config = _make_config(is_enabled=False)
-        mock_repo = AsyncMock()
-        mock_repo.get_schedule_config.return_value = db_config
-        mock_repo.upsert_schedule_config.return_value = _make_config(is_enabled=True)
+        db_config_enabled = _make_config(is_enabled=True)
 
         mock_scheduler = MagicMock()
         mock_scheduler.get_job.return_value = None  # 无 job
 
-        service = ScraperScheduleService(mock_repo)
+        service = _make_service(
+            read_side_effect=[db_config, db_config_enabled],
+            upsert_return=db_config_enabled,
+        )
 
         with (
             patch("src.preference.services.schedule_service.get_scheduler", return_value=mock_scheduler),
@@ -292,12 +278,11 @@ class TestEnableSchedule:
     @pytest.mark.asyncio
     async def test_enable_schedule_without_config_auto_creates(self):
         """无 DB 配置时，enable 应使用默认间隔自动创建配置。"""
-        mock_repo = AsyncMock()
-        # 第一次 get 返回 None（无配置），upsert 后第二次 get 返回新建配置
         created_config = _make_config(interval_seconds=3600, is_enabled=True)
-        mock_repo.get_schedule_config.side_effect = [None, created_config, created_config]
 
-        service = ScraperScheduleService(mock_repo)
+        service = _make_service(
+            read_side_effect=[None, created_config, created_config],
+        )
 
         mock_settings = MagicMock()
         mock_settings.scraper_interval = 3600
@@ -306,7 +291,7 @@ class TestEnableSchedule:
              patch("src.preference.services.schedule_service.get_settings", return_value=mock_settings):
             result = await service.enable_schedule("admin")
 
-        mock_repo.upsert_schedule_config.assert_called_once_with(
+        service._retry_upsert.assert_called_once_with(
             interval_seconds=3600,
             is_enabled=True,
             updated_by="admin",
@@ -317,16 +302,13 @@ class TestEnableSchedule:
     async def test_enable_schedule_already_active(self):
         """job 已存在时，enable 是幂等的。"""
         db_config = _make_config(is_enabled=True)
-        mock_repo = AsyncMock()
-        mock_repo.get_schedule_config.return_value = db_config
-        mock_repo.upsert_schedule_config.return_value = db_config
 
         mock_scheduler = MagicMock()
         mock_job = MagicMock()
         mock_job.next_run_time = datetime(2026, 3, 1, tzinfo=timezone.utc)
         mock_scheduler.get_job.return_value = mock_job  # job 已存在
 
-        service = ScraperScheduleService(mock_repo)
+        service = _make_service(read_return=db_config, upsert_return=db_config)
 
         with patch("src.preference.services.schedule_service.get_scheduler", return_value=mock_scheduler):
             result = await service.enable_schedule("admin")
@@ -343,37 +325,29 @@ class TestDisableSchedule:
     async def test_disable_schedule_removes_job(self):
         """暂停应移除 scraper_job。"""
         db_config = _make_config(is_enabled=False)
-        mock_repo = AsyncMock()
-        mock_repo.upsert_schedule_config.return_value = db_config
-        mock_repo.get_schedule_config.return_value = db_config
 
         mock_scheduler = MagicMock()
         mock_job = MagicMock()
         mock_scheduler.get_job.return_value = mock_job
 
-        service = ScraperScheduleService(mock_repo)
+        service = _make_service(read_return=db_config, upsert_return=db_config)
 
         with patch("src.preference.services.schedule_service.get_scheduler", return_value=mock_scheduler):
             result = await service.disable_schedule("admin")
 
         mock_scheduler.remove_job.assert_called_once_with("scraper_job")
-        mock_repo.upsert_schedule_config.assert_called_once_with(
-            is_enabled=False, updated_by="admin"
-        )
+        service._retry_upsert.assert_called()
         assert result.message == "调度已暂停"
 
     @pytest.mark.asyncio
     async def test_disable_schedule_no_job(self):
         """无 job 时暂停是幂等的。"""
         db_config = _make_config(is_enabled=False)
-        mock_repo = AsyncMock()
-        mock_repo.upsert_schedule_config.return_value = db_config
-        mock_repo.get_schedule_config.return_value = db_config
 
         mock_scheduler = MagicMock()
         mock_scheduler.get_job.return_value = None
 
-        service = ScraperScheduleService(mock_repo)
+        service = _make_service(read_return=db_config, upsert_return=db_config)
 
         with patch("src.preference.services.schedule_service.get_scheduler", return_value=mock_scheduler):
             result = await service.disable_schedule("admin")

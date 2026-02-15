@@ -20,31 +20,28 @@ logger = logging.getLogger(__name__)
 _scheduler: BackgroundScheduler | None = None
 
 
-def _get_schedule_config_from_db() -> tuple[int | None, datetime | None, bool]:
+async def _get_schedule_config_from_db() -> tuple[int | None, datetime | None, bool]:
     """从数据库获取调度配置。
+
+    在 lifespan async context 中直接 await 调用，避免 asyncio.run() 冲突。
 
     Returns:
         tuple: (interval_seconds, next_run_time, is_enabled)
                无配置时返回 (None, None, False)
     """
     try:
-        import asyncio
-
         from src.database.async_session import get_async_session_maker
         from src.preference.infrastructure.schedule_repository import (
             ScraperScheduleRepository,
         )
 
-        async def _fetch():
-            session_maker = get_async_session_maker()
-            async with session_maker() as session:
-                repo = ScraperScheduleRepository(session)
-                config = await repo.get_schedule_config()
-                if config:
-                    return (config.interval_seconds, config.next_run_time, config.is_enabled)
-                return (None, None, False)
-
-        return asyncio.run(_fetch())
+        session_maker = get_async_session_maker()
+        async with session_maker() as session:
+            repo = ScraperScheduleRepository(session)
+            config = await repo.get_schedule_config()
+            if config:
+                return (config.interval_seconds, config.next_run_time, config.is_enabled)
+            return (None, None, False)
     except Exception as e:
         logger.warning(f"从数据库获取调度配置失败: {e}")
         return (None, None, False)
@@ -173,7 +170,7 @@ async def lifespan(app: FastAPI):  # noqa: ARG001 - app 参数是 FastAPI 要求
         logger.info("调度器事件监听器已注册")
 
         # 从 DB 加载调度配置，仅在有已启用配置时恢复 job
-        db_interval, db_next_run, db_is_enabled = _get_schedule_config_from_db()
+        db_interval, db_next_run, db_is_enabled = await _get_schedule_config_from_db()
 
         if db_is_enabled and db_interval is not None:
             next_run = db_next_run if db_next_run is not None else datetime.now(timezone.utc)

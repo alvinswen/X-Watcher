@@ -8,11 +8,13 @@ from datetime import datetime, timezone
 from sqlalchemy import (
     Boolean,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     String,
     Text,
     create_engine,
+    event,
     UniqueConstraint,
     Index,
 )
@@ -42,7 +44,17 @@ def get_engine():
         _engine = create_engine(
             settings.database_url,
             echo=settings.log_level == "DEBUG",
+            connect_args={"timeout": 30},
         )
+
+        # SQLite 并发优化：WAL 模式 + busy_timeout
+        @event.listens_for(_engine, "connect")
+        def _set_sqlite_pragma(dbapi_conn, connection_record):
+            cursor = dbapi_conn.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA busy_timeout=30000")  # 30 秒
+            cursor.execute("PRAGMA synchronous=NORMAL")  # WAL 模式下推荐
+            cursor.close()
     return _engine
 
 
@@ -200,5 +212,33 @@ class ScraperScheduleConfig(Base):
         default=lambda: datetime.now(timezone.utc),
     )
     updated_by: Mapped[str] = mapped_column(String(100), nullable=False)
+
+
+class TaskExecutionLog(Base):
+    """任务执行日志模型。
+
+    记录手动触发的抓取/摘要/去重等后台任务的执行历史，
+    使任务历史在服务重启后仍然可查。
+    """
+
+    __tablename__ = "task_execution_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    task_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True)
+    task_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    result_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (
+        Index("idx_task_log_task_id", "task_id"),
+        Index("idx_task_log_status", "status"),
+        Index("idx_task_log_created_at", "created_at"),
+    )
 
 

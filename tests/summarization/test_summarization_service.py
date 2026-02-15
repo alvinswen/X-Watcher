@@ -124,7 +124,7 @@ class MockRepository:
         """初始化模拟仓储。"""
         self._summaries: dict[str, SummaryRecord] = {}
         self._content_hash_index: dict[str, SummaryRecord] = {}
-        self._session = MagicMock()
+        self._session = AsyncMock()
 
     async def save_summary_record(self, record: SummaryRecord) -> SummaryRecord:
         """保存摘要记录。"""

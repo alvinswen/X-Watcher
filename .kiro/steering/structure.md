@@ -23,7 +23,7 @@
 src/
 ├── api/                     # FastAPI 路由和端点
 │   └── routes/
-│       ├── admin.py         # 管理功能 API（抓取任务）
+│       ├── admin.py         # 管理功能 API（抓取任务、任务历史查询）
 │       ├── scheduler.py     # 调度器执行历史 API（GET /api/admin/scheduler/history）
 │       └── tweets.py        # 推文列表/详情 API
 ├── agent/                   # Nanobot Agent 配置
@@ -36,7 +36,7 @@ src/
 │   ├── scraping_service.py  # 抓取编排服务（含自动摘要触发）
 │   ├── scheduled_job.py     # 定时抓取任务函数（供 main.py 和 schedule_service 共用）
 │   ├── scheduler_listener.py # APScheduler 事件监听器（EXECUTED/ERROR/MISSED → DB + Prometheus）
-│   ├── task_registry.py     # 异步任务注册表
+│   ├── task_registry.py     # 异步任务注册表（含任务历史持久化到 TaskExecutionLog）
 │   ├── domain/
 │   │   ├── models.py        # 领域模型（Tweet, Media, SaveResult）
 │   │   ├── fetch_stats.py   # 抓取统计领域模型（FetchStats）
@@ -85,7 +85,7 @@ src/
 │   ├── services/
 │   │   ├── preference_service.py
 │   │   ├── scraper_config_service.py
-│   │   └── schedule_service.py      # 调度配置业务服务（含启用/暂停、惰性 job 创建）
+│   │   └── schedule_service.py      # 调度配置业务服务（含启用/暂停、惰性 job 创建、独立 session 重试）
 │   └── api/
 │       ├── routes.py        # 路由导出
 │       ├── auth.py          # API Key 认证
@@ -117,8 +117,8 @@ src/
 │   ├── middleware.py         # 中间件
 │   └── routes.py            # /metrics 端点
 ├── database/                # 数据库层
-│   ├── models.py            # SQLAlchemy 基础模型（User, ScraperScheduleConfig[含 is_enabled] 等）
-│   └── async_session.py     # 异步会话管理
+│   ├── models.py            # SQLAlchemy 基础模型（User, ScraperScheduleConfig, TaskExecutionLog 等）
+│   └── async_session.py     # 异步会话管理（WAL 模式 + busy_timeout）
 ├── web/                     # 前端 SPA（Vue 3 + Element Plus）
 ├── scheduler_accessor.py    # 调度器全局引用管理（解耦 Service 与 APScheduler）
 ├── config.py                # 全局配置（Pydantic Settings）

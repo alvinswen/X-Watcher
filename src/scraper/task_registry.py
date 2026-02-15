@@ -3,6 +3,7 @@
 管理异步抓取任务的状态和生命周期。
 """
 
+import json
 import logging
 import threading
 import uuid
@@ -175,6 +176,50 @@ class TaskRegistry:
 
             # 更新 Prometheus 指标
             _update_task_metrics(status, old_status)
+
+            # 持久化到数据库（终态时）
+            if status in (TaskStatus.COMPLETED, TaskStatus.FAILED):
+                self._persist_task(task)
+
+    def _persist_task(self, task_data: dict) -> None:
+        """将完成/失败的任务持久化到数据库。
+
+        使用同步 engine，不依赖 event loop。
+        静默失败，不影响任务本身的执行。
+
+        Args:
+            task_data: 任务数据字典
+        """
+        try:
+            from sqlalchemy.orm import Session as SyncSession
+
+            from src.database.models import TaskExecutionLog, get_engine
+
+            engine = get_engine()
+            with SyncSession(engine) as session:
+                # 计算执行时长
+                duration = None
+                if task_data.get("started_at") and task_data.get("completed_at"):
+                    delta = task_data["completed_at"] - task_data["started_at"]
+                    duration = delta.total_seconds()
+
+                log_entry = TaskExecutionLog(
+                    task_id=task_data["task_id"],
+                    task_name=task_data["task_name"],
+                    status=task_data["status"].value if isinstance(task_data["status"], TaskStatus) else task_data["status"],
+                    created_at=task_data["created_at"],
+                    started_at=task_data.get("started_at"),
+                    completed_at=task_data.get("completed_at"),
+                    duration_seconds=duration,
+                    result_json=json.dumps(task_data.get("result"), ensure_ascii=False, default=str) if task_data.get("result") else None,
+                    error=task_data.get("error"),
+                    metadata_json=json.dumps(task_data.get("metadata"), ensure_ascii=False, default=str) if task_data.get("metadata") else None,
+                )
+                session.add(log_entry)
+                session.commit()
+                logger.debug(f"任务已持久化: {task_data['task_id']}")
+        except Exception as e:
+            logger.warning(f"任务历史持久化失败（不影响任务执行）: {e}")
 
     def update_progress(
         self,

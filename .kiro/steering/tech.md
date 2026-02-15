@@ -25,7 +25,7 @@ Service 层 (业务编排)
 | **编程语言** | Python 3.11+ | 开发者熟悉，生态成熟 |
 | **Web 框架** | FastAPI | 高性能、异步支持、自动文档 |
 | **任务调度** | APScheduler | 定时抓取新闻任务（惰性启动，需管理员 API 显式启用） |
-| **数据库** | SQLite → PostgreSQL | 本地开发用 SQLite，云端升级 |
+| **数据库** | SQLite（WAL 模式） → PostgreSQL | 本地开发用 SQLite，云端升级 |
 | **LLM** | MiniMax M2.1 / OpenRouter (Claude Sonnet 4.5) | 双提供商，高性价比 |
 | **Agent 框架** | HKUDS/nanobot（计划中） | 超轻量（4000 行），微内核设计 |
 
@@ -194,6 +194,26 @@ ruff check src/
 # 类型检查
 mypy src/
 ```
+
+## SQLite 并发写入策略
+
+本地开发环境使用 SQLite，需处理多写者并发场景（如：长时间摘要任务运行期间修改调度配置）。
+
+### WAL 模式 + busy_timeout
+- **WAL（Write-Ahead Logging）模式**：允许读写并发，比默认 rollback journal 性能更好
+- **busy_timeout=30s**：写入锁竞争时等待 30 秒，避免立即失败
+- **synchronous=NORMAL**：平衡写入性能和数据安全
+- 配置位置：`src/database/async_session.py` 和 `src/database/models.py`
+
+### 短事务 + 独立 Session 策略
+- **摘要服务每处理完一个 group/tweet 后立即 commit**，将 RESERVED 锁持有时间从分钟级降至毫秒级
+- **调度配置服务的 retry 操作每次使用独立 session**，避免 SQLAlchemy 的 PendingRollbackError（session 中毒）
+- **指数退避重试**：0.5s → 1s → 2s，配合 busy_timeout 应对瞬时锁竞争
+
+### 任务历史持久化
+- 完成/失败的抓取任务自动写入 `task_execution_logs` 表（`TaskExecutionLog` 模型）
+- 使用**同步 engine** 写入，避免与异步事件循环冲突
+- 提供 `GET /api/admin/tasks/history` 端点查询历史记录
 
 ## 关键技术决策
 

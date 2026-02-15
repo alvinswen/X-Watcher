@@ -7,6 +7,7 @@ import logging
 from threading import Thread
 from time import sleep
 
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -111,7 +112,19 @@ def get_async_engine():
             _get_async_database_url(),
             echo=settings.log_level == "DEBUG",
             pool_pre_ping=True,
+            connect_args={"timeout": 30},  # aiosqlite 连接级 timeout
         )
+
+        # SQLite 并发优化：WAL 模式 + busy_timeout
+        # WAL 允许读写并发，busy_timeout 让写操作等待锁释放而非立即失败
+        @event.listens_for(_async_engine.sync_engine, "connect")
+        def _set_sqlite_pragma(dbapi_conn, connection_record):
+            cursor = dbapi_conn.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA busy_timeout=30000")  # 30 秒
+            cursor.execute("PRAGMA synchronous=NORMAL")  # WAL 模式下推荐
+            cursor.close()
+
         # 启动指标收集
         _start_metrics_collection()
     return _async_engine

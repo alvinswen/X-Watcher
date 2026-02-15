@@ -551,6 +551,9 @@ class SummarizationService:
             # 为组内所有推文保存摘要引用
             await self._save_summary_for_tweets(group.tweet_ids, record)
 
+            # 立即提交，释放 SQLite RESERVED 锁，避免长事务阻塞其他写操作
+            await self._repository._session.commit()
+
             return record
 
         except Exception as e:
@@ -699,6 +702,9 @@ class SummarizationService:
 
             # 保存到内存缓存
             await self._set_cache(content_hash, llm_response)
+
+            # 立即提交，释放 SQLite RESERVED 锁，避免长事务阻塞其他写操作
+            await self._repository._session.commit()
 
             return record
 

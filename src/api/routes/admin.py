@@ -8,7 +8,8 @@ import logging
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from sqlalchemy import select
 
 from src.scraper import ScrapingService, TaskRegistry, TaskStatus
 from src.user.api.auth import get_current_admin_user
@@ -409,3 +410,78 @@ async def delete_scraping_task(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail="删除任务失败",
     )
+
+
+@router.get("/tasks/history")
+async def get_task_history(
+    limit: int = Query(default=50, ge=1, le=200, description="返回记录数量"),
+    task_status: str | None = Query(default=None, alias="status", description="按状态过滤"),
+    since: str | None = Query(default=None, description="起始时间（ISO8601 格式）"),
+    _admin: UserDomain = Depends(get_current_admin_user),
+) -> list[dict]:
+    """查询持久化的任务执行历史。
+
+    返回数据库中的任务执行记录，支持按状态和时间过滤。
+    与内存中的 TaskRegistry 不同，这些记录在服务重启后仍然保留。
+
+    Args:
+        limit: 返回记录数量上限（1-200）
+        task_status: 可选的状态过滤器（completed / failed）
+        since: 可选的起始时间（ISO8601 格式）
+
+    Returns:
+        list[dict]: 任务历史记录列表
+    """
+    import json
+
+    from src.database.async_session import get_async_session_maker
+    from src.database.models import TaskExecutionLog
+
+    session_maker = get_async_session_maker()
+
+    try:
+        async with session_maker() as session:
+            query = select(TaskExecutionLog).order_by(
+                TaskExecutionLog.created_at.desc()
+            )
+
+            if task_status:
+                query = query.where(TaskExecutionLog.status == task_status)
+
+            if since:
+                try:
+                    since_dt = datetime.fromisoformat(since)
+                    query = query.where(TaskExecutionLog.created_at >= since_dt)
+                except ValueError:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"无效的时间格式: {since}，请使用 ISO8601 格式",
+                    )
+
+            query = query.limit(limit)
+            result = await session.execute(query)
+            logs = result.scalars().all()
+
+            return [
+                {
+                    "task_id": log.task_id,
+                    "task_name": log.task_name,
+                    "status": log.status,
+                    "created_at": log.created_at.isoformat() if log.created_at else None,
+                    "started_at": log.started_at.isoformat() if log.started_at else None,
+                    "completed_at": log.completed_at.isoformat() if log.completed_at else None,
+                    "duration_seconds": log.duration_seconds,
+                    "result": json.loads(log.result_json) if log.result_json else None,
+                    "error": log.error,
+                    "metadata": json.loads(log.metadata_json) if log.metadata_json else None,
+                }
+                for log in logs
+            ]
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"查询任务历史失败: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"查询任务历史失败: {e}",
+        )

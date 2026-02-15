@@ -4,6 +4,7 @@
 供 main.py（lifespan）和 schedule_service.py 共同使用。
 """
 
+import asyncio
 import logging
 from datetime import datetime
 
@@ -17,31 +18,46 @@ logger = logging.getLogger(__name__)
 _last_scrape_time: datetime | None = None
 
 
+def _run_async(coro):
+    """在后台线程中安全运行 async coroutine。
+
+    APScheduler 的 BackgroundScheduler 在独立后台线程中运行 job，
+    通常没有 running event loop，可以直接 asyncio.run()。
+    但为安全起见，提供 fallback：若线程已有 event loop 则创建新的。
+    """
+    try:
+        return asyncio.run(coro)
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
+
+
 def get_active_follows_from_db() -> list[str]:
     """从数据库获取活跃关注账号列表。
 
-    优先从 ScraperFollow 表读取活跃账号，用于定时抓取。
-    如果查询失败，返回空列表（由调用方降级到环境变量）。
+    使用同步 SQLAlchemy engine 直接查询，避免在后台线程中
+    使用 asyncio.run() 可能引发的 event loop 冲突。
 
     Returns:
         list[str]: 活跃关注账号的用户名列表
     """
     try:
-        import asyncio
+        from sqlalchemy import select
+        from sqlalchemy.orm import Session as SyncSession
 
-        from src.database.async_session import get_async_session_maker
-        from src.preference.infrastructure.scraper_config_repository import (
-            ScraperConfigRepository,
-        )
+        from src.database.models import ScraperFollow, get_engine
 
-        async def _fetch():
-            session_maker = get_async_session_maker()
-            async with session_maker() as session:
-                repo = ScraperConfigRepository(session)
-                follows = await repo.get_all_follows(include_inactive=False)
-                return [f.username for f in follows]
-
-        return asyncio.run(_fetch())
+        engine = get_engine()
+        with SyncSession(engine) as session:
+            result = session.execute(
+                select(ScraperFollow.username).where(
+                    ScraperFollow.is_active == True  # noqa: E712
+                )
+            )
+            return [row[0] for row in result]
     except Exception as e:
         logger.warning(f"从数据库获取关注列表失败，将使用环境变量: {e}")
         return []
@@ -96,10 +112,8 @@ def scheduled_scrape_job():
 
     # 创建并执行抓取任务
     try:
-        import asyncio
-
         service = ScrapingService()
-        task_id = asyncio.run(
+        task_id = _run_async(
             service.scrape_users(
                 usernames=usernames,
                 limit=settings.scraper_limit,
