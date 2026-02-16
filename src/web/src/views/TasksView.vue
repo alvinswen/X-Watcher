@@ -50,19 +50,21 @@
       </div>
     </el-card>
 
-    <!-- 任务历史 -->
+    <!-- 任务历史（持久化，重启后保留） -->
     <el-card class="history-card">
       <template #header>
         <div class="card-header">
           <span>任务历史</span>
-          <el-button link @click="loadTasks">刷新</el-button>
+          <el-button link @click="loadHistory">刷新</el-button>
         </div>
       </template>
 
       <el-skeleton v-if="loading" :rows="3" animated />
 
-      <el-table v-else :data="tasks" stripe>
-        <el-table-column prop="task_id" label="任务 ID" width="200" />
+      <el-empty v-else-if="historyTasks.length === 0" description="暂无任务历史" />
+
+      <el-table v-else :data="historyTasks" stripe>
+        <el-table-column prop="task_name" label="任务名称" min-width="160" />
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
             <el-tag :type="getStatusType(row.status)" size="small">
@@ -70,37 +72,25 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="进度" width="150">
+        <el-table-column label="耗时" width="120">
           <template #default="{ row }">
-            <span v-if="row.status === 'completed' || row.status === 'failed'">
-              {{ row.progress.current }}/{{ row.progress.total }}
-            </span>
-            <el-progress v-else :percentage="row.progress.percentage" :show-text="false" />
+            {{ row.duration_seconds != null ? formatDuration(row.duration_seconds) : '-' }}
           </template>
         </el-table-column>
-        <el-table-column prop="created_at" label="创建时间" width="180">
+        <el-table-column label="创建时间" width="180">
           <template #default="{ row }">
             {{ formatLocalizedDateTime(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="140">
+        <el-table-column label="操作" width="80">
           <template #default="{ row }">
             <el-button
               link
               type="primary"
               size="small"
-              @click="handleViewDetail(row)"
+              @click="handleViewHistoryDetail(row)"
             >
               详情
-            </el-button>
-            <el-button
-              v-if="row.status !== 'running'"
-              link
-              type="danger"
-              size="small"
-              @click="handleDeleteTask(row)"
-            >
-              删除
             </el-button>
           </template>
         </el-table-column>
@@ -115,6 +105,9 @@
     >
       <div v-if="selectedTask">
         <el-descriptions :column="1" border>
+          <el-descriptions-item label="任务名称" v-if="selectedTask.task_name">
+            {{ selectedTask.task_name }}
+          </el-descriptions-item>
           <el-descriptions-item label="任务 ID">
             {{ selectedTask.task_id }}
           </el-descriptions-item>
@@ -132,9 +125,8 @@
           <el-descriptions-item label="完成时间" v-if="selectedTask.completed_at">
             {{ formatFullDateTime(selectedTask.completed_at) }}
           </el-descriptions-item>
-          <el-descriptions-item label="进度">
-            {{ selectedTask.progress.current }} / {{ selectedTask.progress.total }}
-            ({{ selectedTask.progress.percentage.toFixed(1) }}%)
+          <el-descriptions-item label="执行耗时" v-if="selectedTask.duration_seconds != null">
+            {{ formatDuration(selectedTask.duration_seconds) }}
           </el-descriptions-item>
           <el-descriptions-item label="错误信息" v-if="selectedTask.error">
             <el-text type="danger">{{ selectedTask.error }}</el-text>
@@ -244,7 +236,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from "vue"
 import { VideoPlay } from "@element-plus/icons-vue"
-import { ElMessage, ElMessageBox } from "element-plus"
+import { ElMessage } from "element-plus"
 import { tasksApi, followsApi } from "@/api"
 import { taskPollingService } from "@/services/polling"
 import {
@@ -255,10 +247,10 @@ import {
   formatCostUsd,
   formatNumber,
 } from "@/utils/format"
-import type { TaskListItem, TaskStatusResponse } from "@/types"
+import type { TaskHistoryItem, TaskStatusResponse } from "@/types"
 
-/** 任务列表 */
-const tasks = ref<TaskListItem[]>([])
+/** 持久化的任务历史列表 */
+const historyTasks = ref<TaskHistoryItem[]>([])
 
 /** 当前正在执行的任务 */
 const currentTask = ref<TaskStatusResponse | null>(null)
@@ -272,19 +264,19 @@ const triggering = ref(false)
 /** 详情对话框显示状态 */
 const detailDialogVisible = ref(false)
 
-/** 选中的任务 */
-const selectedTask = ref<TaskStatusResponse | null>(null)
+/** 选中的任务（历史记录） */
+const selectedTask = ref<TaskHistoryItem | null>(null)
 
 /** 轮询句柄 */
 let pollingHandle: { cancel: () => void } | null = null
 
-/** 加载任务列表 */
-async function loadTasks() {
+/** 加载持久化的任务历史 */
+async function loadHistory() {
   loading.value = true
   try {
-    tasks.value = await tasksApi.listTasks()
+    historyTasks.value = await tasksApi.getHistory()
   } catch (error) {
-    console.error("加载任务列表失败:", error)
+    console.error("加载任务历史失败:", error)
   } finally {
     loading.value = false
   }
@@ -325,9 +317,6 @@ async function handleTriggerScraping() {
 
     // 启动轮询
     startPolling(response.task_id)
-
-    // 刷新任务列表
-    await loadTasks()
   } catch (error) {
     console.error("触发抓取任务失败:", error)
   } finally {
@@ -352,9 +341,9 @@ function startPolling(taskId: string) {
       currentTask.value = status
     },
     (status) => {
-      // 任务完成
+      // 任务完成，刷新持久化历史
       currentTask.value = status
-      loadTasks()
+      loadHistory()
     },
     (error) => {
       console.error("轮询任务状态失败:", error)
@@ -370,36 +359,10 @@ function stopPolling() {
   }
 }
 
-/** 删除任务 */
-async function handleDeleteTask(task: TaskListItem) {
-  try {
-    await ElMessageBox.confirm("确定要删除此任务？", "确认删除", {
-      confirmButtonText: "确定",
-      cancelButtonText: "取消",
-      type: "warning",
-    })
-
-    await tasksApi.deleteTask(task.task_id)
-    ElMessage.success("任务已删除")
-    await loadTasks()
-  } catch (error) {
-    // 用户取消时 ElMessageBox 会抛出 'cancel'
-    if (error !== "cancel") {
-      console.error("删除任务失败:", error)
-      ElMessage.error("删除任务失败")
-    }
-  }
-}
-
-/** 查看任务详情 */
-async function handleViewDetail(task: TaskListItem) {
-  try {
-    const detail = await tasksApi.getStatus(task.task_id)
-    selectedTask.value = detail
-    detailDialogVisible.value = true
-  } catch (error) {
-    console.error("获取任务详情失败:", error)
-  }
+/** 查看历史任务详情 */
+function handleViewHistoryDetail(task: TaskHistoryItem) {
+  selectedTask.value = task
+  detailDialogVisible.value = true
 }
 
 /** 获取状态类型 */
@@ -444,7 +407,7 @@ function isScrapingResult(result: Record<string, unknown>): boolean {
 
 /** 组件挂载时加载数据 */
 onMounted(() => {
-  loadTasks()
+  loadHistory()
 })
 
 /** 组件卸载时清理轮询 */

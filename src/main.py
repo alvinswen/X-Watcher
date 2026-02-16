@@ -185,10 +185,15 @@ async def lifespan(app: FastAPI):  # noqa: ARG001 - app 参数是 FastAPI 要求
                 next_run_time=next_run,
             )
             logger.info(
-                f"调度器已启动，从 DB 恢复调度任务，间隔: {db_interval} 秒"
+                f"调度器已启动，从 DB 恢复调度任务: "
+                f"interval={db_interval}s, next_run={next_run}, "
+                f"is_enabled={db_is_enabled}"
             )
         else:
-            logger.info("调度器已启动（空闲模式，无调度任务）")
+            logger.info(
+                f"调度器已启动（空闲模式，无调度任务）: "
+                f"db_interval={db_interval}, db_is_enabled={db_is_enabled}"
+            )
 
     # 清理过期的调度器执行日志
     await _cleanup_old_scheduler_logs()

@@ -6,6 +6,7 @@ import type {
   ScrapeTriggerResponse,
   TaskStatusResponse,
   TaskListItem,
+  TaskHistoryItem,
 } from "@/types"
 
 /** 任务 API 路径前缀 */
@@ -44,6 +45,16 @@ export const tasksApi = {
     const response = await client.delete<{ message: string }>(
       `${TASKS_PREFIX}/${taskId}`,
     )
+    return response.data
+  },
+
+  /** 查询持久化的任务执行历史（重启后仍保留） */
+  async getHistory(limit = 50, status?: string): Promise<TaskHistoryItem[]> {
+    const params: Record<string, string | number> = { limit }
+    if (status) params.status = status
+    const response = await client.get<TaskHistoryItem[]>("/admin/tasks/history", {
+      params,
+    })
     return response.data
   },
 }

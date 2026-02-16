@@ -93,6 +93,30 @@ export interface AddScrapingFollowRequest {
   added_by: string
 }
 
+/** 持久化的任务历史记录（来自 task_execution_log 表）。 */
+export interface TaskHistoryItem {
+  /** 任务 ID */
+  task_id: string
+  /** 任务名称 */
+  task_name: string
+  /** 任务状态 */
+  status: TaskStatus
+  /** 创建时间 */
+  created_at: string | null
+  /** 开始时间 */
+  started_at: string | null
+  /** 完成时间 */
+  completed_at: string | null
+  /** 执行耗时（秒） */
+  duration_seconds: number | null
+  /** 任务结果 */
+  result: Record<string, unknown> | null
+  /** 错误信息 */
+  error: string | null
+  /** 元数据 */
+  metadata: Record<string, unknown> | null
+}
+
 /** 更新抓取账号请求。 */
 export interface UpdateScrapingFollowRequest {
   /** 用户名 */
