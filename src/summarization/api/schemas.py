@@ -139,7 +139,10 @@ class SummaryResultResponse(BaseModel):
     返回批量摘要处理的统计结果。
     """
 
-    total_tweets: int = Field(..., ge=0, description="处理的总推文数")
+    total_tweets: int = Field(..., ge=0, description="请求处理的总推文数（输入数量）")
+    total_tweets_succeeded: int = Field(
+        0, ge=0, description="实际成功处理的推文数"
+    )
     total_groups: int = Field(..., ge=0, description="处理的去重组数")
     cache_hits: int = Field(..., ge=0, description="缓存命中数")
     cache_misses: int = Field(..., ge=0, description="缓存未命中数")
@@ -149,6 +152,9 @@ class SummaryResultResponse(BaseModel):
         ..., description="各提供商使用次数"
     )
     processing_time_ms: int = Field(..., ge=0, description="处理耗时（毫秒）")
+    failed_tweets: list[dict] = Field(
+        default_factory=list, description="失败推文详情列表"
+    )
 
 
 class ErrorResponse(BaseModel):
@@ -210,3 +216,39 @@ class SummaryResetResponse(BaseModel):
         ..., description="任务状态"
     )
     tweet_count: int = Field(..., ge=0, description="重置推文数量")
+
+
+# ========== 任务状态增强模型 ==========
+
+
+class ChunkProgressResponse(BaseModel):
+    """分块进度详情（任务运行中时可用）。"""
+
+    total_chunks: int = Field(..., ge=0, description="总分块数")
+    completed_chunks: int = Field(..., ge=0, description="已完成分块数")
+    failed_chunks: int = Field(..., ge=0, description="失败分块数")
+    total_tweets_requested: int = Field(..., ge=0, description="请求的推文总数")
+    total_tweets_summarized: int = Field(..., ge=0, description="已摘要的推文数")
+    total_cost_usd: float = Field(..., ge=0, description="累计成本（美元）")
+
+
+class TaskStatusResponse(BaseModel):
+    """任务状态响应（增强版）。
+
+    包含分块进度、聚合结果和失败详情。
+    """
+
+    task_id: str = Field(..., description="任务 ID")
+    status: Literal["pending", "running", "completed", "failed"] = Field(
+        ..., description="任务状态"
+    )
+    result: dict | None = Field(None, description="任务结果（完成时）")
+    error: str | None = Field(None, description="错误信息（失败时）")
+    created_at: datetime | None = Field(None, description="创建时间")
+    started_at: datetime | None = Field(None, description="开始执行时间")
+    completed_at: datetime | None = Field(None, description="完成时间")
+    progress: dict | None = Field(None, description="进度信息")
+    metadata: dict | None = Field(None, description="任务元数据")
+    live_progress: ChunkProgressResponse | None = Field(
+        None, description="实时分块进度（运行中时可用）"
+    )

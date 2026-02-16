@@ -287,7 +287,10 @@ async def get_summarization_task_status(
     task_id: str,
     _admin: UserDomain = Depends(get_current_admin_user),
 ) -> dict:
-    """查询摘要任务状态。
+    """查询摘要任务状态（增强版）。
+
+    包含分块进度、聚合结果和失败详情。
+    当任务运行中时，还会返回实时分块进度 (live_progress)。
 
     Args:
         task_id: 任务 ID
@@ -307,7 +310,7 @@ async def get_summarization_task_status(
             detail=f"任务不存在: {task_id}",
         )
 
-    return {
+    response = {
         "task_id": task_data["task_id"],
         "status": task_data["status"],
         "result": task_data.get("result"),
@@ -318,6 +321,35 @@ async def get_summarization_task_status(
         "progress": task_data.get("progress"),
         "metadata": task_data.get("metadata"),
     }
+
+    # 任务运行中时，从 ChunkTracker 获取实时分块进度
+    task_status = task_data["status"]
+    if isinstance(task_status, TaskStatus):
+        is_active = task_status in (TaskStatus.PENDING, TaskStatus.RUNNING)
+    else:
+        is_active = task_status in ("pending", "running")
+
+    if is_active:
+        try:
+            from src.summarization.services.summarization_queue import (
+                SummarizationQueue,
+            )
+
+            queue = SummarizationQueue.get_instance()
+            tracker = queue._task_chunk_trackers.get(task_id)
+            if tracker is not None:
+                response["live_progress"] = {
+                    "total_chunks": tracker.total_chunks,
+                    "completed_chunks": tracker.completed_chunks,
+                    "failed_chunks": tracker.failed_chunks,
+                    "total_tweets_requested": tracker.total_tweets_requested,
+                    "total_tweets_summarized": tracker.total_tweets_summarized,
+                    "total_cost_usd": round(tracker.total_cost_usd, 6),
+                }
+        except Exception:
+            pass  # 获取实时进度失败不影响基本响应
+
+    return response
 
 
 @router.delete("/tasks/{task_id}")
