@@ -66,3 +66,40 @@ export function formatDuration(seconds: number | null): string {
 
   return parts.join(" ") || "0 秒"
 }
+
+/**
+ * 毫秒数转可读时间描述（如"6 分 50 秒"）
+ * @param ms 毫秒数
+ */
+export function formatDurationMs(ms: number): string {
+  if (ms < 1000) return `${ms} ms`
+  const totalSeconds = Math.round(ms / 1000)
+  if (totalSeconds < 60) return `${totalSeconds} 秒`
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  if (minutes < 60) {
+    return seconds > 0 ? `${minutes} 分 ${seconds} 秒` : `${minutes} 分钟`
+  }
+  const hours = Math.floor(minutes / 60)
+  const remainMinutes = minutes % 60
+  return remainMinutes > 0
+    ? `${hours} 小时 ${remainMinutes} 分`
+    : `${hours} 小时`
+}
+
+/**
+ * 金额格式化（如"$1.15"）
+ * @param usd 美元金额
+ */
+export function formatCostUsd(usd: number): string {
+  if (usd < 0.01) return `$${usd.toFixed(4)}`
+  return `$${usd.toFixed(2)}`
+}
+
+/**
+ * 大数字格式化（如"140,885"）
+ * @param num 数字
+ */
+export function formatNumber(num: number): string {
+  return num.toLocaleString("en-US")
+}

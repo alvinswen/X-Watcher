@@ -141,9 +141,100 @@
           </el-descriptions-item>
         </el-descriptions>
 
+        <!-- 执行结果：结构化展示 -->
         <div v-if="selectedTask.result" class="result-section">
           <h4>执行结果</h4>
-          <pre>{{ JSON.stringify(selectedTask.result, null, 2) }}</pre>
+
+          <!-- 摘要任务结果 -->
+          <template v-if="isSummarizationResult(selectedTask.result)">
+            <div class="stat-grid">
+              <div class="stat-card">
+                <div class="stat-value">{{ r(selectedTask.result).total_tweets_summarized }} / {{ r(selectedTask.result).total_tweets_requested }}</div>
+                <div class="stat-label">成功摘要 / 请求总数</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value">{{ formatNumber(r(selectedTask.result).total_tokens) }}</div>
+                <div class="stat-label">Token 用量</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value">{{ formatCostUsd(r(selectedTask.result).total_cost_usd) }}</div>
+                <div class="stat-label">费用</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value">{{ formatDurationMs(r(selectedTask.result).processing_time_ms) }}</div>
+                <div class="stat-label">处理耗时</div>
+              </div>
+            </div>
+            <el-descriptions :column="2" border size="small" class="result-details">
+              <el-descriptions-item label="缓存命中">
+                {{ r(selectedTask.result).cache_hits }}
+              </el-descriptions-item>
+              <el-descriptions-item label="缓存未命中">
+                {{ r(selectedTask.result).cache_misses }}
+              </el-descriptions-item>
+              <el-descriptions-item label="模型提供商">
+                <span v-for="(count, provider) in (r(selectedTask.result).providers_used || {})" :key="String(provider)">
+                  {{ provider }}: {{ count }}次
+                </span>
+                <span v-if="!r(selectedTask.result).providers_used || Object.keys(r(selectedTask.result).providers_used).length === 0">-</span>
+              </el-descriptions-item>
+              <el-descriptions-item label="分块完成">
+                {{ r(selectedTask.result).chunks?.completed || 0 }} / {{ r(selectedTask.result).chunks?.total || 0 }}
+                <el-text v-if="r(selectedTask.result).chunks?.failed" type="danger" style="margin-left: 4px">
+                  ({{ r(selectedTask.result).chunks.failed }} 失败)
+                </el-text>
+              </el-descriptions-item>
+            </el-descriptions>
+            <!-- 失败推文折叠 -->
+            <el-collapse v-if="r(selectedTask.result).failed_tweet_ids?.length" class="result-collapse">
+              <el-collapse-item :title="`失败推文 (${r(selectedTask.result).failed_tweet_ids.length})`">
+                <div v-for="(item, idx) in r(selectedTask.result).failed_tweet_ids.slice(0, 20)" :key="idx" class="failed-item">
+                  {{ item.tweet_id }}: {{ item.reason }}
+                </div>
+                <el-text v-if="r(selectedTask.result).failed_tweet_ids.length > 20" type="info" size="small">
+                  ...还有 {{ r(selectedTask.result).failed_tweet_ids.length - 20 }} 条
+                </el-text>
+              </el-collapse-item>
+            </el-collapse>
+          </template>
+
+          <!-- 抓取任务结果 -->
+          <template v-else-if="isScrapingResult(selectedTask.result)">
+            <div class="stat-grid">
+              <div class="stat-card">
+                <div class="stat-value">{{ r(selectedTask.result).successful_users }} / {{ r(selectedTask.result).total_users }}</div>
+                <div class="stat-label">成功用户 / 总用户</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value">{{ r(selectedTask.result).new_tweets }}</div>
+                <div class="stat-label">新推文</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value">{{ r(selectedTask.result).total_tweets }}</div>
+                <div class="stat-label">抓取总数</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value">{{ formatDuration(r(selectedTask.result).elapsed_seconds) }}</div>
+                <div class="stat-label">耗时</div>
+              </div>
+            </div>
+            <el-descriptions :column="2" border size="small" class="result-details" v-if="r(selectedTask.result).failed_users > 0 || r(selectedTask.result).skipped_tweets > 0">
+              <el-descriptions-item label="失败用户" v-if="r(selectedTask.result).failed_users > 0">
+                <el-text type="danger">{{ r(selectedTask.result).failed_users }}</el-text>
+              </el-descriptions-item>
+              <el-descriptions-item label="跳过推文" v-if="r(selectedTask.result).skipped_tweets > 0">
+                {{ r(selectedTask.result).skipped_tweets }}
+              </el-descriptions-item>
+              <el-descriptions-item label="错误数" v-if="r(selectedTask.result).total_errors > 0">
+                <el-text type="danger">{{ r(selectedTask.result).total_errors }}</el-text>
+              </el-descriptions-item>
+            </el-descriptions>
+          </template>
+
+          <!-- 未知类型：fallback 为 JSON -->
+          <template v-else>
+            <pre class="result-json">{{ JSON.stringify(selectedTask.result, null, 2) }}</pre>
+          </template>
         </div>
       </div>
     </el-dialog>
@@ -156,7 +247,14 @@ import { VideoPlay } from "@element-plus/icons-vue"
 import { ElMessage, ElMessageBox } from "element-plus"
 import { tasksApi, followsApi } from "@/api"
 import { taskPollingService } from "@/services/polling"
-import { formatLocalizedDateTime, formatFullDateTime } from "@/utils/format"
+import {
+  formatLocalizedDateTime,
+  formatFullDateTime,
+  formatDuration,
+  formatDurationMs,
+  formatCostUsd,
+  formatNumber,
+} from "@/utils/format"
 import type { TaskListItem, TaskStatusResponse } from "@/types"
 
 /** 任务列表 */
@@ -329,6 +427,21 @@ function getStatusText(status: string): string {
   return statusMap[status] || status
 }
 
+/** result 类型断言辅助（避免模板中大量 as any） */
+function r(result: Record<string, unknown>): Record<string, any> {
+  return result as Record<string, any>
+}
+
+/** 判断是否为摘要任务结果 */
+function isSummarizationResult(result: Record<string, unknown>): boolean {
+  return "total_tweets_requested" in result || "chunk_results" in result
+}
+
+/** 判断是否为抓取任务结果 */
+function isScrapingResult(result: Record<string, unknown>): boolean {
+  return "total_users" in result && "new_tweets" in result
+}
+
 /** 组件挂载时加载数据 */
 onMounted(() => {
   loadTasks()
@@ -401,7 +514,50 @@ onUnmounted(() => {
   color: #333;
 }
 
-.result-section pre {
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.stat-card {
+  background: #f5f7fa;
+  border-radius: 8px;
+  padding: 14px 12px;
+  text-align: center;
+}
+
+.stat-value {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #303133;
+  line-height: 1.4;
+}
+
+.stat-label {
+  font-size: 0.75rem;
+  color: #909399;
+  margin-top: 4px;
+}
+
+.result-details {
+  margin-bottom: 12px;
+}
+
+.result-collapse {
+  margin-top: 8px;
+}
+
+.failed-item {
+  font-size: 0.8125rem;
+  font-family: monospace;
+  color: #606266;
+  padding: 2px 0;
+  word-break: break-all;
+}
+
+.result-json {
   background-color: #f5f7fa;
   padding: 1rem;
   border-radius: 4px;
