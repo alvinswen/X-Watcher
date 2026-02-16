@@ -9,6 +9,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
+from sqlalchemy import Select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.async_session import get_db_session
@@ -65,6 +66,33 @@ class ErrorResponse(BaseModel):
     detail: str = Field(..., description="错误详情")
 
 
+# ========== 辅助函数 ==========
+
+
+def _ensure_utc(dt: datetime) -> datetime:
+    """将 naive datetime 转换为 UTC aware datetime；已有时区信息则原样返回。"""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _apply_filters(
+    stmt: Select,
+    *,
+    author: str | None,
+    created_after: datetime | None,
+    created_before: datetime | None,
+) -> Select:
+    """根据非 None 参数条件追加 WHERE 子句。"""
+    if author:
+        stmt = stmt.where(TweetOrm.author_username == author)
+    if created_after is not None:
+        stmt = stmt.where(TweetOrm.created_at >= created_after)
+    if created_before is not None:
+        stmt = stmt.where(TweetOrm.created_at < created_before)
+    return stmt
+
+
 # ========== API 端点 ==========
 
 
@@ -80,22 +108,40 @@ async def list_tweets(
     page: int = Query(1, ge=1, description="页码（从 1 开始）"),
     page_size: int = Query(20, ge=1, le=100, description="每页数量"),
     author: str | None = Query(None, description="按作者用户名筛选"),
+    created_after: datetime | None = Query(None, description="推文创建时间起始（含），ISO 8601 格式"),
+    created_before: datetime | None = Query(None, description="推文创建时间截止（不含），ISO 8601 格式"),
     session: AsyncSession = Depends(get_db_session),
     _admin: UserDomain = Depends(get_current_admin_user),
 ) -> TweetListResponse:
     """获取推文列表。
 
-    支持分页和按作者筛选，按创建时间倒序排列。
+    支持分页、按作者筛选和按创建时间范围筛选，按创建时间倒序排列。
 
     Args:
         page: 页码（从 1 开始）
         page_size: 每页数量（1-100）
         author: 可选的作者用户名筛选
+        created_after: 可选的推文创建时间起始（含），ISO 8601 格式
+        created_before: 可选的推文创建时间截止（不含），ISO 8601 格式
         session: 数据库会话（依赖注入）
 
     Returns:
         TweetListResponse: 推文列表响应
     """
+    # 时间参数 UTC 标准化
+    if created_after is not None:
+        created_after = _ensure_utc(created_after)
+    if created_before is not None:
+        created_before = _ensure_utc(created_before)
+
+    # 时间范围校验
+    if created_after is not None and created_before is not None:
+        if created_after >= created_before:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="时间范围无效: created_after 必须早于 created_before",
+            )
+
     try:
         # 导入 SQLAlchemy 组件
         from sqlalchemy import case, func, select
@@ -123,14 +169,16 @@ async def list_tweets(
             .outerjoin(SummaryOrm, TweetOrm.tweet_id == SummaryOrm.tweet_id)
         )
 
-        # 添加作者筛选
-        if author:
-            stmt = stmt.where(TweetOrm.author_username == author)
+        # 添加筛选条件
+        stmt = _apply_filters(
+            stmt, author=author, created_after=created_after, created_before=created_before
+        )
 
         # 计算总数
         count_stmt = select(func.count()).select_from(TweetOrm)
-        if author:
-            count_stmt = count_stmt.where(TweetOrm.author_username == author)
+        count_stmt = _apply_filters(
+            count_stmt, author=author, created_after=created_after, created_before=created_before
+        )
 
         count_result = await session.execute(count_stmt)
         total = count_result.scalar() or 0
