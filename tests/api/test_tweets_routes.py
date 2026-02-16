@@ -36,7 +36,7 @@ async def seed_test_tweets(async_session: AsyncSession) -> list[TweetOrm]:
         TweetOrm(
             tweet_id="tweet2",
             text="Second test tweet",
-            created_at=now - timedelta(seconds=1),  # 早 1 秒
+            created_at=now - timedelta(days=1),  # 早 1 天
             author_username="user1",
             author_display_name="User One",
             media=None,
@@ -44,7 +44,15 @@ async def seed_test_tweets(async_session: AsyncSession) -> list[TweetOrm]:
         TweetOrm(
             tweet_id="tweet3",
             text="Tweet from user2",
-            created_at=now - timedelta(seconds=2),  # 早 2 秒
+            created_at=now - timedelta(days=2),  # 早 2 天
+            author_username="user2",
+            author_display_name="User Two",
+            media=None,
+        ),
+        TweetOrm(
+            tweet_id="tweet4",
+            text="Old tweet from user2",
+            created_at=now - timedelta(days=3),  # 早 3 天
             author_username="user2",
             author_display_name="User Two",
             media=None,
@@ -85,9 +93,9 @@ class TestTweetListAPI:
         # 验证分页参数
         assert data["page"] == 1
         assert data["page_size"] == 20
-        assert data["total"] == 3
+        assert data["total"] == 4
         assert data["total_pages"] == 1
-        assert len(data["items"]) == 3
+        assert len(data["items"]) == 4
 
     async def test_list_tweets_with_pagination(
         self, async_client: AsyncClient, seed_test_tweets: list[TweetOrm]
@@ -100,8 +108,8 @@ class TestTweetListAPI:
         data = response.json()
         assert data["page"] == 1
         assert data["page_size"] == 2
-        assert data["total"] == 3
-        assert data["total_pages"] == 2  # ceil(3/2) = 2
+        assert data["total"] == 4
+        assert data["total_pages"] == 2  # ceil(4/2) = 2
         assert len(data["items"]) == 2
 
     async def test_list_tweets_filter_by_author(
@@ -160,12 +168,162 @@ class TestTweetListAPI:
         items = data["items"]
 
         # 验证返回了所有测试数据
-        assert len(items) == 3
+        assert len(items) == 4
         # 验证每个项目都有必要的字段
         for item in items:
             assert "tweet_id" in item
             assert "created_at" in item
             assert "text" in item
+
+    # ========== 时间范围过滤测试 (Task 2.2) ==========
+
+    async def test_list_tweets_filter_by_created_after(
+        self, async_client: AsyncClient, seed_test_tweets: list[TweetOrm]
+    ) -> None:
+        """测试仅提供 created_after 的单边过滤（含）。"""
+        # 使用 tweet2 的创建时间作为 created_after，应返回 tweet1 和 tweet2
+        created_after = seed_test_tweets[1].created_at.isoformat()
+        response = await async_client.get(f"/api/tweets?created_after={created_after}")
+
+        assert response.status_code == status.HTTP_200_OK
+
+        data = response.json()
+        assert data["total"] == 2
+        tweet_ids = {item["tweet_id"] for item in data["items"]}
+        assert tweet_ids == {"tweet1", "tweet2"}
+
+    async def test_list_tweets_filter_by_created_before(
+        self, async_client: AsyncClient, seed_test_tweets: list[TweetOrm]
+    ) -> None:
+        """测试仅提供 created_before 的单边过滤（不含）。"""
+        # 使用 tweet2 的创建时间作为 created_before，应返回 tweet3 和 tweet4
+        created_before = seed_test_tweets[1].created_at.isoformat()
+        response = await async_client.get(f"/api/tweets?created_before={created_before}")
+
+        assert response.status_code == status.HTTP_200_OK
+
+        data = response.json()
+        assert data["total"] == 2
+        tweet_ids = {item["tweet_id"] for item in data["items"]}
+        assert tweet_ids == {"tweet3", "tweet4"}
+
+    async def test_list_tweets_filter_by_date_range(
+        self, async_client: AsyncClient, seed_test_tweets: list[TweetOrm]
+    ) -> None:
+        """测试同时提供 created_after 和 created_before 的双边过滤。"""
+        # [tweet3.created_at, tweet1.created_at) → 应返回 tweet2 和 tweet3
+        created_after = seed_test_tweets[2].created_at.isoformat()
+        created_before = seed_test_tweets[0].created_at.isoformat()
+        response = await async_client.get(
+            f"/api/tweets?created_after={created_after}&created_before={created_before}"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+
+        data = response.json()
+        assert data["total"] == 2
+        assert data["total_pages"] == 1
+        tweet_ids = {item["tweet_id"] for item in data["items"]}
+        assert tweet_ids == {"tweet2", "tweet3"}
+
+    # ========== 组合过滤与分页测试 (Task 2.3) ==========
+
+    async def test_list_tweets_filter_combined_author_and_date_range(
+        self, async_client: AsyncClient, seed_test_tweets: list[TweetOrm]
+    ) -> None:
+        """测试作者筛选与时间范围过滤组合使用。"""
+        # author=user1 AND created_after=tweet1.created_at → 仅 tweet1
+        created_after = seed_test_tweets[0].created_at.isoformat()
+        response = await async_client.get(
+            f"/api/tweets?author=user1&created_after={created_after}"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+
+        data = response.json()
+        assert data["total"] == 1
+        assert data["items"][0]["tweet_id"] == "tweet1"
+        assert data["items"][0]["author_username"] == "user1"
+
+    async def test_list_tweets_date_range_with_pagination(
+        self, async_client: AsyncClient, seed_test_tweets: list[TweetOrm]
+    ) -> None:
+        """测试时间范围过滤与分页参数的组合。"""
+        # created_after=tweet3.created_at → 3 条结果 (tweet1, tweet2, tweet3)
+        created_after = seed_test_tweets[2].created_at.isoformat()
+        response = await async_client.get(
+            f"/api/tweets?created_after={created_after}&page_size=1&page=1"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+
+        data = response.json()
+        assert data["total"] == 3
+        assert data["total_pages"] == 3
+        assert data["page"] == 1
+        assert len(data["items"]) == 1
+
+        # 验证第 2 页返回不同的推文
+        response2 = await async_client.get(
+            f"/api/tweets?created_after={created_after}&page_size=1&page=2"
+        )
+        data2 = response2.json()
+        assert data2["total"] == 3
+        assert len(data2["items"]) == 1
+        assert data2["items"][0]["tweet_id"] != data["items"][0]["tweet_id"]
+
+    # ========== 输入验证与向后兼容测试 (Task 2.4) ==========
+
+    async def test_list_tweets_invalid_date_format(
+        self, async_client: AsyncClient, seed_test_tweets: list[TweetOrm]
+    ) -> None:
+        """测试无效日期格式返回 422。"""
+        response = await async_client.get("/api/tweets?created_after=not-a-date")
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+    async def test_list_tweets_invalid_date_range(
+        self, async_client: AsyncClient, seed_test_tweets: list[TweetOrm]
+    ) -> None:
+        """测试 created_after >= created_before 返回 422。"""
+        now = datetime.now(timezone.utc)
+        # 使用 URL 安全的日期格式（用 %2B 编码 +，或直接构造不带 +00:00 的格式）
+        later = (now + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        earlier = (now - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        # created_after 晚于 created_before
+        response = await async_client.get(
+            f"/api/tweets?created_after={later}&created_before={earlier}"
+        )
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+        data = response.json()
+        assert "时间范围无效" in data["detail"]
+
+        # created_after 等于 created_before
+        same_time = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+        response2 = await async_client.get(
+            f"/api/tweets?created_after={same_time}&created_before={same_time}"
+        )
+        assert response2.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+    async def test_list_tweets_no_date_params_backward_compatible(
+        self, async_client: AsyncClient, seed_test_tweets: list[TweetOrm]
+    ) -> None:
+        """测试不提供时间参数时行为与原来完全一致。"""
+        response = await async_client.get("/api/tweets")
+
+        assert response.status_code == status.HTTP_200_OK
+
+        data = response.json()
+        assert data["total"] == 4
+        assert len(data["items"]) == 4
+        # 验证响应结构完整
+        assert "items" in data
+        assert "total" in data
+        assert "page" in data
+        assert "page_size" in data
+        assert "total_pages" in data
 
 
 @pytest.mark.asyncio

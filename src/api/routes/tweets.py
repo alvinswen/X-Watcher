@@ -138,7 +138,7 @@ async def list_tweets(
     if created_after is not None and created_before is not None:
         if created_after >= created_before:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="时间范围无效: created_after 必须早于 created_before",
             )
 
