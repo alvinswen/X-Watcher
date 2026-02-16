@@ -45,7 +45,9 @@ class SummarizationRepository:
     async def save_summary_record(self, record: SummaryRecord) -> SummaryRecord:
         """保存摘要记录。
 
-        如果摘要已存在（基于 summary_id），则更新；否则创建新记录。
+        基于 (tweet_id, content_hash) 进行去重：
+        - 如果已存在相同组合的记录，则更新（避免重复插入）；
+        - 否则创建新记录。
 
         Args:
             record: 摘要记录对象
@@ -57,11 +59,21 @@ class SummarizationRepository:
             RepositoryError: 保存失败时抛出
         """
         try:
-            # 检查是否已存在
-            existing = await self._session.get(SummaryOrm, record.summary_id)
+            # 按 (tweet_id, content_hash) 查找已有记录，避免重复插入
+            stmt = (
+                select(SummaryOrm)
+                .where(
+                    SummaryOrm.tweet_id == record.tweet_id,
+                    SummaryOrm.content_hash == record.content_hash,
+                )
+                .order_by(SummaryOrm.created_at.desc())
+                .limit(1)
+            )
+            result = await self._session.execute(stmt)
+            existing = result.scalar_one_or_none()
 
             if existing:
-                # 更新现有记录
+                # 更新已有记录（保留原 summary_id 和 created_at）
                 existing.summary_text = record.summary_text
                 existing.translation_text = record.translation_text
                 existing.model_provider = record.model_provider
@@ -71,10 +83,18 @@ class SummarizationRepository:
                 existing.total_tokens = record.total_tokens
                 existing.cost_usd = record.cost_usd
                 existing.cached = record.cached
+                existing.is_generated_summary = record.is_generated_summary
                 existing.content_hash = record.content_hash
                 existing.updated_at = datetime.now(timezone.utc)
 
-                logger.debug(f"更新摘要记录: {record.summary_id}")
+                logger.debug(
+                    f"更新已有摘要记录: tweet={record.tweet_id[:12]}..., "
+                    f"hash={record.content_hash[:12]}..."
+                )
+                # 返回的 record 使用已有记录的 summary_id
+                record = record.model_copy(
+                    update={"summary_id": existing.summary_id}
+                )
             else:
                 # 创建新记录
                 orm_record = SummaryOrm.from_domain(record)

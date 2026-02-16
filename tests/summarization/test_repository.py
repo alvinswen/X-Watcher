@@ -102,19 +102,19 @@ class TestSummarizationRepository:
         assert orm_record.summary_text == sample_summary_record.summary_text
 
     @pytest.mark.asyncio
-    async def test_save_summary_record_update_existing(
+    async def test_save_summary_record_update_existing_same_hash(
         self, session, sample_summary_record
     ):
-        """测试更新已存在的摘要记录。"""
+        """测试更新已存在的摘要记录（相同 tweet_id + content_hash 时更新而非插入）。"""
         repository = SummarizationRepository(session)
 
         # 先创建记录
         await repository.save_summary_record(sample_summary_record)
 
-        # 修改记录
+        # 用新的 summary_id 但相同 tweet_id + content_hash 模拟重复处理
         summary_text = "更新后的摘要内容，包含足够长的描述来满足验证要求。" * 2
         updated_record = SummaryRecord(
-            summary_id=sample_summary_record.summary_id,
+            summary_id=str(uuid4()),  # 新 UUID（模拟实际业务场景）
             tweet_id=sample_summary_record.tweet_id,
             summary_text=summary_text,
             translation_text="Updated translation with enough content for validation.",
@@ -125,26 +125,68 @@ class TestSummarizationRepository:
             total_tokens=300,
             cost_usd=0.002,
             cached=True,
-            content_hash="xyz789",
+            content_hash=sample_summary_record.content_hash,  # 相同 content_hash
             created_at=sample_summary_record.created_at,
             updated_at=datetime.now(timezone.utc),
         )
 
-        # 更新记录
+        # 更新记录（应更新已有记录，而非插入新记录）
         result = await repository.save_summary_record(updated_record)
 
-        # 验证更新
+        # 验证返回的 summary_id 为原来的（去重生效）
+        assert result.summary_id == sample_summary_record.summary_id
         assert result.summary_text == summary_text
         assert result.model_provider == "minimax"
         assert result.cached is True
 
-        # 验证数据库中的记录已更新
+        # 验证数据库中仅有一条记录
         from sqlalchemy import select
-        stmt = select(SummaryOrm).filter_by(summary_id=sample_summary_record.summary_id)
+        stmt = select(SummaryOrm).filter_by(tweet_id=sample_summary_record.tweet_id)
         db_result = await session.execute(stmt)
-        orm_record = db_result.scalar_one()
-        assert orm_record.summary_text == summary_text
-        assert orm_record.model_provider == "minimax"
+        all_records = db_result.scalars().all()
+        assert len(all_records) == 1
+        assert all_records[0].summary_text == summary_text
+        assert all_records[0].model_provider == "minimax"
+
+    @pytest.mark.asyncio
+    async def test_save_summary_record_different_hash_creates_new(
+        self, session, sample_summary_record
+    ):
+        """测试不同 content_hash 时创建新记录（同一推文不同去重组）。"""
+        repository = SummarizationRepository(session)
+
+        # 先创建记录
+        await repository.save_summary_record(sample_summary_record)
+
+        # 用不同 content_hash 创建新记录
+        summary_text = "不同内容哈希的摘要，模拟去重组变化的场景需要足够长。" * 2
+        new_record = SummaryRecord(
+            summary_id=str(uuid4()),
+            tweet_id=sample_summary_record.tweet_id,
+            summary_text=summary_text,
+            translation_text="Different hash translation with enough content.",
+            model_provider="minimax",
+            model_name="abab6.5s-chat",
+            prompt_tokens=200,
+            completion_tokens=100,
+            total_tokens=300,
+            cost_usd=0.002,
+            cached=False,
+            content_hash="different_hash_456",  # 不同 content_hash
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+
+        # 应创建新记录
+        result = await repository.save_summary_record(new_record)
+        assert result.summary_id == new_record.summary_id
+
+        # 验证数据库中有两条记录（不同 content_hash）
+        from sqlalchemy import select
+        stmt = select(SummaryOrm).filter_by(tweet_id=sample_summary_record.tweet_id)
+        db_result = await session.execute(stmt)
+        all_records = db_result.scalars().all()
+        assert len(all_records) == 2
 
     @pytest.mark.asyncio
     async def test_get_summary_by_tweet_exists(
