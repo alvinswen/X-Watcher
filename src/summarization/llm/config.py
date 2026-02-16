@@ -56,7 +56,7 @@ class MiniMaxConfig(BaseModel):
         default="https://api.minimaxi.com", description="API 基础 URL（中国版）"
     )
     model: str = Field(default="abab6.5s-chat", description="模型名称（M2.1）")
-    group_id: str | None = Field(None, description="分组 ID（可选）")
+    group_id: str | None = Field(default=None, description="分组 ID（可选）")
     timeout_seconds: int = Field(default=30, ge=1, description="请求超时时间（秒）")
     max_retries: int = Field(default=1, ge=0, description="最大重试次数")
 
@@ -127,11 +127,13 @@ class LLMProviderConfig(BaseModel):
     """
 
     openrouter: OpenRouterConfig | None = Field(
-        None, description="OpenRouter 配置"
+        default=None, description="OpenRouter 配置"
     )
-    minimax: MiniMaxConfig | None = Field(None, description="MiniMax 配置")
+    minimax: MiniMaxConfig | None = Field(
+        default=None, description="MiniMax 配置"
+    )
     open_source: OpenSourceConfig | None = Field(
-        None, description="开源模型配置"
+        default=None, description="开源模型配置"
     )
 
     @classmethod

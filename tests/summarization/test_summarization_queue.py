@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.summarization.services.summarization_queue import (
+    ChunkTracker,
     SummarizationPriority,
     SummarizationQueue,
     SummarizationRequest,
@@ -339,10 +340,15 @@ async def test_worker_processes_multiple_requests(mock_settings, mock_registry):
 
 @pytest.mark.asyncio
 async def test_retry_on_failure(mock_settings, mock_registry):
-    """测试失败后重入队列。"""
+    """测试失败后重入队列，保留分块信息。"""
     queue = _create_queue(mock_registry)
     # 使用非常短的 retry delay 以加速测试
     queue.RETRY_BASE_DELAY = 0.1
+
+    # 初始化 tracker（模拟多分块任务）
+    queue._task_chunk_trackers["test-task"] = ChunkTracker(
+        total_chunks=3, total_tweets_requested=120
+    )
 
     request = SummarizationRequest(
         priority=SummarizationPriority.NORMAL.value,
@@ -350,6 +356,8 @@ async def test_retry_on_failure(mock_settings, mock_registry):
         source="scraping",
         task_id="test-task",
         retry_count=0,
+        chunk_index=1,
+        total_chunks=3,
     )
 
     await queue._handle_failure(request, Exception("test error"))
@@ -362,13 +370,21 @@ async def test_retry_on_failure(mock_settings, mock_registry):
     assert retry_req.priority == SummarizationPriority.LOW.value
     assert retry_req.source == "retry"
     assert retry_req.tweet_ids == ["tweet1"]
+    # 分块信息应被保留
+    assert retry_req.chunk_index == 1
+    assert retry_req.total_chunks == 3
 
 
 @pytest.mark.asyncio
 async def test_max_retry_exceeded(mock_settings, mock_registry):
-    """测试超过最大重试次数后放弃。"""
+    """测试超过最大重试次数后放弃，标记分块失败。"""
     queue = _create_queue(mock_registry)
     queue.RETRY_BASE_DELAY = 0.01
+
+    # 单分块任务：失败后整个任务应标记为 FAILED
+    queue._task_chunk_trackers["test-task"] = ChunkTracker(
+        total_chunks=1, total_tweets_requested=1
+    )
 
     request = SummarizationRequest(
         priority=SummarizationPriority.LOW.value,
@@ -376,6 +392,8 @@ async def test_max_retry_exceeded(mock_settings, mock_registry):
         source="retry",
         task_id="test-task",
         retry_count=SummarizationQueue.MAX_RETRY_COUNT,  # 已达最大重试
+        chunk_index=0,
+        total_chunks=1,
     )
 
     await queue._handle_failure(request, Exception("final error"))
@@ -383,13 +401,16 @@ async def test_max_retry_exceeded(mock_settings, mock_registry):
     # 不应该有重试请求入队
     assert queue.queue_size == 0
 
-    # 任务应标记为 FAILED
+    # 任务应标记为 FAILED（因为唯一的分块失败了）
     from src.scraper.task_registry import TaskStatus
 
     mock_registry.update_task_status.assert_called_once()
     call_args = mock_registry.update_task_status.call_args
     assert call_args[0][0] == "test-task"
     assert call_args[0][1] == TaskStatus.FAILED
+
+    # tracker 应被清理
+    assert "test-task" not in queue._task_chunk_trackers
 
 
 # ========== 跨线程入队测试 ==========
@@ -403,9 +424,10 @@ async def test_enqueue_threadsafe(mock_settings, mock_registry):
     queue._running = False
 
     # 手动设置 _loop
-    queue._loop = asyncio.get_running_loop()
+    loop = asyncio.get_running_loop()
+    queue._loop = loop
 
-    result = [None]
+    result: list[str | None] = [None]
     thread_done = asyncio.Event()
 
     def thread_func():
@@ -415,7 +437,7 @@ async def test_enqueue_threadsafe(mock_settings, mock_registry):
             priority=SummarizationPriority.NORMAL,
         )
         # 从线程安全地设置事件
-        queue._loop.call_soon_threadsafe(thread_done.set)
+        loop.call_soon_threadsafe(thread_done.set)
 
     thread = threading.Thread(target=thread_func)
     thread.start()
@@ -518,3 +540,316 @@ async def test_is_running_property(mock_settings, mock_registry):
 
     await queue.stop()
     assert not queue.is_running
+
+
+# ========== 分块跟踪测试 ==========
+
+
+@pytest.mark.asyncio
+async def test_enqueue_initializes_chunk_tracker(mock_settings, mock_registry):
+    """测试入队时初始化 ChunkTracker。"""
+    queue = _create_queue(mock_registry, batch_size=50)
+
+    tweet_ids = [f"tweet_{i}" for i in range(120)]
+    task_id = await queue.enqueue(tweet_ids, source="batch_api")
+
+    # ChunkTracker 应被创建
+    assert task_id in queue._task_chunk_trackers
+    tracker = queue._task_chunk_trackers[task_id]
+    assert tracker.total_chunks == 3
+    assert tracker.total_tweets_requested == 120
+    assert tracker.completed_chunks == 0
+    assert tracker.failed_chunks == 0
+
+    # 进度应被初始化
+    mock_registry.update_progress.assert_called_once_with(task_id, 0, 3)
+
+
+@pytest.mark.asyncio
+async def test_chunk_requests_carry_index_and_total(mock_settings, mock_registry):
+    """测试分块请求包含 chunk_index 和 total_chunks。"""
+    queue = _create_queue(mock_registry, batch_size=50)
+
+    tweet_ids = [f"tweet_{i}" for i in range(120)]
+    await queue.enqueue(tweet_ids, source="batch_api")
+
+    # 出队所有 3 个分块请求并检查元数据
+    req0 = await queue._queue.get()
+    req1 = await queue._queue.get()
+    req2 = await queue._queue.get()
+
+    assert req0.chunk_index == 0 and req0.total_chunks == 3
+    assert req1.chunk_index == 1 and req1.total_chunks == 3
+    assert req2.chunk_index == 2 and req2.total_chunks == 3
+    assert len(req0.tweet_ids) == 50
+    assert len(req1.tweet_ids) == 50
+    assert len(req2.tweet_ids) == 20
+
+
+@pytest.mark.asyncio
+async def test_task_not_completed_until_all_chunks_done(mock_settings, mock_registry):
+    """测试只有所有分块完成后任务才标记为 COMPLETED。"""
+    from src.scraper.task_registry import TaskStatus
+    from src.summarization.domain.models import SummaryResult
+
+    queue = _create_queue(mock_registry, batch_size=50)
+    task_id = "test-multi-chunk-task"
+
+    queue._task_chunk_trackers[task_id] = ChunkTracker(
+        total_chunks=3, total_tweets_requested=120
+    )
+
+    mock_result = SummaryResult(
+        total_tweets=50, total_tweets_succeeded=50,
+        total_groups=10, independent_tweets=0,
+        cache_hits=5, cache_misses=45, total_tokens=1000,
+        total_cost_usd=0.01, providers_used={"openrouter": 45},
+        processing_time_ms=500,
+    )
+
+    # 第一个分块完成 — 任务不应标记为完成
+    req1 = SummarizationRequest(
+        priority=0, tweet_ids=["t"] * 50,
+        task_id=task_id, chunk_index=0, total_chunks=3,
+    )
+    queue._record_chunk_success(req1, mock_result)
+    mock_registry.update_task_status.assert_not_called()
+
+    # 进度应更新
+    mock_registry.update_progress.assert_called_with(task_id, 1, 3)
+
+    # 第二个分块完成 — 仍不应完成
+    req2 = SummarizationRequest(
+        priority=0, tweet_ids=["t"] * 50,
+        task_id=task_id, chunk_index=1, total_chunks=3,
+    )
+    queue._record_chunk_success(req2, mock_result)
+    mock_registry.update_task_status.assert_not_called()
+
+    # 第三个分块完成 — 现在任务应标记为 COMPLETED
+    req3 = SummarizationRequest(
+        priority=0, tweet_ids=["t"] * 20,
+        task_id=task_id, chunk_index=2, total_chunks=3,
+    )
+    queue._record_chunk_success(req3, mock_result)
+
+    mock_registry.update_task_status.assert_called_once()
+    call_args = mock_registry.update_task_status.call_args
+    assert call_args[0][0] == task_id
+    assert call_args[0][1] == TaskStatus.COMPLETED
+
+    result = call_args[1]["result"]
+    assert result["total_tweets_summarized"] == 150  # 3 * 50
+    assert result["chunks"]["total"] == 3
+    assert result["chunks"]["completed"] == 3
+    assert result["chunks"]["failed"] == 0
+    assert result["total_cost_usd"] == pytest.approx(0.03)  # 3 * 0.01
+
+    # tracker 应被清理
+    assert task_id not in queue._task_chunk_trackers
+
+
+@pytest.mark.asyncio
+async def test_partial_chunk_failure_still_completes(mock_settings, mock_registry):
+    """测试部分分块失败时任务仍标记为 COMPLETED（部分成功）。"""
+    from src.scraper.task_registry import TaskStatus
+    from src.summarization.domain.models import SummaryResult
+
+    queue = _create_queue(mock_registry, batch_size=50)
+    task_id = "test-partial-failure"
+
+    queue._task_chunk_trackers[task_id] = ChunkTracker(
+        total_chunks=3, total_tweets_requested=120
+    )
+
+    mock_result = SummaryResult(
+        total_tweets=50, total_tweets_succeeded=50,
+        total_groups=10, independent_tweets=0,
+        cache_hits=5, cache_misses=45, total_tokens=1000,
+        total_cost_usd=0.01, providers_used={"openrouter": 45},
+        processing_time_ms=500,
+    )
+
+    # 第一个分块成功
+    req1 = SummarizationRequest(
+        priority=0, tweet_ids=["t"] * 50,
+        task_id=task_id, chunk_index=0, total_chunks=3,
+    )
+    queue._record_chunk_success(req1, mock_result)
+
+    # 第二个分块失败
+    req2 = SummarizationRequest(
+        priority=0, tweet_ids=["t"] * 50,
+        task_id=task_id, chunk_index=1, total_chunks=3,
+    )
+    queue._record_chunk_failure(req2, Exception("LLM error"))
+
+    # 第三个分块成功
+    req3 = SummarizationRequest(
+        priority=0, tweet_ids=["t"] * 20,
+        task_id=task_id, chunk_index=2, total_chunks=3,
+    )
+    queue._record_chunk_success(req3, mock_result)
+
+    # 任务应标记为 COMPLETED（部分成功）
+    mock_registry.update_task_status.assert_called_once()
+    call_args = mock_registry.update_task_status.call_args
+    assert call_args[0][1] == TaskStatus.COMPLETED
+    result = call_args[1]["result"]
+    assert result["chunks"]["completed"] == 2
+    assert result["chunks"]["failed"] == 1
+    assert result["total_tweets_summarized"] == 100  # 2 * 50
+    assert len(result["failed_tweet_ids"]) == 50  # 失败分块的推文数
+
+
+@pytest.mark.asyncio
+async def test_all_chunks_fail_marks_task_failed(mock_settings, mock_registry):
+    """测试所有分块失败时任务标记为 FAILED。"""
+    from src.scraper.task_registry import TaskStatus
+
+    queue = _create_queue(mock_registry, batch_size=50)
+    task_id = "test-all-fail"
+
+    queue._task_chunk_trackers[task_id] = ChunkTracker(
+        total_chunks=2, total_tweets_requested=80
+    )
+
+    req1 = SummarizationRequest(
+        priority=0, tweet_ids=["t"] * 50,
+        task_id=task_id, chunk_index=0, total_chunks=2,
+    )
+    queue._record_chunk_failure(req1, Exception("error 1"))
+
+    req2 = SummarizationRequest(
+        priority=0, tweet_ids=["t"] * 30,
+        task_id=task_id, chunk_index=1, total_chunks=2,
+    )
+    queue._record_chunk_failure(req2, Exception("error 2"))
+
+    mock_registry.update_task_status.assert_called_once()
+    call_args = mock_registry.update_task_status.call_args
+    assert call_args[0][1] == TaskStatus.FAILED
+
+
+@pytest.mark.asyncio
+async def test_enqueue_metadata_includes_task_type(mock_settings, mock_registry):
+    """测试入队时 metadata 包含任务类型。"""
+    queue = _create_queue(mock_registry, batch_size=50)
+
+    # backfill 类型
+    await queue.enqueue(
+        ["t1"], source="batch_api", priority=SummarizationPriority.HIGH
+    )
+    call_kwargs = mock_registry.create_task.call_args[1]
+    assert call_kwargs["metadata"]["task_type"] == "backfill"
+
+
+def test_classify_task_type():
+    """测试任务类型推断。"""
+    assert SummarizationQueue._classify_task_type("batch_api", False) == "backfill"
+    assert SummarizationQueue._classify_task_type("batch_api", True) == "reset"
+    assert SummarizationQueue._classify_task_type("scraping", False) == "scraping"
+    assert SummarizationQueue._classify_task_type("deduplication", False) == "deduplication"
+    assert SummarizationQueue._classify_task_type("retry", False) == "retry"
+    assert SummarizationQueue._classify_task_type("unknown_source", False) == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_chunk_success_propagates_individual_failures(mock_settings, mock_registry):
+    """测试 _record_chunk_success 传播单条推文级别的失败信息。"""
+    from src.summarization.domain.models import SummaryResult
+
+    queue = _create_queue(mock_registry, batch_size=50)
+    task_id = "test-individual-failures"
+
+    queue._task_chunk_trackers[task_id] = ChunkTracker(
+        total_chunks=1, total_tweets_requested=50
+    )
+
+    # 模拟分块成功但包含个别推文失败
+    mock_result = SummaryResult(
+        total_tweets=50, total_tweets_succeeded=47,
+        total_groups=0, independent_tweets=50,
+        cache_hits=0, cache_misses=47, total_tokens=1000,
+        total_cost_usd=0.01, providers_used={"openrouter": 47},
+        processing_time_ms=500,
+        failed_tweets=[
+            {"tweet_id": "t1", "error_type": "llm_failure", "error_message": "timeout", "group_id": None},
+            {"tweet_id": "t2", "error_type": "llm_failure", "error_message": "rate limit", "group_id": None},
+            {"tweet_id": "t3", "error_type": "llm_failure", "error_message": "parse error", "group_id": None},
+        ],
+    )
+
+    req = SummarizationRequest(
+        priority=0, tweet_ids=["t"] * 50,
+        task_id=task_id, chunk_index=0, total_chunks=1,
+    )
+    queue._record_chunk_success(req, mock_result)
+
+    tracker = queue._task_chunk_trackers.get(task_id)
+    # tracker 已被清理（单分块任务完成后删除），检查最终结果
+    call_args = mock_registry.update_task_status.call_args
+    result = call_args[1]["result"]
+    assert result["total_tweets_summarized"] == 47
+    assert len(result["failed_tweet_ids"]) == 3
+    assert result["failed_tweet_ids"][0]["tweet_id"] == "t1"
+
+
+@pytest.mark.asyncio
+async def test_total_tweets_summarized_uses_succeeded_count(mock_settings, mock_registry):
+    """测试 total_tweets_summarized 使用 total_tweets_succeeded 而非 total_tweets。"""
+    from src.scraper.task_registry import TaskStatus
+    from src.summarization.domain.models import SummaryResult
+
+    queue = _create_queue(mock_registry, batch_size=100)
+    task_id = "test-succeeded-count"
+
+    queue._task_chunk_trackers[task_id] = ChunkTracker(
+        total_chunks=2, total_tweets_requested=100
+    )
+
+    # 第一个分块：50 输入，45 成功
+    result1 = SummaryResult(
+        total_tweets=50, total_tweets_succeeded=45,
+        total_groups=0, independent_tweets=50,
+        cache_hits=0, cache_misses=45, total_tokens=500,
+        total_cost_usd=0.005, providers_used={"openrouter": 45},
+        processing_time_ms=300,
+        failed_tweets=[
+            {"tweet_id": f"f{i}", "error_type": "llm_failure",
+             "error_message": "error", "group_id": None}
+            for i in range(5)
+        ],
+    )
+    req1 = SummarizationRequest(
+        priority=0, tweet_ids=["t"] * 50,
+        task_id=task_id, chunk_index=0, total_chunks=2,
+    )
+    queue._record_chunk_success(req1, result1)
+
+    # 第二个分块：50 输入，48 成功
+    result2 = SummaryResult(
+        total_tweets=50, total_tweets_succeeded=48,
+        total_groups=0, independent_tweets=50,
+        cache_hits=0, cache_misses=48, total_tokens=600,
+        total_cost_usd=0.006, providers_used={"openrouter": 48},
+        processing_time_ms=400,
+        failed_tweets=[
+            {"tweet_id": f"g{i}", "error_type": "llm_failure",
+             "error_message": "error", "group_id": None}
+            for i in range(2)
+        ],
+    )
+    req2 = SummarizationRequest(
+        priority=0, tweet_ids=["t"] * 50,
+        task_id=task_id, chunk_index=1, total_chunks=2,
+    )
+    queue._record_chunk_success(req2, result2)
+
+    # 验证聚合结果
+    mock_registry.update_task_status.assert_called_once()
+    call_args = mock_registry.update_task_status.call_args
+    assert call_args[0][1] == TaskStatus.COMPLETED
+    result = call_args[1]["result"]
+    assert result["total_tweets_summarized"] == 93  # 45 + 48, 不是 50 + 50
+    assert len(result["failed_tweet_ids"]) == 7  # 5 + 2

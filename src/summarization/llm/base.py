@@ -74,3 +74,12 @@ class LLMProvider(ABC):
             提供商名称（openrouter, minimax, open_source）
         """
         pass
+
+    @abstractmethod
+    def get_model_name(self) -> str:
+        """获取模型名称。
+
+        Returns:
+            当前使用的模型名称
+        """
+        pass

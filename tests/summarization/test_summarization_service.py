@@ -9,6 +9,7 @@
 - 独立推文处理（无去重组）
 """
 
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
@@ -20,6 +21,7 @@ from src.summarization.domain.models import (
     LLMErrorType,
     LLMResponse,
     SummaryRecord,
+    TweetFailure,
 )
 from src.summarization.infrastructure.repository import SummarizationRepository
 from src.summarization.llm.base import LLMProvider
@@ -50,9 +52,9 @@ class MockLLMProvider(LLMProvider):
     def __init__(
         self,
         provider_name: str,
-        responses: list[LLMResponse] | None = None,
-        errors: list[Exception] | None = None,
-        error_types: list[LLMErrorType] | None = None,
+        responses: Sequence[LLMResponse] | None = None,
+        errors: Sequence[Exception] | None = None,
+        error_types: Sequence[LLMErrorType] | None = None,
     ):
         """初始化模拟提供商。
 
@@ -63,9 +65,9 @@ class MockLLMProvider(LLMProvider):
             error_types: 预设的错误类型列表
         """
         self._name = provider_name
-        self._responses = responses or []
-        self._errors = errors or []
-        self._error_types = error_types or []
+        self._responses = list(responses) if responses else []
+        self._errors = list(errors) if errors else []
+        self._error_types = list(error_types) if error_types else []
         self._call_count = 0
 
     async def complete(
@@ -83,7 +85,7 @@ class MockLLMProvider(LLMProvider):
         if call_index < len(self._errors):
             error = self._errors[call_index]
             # 如果错误类型已定义，添加到异常
-            if call_index < len(self._error_types):
+            if call_index < len(self._error_types) and isinstance(error, MockLLMError):
                 error.error_type = self._error_types[call_index]
             return Failure(error)
 
@@ -242,9 +244,11 @@ class TestSummarizationService:
         assert isinstance(result, Success)
         summary_result = result.unwrap()
         assert summary_result.total_tweets == 2
+        assert summary_result.total_tweets_succeeded == 1
         assert summary_result.total_groups == 1
         assert summary_result.cache_misses == 1
         assert summary_result.total_tokens == 150
+        assert summary_result.failed_tweets == []
 
     @pytest.mark.asyncio
     async def test_cache_hit_second_call(
@@ -494,18 +498,19 @@ class TestSummarizationService:
     ):
         """测试所有提供商失败的情况。"""
         # 所有提供商都返回永久错误
-        permanent_error = MockLLMError(
-            "Authentication failed",
-            error_type=LLMErrorType.permanent,
-        )
+        # 需要足够多的 error 以覆盖初始调用 + 重试
+        permanent_errors = [
+            MockLLMError("Authentication failed", error_type=LLMErrorType.permanent)
+            for _ in range(4)
+        ]
 
         openrouter = MockLLMProvider(
             "openrouter",
-            errors=[permanent_error],
+            errors=permanent_errors,
         )
         minimax = MockLLMProvider(
             "minimax",
-            errors=[permanent_error],
+            errors=permanent_errors,
         )
 
         service = SummarizationService(
@@ -756,9 +761,11 @@ class TestSummarizationService:
         assert isinstance(result, Success)
         summary_result = result.unwrap()
         assert summary_result.total_tweets == 1
+        assert summary_result.total_tweets_succeeded == 1
         assert summary_result.total_groups == 0
         assert summary_result.independent_tweets == 1
         assert summary_result.cache_misses == 1
+        assert summary_result.failed_tweets == []
 
     @pytest.mark.asyncio
     async def test_summarize_mixed_grouped_and_independent(
@@ -801,8 +808,10 @@ class TestSummarizationService:
         summary_result = result.unwrap()
         assert summary_result.total_groups == 1
         assert summary_result.independent_tweets == 1
+        assert summary_result.total_tweets_succeeded == 2
         # 应该有 2 个 cache miss（1 个去重组 + 1 个独立推文）
         assert summary_result.cache_misses == 2
+        assert summary_result.failed_tweets == []
 
     @pytest.mark.asyncio
     async def test_regenerate_summary_without_dedup_group(
@@ -1067,3 +1076,232 @@ class TestTruncationDetection:
 
         # 验证使用默认 max_tokens
         assert provider._last_max_tokens == SummarizationService.DEFAULT_MAX_TOKENS
+
+
+class TestFailureTracking:
+    """测试单条推文失败跟踪。"""
+
+    @pytest.fixture
+    def mock_repository(self):
+        return MockRepository()
+
+    @pytest.fixture
+    def mock_llm_response(self):
+        summary_text = "这是一条测试摘要，包含了足够长的内容以满足最小长度要求。" * 2
+        translation_text = (
+            "This is a test translation with enough content to pass validation."
+        )
+        return LLMResponse(
+            content=f'{{"summary": "{summary_text}", "translation": "{translation_text}"}}',
+            model="test-model",
+            provider="openrouter",
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+            cost_usd=0.001,
+        )
+
+    @pytest.mark.asyncio
+    async def test_partial_tweet_failure_tracks_failed_ids(
+        self, mock_repository, mock_llm_response,
+    ):
+        """测试部分推文失败时正确记录失败信息。"""
+        # 第一条成功，第二条失败（所有 provider 都失败），第三条成功
+        # 需要足够多的 error 覆盖重试：初始调用 + 1 次重试 = 2 次
+        permanent_error = MockLLMError(
+            "Rate limit", error_type=LLMErrorType.permanent,
+        )
+
+        # 调用顺序: tweet1(成功), tweet2(失败), tweet3(成功), tweet2重试(失败)
+        # provider 是共享的，所以需要按调用顺序排列
+        # 但 asyncio.gather 的并发顺序不确定，用不同的 provider 策略
+        # 更简单的方法：mock _process_single_tweet 直接返回
+        provider = MockLLMProvider("openrouter", responses=[mock_llm_response])
+        service = SummarizationService(
+            repository=mock_repository,  # type: ignore
+            providers=[provider],
+        )
+
+        service._load_deduplication_groups = AsyncMock(return_value=[])
+
+        # 直接 mock _process_single_tweet 控制每条推文的结果
+        call_count = 0
+        original_process = service._process_single_tweet
+
+        async def mock_process(tweet_id, force_refresh):
+            nonlocal call_count
+            call_count += 1
+            if tweet_id == "tweet_fail":
+                return None  # 模拟失败
+            return await original_process(tweet_id, force_refresh)
+
+        service._process_single_tweet = mock_process  # type: ignore
+        service._load_tweets = AsyncMock(
+            return_value={
+                "tweet_ok1": {
+                    "text": "A tweet with enough text to trigger summarization and translation by the LLM provider service",
+                    "reference_type": None,
+                },
+                "tweet_ok2": {
+                    "text": "Another tweet with enough text to trigger summarization and translation by the LLM provider service",
+                    "reference_type": None,
+                },
+            }
+        )
+
+        result = await service.summarize_tweets(
+            tweet_ids=["tweet_ok1", "tweet_fail", "tweet_ok2"]
+        )
+
+        assert isinstance(result, Success)
+        summary_result = result.unwrap()
+        assert summary_result.total_tweets == 3
+        assert summary_result.total_tweets_succeeded == 2
+        assert len(summary_result.failed_tweets) == 1
+        assert summary_result.failed_tweets[0]["tweet_id"] == "tweet_fail"
+        assert summary_result.failed_tweets[0]["error_type"] == "llm_failure"
+
+    @pytest.mark.asyncio
+    async def test_partial_group_failure_tracks_failed_ids(
+        self, mock_repository, mock_llm_response,
+    ):
+        """测试部分去重组失败时记录组内所有推文。"""
+        group_ok = DeduplicationGroup(
+            group_id="group-ok",
+            representative_tweet_id="rep_ok",
+            deduplication_type=DeduplicationType.exact_duplicate,
+            similarity_score=None,
+            tweet_ids=["rep_ok", "dup_ok"],
+            created_at=datetime.now(timezone.utc),
+        )
+        group_fail = DeduplicationGroup(
+            group_id="group-fail",
+            representative_tweet_id="rep_fail",
+            deduplication_type=DeduplicationType.exact_duplicate,
+            similarity_score=None,
+            tweet_ids=["rep_fail", "dup_fail1", "dup_fail2"],
+            created_at=datetime.now(timezone.utc),
+        )
+
+        provider = MockLLMProvider("openrouter", responses=[mock_llm_response])
+        service = SummarizationService(
+            repository=mock_repository,  # type: ignore
+            providers=[provider],
+        )
+
+        service._load_deduplication_groups = AsyncMock(
+            return_value=[group_ok, group_fail]
+        )
+
+        async def mock_process_group(group, force_refresh):
+            if group.group_id == "group-fail":
+                return None
+            # 模拟成功
+            return SummaryRecord(
+                summary_id="s1",
+                tweet_id=group.representative_tweet_id,
+                summary_text="这是一条测试摘要，包含了足够长的内容以满足最小长度要求。" * 2,
+                translation_text="Test translation",
+                model_provider="openrouter",
+                model_name="test",
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+                cost_usd=0.001,
+                cached=False,
+                content_hash="hash1",
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+
+        service._process_deduplication_group = mock_process_group  # type: ignore
+
+        result = await service.summarize_tweets(
+            tweet_ids=["rep_ok", "dup_ok", "rep_fail", "dup_fail1", "dup_fail2"],
+            deduplication_groups=[group_ok, group_fail],
+        )
+
+        assert isinstance(result, Success)
+        summary_result = result.unwrap()
+        assert summary_result.total_tweets == 5
+        assert summary_result.total_tweets_succeeded == 1  # 只有 group_ok 成功
+        assert len(summary_result.failed_tweets) == 3  # group_fail 的 3 条推文
+        failed_ids = {f["tweet_id"] for f in summary_result.failed_tweets}
+        assert failed_ids == {"rep_fail", "dup_fail1", "dup_fail2"}
+
+    @pytest.mark.asyncio
+    async def test_per_tweet_retry_recovers_transient_failure(
+        self, mock_repository, mock_llm_response,
+    ):
+        """测试单条推文重试机制能恢复暂时性失败。"""
+        provider = MockLLMProvider("openrouter", responses=[mock_llm_response])
+        service = SummarizationService(
+            repository=mock_repository,  # type: ignore
+            providers=[provider],
+        )
+
+        service._load_deduplication_groups = AsyncMock(return_value=[])
+
+        # 第一次调用失败，第二次（重试）成功
+        attempt_count = {}
+
+        async def mock_process(tweet_id, force_refresh):
+            attempt_count[tweet_id] = attempt_count.get(tweet_id, 0) + 1
+            if tweet_id == "tweet_flaky" and attempt_count[tweet_id] == 1:
+                return None  # 第一次失败
+            # 返回成功记录
+            return SummaryRecord(
+                summary_id=f"s-{tweet_id}",
+                tweet_id=tweet_id,
+                summary_text="这是一条测试摘要，包含了足够长的内容以满足最小长度要求。" * 2,
+                translation_text="Test translation",
+                model_provider="openrouter",
+                model_name="test",
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+                cost_usd=0.001,
+                cached=False,
+                content_hash=f"hash-{tweet_id}",
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+
+        service._process_single_tweet = mock_process  # type: ignore
+        service._load_tweets = AsyncMock(return_value={})
+
+        result = await service.summarize_tweets(
+            tweet_ids=["tweet_flaky"]
+        )
+
+        assert isinstance(result, Success)
+        summary_result = result.unwrap()
+        assert summary_result.total_tweets_succeeded == 1
+        assert summary_result.failed_tweets == []
+        assert attempt_count["tweet_flaky"] == 2  # 重试了一次
+
+    @pytest.mark.asyncio
+    async def test_per_tweet_retry_exhausted_records_failure(
+        self, mock_repository,
+    ):
+        """测试重试耗尽后推文被记录为失败。"""
+        provider = MockLLMProvider("openrouter")
+        service = SummarizationService(
+            repository=mock_repository,  # type: ignore
+            providers=[provider],
+        )
+
+        service._load_deduplication_groups = AsyncMock(return_value=[])
+
+        async def mock_process(tweet_id, force_refresh):
+            return None  # 永远失败
+
+        service._process_single_tweet = mock_process  # type: ignore
+        service._load_tweets = AsyncMock(return_value={})
+
+        result = await service.summarize_tweets(
+            tweet_ids=["tweet_always_fail"]
+        )
+
+        # 所有推文都失败 → 返回 Failure
+        assert isinstance(result, Failure)

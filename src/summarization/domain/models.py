@@ -94,13 +94,28 @@ class SummaryRecord(BaseModel):
     updated_at: datetime = Field(..., description="更新时间")
 
 
+class TweetFailure(BaseModel):
+    """单条推文处理失败记录。"""
+
+    tweet_id: str = Field(..., description="失败的推文 ID")
+    error_type: str = Field(
+        ...,
+        description="错误类型: llm_failure / processing_error / group_failure",
+    )
+    error_message: str = Field(..., description="错误详情")
+    group_id: str | None = Field(default=None, description="所属去重组 ID（如适用）")
+
+
 class SummaryResult(BaseModel):
     """摘要处理结果统计模型。
 
     表示批量摘要操作的统计结果。
     """
 
-    total_tweets: int = Field(..., ge=0, description="处理的总推文数")
+    total_tweets: int = Field(..., ge=0, description="请求处理的总推文数（输入数量）")
+    total_tweets_succeeded: int = Field(
+        0, ge=0, description="实际成功处理的推文数"
+    )
     total_groups: int = Field(..., ge=0, description="处理的去重组数")
     independent_tweets: int = Field(0, ge=0, description="独立处理的推文数")
     cache_hits: int = Field(..., ge=0, description="缓存命中数")
@@ -111,6 +126,9 @@ class SummaryResult(BaseModel):
         ..., description="各提供商使用次数"
     )
     processing_time_ms: int = Field(..., ge=0, description="处理耗时（毫秒）")
+    failed_tweets: list[dict] = Field(
+        default_factory=list, description="失败推文详情列表"
+    )
 
 
 class CostStats(BaseModel):

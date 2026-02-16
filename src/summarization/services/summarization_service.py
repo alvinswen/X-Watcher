@@ -23,6 +23,7 @@ from src.summarization.domain.models import (
     PromptConfig,
     SummaryRecord,
     SummaryResult,
+    TweetFailure,
     TweetType,
 )
 from src.summarization.infrastructure.repository import SummarizationRepository
@@ -133,19 +134,24 @@ class SummarizationService:
 
             # 3. 并发处理去重组 + 独立推文
             group_results: list[SummaryRecord] = []
+            group_failures: list[TweetFailure] = []
             independent_results: list[SummaryRecord] = []
+            independent_failures: list[TweetFailure] = []
 
             if deduplication_groups:
-                group_results = await self._process_groups_concurrent(
+                group_results, group_failures = await self._process_groups_concurrent(
                     deduplication_groups, force_refresh
                 )
 
             if independent_tweet_ids:
-                independent_results = await self._process_independent_tweets_concurrent(
-                    independent_tweet_ids, force_refresh
+                independent_results, independent_failures = (
+                    await self._process_independent_tweets_concurrent(
+                        independent_tweet_ids, force_refresh
+                    )
                 )
 
             all_results = group_results + independent_results
+            all_failures = group_failures + independent_failures
 
             # 4. 检查是否有任何成功的摘要生成
             if tweet_ids and not all_results:
@@ -158,6 +164,7 @@ class SummarizationService:
             summary_result = self._calculate_summary_result(
                 tweet_ids, deduplication_groups, all_results,
                 start_time, len(independent_tweet_ids),
+                failed_tweets=all_failures,
             )
 
             # 使用结构化日志记录批量完成事件
@@ -173,8 +180,10 @@ class SummarizationService:
             )
 
             # 同时保留传统日志
+            failed_msg = f", 失败 {len(all_failures)}" if all_failures else ""
             logger.info(
                 f"摘要完成: 处理 {summary_result.total_tweets} 条推文, "
+                f"成功 {summary_result.total_tweets_succeeded}{failed_msg}, "
                 f"{summary_result.total_groups} 个去重组, "
                 f"{len(independent_tweet_ids)} 条独立推文, "
                 f"缓存命中 {summary_result.cache_hits}, "
@@ -204,7 +213,7 @@ class SummarizationService:
 
             if groups:
                 # 有去重组：走组处理逻辑
-                results = await self._process_groups_concurrent(
+                results, _ = await self._process_groups_concurrent(
                     groups, force_refresh=True
                 )
             else:
@@ -304,63 +313,118 @@ class SummarizationService:
         self,
         groups: list[DeduplicationGroup],
         force_refresh: bool,
-    ) -> list[SummaryRecord]:
-        """并发处理去重组。
+    ) -> tuple[list[SummaryRecord], list[TweetFailure]]:
+        """并发处理去重组，收集失败信息并重试。
 
         Args:
             groups: 去重组列表
             force_refresh: 是否强制刷新
 
         Returns:
-            摘要记录列表
+            (成功的摘要记录列表, 失败的推文列表)
         """
         semaphore = asyncio.Semaphore(self._max_concurrent)
-        results = []
+        results: list[SummaryRecord] = []
 
         async def process_with_limit(
             group: DeduplicationGroup,
-        ) -> SummaryRecord | None:
+        ) -> tuple[DeduplicationGroup, SummaryRecord | None]:
             async with semaphore:
-                return await self._process_deduplication_group(group, force_refresh)
+                record = await self._process_deduplication_group(group, force_refresh)
+                return group, record
 
         tasks = [process_with_limit(g) for g in groups]
         processed = await asyncio.gather(*tasks)
 
-        for result in processed:
+        failed_groups: list[DeduplicationGroup] = []
+        for group, result in processed:
             if result:
                 results.append(result)
+            else:
+                failed_groups.append(group)
 
-        return results
+        # 对失败的组做 1 次重试
+        if failed_groups:
+            logger.info(f"重试 {len(failed_groups)} 个失败的去重组...")
+            retry_tasks = [process_with_limit(g) for g in failed_groups]
+            retry_processed = await asyncio.gather(*retry_tasks)
+            failed_groups = []
+            for group, result in retry_processed:
+                if result:
+                    results.append(result)
+                else:
+                    failed_groups.append(group)
+
+        # 记录最终仍失败的组
+        failures: list[TweetFailure] = []
+        for group in failed_groups:
+            for tid in group.tweet_ids:
+                failures.append(TweetFailure(
+                    tweet_id=tid,
+                    error_type="group_failure",
+                    error_message=f"去重组 {group.group_id} 处理失败（含重试）",
+                    group_id=group.group_id,
+                ))
+
+        return results, failures
 
     async def _process_independent_tweets_concurrent(
         self,
         tweet_ids: list[str],
         force_refresh: bool,
-    ) -> list[SummaryRecord]:
-        """并发处理独立推文（无去重组的推文）。
+    ) -> tuple[list[SummaryRecord], list[TweetFailure]]:
+        """并发处理独立推文（无去重组的推文），收集失败信息并重试。
 
         Args:
             tweet_ids: 推文 ID 列表
             force_refresh: 是否强制刷新
 
         Returns:
-            摘要记录列表
+            (成功的摘要记录列表, 失败的推文列表)
         """
         semaphore = asyncio.Semaphore(self._max_concurrent)
         results: list[SummaryRecord] = []
 
-        async def process_with_limit(tweet_id: str) -> SummaryRecord | None:
+        async def process_with_limit(
+            tweet_id: str,
+        ) -> tuple[str, SummaryRecord | None]:
             async with semaphore:
-                return await self._process_single_tweet(tweet_id, force_refresh)
+                record = await self._process_single_tweet(tweet_id, force_refresh)
+                return tweet_id, record
 
         tasks = [process_with_limit(tid) for tid in tweet_ids]
         processed = await asyncio.gather(*tasks)
 
-        for result in processed:
+        failed_ids: list[str] = []
+        for tid, result in processed:
             if result:
                 results.append(result)
+            else:
+                failed_ids.append(tid)
 
-        return results
+        # 对失败的推文做 1 次重试
+        if failed_ids:
+            logger.info(f"重试 {len(failed_ids)} 条失败的独立推文...")
+            retry_tasks = [process_with_limit(tid) for tid in failed_ids]
+            retry_processed = await asyncio.gather(*retry_tasks)
+            failed_ids = []
+            for tid, result in retry_processed:
+                if result:
+                    results.append(result)
+                else:
+                    failed_ids.append(tid)
+
+        # 记录最终仍失败的推文
+        failures: list[TweetFailure] = []
+        for tid in failed_ids:
+            failures.append(TweetFailure(
+                tweet_id=tid,
+                error_type="llm_failure",
+                error_message=f"推文 {tid} 处理失败（含重试）",
+                group_id=None,
+            ))
+
+        return results, failures
 
     @staticmethod
     def _extract_original_author(text: str, tweet_type: TweetType) -> str | None:
@@ -1120,6 +1184,7 @@ class SummarizationService:
         summaries: list[SummaryRecord],
         start_time: float,
         independent_count: int = 0,
+        failed_tweets: list[TweetFailure] | None = None,
     ) -> SummaryResult:
         """计算摘要处理结果统计。
 
@@ -1129,10 +1194,14 @@ class SummarizationService:
             summaries: 生成的摘要列表
             start_time: 开始时间
             independent_count: 独立处理的推文数
+            failed_tweets: 失败的推文列表
 
         Returns:
             摘要结果统计
         """
+        if failed_tweets is None:
+            failed_tweets = []
+
         # 统计缓存命中
         cache_hits = sum(1 for s in summaries if s.cached)
         cache_misses = len(summaries) - cache_hits
@@ -1149,8 +1218,20 @@ class SummarizationService:
                     providers_used.get(s.model_provider, 0) + 1
                 )
 
+        # 序列化失败推文信息
+        failed_dicts = [
+            {
+                "tweet_id": f.tweet_id,
+                "error_type": f.error_type,
+                "error_message": f.error_message,
+                "group_id": f.group_id,
+            }
+            for f in failed_tweets
+        ]
+
         return SummaryResult(
             total_tweets=len(tweet_ids),
+            total_tweets_succeeded=len(summaries),
             total_groups=len(groups),
             independent_tweets=independent_count,
             cache_hits=cache_hits,
@@ -1159,6 +1240,7 @@ class SummarizationService:
             total_cost_usd=total_cost_usd,
             providers_used=providers_used,
             processing_time_ms=int((time.time() - start_time) * 1000),
+            failed_tweets=failed_dicts,
         )
 
     async def clear_cache(self) -> None:
