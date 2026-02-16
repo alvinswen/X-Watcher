@@ -72,6 +72,9 @@ openai              # MiniMax 和 OpenRouter 均兼容 OpenAI 格式
 bcrypt              # 密码哈希（SHA-256 预处理 + bcrypt 12 rounds）
 python-jose[cryptography]  # JWT 令牌（HS256）
 
+# 监控
+prometheus_client   # Prometheus 指标采集
+
 # 工具库
 python-dotenv       # 环境变量
 loguru              # 日志
@@ -234,6 +237,12 @@ mypy src/
 - **跨线程安全**：APScheduler 后台线程通过 `asyncio.run_coroutine_threadsafe()` 安全入队
 - **可观测性**：集成 TaskRegistry + Prometheus 指标（queue_size, enqueued, processed, dropped）
 - **分块处理**：终于使用 `auto_summarization_batch_size` 配置项分块入队
+
+### 为什么引入 Prometheus 监控？
+- **可观测性需求**：抓取任务、摘要队列、调度器执行状态需要量化监控
+- **多维度指标**：HTTP 请求（计数 + 延迟直方图）、活跃任务数、调度器执行/错误/漏跑、摘要队列（入队/处理/丢弃）
+- **标准集成**：`prometheus_client` 库 + FastAPI 中间件自动采集，`/metrics` 端点暴露
+- **低侵入性**：通过 APScheduler 事件监听器（`scheduler_listener.py`）和队列钩子自动上报，业务代码无需关心
 
 ### 为什么选择 MiniMax + OpenRouter 双 LLM？
 - **MiniMax 成本优势**：比 OpenAI 便宜 10 倍以上，中文友好

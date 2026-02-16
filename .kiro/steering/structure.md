@@ -117,9 +117,14 @@ src/
 │   ├── metrics.py           # 指标定义
 │   ├── middleware.py         # 中间件
 │   └── routes.py            # /metrics 端点
+├── shared/                  # 公共基础设施
+│   └── schemas.py           # UTCDatetimeModel 公共基类（SQLite naive datetime → UTC 序列化）
 ├── database/                # 数据库层
 │   ├── models.py            # SQLAlchemy 基础模型（User, ScraperScheduleConfig, TaskExecutionLog 等）
 │   └── async_session.py     # 异步会话管理（WAL 模式 + busy_timeout）
+├── models/                  # （legacy 空壳，待清理）
+├── services/                # （legacy 空壳，待清理）
+├── tools/                   # （legacy 空壳，待清理）
 ├── web/                     # 前端 SPA（Vue 3 + Element Plus）
 ├── scheduler_accessor.py    # 调度器全局引用管理（解耦 Service 与 APScheduler）
 ├── config.py                # 全局配置（Pydantic Settings）

@@ -1,26 +1,26 @@
 # 实现计划
 
-- [ ] 1. 基础设施与数据模型准备
-- [ ] 1.1 (P) 扩展全局配置，添加 Feed API 的数量控制配置项
+- [x] 1. 基础设施与数据模型准备
+- [x] 1.1 (P) 扩展全局配置，添加 Feed API 的数量控制配置项
   - 在 Settings 中新增 `feed_max_tweets` 字段，默认值 200，范围 1-1000
   - 在 `.env.example` 中添加对应的环境变量示例
   - _Requirements: 4.2_
 
-- [ ] 1.2 (P) 创建 Alembic 数据库迁移，为推文入库时间字段添加索引（历史遗留）
+- [x] 1.2 (P) 创建 Alembic 数据库迁移，为推文入库时间字段添加索引（历史遗留）
   - 新增迁移文件，创建 `ix_tweets_db_created_at` 索引
   - 注意：Feed 查询现已改用 `created_at`（已有索引 `ix_tweets_created_at`）进行时间过滤
   - 包含 downgrade 操作以删除索引
   - 遵循项目现有迁移文件命名和结构模式
   - _Requirements: 1.1_
 
-- [ ] 1.3 (P) 定义 Feed API 的请求参数和响应数据模型
+- [x] 1.3 (P) 定义 Feed API 的请求参数和响应数据模型
   - 创建 `FeedTweetItem` 模型，包含推文基础字段（tweet_id, text, author_username, author_display_name, created_at, db_created_at, reference_type, referenced_tweet_id, media）和可选摘要字段（summary_text, translation_text）
   - 创建 `FeedResponse` 模型，包含 items 列表、count、total、since、until、has_more 元数据
   - 创建 `FeedResult` 内部数据类供 Service 层使用
   - _Requirements: 2.1, 3.1, 3.2, 3.3, 3.4_
 
-- [ ] 2. Feed 查询服务实现
-- [ ] 2.1 实现 FeedService 的推文+摘要联合查询逻辑
+- [x] 2. Feed 查询服务实现
+- [x] 2.1 实现 FeedService 的推文+摘要联合查询逻辑
   - 实现 `get_feed` 方法：接收 since、until、limit、include_summary 参数
   - 先执行 COUNT 查询获取满足时间区间条件的总数
   - 当 include_summary 为 true 时，执行 LEFT JOIN 推文表和摘要表的联合查询，返回摘要和翻译内容
@@ -32,8 +32,8 @@
   - _Requirements: 1.1, 1.2, 1.3, 1.5, 2.2, 2.3, 2.4, 4.1, 4.3_
   - _Contracts: FeedService Service Interface_
 
-- [ ] 3. Feed API 路由与认证集成
-- [ ] 3.1 实现 Feed API 路由端点，包含参数验证、认证和错误处理
+- [x] 3. Feed API 路由与认证集成
+- [x] 3.1 实现 Feed API 路由端点，包含参数验证、认证和错误处理
   - 创建 `GET /api/feed` 端点，since 为必填查询参数，until/limit/include_summary 为可选
   - 集成现有用户认证中间件（get_current_user），要求 X-API-Key 请求头
   - until 未提供时使用当前服务器时间作为默认值
@@ -45,22 +45,22 @@
   - _Requirements: 1.3, 1.4, 4.2, 4.4, 5.1, 5.2, 5.3, 7.1, 7.2, 7.3, 7.4_
   - _Contracts: FeedRouter API Contract_
 
-- [ ] 4. 系统集成与路由注册
-- [ ] 4.1 将 Feed API 路由注册到应用入口并创建模块初始化文件
+- [x] 4. 系统集成与路由注册
+- [x] 4.1 将 Feed API 路由注册到应用入口并创建模块初始化文件
   - 在应用入口中注册 Feed 路由，添加路由前缀和标签，遵循现有路由注册模式
   - 创建 Feed 模块的 `__init__.py` 文件（src/feed/, src/feed/api/, src/feed/services/）
   - 验证 Feed API 端点可正常访问
   - _Requirements: 1.1, 5.1_
 
-- [ ] 5. Agent 工具元数据定义
-- [ ] 5.1 (P) 定义 Feed API 的 Agent 工具元数据并更新系统提示
+- [x] 5. Agent 工具元数据定义
+- [x] 5.1 (P) 定义 Feed API 的 Agent 工具元数据并更新系统提示
   - 创建工具元数据文件，定义 `fetch_feed` 工具（描述 GET /api/feed 端点、参数、用途）
   - 定义 `fetch_tweet_detail` 工具（描述 GET /api/tweets/{tweet_id} 端点）
   - 更新 Agent 系统提示，说明可通过 Feed API 获取增量推文
   - _Requirements: 6.1, 6.2, 6.3_
 
-- [ ] 6. 测试覆盖
-- [ ] 6.1 编写 FeedService 单元测试
+- [x] 6. 测试覆盖
+- [x] 6.1 编写 FeedService 单元测试
   - 测试时间区间过滤正确性（since/until 边界）
   - 测试 include_summary 开关：true 时返回摘要字段，false 时不返回
   - 测试无摘要记录时字段为 null
@@ -69,7 +69,7 @@
   - 复用项目现有的 async_session fixture
   - _Requirements: 1.1, 1.2, 1.5, 2.2, 2.3, 2.4, 4.1, 4.3_
 
-- [ ] 6.2 编写 Feed API 集成测试
+- [x] 6.2 编写 Feed API 集成测试
   - 测试完整调用链：HTTP 请求 → 认证 → 查询 → 响应格式验证
   - 测试认证失败场景：无 API Key 返回 401、无效 API Key 返回 401
   - 测试参数验证：缺少 since 返回 422、since > until 返回 422、格式错误返回 422
