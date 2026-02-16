@@ -324,6 +324,11 @@ from src.api.routes.scheduler import router as scheduler_router
 
 app.include_router(scheduler_router)
 
+# 注册推文浏览 API 路由
+from src.browse.api.routes import router as browse_router
+
+app.include_router(browse_router)
+
 # 配置前端静态资源服务（如果存在）
 import os
 from fastapi.staticfiles import StaticFiles

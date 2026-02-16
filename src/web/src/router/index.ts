@@ -26,6 +26,14 @@ const routes: RouteRecordRaw[] = [
     },
   },
   {
+    path: "/browse",
+    name: "browse",
+    component: () => import("@/views/BrowseView.vue"),
+    meta: {
+      title: "推文浏览",
+    },
+  },
+  {
     path: "/tweets/:id",
     name: "tweet-detail",
     component: () => import("@/views/TweetDetailView.vue"),

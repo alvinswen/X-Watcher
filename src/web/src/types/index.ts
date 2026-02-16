@@ -5,6 +5,7 @@ export * from "./task"
 export * from "./scheduler"
 export * from "./user"
 export * from "./health"
+export * from "./browse"
 
 /** API 错误响应。 */
 export interface ApiError {

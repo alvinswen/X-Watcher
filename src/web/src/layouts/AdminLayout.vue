@@ -4,6 +4,7 @@ import { useRoute } from "vue-router"
 import {
   Odometer,
   Document,
+  Reading,
   User,
   Monitor,
   Timer,
@@ -30,6 +31,7 @@ const apiKeyInput = ref("")
 const menuItems = [
   { index: "/dashboard", title: "仪表盘", icon: Odometer },
   { index: "/tweets", title: "推文管理", icon: Document },
+  { index: "/browse", title: "推文浏览", icon: Reading },
   { index: "/follows", title: "关注管理", icon: User },
   { index: "/tasks", title: "任务监控", icon: Monitor },
   { index: "/scheduler", title: "调度管理", icon: Timer },

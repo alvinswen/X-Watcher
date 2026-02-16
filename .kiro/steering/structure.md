@@ -113,6 +113,12 @@ src/
 │   │   └── schemas.py       # FeedTweetItem, FeedResponse
 │   └── services/
 │       └── feed_service.py  # Feed 查询（tweets LEFT JOIN summaries）
+├── browse/                  # 推文浏览模块（按日期/作者维度浏览）
+│   ├── api/
+│   │   ├── routes.py        # GET /api/browse/stats/daily, /authors, /tweets
+│   │   └── schemas.py       # DailyStatsResponse, AuthorListResponse, BrowseTweetListResponse
+│   └── services/
+│       └── browse_service.py  # 每日统计、作者列表、推文列表查询
 ├── monitoring/              # Prometheus 监控
 │   ├── metrics.py           # 指标定义
 │   ├── middleware.py         # 中间件
