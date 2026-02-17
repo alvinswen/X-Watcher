@@ -11,6 +11,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status
 
+from src.database.models import ScraperFollow
 from src.main import app
 from src.scraper.infrastructure.models import TweetOrm
 from src.summarization.infrastructure.models import SummaryOrm
@@ -94,6 +95,24 @@ async def seed_browse_data(async_session: AsyncSession):
         created_at=day1,
     )
     async_session.add(summary)
+
+    # 添加 ScraperFollow 记录（作者简介）
+    follows = [
+        ScraperFollow(
+            username="user_a",
+            reason="AI researcher, focus on LLMs",
+            added_by="admin",
+            is_active=True,
+        ),
+        ScraperFollow(
+            username="user_b",
+            reason="Crypto analyst",
+            added_by="admin",
+            is_active=True,
+        ),
+    ]
+    for follow in follows:
+        async_session.add(follow)
     await async_session.commit()
 
 
@@ -170,7 +189,9 @@ class TestBrowseAuthors:
 
         # 按最后活跃时间降序：user_b (13:00) > user_a (12:00)
         assert data["authors"][0]["author_username"] == "user_b"
+        assert data["authors"][0]["reason"] == "Crypto analyst"
         assert data["authors"][1]["author_username"] == "user_a"
+        assert data["authors"][1]["reason"] == "AI researcher, focus on LLMs"
         assert data["authors"][1]["tweet_count"] == 2
 
     async def test_authors_empty_date(
@@ -207,6 +228,30 @@ class TestBrowseAuthors:
             a for a in data["authors"] if a["author_username"] == "user_a"
         )
         assert user_a["author_display_name"] == "User A"
+
+    async def test_authors_reason_missing(
+        self, async_client: AsyncClient, async_session: AsyncSession
+    ):
+        """没有 ScraperFollow 记录的作者，reason 应为 null。"""
+        day = datetime(2026, 3, 1, 10, 0, 0, tzinfo=timezone.utc)
+        tweet = TweetOrm(
+            tweet_id="browse_orphan",
+            text="Tweet from unknown author",
+            created_at=day,
+            db_created_at=day,
+            author_username="unknown_user",
+            author_display_name="Unknown",
+            media=None,
+        )
+        async_session.add(tweet)
+        await async_session.commit()
+
+        response = await async_client.get(
+            "/api/browse/authors", params={"date": "2026-03-01"}
+        )
+        data = response.json()
+        assert data["total"] == 1
+        assert data["authors"][0]["reason"] is None
 
 
 @pytest.mark.asyncio

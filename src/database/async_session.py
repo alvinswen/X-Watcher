@@ -146,6 +146,16 @@ def get_async_session_maker():
     return _async_session_maker
 
 
+def reset_async_engine() -> None:
+    """重置异步数据库引擎和会话工厂单例。
+
+    仅供测试使用，确保测试之间不会共享数据库连接。
+    """
+    global _async_engine, _async_session_maker
+    _async_engine = None
+    _async_session_maker = None
+
+
 async def get_async_session() -> AsyncSession:
     """获取异步数据库会话。
 

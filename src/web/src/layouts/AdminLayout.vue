@@ -34,7 +34,7 @@ const menuItems = [
   { index: "/browse", title: "推文浏览", icon: Reading },
   { index: "/follows", title: "关注管理", icon: User },
   { index: "/tasks", title: "任务监控", icon: Monitor },
-  { index: "/scheduler", title: "调度管理", icon: Timer },
+  { index: "/scraping", title: "抓取管理", icon: Timer },
   { index: "/users", title: "用户管理", icon: UserFilled },
 ]
 

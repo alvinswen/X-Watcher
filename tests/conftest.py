@@ -6,6 +6,7 @@
 import os
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,7 +14,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from src.config import clear_settings_cache, get_settings
-from src.database.models import Base
+from src.database.models import Base, reset_engine
+from src.database.async_session import reset_async_engine
 from src.main import app
 
 # 导入所有 ORM 模型以确保它们被注册到 Base.metadata
@@ -26,6 +28,37 @@ from src.summarization.infrastructure.models import SummaryOrm  # noqa: F401
 # 在测试开始时加载 .env 文件
 from dotenv import load_dotenv
 load_dotenv()
+
+
+# 全局同步测试引擎 - 所有通过 get_engine() 获取引擎的代码路径都将被重定向到此处
+_sync_test_engine = create_engine(
+    "sqlite:///:memory:",
+    connect_args={"check_same_thread": False},
+)
+Base.metadata.create_all(bind=_sync_test_engine)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_database_singletons():
+    """隔离数据库单例，防止测试泄漏写入生产数据库。
+
+    通过 patch get_engine() 使所有同步数据库操作（TaskRegistry._persist_task、
+    SchedulerExecutionLogSyncWriter.write_log、get_active_follows_from_db 等）
+    使用内存测试数据库而非生产 news_agent.db。
+
+    同时在测试前后重置引擎单例，确保测试之间完全隔离。
+    """
+    # 重置单例，防止上一个测试的引擎被复用
+    reset_engine()
+    reset_async_engine()
+
+    # Patch get_engine 使所有 lazy import 路径都返回测试引擎
+    with patch("src.database.models.get_engine", return_value=_sync_test_engine):
+        yield
+
+    # 测试后再次重置单例
+    reset_engine()
+    reset_async_engine()
 
 
 @pytest.fixture(autouse=True)
@@ -46,7 +79,7 @@ def reset_env_before_each_test():
     clear_settings_cache()
 
 
-# 测试数据库引擎 - 使用 SQLite 内存模式
+# 测试数据库引擎 - 使用 SQLite 内存模式（用于 db_session fixture）
 test_engine = create_engine(
     "sqlite:///:memory:",
     connect_args={"check_same_thread": False},

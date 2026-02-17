@@ -58,6 +58,17 @@ def get_engine():
     return _engine
 
 
+def reset_engine() -> None:
+    """重置同步数据库引擎单例。
+
+    仅供测试使用，确保测试之间不会共享数据库连接。
+    """
+    global _engine
+    if _engine is not None:
+        _engine.dispose()
+    _engine = None
+
+
 # 向后兼容的属性
 def engine():
     """获取数据库引擎单例（向后兼容）。"""
@@ -153,6 +164,9 @@ class ScraperFollow(Base):
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     added_by: Mapped[str] = mapped_column(String(100), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    manual_limit: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, default=None
+    )
 
     # 索引
     __table_args__ = (

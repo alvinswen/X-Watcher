@@ -43,6 +43,7 @@ class ScraperFollow(BaseModel):
     reason: str = Field(..., description="添加理由")
     added_by: str = Field(..., description="添加人标识")
     is_active: bool = Field(..., description="是否启用")
+    manual_limit: int | None = Field(None, description="手动推文数量限制")
 
     @classmethod
     def from_orm(cls, orm_obj: "ScraperFollowORM") -> "ScraperFollow":
@@ -61,6 +62,7 @@ class ScraperFollow(BaseModel):
             reason=orm_obj.reason,
             added_by=orm_obj.added_by,
             is_active=orm_obj.is_active,
+            manual_limit=orm_obj.manual_limit,
         )
 
 

@@ -58,11 +58,11 @@ const routes: RouteRecordRaw[] = [
     },
   },
   {
-    path: "/scheduler",
-    name: "scheduler",
+    path: "/scraping",
+    name: "scraping",
     component: () => import("@/views/SchedulerView.vue"),
     meta: {
-      title: "调度管理",
+      title: "抓取管理",
     },
   },
   {

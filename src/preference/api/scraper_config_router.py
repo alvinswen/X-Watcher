@@ -5,8 +5,10 @@
 """
 
 import logging
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.async_session import get_async_session
@@ -21,6 +23,8 @@ from src.preference.api.schemas import (
     ScheduleConfigResponse,
     UpdateScheduleIntervalRequest,
     UpdateScheduleNextRunRequest,
+    FetchAnalysisResponse,
+    PeriodStats,
 )
 from src.preference.infrastructure.scraper_config_repository import (
     ScraperConfigRepository,
@@ -106,6 +110,7 @@ async def add_scraper_follow(
             reason=result.reason,
             added_by=result.added_by,
             is_active=result.is_active,
+            manual_limit=result.manual_limit,
         )
     except DuplicateError as e:
         raise HTTPException(
@@ -159,6 +164,7 @@ async def get_scraper_follows(
                 reason=f.reason,
                 added_by=f.added_by,
                 is_active=f.is_active,
+                manual_limit=f.manual_limit,
             )
             for f in result
         ]
@@ -206,6 +212,7 @@ async def update_scraper_follow(
             username=username,
             reason=request.reason,
             is_active=request.is_active,
+            manual_limit=request.manual_limit,
         )
         logger.info(f"管理员更新抓取账号: {username}")
         return ScraperFollowResponse(
@@ -215,6 +222,7 @@ async def update_scraper_follow(
             reason=result.reason,
             added_by=result.added_by,
             is_active=result.is_active,
+            manual_limit=result.manual_limit,
         )
     except NotFoundError as e:
         raise HTTPException(
@@ -429,6 +437,84 @@ async def disable_schedule(
         ) from e
 
 
+# ==================== 抓取分析端点 ====================
+
+
+@router.get(
+    "/follows/{username}/analysis",
+    response_model=FetchAnalysisResponse,
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {"model": ErrorResponse},
+        status.HTTP_403_FORBIDDEN: {"model": ErrorResponse},
+    },
+)
+async def get_follow_analysis(
+    username: str,
+    interval_hours: int = Query(12, ge=12, le=24, description="周期间隔（12 或 24 小时）"),
+    periods: int = Query(14, ge=1, le=30, description="查询周期数"),
+    session: AsyncSession = Depends(get_async_session),
+    admin: UserDomain = Depends(get_current_admin_user),
+) -> FetchAnalysisResponse:
+    """获取指定账号的抓取结果分析。
+
+    按指定的时间间隔统计过去 N 个周期内每个周期的新推文数量。
+
+    Args:
+        username: Twitter 用户名
+        interval_hours: 周期间隔（12 或 24 小时）
+        periods: 查询周期数（默认 14）
+        session: 数据库会话
+        admin: 管理员用户
+    """
+    from src.scraper.infrastructure.models import TweetOrm
+
+    try:
+        now = datetime.now(timezone.utc)
+        interval = timedelta(hours=interval_hours)
+
+        period_stats = []
+        total = 0
+
+        for i in range(periods):
+            period_end = now - (i * interval)
+            period_start = period_end - interval
+
+            stmt = (
+                select(func.count())
+                .select_from(TweetOrm)
+                .where(
+                    TweetOrm.author_username == username,
+                    TweetOrm.created_at >= period_start,
+                    TweetOrm.created_at < period_end,
+                )
+            )
+            result = await session.execute(stmt)
+            count = result.scalar() or 0
+
+            period_stats.append(PeriodStats(
+                period_start=period_start,
+                period_end=period_end,
+                new_tweet_count=count,
+            ))
+            total += count
+
+        # 按时间正序排列（最早的在前）
+        period_stats.reverse()
+
+        return FetchAnalysisResponse(
+            username=username,
+            interval_hours=interval_hours,
+            periods=period_stats,
+            total_new_tweets=total,
+        )
+    except Exception as e:
+        logger.error(f"获取抓取分析失败: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="获取抓取分析失败",
+        ) from e
+
+
 # ==================== 公共只读端点 ====================
 
 
@@ -465,6 +551,7 @@ async def get_scraper_follows_public(
                 reason=f.reason,
                 added_by=f.added_by,
                 is_active=f.is_active,
+                manual_limit=f.manual_limit,
             )
             for f in result
         ]

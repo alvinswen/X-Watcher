@@ -1,10 +1,11 @@
-/** 调度管理 API 客户端。 */
+/** 抓取管理 API 客户端。 */
 
 import { client } from "./client"
 import type {
   ScheduleConfig,
   UpdateIntervalRequest,
   UpdateNextRunRequest,
+  FetchAnalysisResponse,
 } from "@/types"
 
 /** 调度管理 API 路径前缀 */
@@ -48,6 +49,18 @@ export const schedulerApi = {
   async disable(): Promise<ScheduleConfig> {
     const response = await client.post<ScheduleConfig>(
       `${SCHEDULER_PREFIX}/disable`,
+    )
+    return response.data
+  },
+
+  /** 获取账号抓取分析 */
+  async getFollowAnalysis(
+    username: string,
+    intervalHours: number = 12,
+  ): Promise<FetchAnalysisResponse> {
+    const response = await client.get<FetchAnalysisResponse>(
+      `/admin/scraping/follows/${username}/analysis`,
+      { params: { interval_hours: intervalHours } },
     )
     return response.data
   },

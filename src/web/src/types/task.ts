@@ -81,6 +81,8 @@ export interface ScrapingFollow {
   added_by: string
   /** 是否活跃 */
   is_active: boolean
+  /** 手动推文数量限制（null 表示自动计算） */
+  manual_limit: number | null
 }
 
 /** 添加抓取账号请求。 */
@@ -125,4 +127,6 @@ export interface UpdateScrapingFollowRequest {
   reason?: string
   /** 是否活跃 */
   is_active?: boolean
+  /** 手动推文数量限制（0 清除，null 不修改） */
+  manual_limit?: number | null
 }

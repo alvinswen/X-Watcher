@@ -19,6 +19,7 @@ export interface AuthorInfo {
   author_display_name: string | null
   tweet_count: number
   last_tweet_at: string
+  reason: string | null
 }
 
 /** 作者列表响应 */

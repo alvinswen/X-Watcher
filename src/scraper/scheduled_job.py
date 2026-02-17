@@ -35,14 +35,14 @@ def _run_async(coro):
             loop.close()
 
 
-def get_active_follows_from_db() -> list[str]:
-    """从数据库获取活跃关注账号列表。
+def get_active_follows_from_db() -> list[dict]:
+    """从数据库获取活跃关注账号列表，包含手动 limit 配置。
 
     使用同步 SQLAlchemy engine 直接查询，避免在后台线程中
     使用 asyncio.run() 可能引发的 event loop 冲突。
 
     Returns:
-        list[str]: 活跃关注账号的用户名列表
+        list[dict]: 活跃关注账号列表，每项包含 username 和 manual_limit
     """
     try:
         from sqlalchemy import select
@@ -53,11 +53,11 @@ def get_active_follows_from_db() -> list[str]:
         engine = get_engine()
         with SyncSession(engine) as session:
             result = session.execute(
-                select(ScraperFollow.username).where(
+                select(ScraperFollow.username, ScraperFollow.manual_limit).where(
                     ScraperFollow.is_active == True  # noqa: E712
                 )
             )
-            return [row[0] for row in result]
+            return [{"username": row[0], "manual_limit": row[1]} for row in result]
     except Exception as e:
         logger.warning(f"从数据库获取关注列表失败，将使用环境变量: {e}")
         return []
@@ -80,7 +80,13 @@ def scheduled_scrape_job():
         return
 
     # 1. 优先从数据库获取活跃关注列表
-    usernames = get_active_follows_from_db()
+    follows_data = get_active_follows_from_db()
+    usernames = [f["username"] for f in follows_data]
+    manual_limits = {
+        f["username"]: f["manual_limit"]
+        for f in follows_data
+        if f["manual_limit"]
+    }
 
     # 2. 降级：如果数据库无数据，使用环境变量
     if not usernames:
@@ -89,6 +95,7 @@ def scheduled_scrape_job():
             for u in settings.scraper_usernames.split(",")
             if u.strip()
         ]
+        manual_limits = {}
         if usernames:
             logger.info(f"数据库无关注列表，使用环境变量配置: {usernames}")
 
@@ -102,6 +109,9 @@ def scheduled_scrape_job():
         logger.info(f"定时抓取任务开始，距上次抓取: {elapsed}，用户: {usernames}")
     else:
         logger.info(f"定时抓取任务开始（首次执行），用户: {usernames}")
+
+    if manual_limits:
+        logger.info(f"手动 limit 配置: {manual_limits}")
 
     # 检查是否有相同的任务正在运行
     registry = TaskRegistry.get_instance()
@@ -117,6 +127,7 @@ def scheduled_scrape_job():
             service.scrape_users(
                 usernames=usernames,
                 limit=settings.scraper_limit,
+                manual_limits=manual_limits or None,
             )
         )
         _last_scrape_time = datetime.now()

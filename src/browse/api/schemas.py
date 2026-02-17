@@ -32,6 +32,7 @@ class AuthorInfo(UTCDatetimeModel):
     author_display_name: str | None = Field(None, description="作者显示名称")
     tweet_count: int = Field(..., description="推文数量")
     last_tweet_at: datetime = Field(..., description="最后一条推文时间")
+    reason: str | None = Field(None, description="关注理由/作者简介")
 
 
 class AuthorListResponse(BaseModel):

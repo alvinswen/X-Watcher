@@ -162,6 +162,7 @@ class ScraperConfigRepository:
         username: str,
         reason: str | None = None,
         is_active: bool | None = None,
+        manual_limit: int | None = None,
     ) -> ScraperFollowDomain:
         """更新抓取账号。
 
@@ -169,6 +170,7 @@ class ScraperConfigRepository:
             username: Twitter 用户名
             reason: 新的添加理由（可选）
             is_active: 是否启用（可选）
+            manual_limit: 手动推文数量限制（0 清除，正整数设置，None 不修改）
 
         Returns:
             ScraperFollowDomain: 更新后的抓取账号记录
@@ -179,8 +181,8 @@ class ScraperConfigRepository:
         """
         try:
             # 验证至少有一个更新参数
-            if reason is None and is_active is None:
-                raise RepositoryError("必须提供至少一个更新参数（reason 或 is_active）")
+            if reason is None and is_active is None and manual_limit is None:
+                raise RepositoryError("必须提供至少一个更新参数（reason、is_active 或 manual_limit）")
 
             # 查询记录
             stmt = select(ScraperFollowOrm).where(
@@ -197,6 +199,8 @@ class ScraperConfigRepository:
                 orm_follow.reason = reason
             if is_active is not None:
                 orm_follow.is_active = is_active
+            if manual_limit is not None:
+                orm_follow.manual_limit = None if manual_limit == 0 else manual_limit
 
             await self._session.flush()
 

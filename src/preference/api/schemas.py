@@ -155,6 +155,7 @@ class ScraperFollowResponse(UTCDatetimeModel):
     reason: str = Field(..., description="添加理由")
     added_by: str = Field(..., description="添加人")
     is_active: bool = Field(..., description="是否启用")
+    manual_limit: int | None = Field(None, description="手动推文数量限制")
 
 
 class UpdateScraperFollowRequest(BaseModel):
@@ -172,6 +173,12 @@ class UpdateScraperFollowRequest(BaseModel):
     is_active: bool | None = Field(
         None,
         description="是否启用",
+    )
+    manual_limit: int | None = Field(
+        default=None,
+        ge=0,
+        le=1000,
+        description="手动推文数量限制（0 表示清除手动设置恢复自动计算，null 表示不修改）",
     )
 
 
@@ -206,6 +213,26 @@ class ScheduleConfigResponse(UTCDatetimeModel):
     updated_at: datetime | None = Field(None, description="最后配置更新时间")
     updated_by: str | None = Field(None, description="最后更新人")
     message: str | None = Field(None, description="附加信息（如调度器未运行提示）")
+
+
+# ==================== 抓取分析 API 模型 ====================
+
+
+class PeriodStats(BaseModel):
+    """单个周期的统计数据。"""
+
+    period_start: datetime = Field(..., description="周期开始时间")
+    period_end: datetime = Field(..., description="周期结束时间")
+    new_tweet_count: int = Field(..., description="该周期内新推文数量")
+
+
+class FetchAnalysisResponse(UTCDatetimeModel):
+    """抓取结果分析响应。"""
+
+    username: str = Field(..., description="Twitter 用户名")
+    interval_hours: int = Field(..., description="周期间隔小时数")
+    periods: list[PeriodStats] = Field(..., description="各周期统计数据")
+    total_new_tweets: int = Field(..., description="总新推文数量")
 
 
 # ==================== 通用响应模型 ====================

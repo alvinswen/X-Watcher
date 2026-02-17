@@ -41,6 +41,7 @@
             <div class="author-info-block">
               <span class="author-display-name">{{ author.author_display_name || author.author_username }}</span>
               <span class="author-handle">@{{ author.author_username }}</span>
+              <span v-if="author.reason" class="author-reason" :title="author.reason">{{ author.reason }}</span>
             </div>
             <el-badge :value="author.tweet_count" :max="99" />
           </div>
@@ -428,6 +429,14 @@ onMounted(() => {
 .author-handle {
   font-size: 11px;
   color: #909399;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.author-reason {
+  font-size: 11px;
+  color: #a8abb2;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

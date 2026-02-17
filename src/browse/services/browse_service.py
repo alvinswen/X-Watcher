@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.database.models import ScraperFollow
 from src.scraper.infrastructure.models import TweetOrm
 from src.summarization.infrastructure.models import SummaryOrm
 
@@ -111,6 +112,24 @@ class BrowseService:
                 "tweet_count": row.tweet_count,
                 "last_tweet_at": row.last_tweet_at,
             })
+
+        # 批量查询作者简介（ScraperFollow.reason）
+        usernames = [a["author_username"] for a in authors]
+        if usernames:
+            reason_stmt = (
+                select(ScraperFollow.username, ScraperFollow.reason)
+                .where(
+                    ScraperFollow.username.in_(usernames),
+                    ScraperFollow.is_active == True,  # noqa: E712
+                )
+            )
+            reason_result = await self._session.execute(reason_stmt)
+            reason_map = {r.username: r.reason for r in reason_result.fetchall()}
+        else:
+            reason_map = {}
+
+        for author in authors:
+            author["reason"] = reason_map.get(author["author_username"])
 
         return authors
 

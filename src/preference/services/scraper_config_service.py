@@ -76,6 +76,7 @@ class ScraperConfigService:
         username: str,
         reason: str | None = None,
         is_active: bool | None = None,
+        manual_limit: int | None = None,
     ) -> ScraperFollow:
         """更新抓取账号。
 
@@ -83,6 +84,7 @@ class ScraperConfigService:
             username: Twitter 用户名
             reason: 新的添加理由（可选）
             is_active: 是否启用（可选）
+            manual_limit: 手动推文数量限制（0 清除，正整数设置，None 不修改）
 
         Returns:
             ScraperFollow: 更新后的抓取账号
@@ -95,6 +97,7 @@ class ScraperConfigService:
             username=username,
             reason=reason,
             is_active=is_active,
+            manual_limit=manual_limit,
         )
 
     async def deactivate_follow(

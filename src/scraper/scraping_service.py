@@ -78,6 +78,7 @@ class ScrapingService:
         limit: int = 100,
         since_id: str | None = None,
         task_id: str | None = None,
+        manual_limits: dict[str, int] | None = None,
     ) -> str:
         """抓取多个用户的推文。
 
@@ -86,6 +87,7 @@ class ScrapingService:
             limit: 每个用户抓取的推文数量限制
             since_id: 只获取此 ID 之后的推文
             task_id: 可选的任务 ID（为 None 时自动创建）
+            manual_limits: 手动 limit 映射 {username: limit}（可选）
 
         Returns:
             str: 任务 ID
@@ -117,6 +119,7 @@ class ScrapingService:
                     username,
                     limit,
                     since_id,
+                    manual_limit=manual_limits.get(username) if manual_limits else None,
                 )
                 for username in usernames
             ]
@@ -171,10 +174,13 @@ class ScrapingService:
         username: str,
         limit: int,
         since_id: str | None,
+        manual_limit: int | None = None,
     ) -> dict[str, Any]:
         """使用信号量控制并发抓取。"""
         async with semaphore:
-            return await self.scrape_single_user(username, limit=limit, since_id=since_id)
+            return await self.scrape_single_user(
+                username, limit=limit, since_id=since_id, manual_limit=manual_limit,
+            )
 
     async def scrape_single_user(
         self,
@@ -182,16 +188,18 @@ class ScrapingService:
         *,
         limit: int = 100,
         since_id: str | None = None,
+        manual_limit: int | None = None,
     ) -> dict[str, Any]:
         """抓取单个用户的推文。
 
         使用动态 limit 策略：根据历史抓取统计自动调整每次 API 请求的 limit，
-        减少重复推文的 API 调用成本。
+        减少重复推文的 API 调用成本。当设置了 manual_limit 时，使用手动值。
 
         Args:
             username: 用户名
             limit: 抓取的推文数量限制（作为上限参考，实际 limit 由动态计算决定）
             since_id: 只获取此 ID 之后的推文
+            manual_limit: 手动 limit（优先于自动计算）
 
         Returns:
             dict: 抓取结果
@@ -216,15 +224,21 @@ class ScrapingService:
         }
 
         try:
-            # 0. 查询历史统计，计算动态 limit
-            fetch_stats = await self._get_fetch_stats(username)
-            dynamic_limit = self._limit_calculator.calculate_next_limit(fetch_stats)
-            actual_limit = min(dynamic_limit, limit)  # 不超过传入的上限
-
-            logger.info(
-                "开始抓取用户: %s (动态 limit=%d, 传入上限=%d)",
-                username, actual_limit, limit,
-            )
+            # 0. 计算 limit：手动优先，否则动态计算
+            if manual_limit is not None and manual_limit > 0:
+                actual_limit = manual_limit
+                logger.info(
+                    "开始抓取用户: %s (手动 limit=%d)",
+                    username, actual_limit,
+                )
+            else:
+                fetch_stats = await self._get_fetch_stats(username)
+                dynamic_limit = self._limit_calculator.calculate_next_limit(fetch_stats)
+                actual_limit = min(dynamic_limit, limit)  # 不超过传入的上限
+                logger.info(
+                    "开始抓取用户: %s (动态 limit=%d, 传入上限=%d)",
+                    username, actual_limit, limit,
+                )
 
             # 1. 调用 Twitter API
             api_result = await self._client.fetch_user_tweets(
