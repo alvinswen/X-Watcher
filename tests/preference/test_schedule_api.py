@@ -63,7 +63,9 @@ class TestScheduleConfigAPI:
     """测试调度配置 API 端点。"""
 
     @pytest.fixture
-    def app(self, async_session):
+    def app(self, async_session, _test_db_engine):
+        from sqlalchemy.ext.asyncio import AsyncSession as _AsyncSession, async_sessionmaker
+
         app = FastAPI()
         app.include_router(scraper_config_router)
 
@@ -71,7 +73,18 @@ class TestScheduleConfigAPI:
             yield async_session
 
         app.dependency_overrides[get_async_session] = get_session_override
-        yield app
+
+        # 修复：ScraperScheduleService._retry_upsert/_retry_read 绕过 DI
+        # 直接调用 get_async_session_maker()，必须 patch 使其指向测试 DB
+        test_session_maker = async_sessionmaker(
+            _test_db_engine, class_=_AsyncSession, expire_on_commit=False
+        )
+        with patch(
+            "src.database.async_session.get_async_session_maker",
+            return_value=test_session_maker,
+        ):
+            yield app
+
         app.dependency_overrides.clear()
 
     @pytest.fixture
@@ -98,19 +111,12 @@ class TestScheduleConfigAPI:
     @pytest.mark.asyncio
     async def test_get_schedule_default_config(self, client):
         """GET 返回默认配置。"""
-        from unittest.mock import AsyncMock
-
         with patch("src.preference.services.schedule_service.get_scheduler", return_value=None):
             with patch("src.preference.services.schedule_service.get_settings") as mock_settings:
                 mock_settings.return_value.scraper_interval = 43200
-                # _retry_read 内部直接调用 get_async_session_maker，绕过 dependency_overrides，
-                # 需要 mock 使其返回 None（无 DB 配置），从而走 get_settings 默认值分支
-                with patch(
-                    "src.preference.services.schedule_service.ScraperScheduleService._retry_read",
-                    new_callable=AsyncMock,
-                    return_value=None,
-                ):
-                    response = await client.get("/api/admin/scraping/schedule")
+                # get_async_session_maker 已在 app fixture 中 patch 指向测试 DB，
+                # _retry_read 会查询空的测试 DB 返回 None，从而走 get_settings 默认值分支
+                response = await client.get("/api/admin/scraping/schedule")
 
         assert response.status_code == 200
         data = response.json()
@@ -197,7 +203,9 @@ class TestScheduleEnableDisableAPI:
     """测试启用/暂停调度 API 端点。"""
 
     @pytest.fixture
-    def app(self, async_session):
+    def app(self, async_session, _test_db_engine):
+        from sqlalchemy.ext.asyncio import AsyncSession as _AsyncSession, async_sessionmaker
+
         app = FastAPI()
         app.include_router(scraper_config_router)
 
@@ -205,7 +213,18 @@ class TestScheduleEnableDisableAPI:
             yield async_session
 
         app.dependency_overrides[get_async_session] = get_session_override
-        yield app
+
+        # 修复：ScraperScheduleService._retry_upsert/_retry_read 绕过 DI
+        # 直接调用 get_async_session_maker()，必须 patch 使其指向测试 DB
+        test_session_maker = async_sessionmaker(
+            _test_db_engine, class_=_AsyncSession, expire_on_commit=False
+        )
+        with patch(
+            "src.database.async_session.get_async_session_maker",
+            return_value=test_session_maker,
+        ):
+            yield app
+
         app.dependency_overrides.clear()
 
     @pytest.fixture
