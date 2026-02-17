@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue"
+import { provide, ref } from "vue"
 import { useRoute } from "vue-router"
 import {
   Odometer,
@@ -11,6 +11,7 @@ import {
   UserFilled,
   Fold,
   Expand,
+  FullScreen,
 } from "@element-plus/icons-vue"
 import { useAuthStore } from "@/stores/auth"
 import { ElMessage } from "element-plus"
@@ -20,6 +21,14 @@ const authStore = useAuthStore()
 
 /** 侧边栏是否折叠 */
 const isCollapsed = ref(false)
+
+/** 全屏模式 */
+const isFullscreen = ref(false)
+provide("isFullscreen", isFullscreen)
+
+function toggleFullscreen() {
+  isFullscreen.value = !isFullscreen.value
+}
 
 /** API Key 设置对话框是否可见 */
 const apiKeyDialogVisible = ref(false)
@@ -68,7 +77,7 @@ function clearApiKey() {
 <template>
   <el-container class="admin-layout">
     <!-- 侧边栏 -->
-    <el-aside :width="isCollapsed ? '64px' : '220px'" class="admin-aside">
+    <el-aside v-show="!isFullscreen" :width="isCollapsed ? '64px' : '220px'" class="admin-aside">
       <div class="aside-header">
         <span v-if="!isCollapsed" class="aside-title">X-watcher</span>
       </div>
@@ -112,8 +121,17 @@ function clearApiKey() {
 
     <!-- 右侧内容区 -->
     <el-container>
-      <el-header class="admin-header" height="50px">
+      <el-header v-show="!isFullscreen" class="admin-header" height="50px">
         <span class="header-title">{{ route.meta.title }}</span>
+        <span class="header-spacer"></span>
+        <el-button
+          v-if="route.path === '/browse'"
+          text
+          :icon="FullScreen"
+          @click="toggleFullscreen"
+        >
+          全屏
+        </el-button>
       </el-header>
       <el-main class="admin-main">
         <slot />
@@ -253,6 +271,10 @@ function clearApiKey() {
   font-size: 16px;
   font-weight: 500;
   color: #303133;
+}
+
+.header-spacer {
+  flex: 1;
 }
 
 .admin-main {

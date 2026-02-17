@@ -1,6 +1,12 @@
 <template>
   <div class="browse-view">
-    <div class="browse-layout">
+    <!-- 全屏模式下的工具条 -->
+    <div v-if="isFullscreen" class="fullscreen-toolbar">
+      <span class="fullscreen-title">推文浏览</span>
+      <el-button text :icon="CloseBold" @click="exitFullscreen">退出全屏</el-button>
+    </div>
+
+    <div class="browse-layout" :class="{ 'browse-layout--fullscreen': isFullscreen }">
       <!-- 日历面板 -->
       <div class="calendar-panel">
         <el-calendar v-model="selectedDate" class="browse-calendar">
@@ -54,6 +60,7 @@
         <div v-if="selectedAuthorInfo" class="selected-author-header">
           <span class="selected-author-name">{{ selectedAuthorInfo.author_display_name || selectedAuthorInfo.author_username }}</span>
           <span class="selected-author-handle">@{{ selectedAuthorInfo.author_username }}</span>
+          <span v-if="selectedAuthorInfo.reason" class="selected-author-reason">{{ selectedAuthorInfo.reason }}</span>
           <el-tag size="small" type="info">{{ selectedAuthorInfo.tweet_count }} 条推文</el-tag>
         </div>
 
@@ -138,10 +145,24 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from "vue"
+import { ref, computed, watch, inject, onMounted, onUnmounted, type Ref } from "vue"
+import { CloseBold } from "@element-plus/icons-vue"
 import { browseApi } from "@/api"
 import { formatFullDateTime } from "@/utils/format"
 import type { AuthorInfo, BrowseTweetItem } from "@/types"
+
+/** 全屏模式 */
+const isFullscreen = inject<Ref<boolean>>("isFullscreen", ref(false))
+
+function exitFullscreen() {
+  isFullscreen.value = false
+}
+
+function handleKeydown(e: KeyboardEvent) {
+  if (e.key === "Escape" && isFullscreen.value) {
+    exitFullscreen()
+  }
+}
 
 /** 选中日期 */
 const selectedDate = ref(new Date())
@@ -297,6 +318,11 @@ onMounted(() => {
   loadDailyStats()
   loadAuthors()
   loadTweets()
+  document.addEventListener("keydown", handleKeydown)
+})
+
+onUnmounted(() => {
+  document.removeEventListener("keydown", handleKeydown)
 })
 </script>
 
@@ -309,6 +335,26 @@ onMounted(() => {
   display: flex;
   gap: 16px;
   height: calc(100vh - 100px);
+}
+
+.browse-layout--fullscreen {
+  height: calc(100vh - 45px);
+}
+
+/* 全屏工具条 */
+.fullscreen-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: #fff;
+  border-bottom: 1px solid #e4e7ed;
+}
+
+.fullscreen-title {
+  font-size: 15px;
+  font-weight: 500;
+  color: #303133;
 }
 
 /* 日历面板 */
@@ -436,7 +482,7 @@ onMounted(() => {
 
 .author-reason {
   font-size: 11px;
-  color: #a8abb2;
+  color: #303133;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -476,6 +522,11 @@ onMounted(() => {
 .selected-author-handle {
   font-size: 13px;
   color: #909399;
+}
+
+.selected-author-reason {
+  font-size: 13px;
+  color: #303133;
 }
 
 .tweet-list {
