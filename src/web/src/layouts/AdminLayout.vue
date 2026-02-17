@@ -9,6 +9,7 @@ import {
   Monitor,
   Timer,
   UserFilled,
+  Star,
   Fold,
   Expand,
   FullScreen,
@@ -45,6 +46,7 @@ const menuItems = [
   { index: "/tasks", title: "任务监控", icon: Monitor },
   { index: "/scraping", title: "抓取管理", icon: Timer },
   { index: "/users", title: "用户管理", icon: UserFilled },
+  { index: "/my-follows", title: "我的关注", icon: Star },
 ]
 
 /** 打开 API Key 设置对话框 */

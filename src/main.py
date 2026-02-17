@@ -319,11 +319,12 @@ from src.feed.api.routes import router as feed_router
 app.include_router(feed_router)
 
 # 注册用户管理 API 路由
-from src.user.api import auth_router, user_router, admin_user_router
+from src.user.api import auth_router, user_router, admin_user_router, admin_user_follows_router
 
 app.include_router(auth_router)
 app.include_router(user_router)
 app.include_router(admin_user_router)
+app.include_router(admin_user_follows_router)
 
 # 注册 Prometheus 监控路由
 from src.monitoring import routes as monitoring_routes

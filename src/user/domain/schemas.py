@@ -22,6 +22,14 @@ class CreateUserRequest(BaseModel):
     email: str
 
 
+class UpdateUserRequest(BaseModel):
+    """更新用户信息请求（管理员操作）。所有字段可选，仅更新提供的字段。"""
+
+    name: str | None = Field(None, min_length=1, max_length=200)
+    email: str | None = Field(None, min_length=1, max_length=200)
+    is_admin: bool | None = None
+
+
 class CreateApiKeyRequest(BaseModel):
     """创建 API Key 请求。"""
 

@@ -83,6 +83,28 @@ class UserService:
         await self._repo.update_password_hash(user_id, password_hash)
         return temp_password
 
+    async def update_user(
+        self,
+        user_id: int,
+        name: str | None = None,
+        email: str | None = None,
+        is_admin: bool | None = None,
+    ) -> UserDomain:
+        """管理员更新用户信息。不能将最后一个管理员降级。"""
+        if is_admin is False:
+            current_user = await self._repo.get_user_by_id(user_id)
+            if current_user is None:
+                from src.user.infrastructure.repository import NotFoundError
+                raise NotFoundError("用户不存在")
+            if current_user.is_admin:
+                admin_count = await self._repo.count_admins()
+                if admin_count <= 1:
+                    raise ValueError("不能将最后一个管理员降级为普通用户")
+
+        return await self._repo.update_user(
+            user_id, name=name, email=email, is_admin=is_admin
+        )
+
     async def get_user(self, user_id: int) -> UserDomain | None:
         return await self._repo.get_user_by_id(user_id)
 

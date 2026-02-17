@@ -73,6 +73,14 @@ const routes: RouteRecordRaw[] = [
       title: "用户管理",
     },
   },
+  {
+    path: "/my-follows",
+    name: "my-follows",
+    component: () => import("@/views/MyFollowsView.vue"),
+    meta: {
+      title: "我的关注",
+    },
+  },
 ]
 
 /** 创建路由实例 */

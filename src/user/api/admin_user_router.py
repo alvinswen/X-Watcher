@@ -12,6 +12,7 @@ from src.user.domain.schemas import (
     CreateUserRequest,
     CreateUserResponse,
     ResetPasswordResponse,
+    UpdateUserRequest,
     UserResponse,
 )
 from src.user.infrastructure.repository import DuplicateError, NotFoundError
@@ -74,6 +75,46 @@ async def list_users(
         )
         for u in users
     ]
+
+
+@router.put("/{user_id}", response_model=UserResponse)
+async def update_user(
+    user_id: int,
+    request: UpdateUserRequest,
+    admin: UserDomain = Depends(get_current_admin_user),
+    session: AsyncSession = Depends(get_async_session),
+) -> UserResponse:
+    """更新用户信息（管理员）。"""
+    service = UserService(session)
+    try:
+        user = await service.update_user(
+            user_id,
+            name=request.name,
+            email=request.email,
+            is_admin=request.is_admin,
+        )
+    except NotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="用户不存在",
+        )
+    except DuplicateError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="该邮箱已被注册",
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    return UserResponse(
+        id=user.id,
+        name=user.name,
+        email=user.email,
+        is_admin=user.is_admin,
+        created_at=user.created_at,
+    )
 
 
 @router.post(

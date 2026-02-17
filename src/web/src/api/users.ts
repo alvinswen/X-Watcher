@@ -6,6 +6,8 @@ import type {
   CreateUserRequest,
   CreateUserResponse,
   ResetPasswordResponse,
+  UpdateUserRequest,
+  UserFollow,
 } from "@/types"
 
 /** 用户管理 API 路径前缀 */
@@ -34,5 +36,42 @@ export const usersApi = {
       `${USERS_PREFIX}/${userId}/reset-password`,
     )
     return response.data
+  },
+
+  /** 更新用户信息 */
+  async update(userId: number, data: UpdateUserRequest): Promise<UserInfo> {
+    const response = await client.put<UserInfo>(
+      `${USERS_PREFIX}/${userId}`,
+      data,
+    )
+    return response.data
+  },
+
+  /** 获取用户关注列表 */
+  async getUserFollows(userId: number): Promise<UserFollow[]> {
+    const response = await client.get<UserFollow[]>(
+      `${USERS_PREFIX}/${userId}/follows`,
+    )
+    return response.data
+  },
+
+  /** 为用户添加关注 */
+  async addUserFollow(
+    userId: number,
+    username: string,
+  ): Promise<UserFollow> {
+    const response = await client.post<UserFollow>(
+      `${USERS_PREFIX}/${userId}/follows`,
+      { username },
+    )
+    return response.data
+  },
+
+  /** 为用户移除关注 */
+  async removeUserFollow(
+    userId: number,
+    username: string,
+  ): Promise<void> {
+    await client.delete(`${USERS_PREFIX}/${userId}/follows/${username}`)
   },
 }

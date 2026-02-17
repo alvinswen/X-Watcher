@@ -3,7 +3,7 @@
 import logging
 from datetime import datetime, timezone
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -64,6 +64,40 @@ class UserRepository:
         result = await self._session.execute(select(UserOrm))
         users = result.scalars().all()
         return [UserDomain.from_orm(u) for u in users]
+
+    async def update_user(
+        self,
+        user_id: int,
+        name: str | None = None,
+        email: str | None = None,
+        is_admin: bool | None = None,
+    ) -> UserDomain:
+        """更新用户信息。仅更新非 None 的字段。IntegrityError -> DuplicateError。"""
+        user_orm = await self.get_user_orm_by_id(user_id)
+        if user_orm is None:
+            raise NotFoundError(f"用户不存在: {user_id}")
+
+        if name is not None:
+            user_orm.name = name
+        if email is not None:
+            user_orm.email = email
+        if is_admin is not None:
+            user_orm.is_admin = is_admin
+
+        try:
+            await self._session.flush()
+        except IntegrityError as e:
+            await self._session.rollback()
+            raise DuplicateError(f"该邮箱已被注册: {email}") from e
+
+        return UserDomain.from_orm(user_orm)
+
+    async def count_admins(self) -> int:
+        """统计管理员数量。"""
+        result = await self._session.execute(
+            select(func.count(UserOrm.id)).where(UserOrm.is_admin == True)  # noqa: E712
+        )
+        return result.scalar() or 0
 
     async def update_password_hash(self, user_id: int, password_hash: str) -> None:
         await self._session.execute(

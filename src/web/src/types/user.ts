@@ -37,3 +37,25 @@ export interface ResetPasswordResponse {
   /** 新临时密码 */
   temp_password: string
 }
+
+/** 更新用户请求。 */
+export interface UpdateUserRequest {
+  /** 用户名称 */
+  name?: string
+  /** 用户邮箱 */
+  email?: string
+  /** 是否为管理员 */
+  is_admin?: boolean
+}
+
+/** 用户关注记录。 */
+export interface UserFollow {
+  /** 关注记录 ID */
+  id: number
+  /** 用户 ID */
+  user_id: number
+  /** Twitter 用户名 */
+  username: string
+  /** 创建时间 */
+  created_at: string
+}

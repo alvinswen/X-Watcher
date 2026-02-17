@@ -98,7 +98,8 @@ src/
 │   │   ├── auth.py          # JWT + API Key 统一认证依赖
 │   │   ├── auth_router.py   # POST /api/auth/login
 │   │   ├── user_router.py   # 用户资料、API Key 管理
-│   │   └── admin_user_router.py  # 管理员创建/管理用户
+│   │   ├── admin_user_router.py  # 管理员创建/管理/编辑用户
+│   │   └── admin_user_follows_router.py  # 管理员代理管理用户关注列表
 │   ├── domain/
 │   │   ├── models.py        # UserDomain, ApiKeyInfo, BOOTSTRAP_ADMIN
 │   │   └── schemas.py       # Login/User/ApiKey 请求响应模型
