@@ -462,16 +462,29 @@ class SummarizationQueue:
             request: 摘要请求
         """
         from src.database.async_session import get_async_session_maker
+        from src.logging_config import trace_id_var
         from src.summarization.domain.models import PromptConfig
         from src.summarization.llm.config import LLMProviderConfig
         from src.summarization.services.summarization_service import (
             create_summarization_service,
         )
 
+        # 设置 trace_id，使摘要处理链路的所有日志可追踪
+        if request.task_id:
+            trace_id_var.set(request.task_id)
+
         logger.info(
             f"Worker 开始处理: {len(request.tweet_ids)} 条推文, "
             f"source={request.source}, retry={request.retry_count}, "
-            f"chunk={request.chunk_index + 1}/{request.total_chunks}"
+            f"chunk={request.chunk_index + 1}/{request.total_chunks}",
+            extra={
+                "task_id": request.task_id,
+                "source": request.source,
+                "event": "worker_start",
+                "total_tweets": len(request.tweet_ids),
+                "chunk_index": request.chunk_index,
+                "total_chunks": request.total_chunks,
+            },
         )
 
         # 更新任务状态为运行中

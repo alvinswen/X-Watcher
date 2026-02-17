@@ -77,7 +77,7 @@ prometheus_client   # Prometheus 指标采集
 
 # 工具库
 python-dotenv       # 环境变量
-loguru              # 日志
+# logging — 使用标准库 logging + 自定义 logging_config.py（JSON/文本双格式 + trace_id + 文件轮转）
 
 # Agent 框架（计划中）
 # nanobot-ai        # HKUDS/nanobot — 待引入
@@ -126,6 +126,12 @@ TWITTER_API_SECRET=your_secret
 
 # 数据库
 DATABASE_URL=sqlite:///./news_agent.db
+
+# 日志
+LOG_FORMAT=text                     # 控制台日志格式（text=人类可读, json=结构化）
+LOG_FILE=logs/x-watcher.log         # 日志文件路径，留空禁用
+LOG_FILE_MAX_BYTES=52428800         # 单个日志文件最大 50MB
+LOG_FILE_BACKUP_COUNT=5             # 保留 5 个备份文件
 
 # 认证与用户管理
 ADMIN_API_KEY=your_admin_key        # 管理员 API Key（Bootstrap 模式）
@@ -243,6 +249,13 @@ mypy src/
 - **多维度指标**：HTTP 请求（计数 + 延迟直方图）、活跃任务数、调度器执行/错误/漏跑、摘要队列（入队/处理/丢弃）
 - **标准集成**：`prometheus_client` 库 + FastAPI 中间件自动采集，`/metrics` 端点暴露
 - **低侵入性**：通过 APScheduler 事件监听器（`scheduler_listener.py`）和队列钩子自动上报，业务代码无需关心
+
+### 为什么用自定义 logging_config 替代 basicConfig？
+- **extra 字段可见**：`basicConfig` 格式完全丢弃 `extra={}` 结构化字段，SummaryLogger 精心构建的上下文（tweet_id, provider, tokens, cost）不可见
+- **双输出策略**：控制台用人类可读文本（开发友好），文件强制 JSON 格式（机器可解析，支持 grep/jq）
+- **trace_id 链路追踪**：基于 `contextvars.ContextVar`，在管道入口（抓取任务/摘要队列 worker）设置，通过 `TraceIdFilter` 自动注入所有日志
+- **文件轮转**：`RotatingFileHandler`，50MB/文件，5 个备份，避免磁盘爆满
+- **增强文本格式**：在消息后追加关键 extra 字段（`| provider=xxx tweet_id=xxx`），开发时也能看到结构化上下文
 
 ### 为什么选择 MiniMax + OpenRouter 双 LLM？
 - **MiniMax 成本优势**：比 OpenAI 便宜 10 倍以上，中文友好

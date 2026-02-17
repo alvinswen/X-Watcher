@@ -69,6 +69,22 @@ class Settings(BaseSettings):
         description="日志级别",
         validate_default=True,  # 确保默认值也经过验证
     )
+    log_format: Literal["text", "json"] = Field(
+        default="text",
+        description="控制台日志格式（text=人类可读, json=结构化）",
+    )
+    log_file: str | None = Field(
+        default="logs/x-watcher.log",
+        description="日志文件路径，None 或空字符串禁用文件输出",
+    )
+    log_file_max_bytes: int = Field(
+        default=50 * 1024 * 1024,
+        description="单个日志文件最大字节数（默认 50MB）",
+    )
+    log_file_backup_count: int = Field(
+        default=5, ge=0, le=20,
+        description="日志文件备份数量",
+    )
 
     # 监控配置
     prometheus_enabled: bool = Field(

@@ -60,6 +60,7 @@ class DeduplicationService:
         tweet_ids: list[str],
         tweets: list["Tweet"] | None = None,
         config: DeduplicationConfig | None = None,
+    trigger_summarization: bool = True,
     ) -> DeduplicationResult:
         """对指定推文执行去重。
 
@@ -67,6 +68,9 @@ class DeduplicationService:
             tweet_ids: 推文 ID 列表
             tweets: 推文列表（为 None 时从数据库加载）
             config: 去重策略配置（为 None 时使用默认配置）
+            trigger_summarization: 去重完成后是否自动触发摘要任务。
+                当由 ScrapingService 调用时传 False（由 scraping 统一触发摘要），
+                其他场景默认 True。
 
         Returns:
             DeduplicationResult: 去重结果统计
@@ -123,8 +127,9 @@ class DeduplicationService:
                 f"耗时 {result.elapsed_seconds:.2f} 秒"
             )
 
-            # 触发摘要任务（如果配置了摘要服务）
-            await self._trigger_summarization(all_groups)
+            # 触发摘要任务（如果启用且配置了摘要服务）
+            if trigger_summarization:
+                await self._trigger_summarization(all_groups)
 
             return result
 
@@ -146,6 +151,7 @@ class DeduplicationService:
         """触发摘要任务。
 
         将去重组的代表推文入队到集中式摘要队列，由队列 worker 统一处理。
+        支持跨线程入队（当从非主事件循环调用时使用 enqueue_threadsafe）。
 
         Args:
             groups: 去重组列表
@@ -161,17 +167,62 @@ class DeduplicationService:
         )
 
         try:
+            import asyncio
+
             from src.summarization.services.summarization_queue import (
                 SummarizationPriority,
                 SummarizationQueue,
             )
 
             queue = SummarizationQueue.get_instance()
-            await queue.enqueue(
-                representative_ids,
-                source="deduplication",
-                priority=SummarizationPriority.NORMAL,
-            )
+
+            # 检测当前是否在主事件循环中
+            try:
+                running_loop = asyncio.get_running_loop()
+                if running_loop is queue._loop:
+                    # 在主循环中：直接 await
+                    logger.info(
+                        f"触发摘要: {len(representative_ids)} 条推文, 方式=enqueue（主循环）",
+                        extra={"event": "trigger_summarization", "total_tweets": len(representative_ids), "enqueue_method": "enqueue", "source": "deduplication"},
+                    )
+                    await queue.enqueue(
+                        representative_ids,
+                        source="deduplication",
+                        priority=SummarizationPriority.NORMAL,
+                    )
+                else:
+                    # 在不同循环中：使用线程安全入队
+                    logger.info(
+                        f"触发摘要: {len(representative_ids)} 条推文, 方式=enqueue_threadsafe（跨循环）",
+                        extra={"event": "trigger_summarization", "total_tweets": len(representative_ids), "enqueue_method": "enqueue_threadsafe", "source": "deduplication"},
+                    )
+                    task_id = queue.enqueue_threadsafe(
+                        representative_ids,
+                        source="deduplication",
+                        priority=SummarizationPriority.NORMAL,
+                    )
+                    if task_id is None:
+                        logger.error(
+                            f"去重摘要入队失败（enqueue_threadsafe 返回 None）: "
+                            f"{len(representative_ids)} 条推文的摘要请求被丢弃"
+                        )
+            except RuntimeError:
+                # 无事件循环（后台线程）
+                logger.info(
+                    f"触发摘要: {len(representative_ids)} 条推文, 方式=enqueue_threadsafe（无事件循环）",
+                    extra={"event": "trigger_summarization", "total_tweets": len(representative_ids), "enqueue_method": "enqueue_threadsafe", "source": "deduplication"},
+                )
+                task_id = queue.enqueue_threadsafe(
+                    representative_ids,
+                    source="deduplication",
+                    priority=SummarizationPriority.NORMAL,
+                )
+                if task_id is None:
+                    logger.error(
+                        f"去重摘要入队失败（无事件循环）: "
+                        f"{len(representative_ids)} 条推文的摘要请求被丢弃"
+                    )
+
         except Exception as e:
             logger.warning(f"触发摘要任务失败（不影响去重结果）: {e}")
 

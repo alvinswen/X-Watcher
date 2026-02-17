@@ -46,7 +46,7 @@ _CacheEntry = tuple[LLMResponse, datetime]  # (响应, 缓存时间)
 # 全局 LLM 并发限制（进程级别，所有 SummarizationService 实例共享）
 # 防止多个后台摘要任务同时发起过多 LLM 请求导致限流
 _global_llm_semaphore: asyncio.Semaphore | None = None
-_GLOBAL_MAX_CONCURRENT_LLM = 5
+_GLOBAL_MAX_CONCURRENT_LLM = 3
 
 
 def _get_global_llm_semaphore() -> asyncio.Semaphore:
@@ -359,9 +359,13 @@ class SummarizationService:
             else:
                 failed_groups.append(group)
 
-        # 对失败的组做 1 次重试
+        # 对失败的组做 1 次重试（等待 5 秒让 rate limit 冷却）
         if failed_groups:
-            logger.info(f"重试 {len(failed_groups)} 个失败的去重组...")
+            logger.info(
+                f"重试 {len(failed_groups)} 个失败的去重组，等待 5 秒...",
+                extra={"event": "group_retry", "retry_attempt": 1, "wait_seconds": 5, "total_groups": len(failed_groups)},
+            )
+            await asyncio.sleep(5)
             retry_tasks = [process_with_limit(g) for g in failed_groups]
             retry_processed = await asyncio.gather(*retry_tasks)
             failed_groups = []
@@ -418,9 +422,13 @@ class SummarizationService:
             else:
                 failed_ids.append(tid)
 
-        # 对失败的推文做 1 次重试
+        # 对失败的推文做 1 次重试（等待 5 秒让 rate limit 冷却）
         if failed_ids:
-            logger.info(f"重试 {len(failed_ids)} 条失败的独立推文...")
+            logger.info(
+                f"重试 {len(failed_ids)} 条失败的独立推文，等待 5 秒...",
+                extra={"event": "tweet_retry", "retry_attempt": 1, "wait_seconds": 5, "total_tweets": len(failed_ids)},
+            )
+            await asyncio.sleep(5)
             retry_tasks = [process_with_limit(tid) for tid in failed_ids]
             retry_processed = await asyncio.gather(*retry_tasks)
             failed_ids = []
@@ -647,7 +655,8 @@ class SummarizationService:
 
         except Exception as e:
             logger.error(
-                f"处理去重组失败 (group_id={group.group_id}): {e}",
+                f"处理去重组失败 (group_id={group.group_id}, "
+                f"error_type={type(e).__name__}): {e}",
                 exc_info=True,
             )
             return None
@@ -805,7 +814,8 @@ class SummarizationService:
 
         except Exception as e:
             logger.error(
-                f"处理独立推文失败 (tweet_id={tweet_id}): {e}",
+                f"处理独立推文失败 (tweet_id={tweet_id}, "
+                f"error_type={type(e).__name__}): {e}",
                 exc_info=True,
             )
             return None
@@ -970,8 +980,18 @@ class SummarizationService:
             error_type = self._classify_error_from_exception(error)
 
             if error_type == LLMErrorType.temporary:
-                # 临时错误：重试一次
-                logger.debug(f"临时错误，重试一次: {error}")
+                # 临时错误：退避 2 秒后重试一次
+                logger.warning(
+                    f"LLM 临时错误，等待 2 秒后重试: {error}",
+                    extra={
+                        "event": "llm_retry",
+                        "provider": provider.get_provider_name(),
+                        "error_type": type(error).__name__,
+                        "retry_attempt": 1,
+                        "wait_seconds": 2,
+                    },
+                )
+                await asyncio.sleep(2)
                 result = await provider.complete(
                     prompt, max_tokens=actual_max_tokens
                 )

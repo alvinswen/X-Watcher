@@ -8,7 +8,7 @@ import logging
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 
 from src.scraper import ScrapingService, TaskRegistry, TaskStatus
@@ -182,46 +182,56 @@ class TaskStatusResponse:
         }
 
 
-def _run_scraping_task(task_id: str, usernames: list[str], limit: int) -> None:
-    """在后台运行抓取任务。
+async def _run_scraping_task_async(task_id: str, usernames: list[str], limit: int) -> None:
+    """在主事件循环中异步运行抓取任务。
+
+    使用 asyncio.create_task 在主事件循环中执行，避免创建新的事件循环导致
+    跨循环问题（摘要队列入队、数据库 session、Semaphore 等均绑定到主循环）。
 
     Args:
         task_id: 任务 ID
         usernames: 用户名列表
         limit: 抓取限制
     """
+    import time
+
+    from src.logging_config import trace_id_var
+
+    # 设置 trace_id，使所有下游日志（去重、摘要）可追踪
+    trace_id_var.set(task_id)
+
     service = get_scraping_service()
     registry = get_task_registry()
-    loop = None
 
-    async def _execute() -> None:
-        try:
-            await service.scrape_users(
-                usernames=usernames,
-                limit=limit,
-                task_id=task_id,
-            )
-        except Exception as e:
-            logger.exception(f"后台抓取任务执行失败: {e}")
-            registry.update_task_status(task_id, TaskStatus.FAILED, error=str(e))
+    start_time = time.time()
+    logger.info(
+        f"抓取任务开始: {len(usernames)} 个用户, limit={limit}",
+        extra={"task_id": task_id, "event": "scrape_task_start"},
+    )
 
     try:
-        # 在新的事件循环中运行异步任务
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(_execute())
+        await service.scrape_users(
+            usernames=usernames,
+            limit=limit,
+            task_id=task_id,
+        )
+        elapsed = time.time() - start_time
+        logger.info(
+            f"抓取任务完成: 耗时 {elapsed:.1f}s",
+            extra={"task_id": task_id, "event": "scrape_task_done", "processing_time_ms": int(elapsed * 1000)},
+        )
     except Exception as e:
-        logger.exception(f"后台任务执行异常: {e}")
+        elapsed = time.time() - start_time
+        logger.exception(
+            f"后台抓取任务执行失败: {e}",
+            extra={"task_id": task_id, "event": "scrape_task_failed", "error_type": type(e).__name__},
+        )
         registry.update_task_status(task_id, TaskStatus.FAILED, error=str(e))
-    finally:
-        if loop:
-            loop.close()
 
 
 @router.post("/scrape", status_code=status.HTTP_202_ACCEPTED)
 async def start_scraping(
     request: dict,
-    background_tasks: BackgroundTasks,
     _admin: UserDomain = Depends(get_current_admin_user),
 ) -> dict:
     """启动手动抓取任务。
@@ -276,12 +286,14 @@ async def start_scraping(
         },
     )
 
-    # 添加后台任务
-    background_tasks.add_task(
-        _run_scraping_task,
-        task_id,
-        scrape_request.parsed_usernames,
-        scrape_request.limit,
+    # 在主事件循环中创建异步任务（避免跨循环问题）
+    asyncio.create_task(
+        _run_scraping_task_async(
+            task_id,
+            scrape_request.parsed_usernames,
+            scrape_request.limit,
+        ),
+        name=f"scrape-{task_id}",
     )
 
     logger.info(f"创建抓取任务: {task_id} - {scrape_request.parsed_usernames}")

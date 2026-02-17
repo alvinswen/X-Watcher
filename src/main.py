@@ -11,13 +11,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.config import get_settings
 from src.database.models import Base
 from src.database.models import get_engine as engine
+from src.logging_config import setup_logging
 from src.scheduler_accessor import register_scheduler, unregister_scheduler
 from src.scraper.scheduled_job import scheduled_scrape_job
 
-# 配置应用层日志：确保所有模块的 logger.info/warning/error 能输出
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+# 配置应用层日志：结构化格式 + 文件轮转 + trace_id 支持
+_settings = get_settings()
+setup_logging(
+    level=_settings.log_level,
+    log_format=_settings.log_format,
+    log_file=_settings.log_file or None,
+    log_file_max_bytes=_settings.log_file_max_bytes,
+    log_file_backup_count=_settings.log_file_backup_count,
 )
 
 logger = logging.getLogger(__name__)

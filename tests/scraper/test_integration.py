@@ -32,7 +32,7 @@ def integration_client(test_settings):
 
     os.environ["SCRAPER_ENABLED"] = "false"
     clear_settings_cache()
-    with patch("src.api.routes.admin.BackgroundTasks.add_task"):
+    with patch("src.api.routes.admin._run_scraping_task_async", new_callable=AsyncMock):
         with TestClient(app) as c:
             yield c
     clear_settings_cache()

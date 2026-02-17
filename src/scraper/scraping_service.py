@@ -469,8 +469,11 @@ class ScrapingService:
                     similarity_detector=SimilarityDetector(),
                 )
 
-                # 执行去重
-                result = await service.deduplicate_tweets(tweet_ids=tweet_ids)
+                # 执行去重（不触发摘要，由 scraping 统一触发）
+                result = await service.deduplicate_tweets(
+                    tweet_ids=tweet_ids,
+                    trigger_summarization=False,
+                )
 
                 await session.commit()
 
@@ -518,12 +521,20 @@ class ScrapingService:
             try:
                 running_loop = asyncio.get_running_loop()
                 if running_loop is queue._loop:
+                    logger.info(
+                        f"触发摘要: {len(tweet_ids)} 条推文, 方式=enqueue（主循环）",
+                        extra={"event": "trigger_summarization", "total_tweets": len(tweet_ids), "enqueue_method": "enqueue", "source": "scraping"},
+                    )
                     await queue.enqueue(
                         tweet_ids,
                         source="scraping",
                         priority=SummarizationPriority.NORMAL,
                     )
                 else:
+                    logger.info(
+                        f"触发摘要: {len(tweet_ids)} 条推文, 方式=enqueue_threadsafe（跨循环）",
+                        extra={"event": "trigger_summarization", "total_tweets": len(tweet_ids), "enqueue_method": "enqueue_threadsafe", "source": "scraping"},
+                    )
                     task_id = queue.enqueue_threadsafe(
                         tweet_ids,
                         source="scraping",
@@ -536,6 +547,10 @@ class ScrapingService:
                         )
             except RuntimeError:
                 # 无事件循环（后台线程）
+                logger.info(
+                    f"触发摘要: {len(tweet_ids)} 条推文, 方式=enqueue_threadsafe（无事件循环）",
+                    extra={"event": "trigger_summarization", "total_tweets": len(tweet_ids), "enqueue_method": "enqueue_threadsafe", "source": "scraping"},
+                )
                 task_id = queue.enqueue_threadsafe(
                     tweet_ids,
                     source="scraping",

@@ -133,6 +133,7 @@ src/
 ├── tools/                   # （legacy 空壳，待清理）
 ├── web/                     # 前端 SPA（Vue 3 + Element Plus）
 ├── scheduler_accessor.py    # 调度器全局引用管理（解耦 Service 与 APScheduler）
+├── logging_config.py        # 日志配置（JSONFormatter + EnhancedTextFormatter + TraceIdFilter + trace_id_var + setup_logging）
 ├── config.py                # 全局配置（Pydantic Settings）
 └── main.py                  # FastAPI 应用入口（惰性调度启动 + DB 迁移）
 ```

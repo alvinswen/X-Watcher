@@ -23,8 +23,8 @@ def override_auth():
 @pytest.fixture
 def client(test_settings):  # noqa: ARG001 - 参数确保设置已加载
     """创建测试客户端。"""
-    # Mock 后台任务以防止实际执行
-    with patch("src.api.routes.admin.BackgroundTasks.add_task"):
+    # Mock asyncio.create_task 以防止实际执行后台抓取任务
+    with patch("src.api.routes.admin.asyncio.create_task"):
         yield TestClient(app)
 
 

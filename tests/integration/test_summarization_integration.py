@@ -125,6 +125,7 @@ class TestEndToEndDeduplicationSummarization:
         # 2. Mock SummarizationQueue
         mock_queue = MagicMock()
         mock_queue.enqueue = AsyncMock(return_value="mock-task-id")
+        mock_queue._loop = asyncio.get_running_loop()
 
         # 3. 创建去重服务
         dedup_repo = DeduplicationRepository(async_session)
@@ -201,6 +202,7 @@ class TestEndToEndDeduplicationSummarization:
         mock_queue.enqueue = AsyncMock(
             side_effect=Exception("Queue error")
         )
+        mock_queue._loop = asyncio.get_running_loop()
 
         # 创建去重服务
         dedup_repo = DeduplicationRepository(async_session)
