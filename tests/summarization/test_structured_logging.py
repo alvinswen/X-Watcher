@@ -6,7 +6,7 @@
 import logging
 import os
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -15,11 +15,6 @@ from src.scraper.domain.models import Tweet
 from src.scraper.infrastructure.models import TweetOrm
 from src.summarization.domain.models import PromptConfig
 from src.summarization.infrastructure.models import SummaryOrm
-from src.summarization.infrastructure.repository import SummarizationRepository
-from src.summarization.llm.config import LLMProviderConfig
-from src.summarization.services.summarization_service import (
-    create_summarization_service,
-)
 from sqlalchemy import select
 
 
@@ -69,6 +64,7 @@ class TestStructuredLogging:
     async def test_summary_generation_logs_context(
         self,
         async_session,
+        test_session_factory,
         mock_llm_providers,
         caplog,
     ):
@@ -105,12 +101,11 @@ class TestStructuredLogging:
             await async_session.commit()
 
             # 创建摘要服务
-            repo = SummarizationRepository(async_session)
             # 直接创建服务实例，传入 mock providers
             from src.summarization.services.summarization_service import SummarizationService
 
             service = SummarizationService(
-                repository=repo,
+                session_factory=test_session_factory,
                 providers=mock_llm_providers,
                 prompt_config=PromptConfig(),
             )
@@ -149,6 +144,7 @@ class TestStructuredLogging:
     async def test_degradation_logs_warning(
         self,
         async_session,
+        test_session_factory,
         caplog,
     ):
         """测试降级时记录 WARNING 级别日志。"""
@@ -220,11 +216,10 @@ class TestStructuredLogging:
             await async_session.commit()
 
             # 创建摘要服务
-            repo = SummarizationRepository(async_session)
             from src.summarization.services.summarization_service import SummarizationService
 
             service = SummarizationService(
-                repository=repo,
+                session_factory=test_session_factory,
                 providers=[mock_failing_provider, mock_working_provider],
             )
 
@@ -252,6 +247,7 @@ class TestStructuredLogging:
     async def test_cache_hit_logs_info(
         self,
         async_session,
+        test_session_factory,
         caplog,
     ):
         """测试缓存命中时记录 INFO 级别日志。"""
@@ -281,7 +277,6 @@ class TestStructuredLogging:
             await async_session.commit()
 
             # 创建摘要服务
-            repo = SummarizationRepository(async_session)
             from src.summarization.services.summarization_service import SummarizationService
 
             from returns.result import Success
@@ -305,7 +300,7 @@ class TestStructuredLogging:
             )
 
             service = SummarizationService(
-                repository=repo,
+                session_factory=test_session_factory,
                 providers=[mock_provider],
             )
 
@@ -336,6 +331,7 @@ class TestStructuredLogging:
     async def test_error_logs_error_level(
         self,
         async_session,
+        test_session_factory,
         caplog,
     ):
         """测试错误时记录 ERROR 级别日志。"""
@@ -384,11 +380,10 @@ class TestStructuredLogging:
             await async_session.commit()
 
             # 创建摘要服务
-            repo = SummarizationRepository(async_session)
             from src.summarization.services.summarization_service import SummarizationService
 
             service = SummarizationService(
-                repository=repo,
+                session_factory=test_session_factory,
                 providers=[mock_failing_provider],
             )
 
@@ -420,6 +415,7 @@ class TestLogContext:
     async def test_log_includes_provider_info(
         self,
         async_session,
+        test_session_factory,
         mock_llm_providers,
         caplog,
     ):
@@ -455,12 +451,11 @@ class TestLogContext:
             await async_session.commit()
 
             # 创建摘要服务
-            repo = SummarizationRepository(async_session)
             # 直接创建服务实例，传入 mock providers
             from src.summarization.services.summarization_service import SummarizationService
 
             service = SummarizationService(
-                repository=repo,
+                session_factory=test_session_factory,
                 providers=mock_llm_providers,
                 prompt_config=PromptConfig(),
             )
@@ -482,6 +477,7 @@ class TestLogContext:
     async def test_log_includes_token_and_cost_info(
         self,
         async_session,
+        test_session_factory,
         mock_llm_providers,
         caplog,
     ):
@@ -517,12 +513,11 @@ class TestLogContext:
             await async_session.commit()
 
             # 创建摘要服务
-            repo = SummarizationRepository(async_session)
             # 直接创建服务实例，传入 mock providers
             from src.summarization.services.summarization_service import SummarizationService
 
             service = SummarizationService(
-                repository=repo,
+                session_factory=test_session_factory,
                 providers=mock_llm_providers,
                 prompt_config=PromptConfig(),
             )

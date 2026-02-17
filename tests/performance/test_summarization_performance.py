@@ -20,7 +20,7 @@ from src.summarization.infrastructure.models import SummaryOrm
 from src.summarization.infrastructure.repository import SummarizationRepository
 from src.summarization.llm.config import LLMProviderConfig
 from src.summarization.services.summarization_service import (
-    SummarizationService,
+    SummarizationService,  # noqa: F401
     create_summarization_service,
 )
 
@@ -77,6 +77,7 @@ class TestSingleTweetPerformance:
     async def test_single_tweet_summary_time(
         self,
         async_session,
+        test_session_factory,
         mock_llm_providers,
         benchmark,
     ):
@@ -114,7 +115,6 @@ class TestSingleTweetPerformance:
             await async_session.commit()
 
             # 创建摘要服务
-            repo = SummarizationRepository(async_session)
             config = LLMProviderConfig.from_env()
 
             with patch(
@@ -122,7 +122,7 @@ class TestSingleTweetPerformance:
                 return_value=mock_llm_providers["openrouter"],
             ):
                 service = create_summarization_service(
-                    repository=repo,
+                    session_factory=test_session_factory,
                     config=config,
                     prompt_config=PromptConfig(),
                 )
@@ -199,6 +199,7 @@ class TestBatchPerformance:
     async def test_ten_tweets_batch_time(
         self,
         async_session,
+        test_session_factory,
         setup_ten_tweets,
         mock_llm_providers,
         benchmark,
@@ -208,7 +209,6 @@ class TestBatchPerformance:
 
         async def batch_summarize():
             """批量执行摘要。"""
-            repo = SummarizationRepository(async_session)
             config = LLMProviderConfig.from_env()
 
             with patch(
@@ -216,7 +216,7 @@ class TestBatchPerformance:
                 return_value=mock_llm_providers["openrouter"],
             ):
                 service = create_summarization_service(
-                    repository=repo,
+                    session_factory=test_session_factory,
                     config=config,
                     prompt_config=PromptConfig(),
                 )
@@ -294,6 +294,7 @@ class TestMemoryUsage:
     async def test_fifty_tweets_memory_usage(
         self,
         async_session,
+        test_session_factory,
         mock_llm_providers,
         benchmark,
     ):
@@ -340,7 +341,6 @@ class TestMemoryUsage:
 
         async def process_fifty_tweets():
             """处理 50 条推文。"""
-            repo = SummarizationRepository(async_session)
             config = LLMProviderConfig.from_env()
 
             with patch(
@@ -348,7 +348,7 @@ class TestMemoryUsage:
                 return_value=mock_llm_providers["openrouter"],
             ):
                 service = create_summarization_service(
-                    repository=repo,
+                    session_factory=test_session_factory,
                     config=config,
                     prompt_config=PromptConfig(),
                 )
@@ -386,6 +386,7 @@ class TestPerformanceRegression:
     async def test_performance_regression(
         self,
         async_session,
+        test_session_factory,
         mock_llm_providers,
         benchmark,
         num_tweets,
@@ -433,7 +434,6 @@ class TestPerformanceRegression:
 
         async def process_tweets():
             """处理推文。"""
-            repo = SummarizationRepository(async_session)
             config = LLMProviderConfig.from_env()
 
             with patch(
@@ -441,7 +441,7 @@ class TestPerformanceRegression:
                 return_value=mock_llm_providers["openrouter"],
             ):
                 service = create_summarization_service(
-                    repository=repo,
+                    session_factory=test_session_factory,
                     config=config,
                     prompt_config=PromptConfig(),
                 )

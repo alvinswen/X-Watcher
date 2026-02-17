@@ -236,36 +236,31 @@ async def regenerate_tweet_summary(
     session_maker = get_async_session_maker()
 
     try:
-        async with session_maker() as session:
-            repository = SummarizationRepository(session)
+        # 加载 LLM 配置
+        config = LLMProviderConfig.from_env()
 
-            # 加载 LLM 配置
-            config = LLMProviderConfig.from_env()
+        # 创建摘要服务（传入 session_factory，内部按需创建 session）
+        service = create_summarization_service(
+            session_factory=session_maker,
+            config=config,
+            prompt_config=PromptConfig(),
+        )
 
-            # 创建摘要服务
-            service = create_summarization_service(
-                repository=repository,
-                config=config,
-                prompt_config=PromptConfig(),
+        # 重新生成摘要
+        result = await service.regenerate_summary(tweet_id)
+
+        from returns.result import Failure
+
+        if isinstance(result, Failure):
+            error = result.failure()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"重新生成摘要失败: {error}",
             )
 
-            # 重新生成摘要
-            result = await service.regenerate_summary(tweet_id)
+        summary = result.unwrap()
 
-            from returns.result import Failure
-
-            if isinstance(result, Failure):
-                error = result.failure()
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"重新生成摘要失败: {error}",
-                )
-
-            summary = result.unwrap()
-
-            await session.commit()
-
-            return SummaryResponse.from_domain(summary)
+        return SummaryResponse.from_domain(summary)
 
     except HTTPException:
         raise

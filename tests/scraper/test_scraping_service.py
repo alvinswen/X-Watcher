@@ -457,7 +457,8 @@ class TestAutoSummarization:
 
         # Mock 保存结果
         mock_repository.save_tweets.return_value = SaveResult(
-            success_count=2, skipped_count=0, error_count=0
+            success_count=2, skipped_count=0, error_count=0,
+            saved_tweet_ids=["tweet1", "tweet2"],
         )
 
         # Mock _trigger_summarization

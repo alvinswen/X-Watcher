@@ -182,13 +182,13 @@ def clean_registry():
 
 
 @pytest.fixture(scope="function")
-async def async_session():
-    """异步数据库会话 Fixture。
+async def _test_db_engine():
+    """内部 fixture：创建共享的测试数据库引擎。
 
     每个测试函数使用独立的内存数据库。
+    async_session 和 test_session_factory 共享同一个引擎。
     """
-    # 创建测试引擎
-    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+    from sqlalchemy.ext.asyncio import create_async_engine
 
     test_engine = create_async_engine(
         "sqlite+aiosqlite:///:memory:",
@@ -199,16 +199,43 @@ async def async_session():
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    # 创建会话工厂
+    yield test_engine
+
+    # 清理
+    await test_engine.dispose()
+
+
+@pytest.fixture(scope="function")
+async def async_session(_test_db_engine):
+    """异步数据库会话 Fixture。
+
+    每个测试函数使用独立的内存数据库。
+    """
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
     test_session_maker = async_sessionmaker(
-        test_engine, class_=AsyncSession, expire_on_commit=False
+        _test_db_engine, class_=AsyncSession, expire_on_commit=False
     )
 
     async with test_session_maker() as session:
         yield session
 
-    # 清理
-    await test_engine.dispose()
+
+@pytest.fixture(scope="function")
+async def test_session_factory(_test_db_engine):
+    """异步会话工厂 Fixture。
+
+    返回 async_sessionmaker 实例，适用于需要 session_factory 的测试
+    （如 SummarizationService 的新接口）。
+    与 async_session 共享同一个内存数据库引擎。
+    """
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    factory = async_sessionmaker(
+        _test_db_engine, class_=AsyncSession, expire_on_commit=False
+    )
+
+    yield factory
 
 
 @pytest.fixture(scope="function")

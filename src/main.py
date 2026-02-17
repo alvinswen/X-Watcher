@@ -14,6 +14,12 @@ from src.database.models import get_engine as engine
 from src.scheduler_accessor import register_scheduler, unregister_scheduler
 from src.scraper.scheduled_job import scheduled_scrape_job
 
+# 配置应用层日志：确保所有模块的 logger.info/warning/error 能输出
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+
 logger = logging.getLogger(__name__)
 
 # 全局调度器实例

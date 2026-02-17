@@ -454,14 +454,15 @@ class SummarizationQueue:
     async def _process_request(self, request: SummarizationRequest) -> None:
         """处理单个摘要请求（分块感知）。
 
+        不再创建单一 session，而是将 session_factory 传给 service，
+        由 service 内部的每个并发协程各自创建独立 session，
+        避免 AsyncSession 并发冲突。
+
         Args:
             request: 摘要请求
         """
         from src.database.async_session import get_async_session_maker
         from src.summarization.domain.models import PromptConfig
-        from src.summarization.infrastructure.repository import (
-            SummarizationRepository,
-        )
         from src.summarization.llm.config import LLMProviderConfig
         from src.summarization.services.summarization_service import (
             create_summarization_service,
@@ -482,42 +483,37 @@ class SummarizationQueue:
             except Exception:
                 pass  # 任务状态更新失败不影响处理
 
-        session_maker = get_async_session_maker()
-        async with session_maker() as session:
-            repository = SummarizationRepository(session)
-            config = LLMProviderConfig.from_env()
-            service = create_summarization_service(
-                repository=repository,
-                config=config,
-                prompt_config=PromptConfig(),
-            )
+        session_factory = get_async_session_maker()
+        config = LLMProviderConfig.from_env()
+        service = create_summarization_service(
+            session_factory=session_factory,
+            config=config,
+            prompt_config=PromptConfig(),
+        )
 
-            result = await service.summarize_tweets(
-                tweet_ids=request.tweet_ids,
-                force_refresh=request.force_refresh,
-            )
+        result = await service.summarize_tweets(
+            tweet_ids=request.tweet_ids,
+            force_refresh=request.force_refresh,
+        )
 
-            from returns.result import Failure
+        from returns.result import Failure
 
-            if isinstance(result, Failure):
-                error = result.failure()
-                raise error
+        if isinstance(result, Failure):
+            error = result.failure()
+            raise error
 
-            summary_result = result.unwrap()
+        summary_result = result.unwrap()
 
-            # 通过分块跟踪器聚合结果（而非直接标记 COMPLETED）
-            self._record_chunk_success(request, summary_result)
+        # 通过分块跟踪器聚合结果（而非直接标记 COMPLETED）
+        self._record_chunk_success(request, summary_result)
 
-            # 安全兜底 commit
-            await session.commit()
-
-            logger.info(
-                f"Worker 处理完成: chunk {request.chunk_index + 1}/{request.total_chunks}, "
-                f"{summary_result.total_tweets} 条推文, "
-                f"{summary_result.total_groups} 个组, "
-                f"缓存命中 {summary_result.cache_hits}, "
-                f"成本 ${summary_result.total_cost_usd:.4f}"
-            )
+        logger.info(
+            f"Worker 处理完成: chunk {request.chunk_index + 1}/{request.total_chunks}, "
+            f"{summary_result.total_tweets} 条推文, "
+            f"{summary_result.total_groups} 个组, "
+            f"缓存命中 {summary_result.cache_hits}, "
+            f"成本 ${summary_result.total_cost_usd:.4f}"
+        )
 
         # 更新 Prometheus 指标
         try:

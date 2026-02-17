@@ -70,3 +70,4 @@ class SaveResult(BaseModel):
     success_count: int = Field(..., description="成功保存的推文数量")
     skipped_count: int = Field(..., description="跳过的推文数量（已存在）")
     error_count: int = Field(..., description="保存失败的推文数量")
+    saved_tweet_ids: list[str] = Field(default_factory=list, description="成功保存的推文 ID 列表")

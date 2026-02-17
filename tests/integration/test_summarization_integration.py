@@ -232,6 +232,7 @@ class TestCacheMechanism:
     async def test_second_summary_uses_cache(
         self,
         async_session,
+        test_session_factory,
         clean_registry,
     ):
         """测试第二次处理相同内容使用缓存，不再调用 LLM。"""
@@ -289,9 +290,8 @@ class TestCacheMechanism:
             )
         )
 
-        repo = SummarizationRepository(async_session)
         service = SummarizationService(
-            repository=repo,
+            session_factory=test_session_factory,
             providers=[mock_provider],
             prompt_config=PromptConfig(),
         )
@@ -332,6 +332,7 @@ class TestDegradationStrategy:
     async def test_openrouter_failure_falls_back_to_minimax(
         self,
         async_session,
+        test_session_factory,
         clean_registry,
     ):
         """测试 OpenRouter 失败时降级到 MiniMax。"""
@@ -394,10 +395,8 @@ class TestDegradationStrategy:
         )
 
         # 创建摘要服务（直接构建，传入 mock providers）
-        repo = SummarizationRepository(async_session)
-
         service = SummarizationService(
-            repository=repo,
+            session_factory=test_session_factory,
             providers=[mock_openrouter, mock_minimax],
             prompt_config=PromptConfig(),
         )
@@ -491,6 +490,7 @@ class TestIntelligentSummaryLength:
     async def test_short_tweet_gets_translation_only(
         self,
         async_session,
+        test_session_factory,
         clean_registry,
     ):
         """测试短推文（< 100 字）仅翻译不摘要，summary_text = '[SHORT]'。"""
@@ -548,9 +548,8 @@ class TestIntelligentSummaryLength:
             )
         )
 
-        repo = SummarizationRepository(async_session)
         service = SummarizationService(
-            repository=repo,
+            session_factory=test_session_factory,
             providers=[mock_provider],
             prompt_config=PromptConfig(
                 min_tweet_length_for_summary=100,
@@ -588,6 +587,7 @@ class TestIntelligentSummaryLength:
     async def test_long_tweet_generates_summary_and_translation(
         self,
         async_session,
+        test_session_factory,
         clean_registry,
     ):
         """测试长推文（>= 100 字）同时生成摘要和翻译。"""
@@ -644,9 +644,8 @@ class TestIntelligentSummaryLength:
             )
         )
 
-        repo = SummarizationRepository(async_session)
         service = SummarizationService(
-            repository=repo,
+            session_factory=test_session_factory,
             providers=[mock_provider],
             prompt_config=PromptConfig(
                 min_tweet_length_for_summary=100,

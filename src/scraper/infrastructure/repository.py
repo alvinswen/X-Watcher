@@ -64,6 +64,7 @@ class TweetRepository:
         skipped_count = 0
         error_count = 0
         consecutive_existing = 0
+        saved_tweet_ids: list[str] = []
 
         for tweet in tweets:
             if tweet.tweet_id in existing_ids:
@@ -90,6 +91,7 @@ class TweetRepository:
                 self._session.add(orm_tweet)
                 await self._session.flush()
                 success_count += 1
+                saved_tweet_ids.append(tweet.tweet_id)
             except Exception as e:
                 logger.error(f"保存推文 {tweet.tweet_id} 失败: {e}")
                 error_count += 1
@@ -98,6 +100,7 @@ class TweetRepository:
             success_count=success_count,
             skipped_count=skipped_count,
             error_count=error_count,
+            saved_tweet_ids=saved_tweet_ids,
         )
 
     async def batch_check_exists(self, tweet_ids: list[str]) -> set[str]:

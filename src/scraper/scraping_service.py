@@ -419,11 +419,11 @@ class ScrapingService:
                 # 提交事务
                 await session.commit()
 
-                # 保存成功后，触发去重（仅对新保存的推文）
+                # 保存成功后，触发去重和摘要
                 if result.success_count > 0:
-                    tweet_ids = [t.tweet_id for t in tweets]
-                    await self._trigger_deduplication(tweet_ids)
-                    await self._trigger_summarization(tweet_ids)
+                    all_tweet_ids = [t.tweet_id for t in tweets]
+                    await self._trigger_deduplication(all_tweet_ids)
+                    await self._trigger_summarization(result.saved_tweet_ids)
 
                 return result
         else:
@@ -432,11 +432,11 @@ class ScrapingService:
                 tweets, early_stop_threshold=early_stop
             )
 
-            # 保存成功后，触发去重（仅对新保存的推文）
+            # 保存成功后，触发去重和摘要
             if save_result.success_count > 0:
-                tweet_ids = [t.tweet_id for t in tweets]
-                await self._trigger_deduplication(tweet_ids)
-                await self._trigger_summarization(tweet_ids)
+                all_tweet_ids = [t.tweet_id for t in tweets]
+                await self._trigger_deduplication(all_tweet_ids)
+                await self._trigger_summarization(save_result.saved_tweet_ids)
 
             return save_result
 
@@ -524,18 +524,28 @@ class ScrapingService:
                         priority=SummarizationPriority.NORMAL,
                     )
                 else:
-                    queue.enqueue_threadsafe(
+                    task_id = queue.enqueue_threadsafe(
                         tweet_ids,
                         source="scraping",
                         priority=SummarizationPriority.NORMAL,
                     )
+                    if task_id is None:
+                        logger.error(
+                            f"摘要入队失败（enqueue_threadsafe 返回 None）: "
+                            f"{len(tweet_ids)} 条推文的摘要请求被丢弃"
+                        )
             except RuntimeError:
                 # 无事件循环（后台线程）
-                queue.enqueue_threadsafe(
+                task_id = queue.enqueue_threadsafe(
                     tweet_ids,
                     source="scraping",
                     priority=SummarizationPriority.NORMAL,
                 )
+                if task_id is None:
+                    logger.error(
+                        f"摘要入队失败（enqueue_threadsafe 返回 None，无事件循环）: "
+                        f"{len(tweet_ids)} 条推文的摘要请求被丢弃"
+                    )
 
         except Exception as e:
             # 摘要触发失败不影响抓取结果

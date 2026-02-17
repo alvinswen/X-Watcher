@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from returns.result import Failure, Result, Success
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.deduplication.domain.models import DeduplicationGroup
 from src.summarization.domain.models import (
@@ -75,7 +76,7 @@ class SummarizationService:
 
     def __init__(
         self,
-        repository: SummarizationRepository,
+        session_factory: async_sessionmaker[AsyncSession],
         providers: Sequence[LLMProvider],
         prompt_config: PromptConfig | None = None,
         max_concurrent: int = DEFAULT_MAX_CONCURRENT,
@@ -84,13 +85,13 @@ class SummarizationService:
         """初始化摘要服务。
 
         Args:
-            repository: 摘要仓储
+            session_factory: 异步会话工厂，每个并发协程会创建独立的 session
             providers: LLM 提供商列表（按优先级排序）
             prompt_config: Prompt 配置
             max_concurrent: 最大并发数
             cache_ttl_seconds: 缓存有效期（秒）
         """
-        self._repository = repository
+        self._session_factory = session_factory
         self._providers = list(providers)
         self._prompt_config = prompt_config or PromptConfig()
         self._max_concurrent = max_concurrent
@@ -248,8 +249,10 @@ class SummarizationService:
             Result[CostStats, Exception]: 成本统计结果
         """
         try:
-            stats = await self._repository.get_cost_stats(start_date, end_date)
-            return Success(stats)
+            async with self._session_factory() as session:
+                repository = SummarizationRepository(session)
+                stats = await repository.get_cost_stats(start_date, end_date)
+                return Success(stats)
 
         except Exception as e:
             logger.error(f"获取成本统计失败: {e}")
@@ -259,6 +262,8 @@ class SummarizationService:
         self, tweet_ids: list[str]
     ) -> list[DeduplicationGroup]:
         """加载推文的去重组。
+
+        使用独立 session 查询，避免与并发处理共享 session。
 
         Args:
             tweet_ids: 推文 ID 列表
@@ -270,23 +275,27 @@ class SummarizationService:
             DeduplicationRepository,
         )
 
-        dedup_repo = DeduplicationRepository(self._repository._session)
-        groups = []
+        async with self._session_factory() as session:
+            dedup_repo = DeduplicationRepository(session)
+            groups = []
 
-        for tweet_id in tweet_ids:
-            group = await dedup_repo.find_by_tweet(tweet_id)
-            if group and not any(g.group_id == group.group_id for g in groups):
-                groups.append(group)
+            for tweet_id in tweet_ids:
+                group = await dedup_repo.find_by_tweet(tweet_id)
+                if group and not any(g.group_id == group.group_id for g in groups):
+                    groups.append(group)
 
-        return groups
+            return groups
 
     async def _load_tweets(
-        self, tweet_ids: list[str]
+        self,
+        tweet_ids: list[str],
+        session: AsyncSession | None = None,
     ) -> dict[str, dict[str, str | None]]:
         """从数据库加载推文文本和元数据。
 
         Args:
             tweet_ids: 推文 ID 列表
+            session: 可选的已有 session（不提供时创建临时 session）
 
         Returns:
             推文 ID 到 {"text": ..., "reference_type": ..., ...} 的映射字典
@@ -294,20 +303,27 @@ class SummarizationService:
         from sqlalchemy import select
         from src.scraper.infrastructure.models import TweetOrm
 
-        stmt = select(TweetOrm).where(TweetOrm.tweet_id.in_(tweet_ids))
-        result = await self._repository._session.execute(stmt)
-        orm_tweets = result.scalars().all()
+        async def _do_load(sess: AsyncSession) -> dict[str, dict[str, str | None]]:
+            stmt = select(TweetOrm).where(TweetOrm.tweet_id.in_(tweet_ids))
+            result = await sess.execute(stmt)
+            orm_tweets = result.scalars().all()
 
-        return {
-            tweet.tweet_id: {
-                "text": tweet.text,
-                "reference_type": tweet.reference_type,
-                "referenced_tweet_text": tweet.referenced_tweet_text,
-                "author_username": tweet.author_username,
-                "referenced_tweet_author_username": tweet.referenced_tweet_author_username,
+            return {
+                tweet.tweet_id: {
+                    "text": tweet.text,
+                    "reference_type": tweet.reference_type,
+                    "referenced_tweet_text": tweet.referenced_tweet_text,
+                    "author_username": tweet.author_username,
+                    "referenced_tweet_author_username": tweet.referenced_tweet_author_username,
+                }
+                for tweet in orm_tweets
             }
-            for tweet in orm_tweets
-        }
+
+        if session is not None:
+            return await _do_load(session)
+        else:
+            async with self._session_factory() as new_session:
+                return await _do_load(new_session)
 
     async def _process_groups_concurrent(
         self,
@@ -470,6 +486,8 @@ class SummarizationService:
     ) -> SummaryRecord | None:
         """处理单个去重组。
 
+        每次调用创建独立的 session，避免并发协程共享 session 导致冲突。
+
         Args:
             group: 去重组
             force_refresh: 是否强制刷新
@@ -486,7 +504,7 @@ class SummarizationService:
                 representative_id, group.deduplication_type.value
             )
 
-            # 检查缓存
+            # 检查内存缓存（不需要 DB session）
             if not force_refresh:
                 cached = await self._get_from_cache(content_hash)
                 if cached:
@@ -495,13 +513,17 @@ class SummarizationService:
                         tweet_id=representative_id,
                         content_hash=content_hash,
                     )
-                    summary = await self._repository.find_by_content_hash(content_hash)
-                    if summary:
-                        summary.cached = True
-                        await self._save_summary_for_tweets(
-                            group.tweet_ids, summary
-                        )
-                        return summary
+                    # 需要 DB session 查询和保存
+                    async with self._session_factory() as session:
+                        repository = SummarizationRepository(session)
+                        summary = await repository.find_by_content_hash(content_hash)
+                        if summary:
+                            summary.cached = True
+                            await self._save_summary_for_tweets(
+                                group.tweet_ids, summary, session
+                            )
+                            await session.commit()
+                            return summary
 
             logger.debug(f"缓存未命中，生成摘要: {content_hash[:8]}...")
             structured_logger.log_cache_miss(
@@ -509,8 +531,10 @@ class SummarizationService:
                 content_hash=content_hash,
             )
 
-            # 加载该去重组的所有推文文本和元数据
-            tweets_map = await self._load_tweets(group.tweet_ids)
+            # 使用独立 session 加载推文数据
+            async with self._session_factory() as session:
+                tweets_map = await self._load_tweets(group.tweet_ids, session)
+
             tweet_data = tweets_map.get(representative_id, {})
             representative_text = tweet_data.get("text") or ""
             reference_type = tweet_data.get("reference_type")
@@ -555,7 +579,7 @@ class SummarizationService:
                     threshold=min_threshold,
                 )
 
-            # 调用 LLM 生成摘要+翻译（统一 prompt）
+            # 调用 LLM 生成摘要+翻译（统一 prompt）—— 不需要 DB session
             result = await self._call_llm_with_fallback(
                 representative_id,
                 content_hash,
@@ -606,22 +630,26 @@ class SummarizationService:
                 updated_at=datetime.now(timezone.utc),
             )
 
-            # 保存到数据库
-            await self._repository.save_summary_record(record)
+            # 使用独立 session 保存到数据库并提交
+            async with self._session_factory() as session:
+                repository = SummarizationRepository(session)
+                await repository.save_summary_record(record)
+                # 为组内所有推文保存摘要引用
+                await self._save_summary_for_tweets(
+                    group.tweet_ids, record, session
+                )
+                await session.commit()
 
             # 保存到内存缓存
             await self._set_cache(content_hash, llm_response)
 
-            # 为组内所有推文保存摘要引用
-            await self._save_summary_for_tweets(group.tweet_ids, record)
-
-            # 立即提交，释放 SQLite RESERVED 锁，避免长事务阻塞其他写操作
-            await self._repository._session.commit()
-
             return record
 
         except Exception as e:
-            logger.error(f"处理去重组失败 (group_id={group.group_id}): {e}")
+            logger.error(
+                f"处理去重组失败 (group_id={group.group_id}): {e}",
+                exc_info=True,
+            )
             return None
 
     async def _process_single_tweet(
@@ -631,8 +659,7 @@ class SummarizationService:
     ) -> SummaryRecord | None:
         """处理单条独立推文（无去重组）。
 
-        与 _process_deduplication_group 类似，但不依赖去重组，
-        缓存键基于推文自身 ID。
+        每次调用创建独立的 session，避免并发协程共享 session 导致冲突。
 
         Args:
             tweet_id: 推文 ID
@@ -645,7 +672,7 @@ class SummarizationService:
             # 缓存键基于 tweet_id（不依赖去重组）
             content_hash = self._compute_hash(tweet_id, "standalone")
 
-            # 检查缓存
+            # 检查内存缓存（不需要 DB session）
             if not force_refresh:
                 cached = await self._get_from_cache(content_hash)
                 if cached:
@@ -654,12 +681,14 @@ class SummarizationService:
                         tweet_id=tweet_id,
                         content_hash=content_hash,
                     )
-                    summary = await self._repository.find_by_content_hash(
-                        content_hash
-                    )
-                    if summary:
-                        summary.cached = True
-                        return summary
+                    async with self._session_factory() as session:
+                        repository = SummarizationRepository(session)
+                        summary = await repository.find_by_content_hash(
+                            content_hash
+                        )
+                        if summary:
+                            summary.cached = True
+                            return summary
 
             logger.debug(f"缓存未命中，生成摘要（独立推文）: {content_hash[:8]}...")
             structured_logger.log_cache_miss(
@@ -667,8 +696,10 @@ class SummarizationService:
                 content_hash=content_hash,
             )
 
-            # 加载推文文本和元数据
-            tweets_map = await self._load_tweets([tweet_id])
+            # 使用独立 session 加载推文数据
+            async with self._session_factory() as session:
+                tweets_map = await self._load_tweets([tweet_id], session)
+
             tweet_data = tweets_map.get(tweet_id, {})
             tweet_text = tweet_data.get("text") or ""
             reference_type = tweet_data.get("reference_type")
@@ -710,7 +741,7 @@ class SummarizationService:
                     threshold=min_threshold,
                 )
 
-            # 调用 LLM 生成摘要+翻译
+            # 调用 LLM 生成摘要+翻译 —— 不需要 DB session
             result = await self._call_llm_with_fallback(
                 tweet_id,
                 content_hash,
@@ -761,19 +792,22 @@ class SummarizationService:
                 updated_at=datetime.now(timezone.utc),
             )
 
-            # 保存到数据库
-            await self._repository.save_summary_record(record)
+            # 使用独立 session 保存到数据库并提交
+            async with self._session_factory() as session:
+                repository = SummarizationRepository(session)
+                await repository.save_summary_record(record)
+                await session.commit()
 
             # 保存到内存缓存
             await self._set_cache(content_hash, llm_response)
 
-            # 立即提交，释放 SQLite RESERVED 锁，避免长事务阻塞其他写操作
-            await self._repository._session.commit()
-
             return record
 
         except Exception as e:
-            logger.error(f"处理独立推文失败 (tweet_id={tweet_id}): {e}")
+            logger.error(
+                f"处理独立推文失败 (tweet_id={tweet_id}): {e}",
+                exc_info=True,
+            )
             return None
 
     async def _call_llm_with_fallback(
@@ -1102,13 +1136,16 @@ class SummarizationService:
         self,
         tweet_ids: list[str],
         summary: SummaryRecord,
+        session: AsyncSession,
     ) -> None:
         """为组内所有推文保存摘要引用。
 
         Args:
             tweet_ids: 推文 ID 列表
             summary: 摘要记录
+            session: 调用方提供的 session（与外层事务共享）
         """
+        repository = SummarizationRepository(session)
         # 为每个推文创建摘要记录（共享同一 content_hash）
         for tweet_id in tweet_ids:
             if tweet_id != summary.tweet_id:
@@ -1129,7 +1166,7 @@ class SummarizationService:
                     created_at=datetime.now(timezone.utc),
                     updated_at=datetime.now(timezone.utc),
                 )
-                await self._repository.save_summary_record(record)
+                await repository.save_summary_record(record)
 
     def _compute_hash(self, content: str, task: str = "summary") -> str:
         """计算内容哈希用于缓存键。
@@ -1260,7 +1297,7 @@ class SummarizationService:
 
 
 def create_summarization_service(
-    repository: SummarizationRepository,
+    session_factory: async_sessionmaker[AsyncSession],
     config: "LLMProviderConfig",
     prompt_config: PromptConfig | None = None,
     max_concurrent: int = SummarizationService.DEFAULT_MAX_CONCURRENT,
@@ -1268,7 +1305,7 @@ def create_summarization_service(
     """创建摘要服务实例。
 
     Args:
-        repository: 摘要仓储
+        session_factory: 异步会话工厂
         config: LLM 提供商配置
         prompt_config: Prompt 配置
         max_concurrent: 最大并发数
@@ -1318,7 +1355,7 @@ def create_summarization_service(
         raise ValueError("至少需要配置一个 LLM 提供商")
 
     return SummarizationService(
-        repository=repository,
+        session_factory=session_factory,
         providers=providers,
         prompt_config=prompt_config,
         max_concurrent=max_concurrent,
