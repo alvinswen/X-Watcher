@@ -108,70 +108,82 @@
         <template #header>
           <div class="card-header">
             <span>抓取账号配置</span>
-            <el-button link @click="loadFollows">刷新</el-button>
+            <el-button link @click="refreshFollows">刷新</el-button>
           </div>
         </template>
         <el-skeleton v-if="followsLoading" :rows="4" animated />
         <el-table v-else :data="follows" stripe border style="width: 100%">
+          <!-- 1. 账号 -->
           <el-table-column prop="username" label="账号" width="160">
             <template #default="{ row }">
               @{{ row.username }}
             </template>
           </el-table-column>
-          <el-table-column label="推文数量" width="180">
-            <template #default="{ row }">
-              <el-tag v-if="row.manual_limit" type="warning" size="small">
-                手动: {{ row.manual_limit }}
-              </el-tag>
-              <el-tag v-else type="info" size="small">
-                自动计算
-              </el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="160">
-            <template #default="{ row }">
-              <el-button link type="primary" size="small" @click="openLimitDialog(row)">
-                设置
-              </el-button>
-              <el-button link type="primary" size="small" @click="openAnalysisDialog(row)">
-                分析
-              </el-button>
-            </template>
-          </el-table-column>
+
+          <!-- 2. 添加理由 -->
           <el-table-column prop="reason" label="添加理由" show-overflow-tooltip />
+
+          <!-- 3. 单次抓取数量 -->
+          <el-table-column label="单次抓取数量" width="140" align="center">
+            <template #default="{ row }">
+              <!-- 手动模式：可编辑 input -->
+              <el-input-number
+                v-if="row.manual_limit"
+                v-model="row.manual_limit"
+                :min="1"
+                :max="1000"
+                size="small"
+                controls-position="right"
+                style="width: 110px"
+                @blur="handleLimitBlur(row)"
+              />
+              <!-- 自动模式：只读显示 effective_limit -->
+              <span v-else class="auto-limit">
+                {{ followsStats[row.username]?.effective_limit ?? '-' }}
+              </span>
+            </template>
+          </el-table-column>
+
+          <!-- 4. 计算策略 -->
+          <el-table-column label="计算策略" width="130" align="center">
+            <template #default="{ row }">
+              <el-select
+                :model-value="row.manual_limit ? 'manual' : 'auto'"
+                size="small"
+                style="width: 110px"
+                @change="(v: string) => handleStrategyChange(row, v)"
+              >
+                <el-option label="自动计算" value="auto" />
+                <el-option label="手动设置" value="manual" />
+              </el-select>
+            </template>
+          </el-table-column>
+
+          <!-- 5. 近期最大值/12h -->
+          <el-table-column label="近期最大值/12h" width="140" align="center">
+            <template #default="{ row }">
+              {{ followsStats[row.username]?.max_count_12h ?? '-' }}
+            </template>
+          </el-table-column>
+
+          <!-- 6. 近期最大值/24h -->
+          <el-table-column label="近期最大值/24h" width="140" align="center">
+            <template #default="{ row }">
+              {{ followsStats[row.username]?.max_count_24h ?? '-' }}
+            </template>
+          </el-table-column>
+
+          <!-- 7. 分析 -->
+          <el-table-column label="分析" width="80" align="center">
+            <template #default="{ row }">
+              <el-button link type="primary" size="small" @click="openAnalysisDialog(row)">
+                详细
+              </el-button>
+            </template>
+          </el-table-column>
         </el-table>
       </el-card>
     </template>
-
-    <!-- 推文数量设置弹窗 -->
-    <el-dialog v-model="limitDialogVisible" title="设置推文数量" width="420px">
-      <el-form label-width="100px">
-        <el-form-item label="账号">
-          <span>@{{ editingFollow?.username }}</span>
-        </el-form-item>
-        <el-form-item label="数量模式">
-          <el-radio-group v-model="limitMode">
-            <el-radio value="auto">自动计算</el-radio>
-            <el-radio value="manual">手动设置</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item v-if="limitMode === 'manual'" label="推文数量">
-          <el-input-number
-            v-model="manualLimitValue"
-            :min="1"
-            :max="1000"
-            :step="10"
-            controls-position="right"
-          />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="limitDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="updatingLimit" @click="handleSaveLimit">
-          保存
-        </el-button>
-      </template>
-    </el-dialog>
 
     <!-- 抓取分析弹窗 -->
     <el-dialog v-model="analysisDialogVisible" title="抓取结果分析" width="700px">
@@ -214,7 +226,7 @@ import { ref, onMounted } from "vue"
 import { ElMessage } from "element-plus"
 import { schedulerApi, followsApi } from "@/api"
 import { formatDuration, formatFullDateTime } from "@/utils/format"
-import type { ScheduleConfig, ScrapingFollow, FetchAnalysisResponse } from "@/types"
+import type { ScheduleConfig, ScrapingFollow, FetchAnalysisResponse, FollowStats } from "@/types"
 
 // ==================== 调度配置状态 ====================
 
@@ -253,20 +265,8 @@ const follows = ref<ScrapingFollow[]>([])
 /** 账号加载状态 */
 const followsLoading = ref(false)
 
-/** 设置弹窗可见性 */
-const limitDialogVisible = ref(false)
-
-/** 正在编辑的账号 */
-const editingFollow = ref<ScrapingFollow | null>(null)
-
-/** 数量模式 */
-const limitMode = ref<"auto" | "manual">("auto")
-
-/** 手动数量值 */
-const manualLimitValue = ref(100)
-
-/** 保存 limit 状态 */
-const updatingLimit = ref(false)
+/** 账号运行时统计（按 username 索引） */
+const followsStats = ref<Record<string, FollowStats>>({})
 
 // ==================== 分析弹窗状态 ====================
 
@@ -393,39 +393,57 @@ async function loadFollows() {
   }
 }
 
-/** 打开 limit 设置弹窗 */
-function openLimitDialog(follow: ScrapingFollow) {
-  editingFollow.value = follow
-  if (follow.manual_limit) {
-    limitMode.value = "manual"
-    manualLimitValue.value = follow.manual_limit
-  } else {
-    limitMode.value = "auto"
-    manualLimitValue.value = 100
+/** 加载账号运行时统计 */
+async function loadFollowsStats() {
+  try {
+    const statsList = await schedulerApi.getFollowsStats()
+    const map: Record<string, FollowStats> = {}
+    for (const s of statsList) {
+      map[s.username] = s
+    }
+    followsStats.value = map
+  } catch (error) {
+    console.error("加载账号统计失败:", error)
   }
-  limitDialogVisible.value = true
 }
 
-/** 保存 limit 设置 */
-async function handleSaveLimit() {
-  if (!editingFollow.value) return
-  updatingLimit.value = true
+/** 刷新账号列表和统计 */
+async function refreshFollows() {
+  await Promise.all([loadFollows(), loadFollowsStats()])
+}
+
+/** 计算策略切换 → 立即调 API */
+async function handleStrategyChange(row: ScrapingFollow, strategy: string) {
   try {
-    const manualLimit = limitMode.value === "manual" ? manualLimitValue.value : 0
-    await followsApi.update(editingFollow.value.username, {
-      manual_limit: manualLimit,
-    })
-    ElMessage.success(
-      limitMode.value === "manual"
-        ? `已设置 @${editingFollow.value.username} 手动抓取 ${manualLimitValue.value} 条`
-        : `已恢复 @${editingFollow.value.username} 自动计算`,
-    )
-    limitDialogVisible.value = false
-    await loadFollows()
+    if (strategy === "manual") {
+      // 切到手动，默认值 10
+      await followsApi.update(row.username, { manual_limit: 10 })
+      ElMessage.success(`已切换 @${row.username} 为手动设置（默认 10 条）`)
+    } else {
+      // 切到自动，清除手动值
+      await followsApi.update(row.username, { manual_limit: 0 })
+      ElMessage.success(`已恢复 @${row.username} 自动计算`)
+    }
+    await Promise.all([loadFollows(), loadFollowsStats()])
   } catch (error) {
-    console.error("保存 limit 失败:", error)
-  } finally {
-    updatingLimit.value = false
+    console.error("切换计算策略失败:", error)
+  }
+}
+
+/** 手动 limit blur → 校验 + 立即保存 */
+async function handleLimitBlur(row: ScrapingFollow) {
+  const val = row.manual_limit
+  if (val == null || val < 1 || val > 1000) {
+    ElMessage.warning("抓取数量需在 1-1000 之间")
+    await loadFollows() // 回滚到服务端值
+    return
+  }
+  try {
+    await followsApi.update(row.username, { manual_limit: val })
+    ElMessage.success(`已设置 @${row.username} 单次抓取 ${val} 条`)
+  } catch (error) {
+    console.error("保存抓取数量失败:", error)
+    await loadFollows() // 出错时回滚
   }
 }
 
@@ -471,6 +489,7 @@ function formatShortDateTime(dateStr: string): string {
 onMounted(() => {
   loadConfig()
   loadFollows()
+  loadFollowsStats()
 })
 </script>
 
@@ -512,6 +531,10 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.auto-limit {
+  color: var(--el-text-color-regular);
 }
 
 .analysis-header {

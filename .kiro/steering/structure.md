@@ -92,7 +92,7 @@ src/
 │       ├── auth.py          # API Key 认证
 │       ├── schemas.py       # 请求/响应模型
 │       ├── preference_router.py   # 关注列表 API
-│       └── scraper_config_router.py  # 管理员抓取配置 + 调度管理（含 enable/disable）+ 公共只读 API
+│       └── scraper_config_router.py  # 管理员抓取配置 + 调度管理（含 enable/disable）+ 账号运行时统计（follows/stats）+ 公共只读 API
 ├── user/                    # 用户管理与认证模块
 │   ├── api/
 │   │   ├── auth.py          # JWT + API Key 统一认证依赖

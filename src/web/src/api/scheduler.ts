@@ -6,6 +6,7 @@ import type {
   UpdateIntervalRequest,
   UpdateNextRunRequest,
   FetchAnalysisResponse,
+  FollowStats,
 } from "@/types"
 
 /** 调度管理 API 路径前缀 */
@@ -49,6 +50,14 @@ export const schedulerApi = {
   async disable(): Promise<ScheduleConfig> {
     const response = await client.post<ScheduleConfig>(
       `${SCHEDULER_PREFIX}/disable`,
+    )
+    return response.data
+  },
+
+  /** 获取所有活跃账号的运行时统计 */
+  async getFollowsStats(): Promise<FollowStats[]> {
+    const response = await client.get<FollowStats[]>(
+      "/admin/scraping/follows/stats",
     )
     return response.data
   },

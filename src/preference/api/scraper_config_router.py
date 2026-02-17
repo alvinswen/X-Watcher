@@ -24,6 +24,7 @@ from src.preference.api.schemas import (
     UpdateScheduleIntervalRequest,
     UpdateScheduleNextRunRequest,
     FetchAnalysisResponse,
+    FollowStatsResponse,
     PeriodStats,
 )
 from src.preference.infrastructure.scraper_config_repository import (
@@ -173,6 +174,127 @@ async def get_scraper_follows(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="获取抓取账号列表失败"
+        ) from e
+
+
+@router.get(
+    "/follows/stats",
+    response_model=list[FollowStatsResponse],
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {"model": ErrorResponse},
+        status.HTTP_403_FORBIDDEN: {"model": ErrorResponse},
+    },
+)
+async def get_follows_stats(
+    session: AsyncSession = Depends(get_async_session),
+    admin: UserDomain = Depends(get_current_admin_user),
+) -> list[FollowStatsResponse]:
+    """获取所有活跃账号的运行时统计。
+
+    返回每个账号的 effective_limit（自动模式下的计算值）和
+    12h/24h 近期最大新推文数。
+
+    Args:
+        session: 数据库会话
+        admin: 管理员用户
+
+    Returns:
+        list[FollowStatsResponse]: 各账号的运行时统计
+    """
+    from src.scraper.infrastructure.fetch_stats_repository import FetchStatsRepository
+    from src.scraper.infrastructure.models import TweetOrm
+    from src.scraper.services.limit_calculator import LimitCalculator
+
+    try:
+        # 1. 获取所有活跃账号
+        service = await _get_scraper_config_service(session)
+        follows = await service.get_all_follows(include_inactive=False)
+        usernames = [f.username for f in follows]
+
+        if not usernames:
+            return []
+
+        # 2. 批量查 FetchStats → 计算 effective_limit
+        stats_repo = FetchStatsRepository(session)
+        stats_map = await stats_repo.batch_get_stats(usernames)
+        calculator = LimitCalculator()
+
+        # 3. 高效批量查询：用单条 SQL 按 (username, period_bucket) 分组
+        #    再在 Python 中按 username 聚合 max
+        now = datetime.now(timezone.utc)
+        num_periods = 14
+
+        async def _batch_max_counts(
+            interval_hours: int,
+        ) -> dict[str, int]:
+            """单条 SQL 查所有用户在指定间隔下的最大周期推文数。"""
+            interval = timedelta(hours=interval_hours)
+            cutoff = now - (num_periods * interval)
+
+            # 一次查出所有用户在 cutoff 之后的推文，按 (username, period_bucket) 分组
+            # period_bucket = floor((now - created_at) / interval)
+            # SQLite 不支持 FLOOR 对 interval，用秒数计算
+            interval_secs = int(interval.total_seconds())
+
+            # 使用原始 SQL 表达式计算 period bucket
+            from sqlalchemy import literal_column, cast, Integer
+
+            # SQLite: CAST((julianday('now') - julianday(created_at)) * 86400 / interval_secs AS INTEGER)
+            # 但 julianday 在 SQLite 中基于 UTC，与我们的 now 一致
+            # 更简单的方案：直接用 (strftime('%s', 'now') - strftime('%s', created_at)) / interval_secs
+            bucket_expr = cast(
+                (func.strftime("%s", literal_column(f"'{now.strftime('%Y-%m-%d %H:%M:%S')}'"))
+                 - func.strftime("%s", TweetOrm.created_at))
+                / interval_secs,
+                Integer,
+            )
+
+            stmt = (
+                select(
+                    TweetOrm.author_username,
+                    func.count().label("cnt"),
+                )
+                .where(
+                    TweetOrm.author_username.in_(usernames),
+                    TweetOrm.created_at >= cutoff,
+                    TweetOrm.created_at < now,
+                )
+                .group_by(TweetOrm.author_username, bucket_expr)
+            )
+
+            result = await session.execute(stmt)
+            rows = result.all()
+
+            # 按 username 聚合 max(cnt)
+            max_map: dict[str, int] = {}
+            for username_val, cnt in rows:
+                if username_val not in max_map or cnt > max_map[username_val]:
+                    max_map[username_val] = cnt
+            return max_map
+
+        # 并行查 12h 和 24h（实际是顺序 await，但只有 2 条 SQL）
+        max_12h_map = await _batch_max_counts(12)
+        max_24h_map = await _batch_max_counts(24)
+
+        # 4. 组装结果
+        results = []
+        for username in usernames:
+            fetch_stats = stats_map.get(username)
+            effective_limit = calculator.calculate_next_limit(fetch_stats)
+
+            results.append(FollowStatsResponse(
+                username=username,
+                effective_limit=effective_limit,
+                max_count_12h=max_12h_map.get(username, 0),
+                max_count_24h=max_24h_map.get(username, 0),
+            ))
+
+        return results
+    except Exception as e:
+        logger.error(f"获取账号运行时统计失败: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="获取账号运行时统计失败",
         ) from e
 
 

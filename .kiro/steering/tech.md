@@ -149,6 +149,7 @@ FEED_MAX_TWEETS=200                 # Feed 返回最大推文数
 SCRAPER_INTERVAL=43200              # 默认抓取间隔（秒），仅作为 GET /schedule 的回退默认值；启动时不自动创建 job，需管理员通过 API 显式启用
 
 # 抓取优化
+SCRAPER_LIMIT=30                    # 自动计算默认 limit（无历史数据时使用）
 SCRAPER_MIN_LIMIT=10                # 动态 limit 最小值
 SCRAPER_MAX_LIMIT=300               # 动态 limit 最大值
 SCRAPER_EMA_ALPHA=0.3               # EMA 平滑系数

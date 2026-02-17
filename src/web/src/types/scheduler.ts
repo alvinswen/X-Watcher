@@ -42,6 +42,18 @@ export interface PeriodStats {
   new_tweet_count: number
 }
 
+/** 账号运行时统计。 */
+export interface FollowStats {
+  /** 用户名 */
+  username: string
+  /** 自动计算模式下的当前 limit 值 */
+  effective_limit: number
+  /** 近 14 个 12h 周期的最大新推文数 */
+  max_count_12h: number
+  /** 近 14 个 24h 周期的最大新推文数 */
+  max_count_24h: number
+}
+
 /** 抓取分析响应。 */
 export interface FetchAnalysisResponse {
   /** 用户名 */

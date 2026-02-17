@@ -19,7 +19,7 @@ class LimitCalculator:
 
     def __init__(
         self,
-        default_limit: int = 100,
+        default_limit: int = 30,
         min_limit: int = 10,
         max_limit: int = 300,
         ema_alpha: float = 0.3,

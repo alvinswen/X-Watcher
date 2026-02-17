@@ -54,7 +54,7 @@ class Settings(BaseSettings):
         default="", description="关注用户列表（逗号分隔）"
     )
     scraper_limit: int = Field(
-        default=100, ge=1, le=1000, description="单次抓取推文数量限制"
+        default=30, ge=1, le=1000, description="单次抓取推文数量限制"
     )
 
     # 数据库配置
