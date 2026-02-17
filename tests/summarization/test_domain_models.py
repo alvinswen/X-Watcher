@@ -15,6 +15,7 @@ from src.summarization.domain.models import (
     PromptConfig,
     SummaryRecord,
     SummaryResult,
+    TweetType,
 )
 
 
@@ -335,3 +336,116 @@ class TestPromptConfig:
         formatted = config.format_translation("test content")
         assert "自定义翻译模板：" in formatted
         assert "test content" in formatted
+
+    def test_min_tweet_length_for_summary_chinese_default(self):
+        """测试中文摘要阈值默认值。"""
+        config = PromptConfig()
+        assert config.min_tweet_length_for_summary_chinese == 50
+        assert config.min_tweet_length_for_summary == 100
+
+    def test_min_tweet_length_for_summary_chinese_custom(self):
+        """测试自定义中文摘要阈值。"""
+        config = PromptConfig(min_tweet_length_for_summary_chinese=30)
+        assert config.min_tweet_length_for_summary_chinese == 30
+
+
+class TestFormatUnifiedPromptLanguage:
+    """format_unified_prompt 语言适配测试。"""
+
+    def test_english_original_has_translate_instruction(self):
+        """英文原创推文应包含翻译指令。"""
+        config = PromptConfig()
+        prompt = config.format_unified_prompt(
+            tweet_text="OpenAI released GPT-5 with improved reasoning capabilities",
+            tweet_type=TweetType.original,
+            is_short=False,
+            author_username="openai",
+        )
+        assert "将原文翻译为流畅的中文" in prompt
+
+    def test_chinese_original_no_translate(self):
+        """纯中文原创推文应提示无需翻译。"""
+        config = PromptConfig()
+        prompt = config.format_unified_prompt(
+            tweet_text="今天天气真好，适合出去散步，感受一下春天的气息",
+            tweet_type=TweetType.original,
+            is_short=False,
+            author_username="zhangsan",
+        )
+        assert "原文已为中文，无需翻译" in prompt
+        assert "将原文翻译为流畅的中文" not in prompt
+
+    def test_chinese_retweeted_keeps_prefix(self):
+        """纯中文转推应保留前缀格式。"""
+        config = PromptConfig()
+        prompt = config.format_unified_prompt(
+            tweet_text="今天上海天气晴朗，适合出门散步，大家快出来玩吧",
+            tweet_type=TweetType.retweeted,
+            is_short=False,
+            author_username="zhangsan",
+            original_author="lisi",
+        )
+        assert "原文已为中文，无需翻译" in prompt
+        assert "【@zhangsan 转推 @lisi】" in prompt
+
+    def test_chinese_quoted_keeps_prefix(self):
+        """纯中文引用推文应保留前缀格式。"""
+        config = PromptConfig()
+        prompt = config.format_unified_prompt(
+            tweet_text="说得太好了！完全赞同\n\n[引用原文]: 今天上海天气晴朗，适合出门散步",
+            tweet_type=TweetType.quoted,
+            is_short=False,
+            author_username="zhangsan",
+            original_author="lisi",
+        )
+        assert "原文已为中文，无需翻译" in prompt
+        assert "【@zhangsan 引用 @lisi】" in prompt
+
+    def test_mixed_quoted_translate_english_only(self):
+        """中文评论+英文引文应提示仅翻译英文部分。"""
+        config = PromptConfig()
+        prompt = config.format_unified_prompt(
+            tweet_text="这个模型的推理能力提升太大了！\n\n[引用原文]: OpenAI announces GPT-5 with improved reasoning",
+            tweet_type=TweetType.quoted,
+            is_short=False,
+            author_username="zhangsan",
+            original_author="openai",
+        )
+        assert "仅将英文部分翻译为中文" in prompt
+        assert "保留已有的中文内容不变" in prompt
+        assert "【@zhangsan 引用 @openai】" in prompt
+
+    def test_mixed_original_translate_english_only(self):
+        """中英混合原创推文应提示仅翻译英文部分。"""
+        config = PromptConfig()
+        prompt = config.format_unified_prompt(
+            tweet_text="刚刚试了一下新版本的Claude，感觉reasoning能力确实很强，尤其是在coding方面",
+            tweet_type=TweetType.original,
+            is_short=False,
+            author_username="zhangsan",
+        )
+        assert "仅将英文部分翻译为中文" in prompt
+
+    def test_english_quoted_normal_translate(self):
+        """纯英文引用推文应使用标准翻译指令。"""
+        config = PromptConfig()
+        prompt = config.format_unified_prompt(
+            tweet_text="Great analysis!\n\n[引用原文]: OpenAI announces GPT-5 with improved reasoning",
+            tweet_type=TweetType.quoted,
+            is_short=False,
+            author_username="user123",
+            original_author="openai",
+        )
+        assert "将原文翻译为流畅的中文" in prompt
+
+    def test_short_tweet_still_gets_language_aware_translation(self):
+        """短推文也应获得语言感知的翻译指令。"""
+        config = PromptConfig()
+        prompt = config.format_unified_prompt(
+            tweet_text="今天天气真好",
+            tweet_type=TweetType.original,
+            is_short=True,
+            author_username="zhangsan",
+        )
+        assert "原文已为中文，无需翻译" in prompt
+        assert "summary 字段请返回 null" in prompt

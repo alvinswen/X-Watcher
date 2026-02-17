@@ -17,6 +17,7 @@ from returns.result import Failure, Result, Success
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.deduplication.domain.models import DeduplicationGroup
+from src.summarization.domain.language_utils import is_chinese_dominant
 from src.summarization.domain.models import (
     CostStats,
     LLMErrorType,
@@ -569,9 +570,12 @@ class SummarizationService:
                         f"{representative_text}\n\n[引用原文]: {referenced_tweet_text}"
                     )
 
-            # 智能摘要策略：检查推文长度
+            # 智能摘要策略：根据语言选择阈值，检查推文长度
             tweet_length = len(representative_text)
-            min_threshold = self._prompt_config.min_tweet_length_for_summary
+            if is_chinese_dominant(representative_text):
+                min_threshold = self._prompt_config.min_tweet_length_for_summary_chinese
+            else:
+                min_threshold = self._prompt_config.min_tweet_length_for_summary
             is_short = tweet_length < min_threshold
 
             if is_short:
@@ -733,9 +737,12 @@ class SummarizationService:
                         f"{tweet_text}\n\n[引用原文]: {referenced_tweet_text}"
                     )
 
-            # 智能摘要策略：检查推文长度
+            # 智能摘要策略：根据语言选择阈值，检查推文长度
             tweet_length = len(tweet_text)
-            min_threshold = self._prompt_config.min_tweet_length_for_summary
+            if is_chinese_dominant(tweet_text):
+                min_threshold = self._prompt_config.min_tweet_length_for_summary_chinese
+            else:
+                min_threshold = self._prompt_config.min_tweet_length_for_summary
             is_short = tweet_length < min_threshold
 
             if is_short:

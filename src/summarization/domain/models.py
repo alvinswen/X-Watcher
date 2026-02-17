@@ -9,6 +9,11 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from src.summarization.domain.language_utils import (
+    is_chinese_dominant,
+    is_mixed_language,
+)
+
 
 class LLMErrorType(str, Enum):
     """LLM 错误类型。
@@ -281,31 +286,85 @@ class PromptConfig(BaseModel):
                 "保留人名、公司名、产品名等关键实体。"
             )
 
-        # 根据推文类型生成翻译指令
-        if tweet_type == TweetType.retweeted:
-            translation_instruction = (
-                f"将原文翻译为流畅的中文，并在翻译开头加上"
-                f"「【{author_tag} 转推 {original_tag}】」前缀：\n"
-                "- 保持原文的语气和情感倾向\n"
-                "- 技术术语和专有名词保留原文或提供中英文对照\n"
-                "- URL 链接保持不变，不翻译"
-            )
-        elif tweet_type == TweetType.quoted:
-            translation_instruction = (
-                f"将原文翻译为流畅的中文，并在翻译开头加上"
-                f"「【{author_tag} 引用 {original_tag}】」前缀：\n"
-                "- 保持原文的语气和情感倾向\n"
-                "- 技术术语和专有名词保留原文或提供中英文对照\n"
-                "- URL 链接保持不变，不翻译\n"
-                "- [引用原文] 标记翻译为「引用原文：」"
-            )
+        # 根据内容语言和推文类型生成翻译指令
+        content_is_chinese = is_chinese_dominant(tweet_text)
+        content_is_mixed = is_mixed_language(tweet_text)
+
+        if content_is_chinese and not content_is_mixed:
+            # 纯中文内容：保留原文
+            if tweet_type == TweetType.retweeted:
+                translation_instruction = (
+                    "原文已为中文，无需翻译。"
+                    f"translation 字段请返回原文内容，并在开头加上"
+                    f"「【{author_tag} 转推 {original_tag}】」前缀。"
+                )
+            elif tweet_type == TweetType.quoted:
+                translation_instruction = (
+                    "原文已为中文，无需翻译。"
+                    f"translation 字段请返回原文内容，并在开头加上"
+                    f"「【{author_tag} 引用 {original_tag}】」前缀。\n"
+                    "- [引用原文] 标记替换为「引用原文：」"
+                )
+            else:
+                translation_instruction = (
+                    "原文已为中文，无需翻译。"
+                    "translation 字段请直接返回原文内容（保持原格式）。"
+                )
+        elif content_is_mixed:
+            # 中英混合内容：仅翻译英文部分
+            if tweet_type == TweetType.retweeted:
+                translation_instruction = (
+                    f"原文包含中英文混合内容。请仅将英文部分翻译为中文，"
+                    f"保留已有的中文内容不变，并在翻译开头加上"
+                    f"「【{author_tag} 转推 {original_tag}】」前缀：\n"
+                    "- 保持原文的语气和情感倾向\n"
+                    "- 技术术语和专有名词保留原文或提供中英文对照\n"
+                    "- URL 链接保持不变，不翻译"
+                )
+            elif tweet_type == TweetType.quoted:
+                translation_instruction = (
+                    f"原文包含中英文混合内容。请仅将英文部分翻译为中文，"
+                    f"保留已有的中文内容不变，并在翻译开头加上"
+                    f"「【{author_tag} 引用 {original_tag}】」前缀：\n"
+                    "- 保持原文的语气和情感倾向\n"
+                    "- 技术术语和专有名词保留原文或提供中英文对照\n"
+                    "- URL 链接保持不变，不翻译\n"
+                    "- [引用原文] 标记替换为「引用原文：」"
+                )
+            else:
+                translation_instruction = (
+                    "原文包含中英文混合内容。请仅将英文部分翻译为中文，"
+                    "保留已有的中文内容不变：\n"
+                    "- 保持原文的语气和情感倾向\n"
+                    "- 技术术语和专有名词保留原文或提供中英文对照\n"
+                    "- URL 链接保持不变，不翻译"
+                )
         else:
-            translation_instruction = (
-                "将原文翻译为流畅的中文：\n"
-                "- 保持原文的语气和情感倾向\n"
-                "- 技术术语和专有名词保留原文或提供中英文对照\n"
-                "- URL 链接保持不变，不翻译"
-            )
+            # 英文内容：翻译为中文（原有逻辑）
+            if tweet_type == TweetType.retweeted:
+                translation_instruction = (
+                    f"将原文翻译为流畅的中文，并在翻译开头加上"
+                    f"「【{author_tag} 转推 {original_tag}】」前缀：\n"
+                    "- 保持原文的语气和情感倾向\n"
+                    "- 技术术语和专有名词保留原文或提供中英文对照\n"
+                    "- URL 链接保持不变，不翻译"
+                )
+            elif tweet_type == TweetType.quoted:
+                translation_instruction = (
+                    f"将原文翻译为流畅的中文，并在翻译开头加上"
+                    f"「【{author_tag} 引用 {original_tag}】」前缀：\n"
+                    "- 保持原文的语气和情感倾向\n"
+                    "- 技术术语和专有名词保留原文或提供中英文对照\n"
+                    "- URL 链接保持不变，不翻译\n"
+                    "- [引用原文] 标记翻译为「引用原文：」"
+                )
+            else:
+                translation_instruction = (
+                    "将原文翻译为流畅的中文：\n"
+                    "- 保持原文的语气和情感倾向\n"
+                    "- 技术术语和专有名词保留原文或提供中英文对照\n"
+                    "- URL 链接保持不变，不翻译"
+                )
 
         return f"""请分析以下推文并同时完成摘要和翻译任务。
 
@@ -327,5 +386,10 @@ class PromptConfig(BaseModel):
     min_tweet_length_for_summary: int = Field(
         default=100,
         ge=1,
-        description="推文最小长度阈值，低于此值仅翻译不摘要",
+        description="推文最小长度阈值（英文），低于此值仅翻译不摘要",
+    )
+    min_tweet_length_for_summary_chinese: int = Field(
+        default=50,
+        ge=1,
+        description="中文推文最小长度阈值，低于此值仅翻译不摘要（中文信息密度更高）",
     )
