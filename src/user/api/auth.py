@@ -11,7 +11,7 @@ from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBea
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_settings
-from src.database.async_session import get_async_session
+from src.database.async_session import get_async_session, get_async_session_maker
 from src.user.domain.models import BOOTSTRAP_ADMIN, UserDomain
 from src.user.infrastructure.repository import UserRepository
 from src.user.services.auth_service import AuthService
@@ -39,9 +39,14 @@ async def get_current_user(
         result = await repo.get_active_key_by_hash(key_hash)
         if result is not None:
             key_info, user_id = result
-            # 更新 last_used_at（非关键操作，失败时不阻塞认证）
+            # 更新 last_used_at（使用独立 session 并立即 commit，
+            # 避免与路由的业务 session 竞争 SQLite 写锁导致死锁）
             try:
-                await repo.update_key_last_used(key_info.id)
+                session_maker = get_async_session_maker()
+                async with session_maker() as update_session:
+                    update_repo = UserRepository(update_session)
+                    await update_repo.update_key_last_used(key_info.id)
+                    await update_session.commit()
             except Exception:
                 logger.debug(f"更新 API Key last_used_at 失败（不影响认证）: key_id={key_info.id}")
             user = await repo.get_user_by_id(user_id)

@@ -260,10 +260,17 @@ function handleEdit(topic: TopicListItem) {
 
 /** 提交表单 */
 async function handleSubmit() {
-  if (!formRef.value) return
+  if (!formRef.value) {
+    ElMessage.warning("表单未初始化，请关闭对话框后重试")
+    return
+  }
 
-  const valid = await formRef.value.validate().catch(() => false)
-  if (!valid) return
+  try {
+    await formRef.value.validate()
+  } catch {
+    // validate() 验证失败时会 reject，Element Plus 已自动显示字段错误提示
+    return
+  }
 
   submitting.value = true
   try {
