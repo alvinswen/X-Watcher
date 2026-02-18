@@ -68,8 +68,8 @@ export interface TopicSummary {
 /** 摘要任务列表项 */
 export interface TopicSummaryTask {
   id: number
-  topic_id: number | null
-  topic_name: string | null
+  topic_id: number
+  topic_name: string
   time_span_hours: number
   deadline: string
   custom_prompt: string | null
@@ -87,8 +87,15 @@ export interface TopicSummaryTaskDetail extends TopicSummaryTask {
 
 /** 创建摘要任务请求 */
 export interface CreateSummaryTaskRequest {
-  topic_id: number | null
+  topic_id: number
   time_span_hours: number
   deadline: string
   custom_prompt?: string | null
+}
+
+/** 配图提示词响应 */
+export interface ImagePromptResponse {
+  image_prompt: string
+  llm_provider: string
+  llm_model: string
 }

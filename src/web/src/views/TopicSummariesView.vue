@@ -32,7 +32,7 @@
     <el-table v-else :data="tasks" stripe border style="width: 100%">
       <el-table-column prop="topic_name" label="主题名称" width="160">
         <template #default="{ row }">
-          {{ row.topic_name || '全部账号' }}
+          {{ row.topic_name }}
         </template>
       </el-table-column>
       <el-table-column label="时间跨度" width="120" align="center">
@@ -40,11 +40,9 @@
           {{ row.time_span_hours }} 小时
         </template>
       </el-table-column>
-      <el-table-column label="截止时间" width="180">
+      <el-table-column label="截止时间" width="210">
         <template #default="{ row }">
-          <el-tooltip :content="formatFullDateTime(row.deadline)" placement="top">
-            <span>{{ formatRelativeTime(row.deadline) }}</span>
-          </el-tooltip>
+          {{ formatChineseDateTime(row.deadline) }}
         </template>
       </el-table-column>
       <el-table-column label="状态" width="100" align="center">
@@ -61,15 +59,19 @@
           </el-tooltip>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="200" fixed="right">
+      <el-table-column label="操作" width="340" fixed="right">
         <template #default="{ row }">
+          <el-button link type="primary" size="small" @click="handleViewDetail(row)">
+            详情
+          </el-button>
           <el-button
+            v-if="row.status === 'completed'"
             link
             type="primary"
             size="small"
-            @click="handleViewDetail(row)"
+            @click="handleCopySummary(row)"
           >
-            详情
+            复制
           </el-button>
           <el-button
             v-if="row.status === 'completed'"
@@ -79,6 +81,16 @@
             @click="handleDownloadSummary(row)"
           >
             下载
+          </el-button>
+          <el-button
+            v-if="row.status === 'completed'"
+            link
+            type="primary"
+            size="small"
+            :loading="generatingImagePrompt === row.id"
+            @click="handleGenerateImagePrompt(row)"
+          >
+            配图
           </el-button>
           <el-button
             link
@@ -111,7 +123,6 @@
             placeholder="请选择主题"
             style="width: 100%"
           >
-            <el-option key="all" label="全部账号" :value="null" />
             <el-option
               v-for="t in allTopics"
               :key="t.id"
@@ -172,7 +183,7 @@
         <!-- 基本信息 -->
         <el-descriptions title="基本信息" :column="2" border>
           <el-descriptions-item label="主题">
-            {{ taskDetail.topic_name || '全部账号' }}
+            {{ taskDetail.topic_name }}
           </el-descriptions-item>
           <el-descriptions-item label="状态">
             <el-tag :type="statusTagType(taskDetail.status)" size="small">
@@ -216,12 +227,7 @@
         <!-- 摘要内容 -->
         <template v-if="taskDetail.summary">
           <div class="detail-section">
-            <div style="display: flex; align-items: center; justify-content: space-between;">
-              <h4>摘要内容</h4>
-              <el-button type="primary" size="small" @click="handleDownloadDetailSummary">
-                下载 Markdown
-              </el-button>
-            </div>
+            <h4>摘要内容</h4>
             <div class="summary-content">{{ taskDetail.summary.content }}</div>
           </div>
 
@@ -263,7 +269,7 @@ import { ref, onMounted, onUnmounted, reactive } from "vue"
 import { Plus } from "@element-plus/icons-vue"
 import { ElMessageBox, ElMessage, type FormInstance, type FormRules } from "element-plus"
 import { topicsApi } from "@/api"
-import { formatRelativeTime, formatFullDateTime, formatCostUsd, formatNumber } from "@/utils/format"
+import { formatRelativeTime, formatFullDateTime, formatChineseDateTime, formatCostUsd, formatNumber } from "@/utils/format"
 import type {
   TopicListItem,
   TopicSummaryTask,
@@ -312,6 +318,9 @@ const createFormData = reactive({
 
 /** 创建表单验证规则 */
 const createFormRules: FormRules = {
+  topic_id: [
+    { required: true, message: "请选择主题", trigger: "change" },
+  ],
   time_span_hours: [
     { required: true, message: "请输入时间跨度", trigger: "blur" },
   ],
@@ -464,7 +473,7 @@ async function handleSubmitCreate() {
       ? null
       : (createFormData.custom_prompt || null)
     await topicsApi.createTask({
-      topic_id: createFormData.topic_id,
+      topic_id: createFormData.topic_id!,
       time_span_hours: createFormData.time_span_hours,
       deadline: localDate.toISOString(),
       custom_prompt: customPrompt,
@@ -506,8 +515,8 @@ function downloadAsFile(content: string, filename: string) {
 }
 
 /** 生成摘要文件名 */
-function buildSummaryFilename(topicName: string | null, createdAt: string): string {
-  const name = topicName || "全部账号"
+function buildSummaryFilename(topicName: string, createdAt: string): string {
+  const name = topicName
   const dateStr = new Date(createdAt).toISOString().slice(0, 10)
   return `摘要_${name}_${dateStr}.md`
 }
@@ -527,13 +536,36 @@ async function handleDownloadSummary(task: TopicSummaryTask) {
   }
 }
 
-/** 从详情抽屉下载摘要 */
-function handleDownloadDetailSummary() {
-  if (!taskDetail.value?.summary) return
-  downloadAsFile(
-    taskDetail.value.summary.content,
-    buildSummaryFilename(taskDetail.value.topic_name, taskDetail.value.created_at),
-  )
+/** 从列表复制摘要内容到剪贴板 */
+async function handleCopySummary(task: TopicSummaryTask) {
+  try {
+    const detail = await topicsApi.getTask(task.id)
+    if (!detail.summary) {
+      ElMessage.warning("摘要内容不可用")
+      return
+    }
+    await navigator.clipboard.writeText(detail.summary.content)
+    ElMessage.success("已复制到剪贴板")
+  } catch {
+    ElMessage.error("复制失败")
+  }
+}
+
+/** 配图提示词生成中的任务 ID */
+const generatingImagePrompt = ref<number | null>(null)
+
+/** 生成配图提示词并复制到剪贴板 */
+async function handleGenerateImagePrompt(task: TopicSummaryTask) {
+  generatingImagePrompt.value = task.id
+  try {
+    const result = await topicsApi.generateImagePrompt(task.id)
+    await navigator.clipboard.writeText(result.image_prompt)
+    ElMessage.success("配图提示词已复制到剪贴板")
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.detail || "生成配图提示词失败")
+  } finally {
+    generatingImagePrompt.value = null
+  }
 }
 
 /** 删除任务 */

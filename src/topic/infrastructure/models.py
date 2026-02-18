@@ -107,7 +107,7 @@ class TopicSummaryTaskOrm(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    topic_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("topics.id", ondelete="SET NULL"), nullable=True)
+    topic_id: Mapped[int] = mapped_column(Integer, ForeignKey("topics.id", ondelete="CASCADE"), nullable=False)
     time_span_hours: Mapped[int] = mapped_column(Integer, nullable=False)
     deadline: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     custom_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -118,7 +118,7 @@ class TopicSummaryTaskOrm(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     # Relationships
-    topic: Mapped["TopicOrm | None"] = relationship("TopicOrm", back_populates="summary_tasks")
+    topic: Mapped["TopicOrm"] = relationship("TopicOrm", back_populates="summary_tasks")
     summary: Mapped["TopicSummaryOrm | None"] = relationship(
         "TopicSummaryOrm", back_populates="task", uselist=False, cascade="all, delete-orphan", lazy="selectin"
     )
@@ -127,7 +127,7 @@ class TopicSummaryTaskOrm(Base):
         return TopicSummaryTaskDomain(
             id=self.id,
             topic_id=self.topic_id,
-            topic_name=self.topic.name if self.topic else None,
+            topic_name=self.topic.name,
             time_span_hours=self.time_span_hours,
             deadline=self.deadline,
             custom_prompt=self.custom_prompt,

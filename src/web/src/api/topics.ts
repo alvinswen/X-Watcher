@@ -12,6 +12,7 @@ import type {
   TopicSummaryTask,
   TopicSummaryTaskDetail,
   CreateSummaryTaskRequest,
+  ImagePromptResponse,
 } from "@/types/topic"
 
 const TOPICS_PREFIX = "/topics"
@@ -92,5 +93,12 @@ export const topicsApi = {
 
   async deleteTask(taskId: number): Promise<void> {
     await client.delete(`${SUMMARY_TASKS_PREFIX}/${taskId}`)
+  },
+
+  async generateImagePrompt(taskId: number): Promise<ImagePromptResponse> {
+    const response = await client.post<ImagePromptResponse>(
+      `${SUMMARY_TASKS_PREFIX}/${taskId}/generate-image-prompt`,
+    )
+    return response.data
   },
 }

@@ -38,6 +38,20 @@ DEFAULT_TOPIC_SUMMARY_PROMPT = """你是一位专业的信息分析师。请根�
 
 请生成摘要报告："""
 
+# 配图提示词模板
+IMAGE_PROMPT_TEMPLATE = """你是一位专业的视觉设计提示词工程师。请根据以下摘要内容，生成一段适用于 AI 图片生成工具（如 DALL-E、Midjourney）的英文提示词。
+
+要求：
+1. 提取摘要中最核心的 1-2 个事件或主题作为画面主体
+2. 提示词应描述一个具体的视觉场景，适合作为微信公众号文章的封面配图
+3. 风格：现代、简洁、科技感，适合信息类文章
+4. 直接输出提示词，不要包含任何解释或前缀
+
+摘要内容：
+{summary_content}
+
+请生成图片提示词："""
+
 # Token 上限（安全阈值）
 MAX_CONTEXT_TOKENS = 80000
 
@@ -106,38 +120,25 @@ class TopicSummaryService:
         """重置单例（用于测试）。"""
         cls._instance = None
 
-    async def _get_all_active_follows(self, session: AsyncSession) -> list[str]:
-        """查询所有活跃的抓取账号用户名。"""
-        from src.database.models import ScraperFollow
-        stmt = select(ScraperFollow.username).where(ScraperFollow.is_active == True)  # noqa: E712
-        result = await session.execute(stmt)
-        return [row[0] for row in result.all()]
-
     async def create_and_execute_task(
         self,
         session: AsyncSession,
         session_factory: async_sessionmaker,
-        topic_id: int | None,
+        topic_id: int,
         time_span_hours: int,
         deadline: datetime,
         custom_prompt: str | None = None,
     ) -> TopicSummaryTaskDomain:
         """创建摘要任务并异步启动执行。返回 pending 状态的任务。"""
-        if topic_id is not None:
-            # 验证主题存在
-            topic = await self._topic_repo.get_by_id(session, topic_id)
-            if not topic:
-                raise ValueError(f"主题 ID {topic_id} 不存在")
+        # 验证主题存在
+        topic = await self._topic_repo.get_by_id(session, topic_id)
+        if not topic:
+            raise ValueError(f"主题 ID {topic_id} 不存在")
 
-            # 验证主题有关联账号
-            accounts = await self._topic_repo.get_accounts(session, topic_id)
-            if not accounts:
-                raise ValueError("该主题没有关联任何账号，无法创建摘要任务")
-        else:
-            # "全部账号"模式：验证系统中有活跃账号
-            all_follows = await self._get_all_active_follows(session)
-            if not all_follows:
-                raise ValueError("系统中没有活跃的抓取账号，无法创建摘要任务")
+        # 验证主题有关联账号
+        accounts = await self._topic_repo.get_accounts(session, topic_id)
+        if not accounts:
+            raise ValueError("该主题没有关联任何账号，无法创建摘要任务")
 
         # 创建任务记录
         task_orm = TopicSummaryTaskOrm(
@@ -179,11 +180,8 @@ class TopicSummaryService:
                 await session.commit()
 
                 # 查询关联账号
-                if task.topic_id is not None:
-                    accounts = await self._topic_repo.get_accounts(session, task.topic_id)
-                    usernames = [a.username for a in accounts]
-                else:
-                    usernames = await self._get_all_active_follows(session)
+                accounts = await self._topic_repo.get_accounts(session, task.topic_id)
+                usernames = [a.username for a in accounts]
 
                 # 计算时间范围
                 end_time = task.deadline
@@ -414,6 +412,23 @@ class TopicSummaryService:
         """列出任务（按创建时间倒序），可按 topic_id 筛选。"""
         tasks = await self._task_repo.list_tasks(session, topic_id)
         return [t.to_domain() for t in tasks]
+
+    async def generate_image_prompt(self, session: AsyncSession, task_id: int) -> dict:
+        """基于摘要内容生成配图提示词（实时调用 LLM）。"""
+        task = await self._task_repo.get_task(session, task_id)
+        if not task or not task.summary:
+            raise ValueError("摘要任务不存在或尚未生成摘要")
+
+        prompt = IMAGE_PROMPT_TEMPLATE.format(summary_content=task.summary.content)
+        result = await self._call_llm_with_failover(prompt)
+        if not result:
+            raise ValueError("所有 LLM 提供商均失败")
+
+        return {
+            "image_prompt": result.content.strip(),
+            "llm_provider": result.provider,
+            "llm_model": result.model,
+        }
 
     async def delete_task(self, session: AsyncSession, task_id: int) -> bool:
         """删除任务（级联删除摘要结果）。"""

@@ -13,6 +13,7 @@ from src.topic.api.schemas import (
     CreateSummaryTaskRequest,
     CreateTopicRequest,
     DefaultPromptResponse,
+    ImagePromptResponse,
     SetAccountsRequest,
     SummaryTaskDetailResponse,
     SummaryTaskResponse,
@@ -217,6 +218,21 @@ async def get_summary_task(
     if not task:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="摘要任务不存在")
     return task
+
+
+@summary_router.post("/{task_id}/generate-image-prompt", response_model=ImagePromptResponse)
+async def generate_image_prompt(
+    task_id: int,
+    session: AsyncSession = Depends(get_db_session),
+    _admin: UserDomain = Depends(get_current_admin_user),
+):
+    """基于摘要内容实时生成配图提示词。"""
+    from src.topic.services.topic_summary_service import TopicSummaryService
+    service = TopicSummaryService.get_instance()
+    try:
+        return await service.generate_image_prompt(session, task_id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @summary_router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)

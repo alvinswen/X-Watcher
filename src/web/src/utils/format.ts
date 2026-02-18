@@ -38,6 +38,22 @@ export function formatFullDateTime(dateStr: string | null): string {
 }
 
 /**
+ * 中文日期时间格式 "xxxx年x月x日 HH:MM:SS"
+ * @param dateStr ISO 日期字符串，null 返回 "-"
+ */
+export function formatChineseDateTime(dateStr: string | null): string {
+  if (!dateStr) return "-"
+  const date = new Date(dateStr)
+  const year = date.getFullYear()
+  const month = date.getMonth() + 1
+  const day = date.getDate()
+  const hours = String(date.getHours()).padStart(2, "0")
+  const minutes = String(date.getMinutes()).padStart(2, "0")
+  const seconds = String(date.getSeconds()).padStart(2, "0")
+  return `${year}年${month}月${day}日 ${hours}:${minutes}:${seconds}`
+}
+
+/**
  * 本地化日期时间（zh-CN locale）
  * @param dateStr ISO 日期字符串，null 返回 "-"
  */

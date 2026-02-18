@@ -60,8 +60,8 @@ class TopicSummaryDomain(BaseModel):
 class TopicSummaryTaskDomain(BaseModel):
     """摘要任务域模型。"""
     id: int
-    topic_id: int | None
-    topic_name: str | None
+    topic_id: int
+    topic_name: str
     time_span_hours: int
     deadline: datetime
     custom_prompt: str | None
