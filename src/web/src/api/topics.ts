@@ -67,6 +67,11 @@ export const topicsApi = {
 
   // ── 摘要任务 ──
 
+  async getDefaultPrompt(): Promise<{ prompt: string }> {
+    const response = await client.get<{ prompt: string }>(`${SUMMARY_TASKS_PREFIX}/default-prompt`)
+    return response.data
+  },
+
   async listTasks(topicId?: number): Promise<TopicSummaryTask[]> {
     const params = topicId ? { topic_id: topicId } : {}
     const response = await client.get<TopicSummaryTask[]>(SUMMARY_TASKS_PREFIX, { params })

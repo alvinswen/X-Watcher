@@ -30,7 +30,8 @@ DEFAULT_TOPIC_SUMMARY_PROMPT = """你是一位专业的信息分析师。请根�
 2. 提取每个话题的关键观点和重要信息
 3. 标注信息来源（哪个账号提到了什么）
 4. 综合多方观点，呈现全面的信息图景
-5. 使用中文撰写报告
+5. 忽略与政治相关的讨论内容
+6. 使用中文撰写报告
 
 推文数据：
 {tweets_content}
@@ -105,25 +106,38 @@ class TopicSummaryService:
         """重置单例（用于测试）。"""
         cls._instance = None
 
+    async def _get_all_active_follows(self, session: AsyncSession) -> list[str]:
+        """查询所有活跃的抓取账号用户名。"""
+        from src.database.models import ScraperFollow
+        stmt = select(ScraperFollow.username).where(ScraperFollow.is_active == True)  # noqa: E712
+        result = await session.execute(stmt)
+        return [row[0] for row in result.all()]
+
     async def create_and_execute_task(
         self,
         session: AsyncSession,
         session_factory: async_sessionmaker,
-        topic_id: int,
+        topic_id: int | None,
         time_span_hours: int,
         deadline: datetime,
         custom_prompt: str | None = None,
     ) -> TopicSummaryTaskDomain:
         """创建摘要任务并异步启动执行。返回 pending 状态的任务。"""
-        # 验证主题存在
-        topic = await self._topic_repo.get_by_id(session, topic_id)
-        if not topic:
-            raise ValueError(f"主题 ID {topic_id} 不存在")
+        if topic_id is not None:
+            # 验证主题存在
+            topic = await self._topic_repo.get_by_id(session, topic_id)
+            if not topic:
+                raise ValueError(f"主题 ID {topic_id} 不存在")
 
-        # 验证主题有关联账号
-        accounts = await self._topic_repo.get_accounts(session, topic_id)
-        if not accounts:
-            raise ValueError("该主题没有关联任何账号，无法创建摘要任务")
+            # 验证主题有关联账号
+            accounts = await self._topic_repo.get_accounts(session, topic_id)
+            if not accounts:
+                raise ValueError("该主题没有关联任何账号，无法创建摘要任务")
+        else:
+            # "全部账号"模式：验证系统中有活跃账号
+            all_follows = await self._get_all_active_follows(session)
+            if not all_follows:
+                raise ValueError("系统中没有活跃的抓取账号，无法创建摘要任务")
 
         # 创建任务记录
         task_orm = TopicSummaryTaskOrm(
@@ -165,8 +179,11 @@ class TopicSummaryService:
                 await session.commit()
 
                 # 查询关联账号
-                accounts = await self._topic_repo.get_accounts(session, task.topic_id)
-                usernames = [a.username for a in accounts]
+                if task.topic_id is not None:
+                    accounts = await self._topic_repo.get_accounts(session, task.topic_id)
+                    usernames = [a.username for a in accounts]
+                else:
+                    usernames = await self._get_all_active_follows(session)
 
                 # 计算时间范围
                 end_time = task.deadline
@@ -371,7 +388,7 @@ class TopicSummaryService:
                     logger.info(f"尝试 LLM provider {provider.get_provider_name()} (#{i+1}/{len(self._providers)})")
                     result = await provider.complete(
                         prompt=prompt,
-                        max_tokens=4096,  # 摘要可能较长
+                        max_tokens=8192,  # 摘要可能较长
                         temperature=0.3,  # 偏向确定性输出
                     )
                     if isinstance(result, Success):

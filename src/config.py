@@ -34,6 +34,9 @@ class Settings(BaseSettings):
         default="https://openrouter.ai/api/v1",
         description="OpenRouter API 地址"
     )
+    openrouter_model: str | None = Field(
+        default=None, description="OpenRouter 模型名称"
+    )
 
     # X 平台 API 配置
     twitter_api_key: str = Field(..., description="X 平台 API 密钥")

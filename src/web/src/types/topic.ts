@@ -68,7 +68,7 @@ export interface TopicSummary {
 /** 摘要任务列表项 */
 export interface TopicSummaryTask {
   id: number
-  topic_id: number
+  topic_id: number | null
   topic_name: string | null
   time_span_hours: number
   deadline: string
@@ -87,7 +87,7 @@ export interface TopicSummaryTaskDetail extends TopicSummaryTask {
 
 /** 创建摘要任务请求 */
 export interface CreateSummaryTaskRequest {
-  topic_id: number
+  topic_id: number | null
   time_span_hours: number
   deadline: string
   custom_prompt?: string | null

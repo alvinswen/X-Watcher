@@ -21,7 +21,7 @@ class SetAccountsRequest(BaseModel):
     usernames: list[str] = Field(..., min_length=1)
 
 class CreateSummaryTaskRequest(BaseModel):
-    topic_id: int
+    topic_id: int | None = None
     time_span_hours: int = Field(..., ge=1, le=720)
     deadline: datetime
     custom_prompt: str | None = Field(default=None, max_length=5000)
@@ -53,7 +53,7 @@ class TopicDetailResponse(TopicResponse):
 
 class SummaryTaskResponse(UTCDatetimeModel):
     id: int
-    topic_id: int
+    topic_id: int | None
     topic_name: str | None
     time_span_hours: int
     deadline: datetime
@@ -79,3 +79,7 @@ class SummaryResponse(UTCDatetimeModel):
 
 class SummaryTaskDetailResponse(SummaryTaskResponse):
     summary: SummaryResponse | None
+
+
+class DefaultPromptResponse(BaseModel):
+    prompt: str

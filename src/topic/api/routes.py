@@ -12,6 +12,7 @@ from src.topic.api.schemas import (
     AccountResponse,
     CreateSummaryTaskRequest,
     CreateTopicRequest,
+    DefaultPromptResponse,
     SetAccountsRequest,
     SummaryTaskDetailResponse,
     SummaryTaskResponse,
@@ -152,6 +153,15 @@ async def remove_account(
 # 路由路径需要避免与 /{topic_id} 冲突，所以放在单独的 router 中
 
 summary_router = APIRouter(prefix="/api/topics/summary-tasks", tags=["topic-summaries"])
+
+
+@summary_router.get("/default-prompt", response_model=DefaultPromptResponse)
+async def get_default_prompt(
+    _admin: UserDomain = Depends(get_current_admin_user),
+):
+    """返回默认的摘要系统提示词模板。"""
+    from src.topic.services.topic_summary_service import DEFAULT_TOPIC_SUMMARY_PROMPT
+    return DefaultPromptResponse(prompt=DEFAULT_TOPIC_SUMMARY_PROMPT)
 
 
 @summary_router.post("", response_model=SummaryTaskResponse, status_code=status.HTTP_202_ACCEPTED)

@@ -32,7 +32,7 @@
     <el-table v-else :data="tasks" stripe border style="width: 100%">
       <el-table-column prop="topic_name" label="主题名称" width="160">
         <template #default="{ row }">
-          {{ row.topic_name || '-' }}
+          {{ row.topic_name || '全部账号' }}
         </template>
       </el-table-column>
       <el-table-column label="时间跨度" width="120" align="center">
@@ -61,7 +61,7 @@
           </el-tooltip>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="140" fixed="right">
+      <el-table-column label="操作" width="200" fixed="right">
         <template #default="{ row }">
           <el-button
             link
@@ -70,6 +70,15 @@
             @click="handleViewDetail(row)"
           >
             详情
+          </el-button>
+          <el-button
+            v-if="row.status === 'completed'"
+            link
+            type="primary"
+            size="small"
+            @click="handleDownloadSummary(row)"
+          >
+            下载
           </el-button>
           <el-button
             link
@@ -102,6 +111,7 @@
             placeholder="请选择主题"
             style="width: 100%"
           >
+            <el-option key="all" label="全部账号" :value="null" />
             <el-option
               v-for="t in allTopics"
               :key="t.id"
@@ -134,11 +144,14 @@
           <el-input
             v-model="createFormData.custom_prompt"
             type="textarea"
-            :rows="4"
+            :rows="8"
             placeholder="自定义 LLM 提示词（可选）"
             maxlength="5000"
             show-word-limit
           />
+          <div class="form-hint">
+            支持模板变量：{account_count}（账号数）、{time_span}（时间跨度）、{tweet_count}（推文数）、{tweets_content}（推文内容）
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -159,7 +172,7 @@
         <!-- 基本信息 -->
         <el-descriptions title="基本信息" :column="2" border>
           <el-descriptions-item label="主题">
-            {{ taskDetail.topic_name || '-' }}
+            {{ taskDetail.topic_name || '全部账号' }}
           </el-descriptions-item>
           <el-descriptions-item label="状态">
             <el-tag :type="statusTagType(taskDetail.status)" size="small">
@@ -203,7 +216,12 @@
         <!-- 摘要内容 -->
         <template v-if="taskDetail.summary">
           <div class="detail-section">
-            <h4>摘要内容</h4>
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <h4>摘要内容</h4>
+              <el-button type="primary" size="small" @click="handleDownloadDetailSummary">
+                下载 Markdown
+              </el-button>
+            </div>
             <div class="summary-content">{{ taskDetail.summary.content }}</div>
           </div>
 
@@ -273,6 +291,9 @@ const filterTopicId = ref<number | undefined>(undefined)
 /** 轮询定时器 */
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
+/** 默认提示词模板 */
+const defaultPrompt = ref("")
+
 // ==================== 创建任务状态 ====================
 
 /** 创建对话框可见性 */
@@ -283,7 +304,7 @@ const createFormRef = ref<FormInstance>()
 
 /** 创建表单数据 */
 const createFormData = reactive({
-  topic_id: undefined as number | undefined,
+  topic_id: null as number | null,
   time_span_hours: 24,
   deadline: "",
   custom_prompt: "",
@@ -291,9 +312,6 @@ const createFormData = reactive({
 
 /** 创建表单验证规则 */
 const createFormRules: FormRules = {
-  topic_id: [
-    { required: true, message: "请选择主题", trigger: "change" },
-  ],
   time_span_hours: [
     { required: true, message: "请输入时间跨度", trigger: "blur" },
   ],
@@ -342,6 +360,16 @@ async function loadAllTopics() {
     allTopics.value = await topicsApi.list()
   } catch (error) {
     console.error("加载主题列表失败:", error)
+  }
+}
+
+/** 加载默认提示词 */
+async function loadDefaultPrompt() {
+  try {
+    const data = await topicsApi.getDefaultPrompt()
+    defaultPrompt.value = data.prompt
+  } catch (error) {
+    console.error("加载默认提示词失败:", error)
   }
 }
 
@@ -407,10 +435,10 @@ async function pollTasks() {
 
 /** 打开创建对话框 */
 function handleCreateTask() {
-  createFormData.topic_id = undefined
+  createFormData.topic_id = null
   createFormData.time_span_hours = 24
   createFormData.deadline = ""
-  createFormData.custom_prompt = ""
+  createFormData.custom_prompt = defaultPrompt.value
   createDialogVisible.value = true
 }
 
@@ -432,11 +460,14 @@ async function handleSubmitCreate() {
   try {
     // 将本地时间转换为 UTC ISO 字符串
     const localDate = new Date(createFormData.deadline)
+    const customPrompt = createFormData.custom_prompt === defaultPrompt.value
+      ? null
+      : (createFormData.custom_prompt || null)
     await topicsApi.createTask({
-      topic_id: createFormData.topic_id!,
+      topic_id: createFormData.topic_id,
       time_span_hours: createFormData.time_span_hours,
       deadline: localDate.toISOString(),
-      custom_prompt: createFormData.custom_prompt || null,
+      custom_prompt: customPrompt,
     })
     ElMessage.success("摘要任务已创建")
     createDialogVisible.value = false
@@ -459,6 +490,50 @@ async function handleViewDetail(task: TopicSummaryTask) {
   } catch (error) {
     console.error("加载任务详情失败:", error)
   }
+}
+
+/** 触发浏览器下载文本文件 */
+function downloadAsFile(content: string, filename: string) {
+  const blob = new Blob([content], { type: "text/markdown;charset=utf-8" })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement("a")
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
+
+/** 生成摘要文件名 */
+function buildSummaryFilename(topicName: string | null, createdAt: string): string {
+  const name = topicName || "全部账号"
+  const dateStr = new Date(createdAt).toISOString().slice(0, 10)
+  return `摘要_${name}_${dateStr}.md`
+}
+
+/** 从列表下载摘要 */
+async function handleDownloadSummary(task: TopicSummaryTask) {
+  try {
+    const detail = await topicsApi.getTask(task.id)
+    if (!detail.summary) {
+      ElMessage.warning("摘要内容不可用")
+      return
+    }
+    downloadAsFile(detail.summary.content, buildSummaryFilename(task.topic_name, task.created_at))
+  } catch (error) {
+    console.error("下载摘要失败:", error)
+    ElMessage.error("下载摘要失败")
+  }
+}
+
+/** 从详情抽屉下载摘要 */
+function handleDownloadDetailSummary() {
+  if (!taskDetail.value?.summary) return
+  downloadAsFile(
+    taskDetail.value.summary.content,
+    buildSummaryFilename(taskDetail.value.topic_name, taskDetail.value.created_at),
+  )
 }
 
 /** 删除任务 */
@@ -491,6 +566,7 @@ async function handleDeleteTask(task: TopicSummaryTask) {
 onMounted(() => {
   loadAllTopics()
   loadTasks()
+  loadDefaultPrompt()
 })
 
 onUnmounted(() => {
