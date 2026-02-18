@@ -69,6 +69,18 @@ class ScraperConfigRepository:
             RepositoryError: 如果创建失败
         """
         try:
+            # 先检查是否存在已软删除的同名账号
+            existing = await self.get_follow_by_username(username)
+            if existing is not None:
+                if not existing.is_active:
+                    logger.info(f"重新激活已软删除的抓取账号: username={username}")
+                    return await self._reactivate_follow(
+                        username=username,
+                        reason=reason,
+                        added_by=added_by,
+                    )
+                raise DuplicateError(f"抓取账号已存在: {username}")
+
             orm_follow = ScraperFollowOrm(
                 username=username,
                 added_at=datetime.now(timezone.utc),
@@ -81,6 +93,9 @@ class ScraperConfigRepository:
 
             logger.debug(f"创建抓取账号: username={username}, added_by={added_by}")
             return ScraperFollowDomain.from_orm(orm_follow)
+
+        except DuplicateError:
+            raise
 
         except IntegrityError as e:
             await self._session.rollback()
@@ -252,6 +267,38 @@ class ScraperConfigRepository:
             await self._session.rollback()
             logger.error(f"禁用抓取账号失败: {e}")
             raise RepositoryError(f"禁用抓取账号失败: {e}") from e
+
+    async def _reactivate_follow(
+        self,
+        username: str,
+        reason: str,
+        added_by: str,
+    ) -> ScraperFollowDomain:
+        """重新激活已软删除的抓取账号。
+
+        Args:
+            username: Twitter 用户名
+            reason: 新的添加理由
+            added_by: 添加人标识
+
+        Returns:
+            ScraperFollowDomain: 重新激活的抓取账号记录
+        """
+        stmt = select(ScraperFollowOrm).where(
+            ScraperFollowOrm.username == username,
+        )
+        result = await self._session.execute(stmt)
+        orm_follow = result.scalar_one()
+
+        orm_follow.is_active = True
+        orm_follow.reason = reason
+        orm_follow.added_by = added_by
+        orm_follow.added_at = datetime.now(timezone.utc)
+
+        await self._session.flush()
+
+        logger.debug(f"重新激活抓取账号: username={username}, added_by={added_by}")
+        return ScraperFollowDomain.from_orm(orm_follow)
 
     async def is_username_in_follows(
         self,

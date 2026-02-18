@@ -253,3 +253,32 @@ class TestScraperFollowCRUD:
         assert len(active_follows) == 2
         usernames = {f.username for f in active_follows}
         assert usernames == {"user1", "user3"}
+
+    @pytest.mark.asyncio
+    async def test_create_scraper_follow_reactivates_soft_deleted(self, async_session):
+        """测试重新添加已软删除的账号会重新激活而非报错。"""
+        repo = ScraperConfigRepository(async_session)
+
+        # 创建并软删除
+        await repo.create_scraper_follow("fraser", "Original reason", "admin1")
+        await repo.deactivate_follow("fraser")
+
+        # 确认已被软删除
+        follow = await repo.get_follow_by_username("fraser")
+        assert follow is not None
+        assert follow.is_active is False
+
+        # 重新添加应该成功（重新激活）
+        reactivated = await repo.create_scraper_follow(
+            "fraser", "New reason", "admin2"
+        )
+
+        assert reactivated.username == "fraser"
+        assert reactivated.is_active is True
+        assert reactivated.reason == "New reason"
+        assert reactivated.added_by == "admin2"
+
+        # 确认列表中可见
+        active_follows = await repo.get_active_follows()
+        usernames = {f.username for f in active_follows}
+        assert "fraser" in usernames
