@@ -336,6 +336,12 @@ from src.api.routes.scheduler import router as scheduler_router
 
 app.include_router(scheduler_router)
 
+# 注册主题管理 API 路由
+from src.topic.api.routes import router as topic_router, summary_router as topic_summary_router
+
+app.include_router(topic_router)
+app.include_router(topic_summary_router)
+
 # 注册推文浏览 API 路由
 from src.browse.api.routes import router as browse_router
 

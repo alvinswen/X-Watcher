@@ -13,6 +13,8 @@ import {
   Fold,
   Expand,
   FullScreen,
+  Collection,
+  DataAnalysis,
 } from "@element-plus/icons-vue"
 import { useAuthStore } from "@/stores/auth"
 import { ElMessage } from "element-plus"
@@ -45,6 +47,8 @@ const menuItems = [
   { index: "/follows", title: "关注管理", icon: User },
   { index: "/tasks", title: "任务监控", icon: Monitor },
   { index: "/scraping", title: "抓取管理", icon: Timer },
+  { index: "/topics", title: "主题管理", icon: Collection },
+  { index: "/topic-summaries", title: "主题摘要", icon: DataAnalysis },
   { index: "/users", title: "用户管理", icon: UserFilled },
   { index: "/my-follows", title: "我的关注", icon: Star },
 ]

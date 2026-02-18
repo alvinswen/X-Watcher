@@ -4,7 +4,7 @@
 
 采用**六边形架构 + 模块化设计**：
 - 清晰的层次划分（API / Service / Domain / Infrastructure）
-- 按业务功能组织独立模块（scraper, deduplication, summarization, preference）
+- 按业务功能组织独立模块（scraper, deduplication, summarization, preference, topic）
 - 每个模块遵循 Domain → Service → Infrastructure 分层
 - 保持低耦合、高内聚
 
@@ -114,6 +114,18 @@ src/
 │   │   └── schemas.py       # FeedTweetItem, FeedResponse
 │   └── services/
 │       └── feed_service.py  # Feed 查询（tweets LEFT JOIN summaries）
+├── topic/                   # 主题管理模块（多账号聚合分析）
+│   ├── domain/
+│   │   └── models.py        # 领域模型（TopicDomain, TopicSummaryTaskDomain, TopicSummaryTaskStatus）
+│   ├── infrastructure/
+│   │   ├── models.py        # ORM 模型（TopicOrm, TopicAccountOrm, TopicSummaryTaskOrm, TopicSummaryOrm）
+│   │   └── repository.py    # TopicRepository + TopicSummaryTaskRepository
+│   ├── services/
+│   │   ├── topic_service.py           # 主题 CRUD + 账号管理
+│   │   └── topic_summary_service.py   # 摘要任务异步执行（LLM 聚合摘要）
+│   └── api/
+│       ├── routes.py        # 主题 CRUD + 账号管理 + 摘要任务 API 端点
+│       └── schemas.py       # 请求/响应模型
 ├── browse/                  # 推文浏览模块（按日期/作者维度浏览）
 │   ├── api/
 │   │   ├── routes.py        # GET /api/browse/stats/daily, /authors, /tweets

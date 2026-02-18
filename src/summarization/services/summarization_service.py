@@ -569,6 +569,11 @@ class SummarizationService:
                     representative_text = (
                         f"{representative_text}\n\n[引用原文]: {referenced_tweet_text}"
                     )
+                elif tweet_type == TweetType.replied_to:
+                    # 回复推文：拼接被回复原文 + 回复内容，提供上下文
+                    representative_text = (
+                        f"[被回复原文]: {referenced_tweet_text}\n\n[回复]: {representative_text}"
+                    )
 
             # 智能摘要策略：根据语言选择阈值，检查推文长度
             tweet_length = len(representative_text)
@@ -735,6 +740,11 @@ class SummarizationService:
                 elif tweet_type == TweetType.quoted:
                     tweet_text = (
                         f"{tweet_text}\n\n[引用原文]: {referenced_tweet_text}"
+                    )
+                elif tweet_type == TweetType.replied_to:
+                    # 回复推文：拼接被回复原文 + 回复内容，提供上下文
+                    tweet_text = (
+                        f"[被回复原文]: {referenced_tweet_text}\n\n[回复]: {tweet_text}"
                     )
 
             # 智能摘要策略：根据语言选择阈值，检查推文长度

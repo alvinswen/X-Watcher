@@ -281,7 +281,7 @@ class TwitterClient:
         # 参数名为 userName（不是 username）
         params: dict[str, Any] = {
             "userName": username,
-            "includeReplies": False,  # 不包含回复
+            "includeReplies": True,  # 包含回复
         }
 
         if since_id:

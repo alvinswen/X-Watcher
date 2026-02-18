@@ -250,6 +250,15 @@ class FollowStatsResponse(BaseModel):
     max_count_24h: int = Field(..., description="近 14 个 24h 周期的最大新推文数")
 
 
+class TweetTimeRangeResponse(BaseModel):
+    """账号推文时间范围响应。"""
+
+    username: str = Field(..., description="Twitter 用户名")
+    earliest_tweet_at: datetime | None = Field(None, description="系统中最早的推文发布时间")
+    latest_tweet_at: datetime | None = Field(None, description="系统中最近的推文发布时间")
+    tweet_count: int = Field(0, description="系统中的推文总数")
+
+
 # ==================== 通用响应模型 ====================
 
 

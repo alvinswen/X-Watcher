@@ -123,7 +123,42 @@
           <!-- 2. 添加理由 -->
           <el-table-column prop="reason" label="添加理由" show-overflow-tooltip />
 
-          <!-- 3. 单次抓取数量 -->
+          <!-- 3. 最早推文 -->
+          <el-table-column label="最早推文" width="150" align="center">
+            <template #default="{ row }">
+              <el-tooltip
+                v-if="tweetTimeRange[row.username]?.earliest_tweet_at"
+                :content="formatFullDateTime(tweetTimeRange[row.username]!.earliest_tweet_at)"
+                placement="top"
+              >
+                <span>{{ formatRelativeTime(tweetTimeRange[row.username]!.earliest_tweet_at) }}</span>
+              </el-tooltip>
+              <span v-else class="no-data">暂无</span>
+            </template>
+          </el-table-column>
+
+          <!-- 4. 最近推文 -->
+          <el-table-column label="最近推文" width="150" align="center">
+            <template #default="{ row }">
+              <el-tooltip
+                v-if="tweetTimeRange[row.username]?.latest_tweet_at"
+                :content="formatFullDateTime(tweetTimeRange[row.username]!.latest_tweet_at)"
+                placement="top"
+              >
+                <span>{{ formatRelativeTime(tweetTimeRange[row.username]!.latest_tweet_at) }}</span>
+              </el-tooltip>
+              <span v-else class="no-data">暂无</span>
+            </template>
+          </el-table-column>
+
+          <!-- 5. 推文总数 -->
+          <el-table-column label="推文总数" width="100" align="center">
+            <template #default="{ row }">
+              {{ tweetTimeRange[row.username]?.tweet_count ?? '-' }}
+            </template>
+          </el-table-column>
+
+          <!-- 6. 单次抓取数量 -->
           <el-table-column label="单次抓取数量" width="140" align="center">
             <template #default="{ row }">
               <!-- 手动模式：可编辑 input -->
@@ -183,6 +218,77 @@
           </el-table-column>
         </el-table>
       </el-card>
+
+      <!-- 手动定向抓取 -->
+      <el-card class="section-card">
+        <template #header>
+          <span>手动定向抓取</span>
+        </template>
+        <div class="manual-scrape-section">
+          <div class="manual-scrape-form">
+            <el-select
+              v-model="scrapeUsername"
+              placeholder="选择账号"
+              filterable
+              style="width: 200px"
+            >
+              <el-option
+                v-for="f in follows"
+                :key="f.username"
+                :label="'@' + f.username"
+                :value="f.username"
+              />
+            </el-select>
+            <el-input-number
+              v-model="scrapeLimit"
+              :min="1"
+              :max="1000"
+              :step="10"
+              controls-position="right"
+              style="width: 140px"
+            />
+            <el-button
+              type="primary"
+              :loading="scrapeSubmitting"
+              :disabled="!scrapeUsername || !!scrapeTaskId"
+              @click="handleStartScrape"
+            >
+              开始抓取
+            </el-button>
+          </div>
+
+          <!-- 任务状态展示 -->
+          <div v-if="scrapeTaskStatus" class="scrape-task-status">
+            <el-descriptions :column="3" border size="small">
+              <el-descriptions-item label="任务 ID">
+                {{ scrapeTaskStatus.task_id.slice(0, 8) }}...
+              </el-descriptions-item>
+              <el-descriptions-item label="状态">
+                <el-tag :type="scrapeStatusTagType" size="small">
+                  {{ scrapeStatusText }}
+                </el-tag>
+              </el-descriptions-item>
+              <el-descriptions-item label="进度">
+                {{ scrapeTaskStatus.progress.current }} / {{ scrapeTaskStatus.progress.total }}
+                ({{ scrapeTaskStatus.progress.percentage.toFixed(0) }}%)
+              </el-descriptions-item>
+            </el-descriptions>
+
+            <div v-if="scrapeTaskStatus.status === 'completed'" class="scrape-result success">
+              抓取完成。
+              <span v-if="scrapeTaskStatus.result">
+                新增 {{ scrapeTaskStatus.result.total_new ?? scrapeTaskStatus.result.success_count ?? 0 }} 条，
+                跳过 {{ scrapeTaskStatus.result.total_skipped ?? scrapeTaskStatus.result.skipped_count ?? 0 }} 条。
+              </span>
+              <el-button link type="primary" size="small" @click="clearScrapeTask">清除</el-button>
+            </div>
+            <div v-if="scrapeTaskStatus.status === 'failed'" class="scrape-result error">
+              抓取失败：{{ scrapeTaskStatus.error }}
+              <el-button link type="primary" size="small" @click="clearScrapeTask">清除</el-button>
+            </div>
+          </div>
+        </div>
+      </el-card>
     </template>
 
     <!-- 抓取分析弹窗 -->
@@ -222,11 +328,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from "vue"
+import { ref, computed, onMounted, onUnmounted } from "vue"
 import { ElMessage } from "element-plus"
-import { schedulerApi, followsApi } from "@/api"
-import { formatDuration, formatFullDateTime } from "@/utils/format"
-import type { ScheduleConfig, ScrapingFollow, FetchAnalysisResponse, FollowStats } from "@/types"
+import { schedulerApi, followsApi, tasksApi } from "@/api"
+import { formatDuration, formatFullDateTime, formatRelativeTime } from "@/utils/format"
+import type {
+  ScheduleConfig,
+  ScrapingFollow,
+  FetchAnalysisResponse,
+  FollowStats,
+  TweetTimeRange,
+  TaskStatusResponse,
+} from "@/types"
 
 // ==================== 调度配置状态 ====================
 
@@ -284,6 +397,53 @@ const analysisData = ref<FetchAnalysisResponse | null>(null)
 
 /** 分析加载状态 */
 const analysisLoading = ref(false)
+
+// ==================== 推文时间范围状态 ====================
+
+/** 账号推文时间范围（按 username 索引） */
+const tweetTimeRange = ref<Record<string, TweetTimeRange>>({})
+
+// ==================== 手动抓取状态 ====================
+
+/** 手动抓取目标账号 */
+const scrapeUsername = ref("")
+
+/** 手动抓取数量 */
+const scrapeLimit = ref(100)
+
+/** 手动抓取提交中 */
+const scrapeSubmitting = ref(false)
+
+/** 当前抓取任务 ID */
+const scrapeTaskId = ref<string | null>(null)
+
+/** 当前抓取任务状态 */
+const scrapeTaskStatus = ref<TaskStatusResponse | null>(null)
+
+/** 轮询定时器 */
+let pollTimer: ReturnType<typeof setInterval> | null = null
+
+/** 任务状态标签颜色 */
+const scrapeStatusTagType = computed(() => {
+  switch (scrapeTaskStatus.value?.status) {
+    case "pending": return "info"
+    case "running": return "warning"
+    case "completed": return "success"
+    case "failed": return "danger"
+    default: return "info"
+  }
+})
+
+/** 任务状态中文文本 */
+const scrapeStatusText = computed(() => {
+  switch (scrapeTaskStatus.value?.status) {
+    case "pending": return "等待中"
+    case "running": return "抓取中"
+    case "completed": return "已完成"
+    case "failed": return "失败"
+    default: return "未知"
+  }
+})
 
 // ==================== 调度配置方法 ====================
 
@@ -409,7 +569,7 @@ async function loadFollowsStats() {
 
 /** 刷新账号列表和统计 */
 async function refreshFollows() {
-  await Promise.all([loadFollows(), loadFollowsStats()])
+  await Promise.all([loadFollows(), loadFollowsStats(), loadTweetTimeRange()])
 }
 
 /** 计算策略切换 → 立即调 API */
@@ -484,12 +644,98 @@ function formatShortDateTime(dateStr: string): string {
   })
 }
 
+// ==================== 推文时间范围方法 ====================
+
+/** 加载账号推文时间范围 */
+async function loadTweetTimeRange() {
+  try {
+    const list = await schedulerApi.getTweetTimeRange()
+    const map: Record<string, TweetTimeRange> = {}
+    for (const item of list) {
+      map[item.username] = item
+    }
+    tweetTimeRange.value = map
+  } catch (error) {
+    console.error("加载推文时间范围失败:", error)
+  }
+}
+
+// ==================== 手动抓取方法 ====================
+
+/** 触发手动抓取 */
+async function handleStartScrape() {
+  if (!scrapeUsername.value) return
+  scrapeSubmitting.value = true
+  try {
+    const resp = await tasksApi.triggerScraping({
+      usernames: scrapeUsername.value,
+      limit: scrapeLimit.value,
+    })
+    scrapeTaskId.value = resp.task_id
+    scrapeTaskStatus.value = null
+    ElMessage.success("抓取任务已提交")
+    startPolling()
+  } catch (error) {
+    console.error("提交抓取任务失败:", error)
+  } finally {
+    scrapeSubmitting.value = false
+  }
+}
+
+/** 开始轮询任务状态 */
+function startPolling() {
+  stopPolling()
+  pollTaskStatus()
+  pollTimer = setInterval(pollTaskStatus, 3000)
+}
+
+/** 停止轮询 */
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
+/** 轮询查询任务状态 */
+async function pollTaskStatus() {
+  if (!scrapeTaskId.value) {
+    stopPolling()
+    return
+  }
+  try {
+    const taskStatus = await tasksApi.getStatus(scrapeTaskId.value)
+    scrapeTaskStatus.value = taskStatus
+    if (taskStatus.status === "completed" || taskStatus.status === "failed") {
+      stopPolling()
+      if (taskStatus.status === "completed") {
+        await loadTweetTimeRange()
+      }
+    }
+  } catch (error) {
+    console.error("查询任务状态失败:", error)
+    stopPolling()
+  }
+}
+
+/** 清除当前任务状态 */
+function clearScrapeTask() {
+  scrapeTaskId.value = null
+  scrapeTaskStatus.value = null
+  stopPolling()
+}
+
 // ==================== 初始化 ====================
 
 onMounted(() => {
   loadConfig()
   loadFollows()
   loadFollowsStats()
+  loadTweetTimeRange()
+})
+
+onUnmounted(() => {
+  stopPolling()
 })
 </script>
 
@@ -557,5 +803,39 @@ onMounted(() => {
 
 .count-zero {
   color: var(--el-text-color-placeholder);
+}
+
+.no-data {
+  color: var(--el-text-color-placeholder);
+  font-size: 12px;
+}
+
+.manual-scrape-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.manual-scrape-form {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.scrape-task-status {
+  margin-top: 4px;
+}
+
+.scrape-result {
+  margin-top: 8px;
+  font-size: 14px;
+}
+
+.scrape-result.success {
+  color: var(--el-color-success);
+}
+
+.scrape-result.error {
+  color: var(--el-color-danger);
 }
 </style>

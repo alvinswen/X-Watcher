@@ -26,6 +26,7 @@ from src.preference.api.schemas import (
     FetchAnalysisResponse,
     FollowStatsResponse,
     PeriodStats,
+    TweetTimeRangeResponse,
 )
 from src.preference.infrastructure.scraper_config_repository import (
     ScraperConfigRepository,
@@ -251,15 +252,15 @@ async def get_follows_stats(
 
             stmt = (
                 select(
-                    TweetOrm.author_username,
+                    func.lower(TweetOrm.author_username).label("username_lower"),
                     func.count().label("cnt"),
                 )
                 .where(
-                    TweetOrm.author_username.in_(usernames),
+                    func.lower(TweetOrm.author_username).in_([u.lower() for u in usernames]),
                     TweetOrm.created_at >= cutoff,
                     TweetOrm.created_at < now,
                 )
-                .group_by(TweetOrm.author_username, bucket_expr)
+                .group_by(func.lower(TweetOrm.author_username), bucket_expr)
             )
 
             result = await session.execute(stmt)
@@ -285,8 +286,8 @@ async def get_follows_stats(
             results.append(FollowStatsResponse(
                 username=username,
                 effective_limit=effective_limit,
-                max_count_12h=max_12h_map.get(username, 0),
-                max_count_24h=max_24h_map.get(username, 0),
+                max_count_12h=max_12h_map.get(username.lower(), 0),
+                max_count_24h=max_24h_map.get(username.lower(), 0),
             ))
 
         return results
@@ -295,6 +296,75 @@ async def get_follows_stats(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="获取账号运行时统计失败",
+        ) from e
+
+
+@router.get(
+    "/follows/tweet-time-range",
+    response_model=list[TweetTimeRangeResponse],
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {"model": ErrorResponse},
+        status.HTTP_403_FORBIDDEN: {"model": ErrorResponse},
+    },
+)
+async def get_follows_tweet_time_range(
+    session: AsyncSession = Depends(get_async_session),
+    admin: UserDomain = Depends(get_current_admin_user),
+) -> list[TweetTimeRangeResponse]:
+    """获取所有活跃账号的推文时间范围。
+
+    返回每个活跃抓取账号在系统中的最早推文时间、最近推文时间和推文总数。
+
+    Args:
+        session: 数据库会话
+        admin: 管理员用户
+
+    Returns:
+        list[TweetTimeRangeResponse]: 各账号的推文时间范围
+    """
+    from src.scraper.infrastructure.models import TweetOrm
+
+    try:
+        # 1. 获取所有活跃账号
+        service = await _get_scraper_config_service(session)
+        follows = await service.get_all_follows(include_inactive=False)
+        usernames = [f.username for f in follows]
+
+        if not usernames:
+            return []
+
+        # 2. 单条 SQL：按 author_username 分组查 min/max/count
+        #    使用 lower() 进行大小写不敏感匹配，因为 Twitter API 返回的
+        #    用户名大小写可能与 scraper_follows 中配置的不一致
+        lower_usernames = [u.lower() for u in usernames]
+        stmt = (
+            select(
+                func.lower(TweetOrm.author_username).label("username_lower"),
+                func.min(TweetOrm.created_at).label("earliest"),
+                func.max(TweetOrm.created_at).label("latest"),
+                func.count().label("cnt"),
+            )
+            .where(func.lower(TweetOrm.author_username).in_(lower_usernames))
+            .group_by(func.lower(TweetOrm.author_username))
+        )
+        result = await session.execute(stmt)
+        rows = {r[0]: (r[1], r[2], r[3]) for r in result.all()}
+
+        # 3. 组装结果（包括无推文的账号），通过 lower() 键匹配
+        return [
+            TweetTimeRangeResponse(
+                username=u,
+                earliest_tweet_at=rows[u.lower()][0] if u.lower() in rows else None,
+                latest_tweet_at=rows[u.lower()][1] if u.lower() in rows else None,
+                tweet_count=rows[u.lower()][2] if u.lower() in rows else 0,
+            )
+            for u in usernames
+        ]
+    except Exception as e:
+        logger.error(f"获取推文时间范围失败: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="获取推文时间范围失败",
         ) from e
 
 
@@ -605,7 +675,7 @@ async def get_follow_analysis(
                 select(func.count())
                 .select_from(TweetOrm)
                 .where(
-                    TweetOrm.author_username == username,
+                    func.lower(TweetOrm.author_username) == username.lower(),
                     TweetOrm.created_at >= period_start,
                     TweetOrm.created_at < period_end,
                 )

@@ -9,7 +9,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import Select
+from sqlalchemy import Select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.async_session import get_db_session
@@ -85,7 +85,7 @@ def _apply_filters(
 ) -> Select:
     """根据非 None 参数条件追加 WHERE 子句。"""
     if author:
-        stmt = stmt.where(TweetOrm.author_username == author)
+        stmt = stmt.where(func.lower(TweetOrm.author_username) == author.lower())
     if created_after is not None:
         stmt = stmt.where(TweetOrm.created_at >= created_after)
     if created_before is not None:

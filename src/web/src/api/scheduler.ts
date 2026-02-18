@@ -7,6 +7,7 @@ import type {
   UpdateNextRunRequest,
   FetchAnalysisResponse,
   FollowStats,
+  TweetTimeRange,
 } from "@/types"
 
 /** 调度管理 API 路径前缀 */
@@ -58,6 +59,14 @@ export const schedulerApi = {
   async getFollowsStats(): Promise<FollowStats[]> {
     const response = await client.get<FollowStats[]>(
       "/admin/scraping/follows/stats",
+    )
+    return response.data
+  },
+
+  /** 获取所有活跃账号的推文时间范围 */
+  async getTweetTimeRange(): Promise<TweetTimeRange[]> {
+    const response = await client.get<TweetTimeRange[]>(
+      "/admin/scraping/follows/tweet-time-range",
     )
     return response.data
   },

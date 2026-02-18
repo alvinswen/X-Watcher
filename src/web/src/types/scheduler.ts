@@ -54,6 +54,18 @@ export interface FollowStats {
   max_count_24h: number
 }
 
+/** 账号推文时间范围。 */
+export interface TweetTimeRange {
+  /** 用户名 */
+  username: string
+  /** 系统中该账号最早的推文发布时间 */
+  earliest_tweet_at: string | null
+  /** 系统中该账号最近的推文发布时间 */
+  latest_tweet_at: string | null
+  /** 该账号在系统中的推文总数 */
+  tweet_count: number
+}
+
 /** 抓取分析响应。 */
 export interface FetchAnalysisResponse {
   /** 用户名 */

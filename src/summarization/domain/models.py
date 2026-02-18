@@ -276,8 +276,9 @@ class PromptConfig(BaseModel):
         elif tweet_type == TweetType.replied_to:
             summary_instruction = (
                 f"这是 {author_tag} 对某条推文的回复。\n"
+                f"推文内容包含 [被回复原文] 和 [回复] 两部分，请结合原文上下文理解回复含义。\n"
                 f"请生成简洁的中文摘要，格式为：\n"
-                f"「{author_tag} 回复：（概括回复的核心观点）」"
+                f"「{author_tag} 回复：（概括回复的核心观点，需要时简述原文背景）」"
             )
         else:
             summary_instruction = (

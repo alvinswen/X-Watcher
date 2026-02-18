@@ -104,7 +104,7 @@ class TestTwitterClient:
         call_args = mock_httpx_client.get.call_args
         params = call_args[1]["params"]
         assert params["userName"] == "testuser"
-        assert params["includeReplies"] is False
+        assert params["includeReplies"] is True
 
     @pytest.mark.asyncio
     async def test_fetch_user_tweets_401_error(self, client, mock_httpx_client):

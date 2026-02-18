@@ -150,7 +150,7 @@ class TweetRepository:
         """
         stmt = (
             select(TweetOrm)
-            .where(TweetOrm.author_username == author_username)
+            .where(func.lower(TweetOrm.author_username) == author_username.lower())
             .order_by(TweetOrm.created_at.desc())
             .limit(limit)
         )
@@ -184,7 +184,7 @@ class TweetRepository:
         try:
             stmt = (
                 select(TweetOrm)
-                .where(TweetOrm.author_username.in_(usernames))
+                .where(func.lower(TweetOrm.author_username).in_([u.lower() for u in usernames]))
                 .order_by(TweetOrm.created_at.desc())
                 .limit(limit)
             )

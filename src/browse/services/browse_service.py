@@ -96,7 +96,7 @@ class BrowseService:
             dn_stmt = (
                 select(TweetOrm.author_display_name)
                 .where(
-                    TweetOrm.author_username == row.author_username,
+                    func.lower(TweetOrm.author_username) == row.author_username.lower(),
                     TweetOrm.created_at >= day_start,
                     TweetOrm.created_at < day_end,
                 )
@@ -159,7 +159,7 @@ class BrowseService:
             TweetOrm.created_at < day_end,
         ]
         if author:
-            conditions.append(TweetOrm.author_username == author)
+            conditions.append(func.lower(TweetOrm.author_username) == author.lower())
 
         # COUNT 查询
         count_stmt = (

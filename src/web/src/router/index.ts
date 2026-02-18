@@ -74,6 +74,22 @@ const routes: RouteRecordRaw[] = [
     },
   },
   {
+    path: "/topics",
+    name: "topics",
+    component: () => import("@/views/TopicsView.vue"),
+    meta: {
+      title: "主题管理",
+    },
+  },
+  {
+    path: "/topic-summaries",
+    name: "topic-summaries",
+    component: () => import("@/views/TopicSummariesView.vue"),
+    meta: {
+      title: "主题摘要",
+    },
+  },
+  {
     path: "/my-follows",
     name: "my-follows",
     component: () => import("@/views/MyFollowsView.vue"),

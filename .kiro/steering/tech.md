@@ -225,6 +225,13 @@ mypy src/
 - 使用**同步 engine** 写入，避免与异步事件循环冲突
 - 提供 `GET /api/admin/tasks/history` 端点查询历史记录
 
+### 大小写不敏感的用户名查询
+- **背景**：Twitter API 对用户名查询大小写不敏感，但返回结果使用官方大小写（如 `IndieHackers`），而 `scraper_follows` 表中的用户名由用户手动输入（如 `indiehackers`），SQLite 的 `=` 和 `IN` 默认大小写敏感
+- **统一模式**：所有 `TweetOrm.author_username` 查询必须使用 `func.lower()` 包裹
+  - `==` 比较：`func.lower(TweetOrm.author_username) == value.lower()`
+  - `IN` 比较：`func.lower(TweetOrm.author_username).in_([u.lower() for u in usernames])`
+  - `GROUP BY` 也需同步使用 `func.lower()`，结果映射用 `.lower()` 键匹配
+
 ## 关键技术决策
 
 ### 为什么暂不引入 Agent 框架？

@@ -3,8 +3,10 @@
 提供测试 Fixtures 和配置。
 """
 
+import logging
 import os
 import tempfile
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from unittest.mock import patch
 
@@ -18,12 +20,29 @@ from src.database.models import Base, reset_engine
 from src.database.async_session import reset_async_engine
 from src.main import app
 
+
+# ── 测试环境日志隔离 ──────────────────────────────────────────
+# src.main 在 import 时调用 setup_logging()，会创建指向 logs/x-watcher.log 的
+# RotatingFileHandler。在 Windows 上多个测试线程并发写同一个文件会导致
+# doRollover() 时 os.rename() 抛出 PermissionError（WinError 32），
+# 产生大量日志噪音。移除文件 handler 消除此问题。
+def _remove_file_handlers() -> None:
+    root = logging.getLogger()
+    for handler in root.handlers[:]:
+        if isinstance(handler, RotatingFileHandler):
+            handler.close()
+            root.removeHandler(handler)
+
+
+_remove_file_handlers()
+
 # 导入所有 ORM 模型以确保它们被注册到 Base.metadata
 # 这些导入不会在代码中使用，但确保 SQLAlchemy 能够找到所有表
 from src.scraper.infrastructure.models import TweetOrm, DeduplicationGroupOrm  # noqa: F401
 from src.scraper.infrastructure.fetch_stats_models import FetchStatsOrm  # noqa: F401
 from src.scraper.infrastructure.scheduler_log_models import SchedulerExecutionLogOrm  # noqa: F401
 from src.summarization.infrastructure.models import SummaryOrm  # noqa: F401
+from src.topic.infrastructure.models import TopicOrm, TopicAccountOrm, TopicSummaryTaskOrm, TopicSummaryOrm  # noqa: F401
 
 # 在测试开始时加载 .env 文件
 from dotenv import load_dotenv
