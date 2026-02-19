@@ -132,6 +132,12 @@ src/
 │   │   └── schemas.py       # DailyStatsResponse, AuthorListResponse, BrowseTweetListResponse
 │   └── services/
 │       └── browse_service.py  # 每日统计、作者列表、推文列表查询
+├── search/                  # 推文搜索模块（多字段关键词搜索）
+│   ├── api/
+│   │   ├── routes.py        # GET /api/search/tweets
+│   │   └── schemas.py       # SearchTweetItem, SearchResponse
+│   └── services/
+│       └── search_service.py  # 多字段搜索（正文、摘要、翻译、引用推文）
 ├── monitoring/              # Prometheus 监控
 │   ├── metrics.py           # 指标定义
 │   ├── middleware.py         # 中间件
@@ -164,6 +170,7 @@ tests/
 ├── preference/         # 关注列表模块测试（含调度配置、公共只读端点测试）
 ├── user/               # 用户认证测试
 ├── feed/               # Feed API 测试
+├── search/             # 搜索 API 测试
 ├── api/                # API 端点测试
 ├── integration/        # 集成测试
 ├── performance/        # 性能测试

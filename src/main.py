@@ -349,6 +349,11 @@ from src.browse.api.routes import router as browse_router
 
 app.include_router(browse_router)
 
+# 注册搜索 API 路由
+from src.search.api.routes import router as search_router
+
+app.include_router(search_router)
+
 # 配置前端静态资源服务（如果存在）
 import os
 from fastapi.staticfiles import StaticFiles

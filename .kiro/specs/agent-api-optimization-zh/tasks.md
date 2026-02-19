@@ -14,7 +14,7 @@ X-watcher 当前 API（60+ 端点）在管理和配置维度非常完善，但�
 
 Agent 经常需要"查找提到某个话题的推文"，但目前只能按日期/作者筛选，无关键词搜索能力。
 
-- [ ] 1.1 创建 search 模块基础结构
+- [x] 1.1 创建 search 模块基础结构
   - 创建 `src/search/` 模块目录，包含 `api/`、`services/` 子目录和 `__init__.py`
   - 在 `src/search/api/schemas.py` 中定义请求参数和响应模型：
     - `SearchTweetItem`（复用 `FeedTweetItem` 字段结构，含 summary_text、translation_text）
@@ -23,7 +23,7 @@ Agent 经常需要"查找提到某个话题的推文"，但目前只能按日期
     - 查询参数：`q`（必填关键词）、`author`（可选单作者）、`authors`（可选逗号分隔多作者）、`since`（可选起始时间）、`until`（可选截止时间）、`page`（默认 1）、`page_size`（默认 20，最大 100）、`include_summary`（默认 true）
   - 使用 `get_current_user` 认证（用户级）
 
-- [ ] 1.2 实现 SearchService 搜索查询逻辑
+- [x] 1.2 实现 SearchService 搜索查询逻辑
   - 在 `src/search/services/search_service.py` 中实现 `SearchService`
   - 构建 SQLAlchemy 查询：对 `TweetOrm.text` 使用 `LIKE '%keyword%'` 进行关键词匹配（SQLite 兼容）
   - 同时搜索 `TweetOrm.referenced_tweet_text`（被引用推文内容）
@@ -34,10 +34,10 @@ Agent 经常需要"查找提到某个话题的推文"，但目前只能按日期
   - 分页（page + page_size），按 `created_at` 倒序排列
   - 参考 `BrowseService.get_tweets()` 的 LEFT JOIN 和 COUNT 查询模式
 
-- [ ] 1.3 注册搜索路由
+- [x] 1.3 注册搜索路由
   - 在 `src/main.py` 中注册 search 模块路由
 
-- [ ] 1.4 编写搜索 API 测试
+- [x] 1.4 编写搜索 API 测试
   - 在 `tests/search/` 目录下创建测试文件
   - SearchService 单元测试：关键词匹配、多关键词 AND、作者筛选、时间范围、分页、空结果
   - API 集成测试：完整调用链、认证验证、参数验证（缺少 q 返回 422）、响应格式
