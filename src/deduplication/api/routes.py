@@ -5,10 +5,12 @@
 
 import asyncio
 import logging
+import math
+import re
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
 
 from src.user.api.auth import get_current_admin_user
@@ -99,6 +101,50 @@ class ErrorResponse(BaseModel):
     """错误响应模型。"""
 
     detail: str = Field(..., description="错误详情")
+
+
+class RepresentativeTweetInfo(BaseModel):
+    """代表推文摘要信息。"""
+
+    tweet_id: str
+    text: str
+    author_username: str
+
+
+class DeduplicationGroupListItem(UTCDatetimeModel):
+    """去重组列表项。"""
+
+    group_id: str
+    deduplication_type: str
+    similarity_score: float | None
+    tweet_count: int
+    representative_tweet: RepresentativeTweetInfo
+    created_at: datetime
+
+
+class DeduplicationGroupListResponse(BaseModel):
+    """去重组分页列表响应。"""
+
+    items: list[DeduplicationGroupListItem]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+
+class DedupDailyCount(BaseModel):
+    """每日去重统计项。"""
+
+    date: str
+    count: int
+
+
+class DedupDailyStatsResponse(BaseModel):
+    """每日去重统计响应。"""
+
+    year: int
+    month: int
+    days: list[DedupDailyCount]
 
 
 # ========== 后台任务函数 ==========
@@ -219,6 +265,99 @@ async def start_deduplication(
     logger.info(f"创建去重任务: {task_id} - {len(request.tweet_ids)} 条推文")
 
     return DeduplicateResponse(task_id=task_id, status="pending")
+
+
+@router.get("/groups", response_model=DeduplicationGroupListResponse)
+async def list_deduplication_groups(
+    date: str | None = Query(None, description="筛选日期（YYYY-MM-DD）"),
+    deduplication_type: str | None = Query(None, description="去重类型筛选"),
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(20, ge=1, le=100, description="每页数量"),
+    tz_offset: int = Query(0, ge=-720, le=840, description="时区偏移（分钟）"),
+    _admin: UserDomain = Depends(get_current_admin_user),
+) -> DeduplicationGroupListResponse:
+    """列出去重组（分页）。"""
+    from src.deduplication.domain.models import DeduplicationType as DedupTypeEnum
+
+    # 验证 date 格式
+    if date is not None and not re.match(r"^\d{4}-\d{2}-\d{2}$", date):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="date 格式无效，应为 YYYY-MM-DD",
+        )
+
+    # 验证 deduplication_type 枚举值
+    dedup_type_enum: DedupTypeEnum | None = None
+    if deduplication_type is not None:
+        try:
+            dedup_type_enum = DedupTypeEnum(deduplication_type)
+        except ValueError:
+            valid = [t.value for t in DedupTypeEnum]
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"deduplication_type 无效，可选值: {valid}",
+            )
+
+    session_maker = get_async_session_maker()
+    async with session_maker() as session:
+        repository = DeduplicationRepository(session)
+        groups, total = await repository.get_groups_paginated(
+            date=date,
+            deduplication_type=dedup_type_enum,
+            page=page,
+            page_size=page_size,
+            tz_offset=tz_offset,
+        )
+
+        items = []
+        for g in groups:
+            rep = g.representative
+            items.append(
+                DeduplicationGroupListItem(
+                    group_id=g.group_id,
+                    deduplication_type=g.deduplication_type,
+                    similarity_score=g.similarity_score,
+                    tweet_count=len(g.tweet_ids),
+                    representative_tweet=RepresentativeTweetInfo(
+                        tweet_id=rep.tweet_id,
+                        text=rep.text,
+                        author_username=rep.author_username,
+                    ),
+                    created_at=g.created_at,
+                )
+            )
+
+        total_pages = math.ceil(total / page_size) if total > 0 else 0
+
+        return DeduplicationGroupListResponse(
+            items=items,
+            total=total,
+            page=page,
+            page_size=page_size,
+            total_pages=total_pages,
+        )
+
+
+@router.get("/stats/daily", response_model=DedupDailyStatsResponse)
+async def get_daily_dedup_stats(
+    year: int = Query(..., description="年份"),
+    month: int = Query(..., ge=1, le=12, description="月份"),
+    tz_offset: int = Query(0, ge=-720, le=840, description="时区偏移（分钟）"),
+    _admin: UserDomain = Depends(get_current_admin_user),
+) -> DedupDailyStatsResponse:
+    """查询每日去重统计。"""
+    session_maker = get_async_session_maker()
+    async with session_maker() as session:
+        repository = DeduplicationRepository(session)
+        rows = await repository.get_daily_dedup_stats(
+            year=year, month=month, tz_offset=tz_offset
+        )
+
+        return DedupDailyStatsResponse(
+            year=year,
+            month=month,
+            days=[DedupDailyCount(date=r["date"], count=r["count"]) for r in rows],
+        )
 
 
 @router.get(

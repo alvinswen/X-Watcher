@@ -247,14 +247,14 @@ Agent 需要快速了解系统健康状况和数据时效性，当前只有低�
 
 当前缺少"哪些推文被去重了"的概览能力，不利于质量监控。
 
-- [ ] 9.1 实现去重结果按日期浏览端点
+- [x] 9.1 实现去重结果按日期浏览端点
   - 在 `src/deduplication/api/routes.py` 中添加：
     - `GET /api/deduplicate/groups` — 列出去重组，支持 `date`（YYYY-MM-DD）、`page`、`page_size` 参数
     - `GET /api/deduplicate/stats/daily` — 按月查询每日去重统计（参考 `BrowseService.get_daily_stats` 模式）
   - 返回每个去重组的组内推文数量、去重类型、代表推文摘要等信息
   - 使用 `get_current_admin_user` 认证
 
-- [ ] 9.2 编写去重浏览测试
+- [x] 9.2 编写去重浏览测试
   - 测试按日期筛选去重组列表
   - 测试分页
   - 测试每日统计

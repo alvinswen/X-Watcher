@@ -7,7 +7,9 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import select, update
+from datetime import timedelta
+
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -233,6 +235,118 @@ class DeduplicationRepository:
         orm_groups = result.scalars().all()
 
         return [g.to_domain() for g in orm_groups]
+
+    async def get_groups_paginated(
+        self,
+        date: str | None = None,
+        deduplication_type: DeduplicationType | None = None,
+        page: int = 1,
+        page_size: int = 20,
+        tz_offset: int = 0,
+    ) -> tuple[list[DeduplicationGroupOrm], int]:
+        """分页查询去重组列表。
+
+        Args:
+            date: 用户本地日期（YYYY-MM-DD），用于筛选
+            deduplication_type: 去重类型筛选
+            page: 页码（从 1 开始）
+            page_size: 每页数量
+            tz_offset: JS getTimezoneOffset() 的值（分钟）
+
+        Returns:
+            (去重组 ORM 列表, 总数) 元组
+        """
+        # 构建基础查询条件
+        conditions = []
+
+        if date is not None:
+            local_midnight = datetime.strptime(date, "%Y-%m-%d")
+            utc_start = (local_midnight + timedelta(minutes=tz_offset)).replace(
+                tzinfo=timezone.utc
+            )
+            utc_end = utc_start + timedelta(days=1)
+            conditions.append(DeduplicationGroupOrm.created_at >= utc_start)
+            conditions.append(DeduplicationGroupOrm.created_at < utc_end)
+
+        if deduplication_type is not None:
+            conditions.append(
+                DeduplicationGroupOrm.deduplication_type == deduplication_type.value
+            )
+
+        # 查询总数
+        count_stmt = select(func.count()).select_from(DeduplicationGroupOrm)
+        if conditions:
+            count_stmt = count_stmt.where(*conditions)
+        count_result = await self._session.execute(count_stmt)
+        total = count_result.scalar_one()
+
+        # 分页查询
+        offset = (page - 1) * page_size
+        stmt = (
+            select(DeduplicationGroupOrm)
+            .options(selectinload(DeduplicationGroupOrm.representative))
+            .order_by(DeduplicationGroupOrm.created_at.desc())
+            .offset(offset)
+            .limit(page_size)
+        )
+        if conditions:
+            stmt = stmt.where(*conditions)
+
+        result = await self._session.execute(stmt)
+        groups = list(result.scalars().all())
+
+        return groups, total
+
+    async def get_daily_dedup_stats(
+        self, year: int, month: int, tz_offset: int = 0
+    ) -> list[dict]:
+        """按月统计每日去重组数量（按用户本地时区分组）。
+
+        Args:
+            year: 年份（用户本地时区）
+            month: 月份 1-12（用户本地时区）
+            tz_offset: JS getTimezoneOffset() 的值（分钟）
+
+        Returns:
+            日期-数量的字典列表，如 [{"date": "2026-02-15", "count": 5}, ...]
+        """
+        # 用户本地月份起止 → UTC 范围
+        local_start = datetime(year, month, 1)
+        if month == 12:
+            local_end = datetime(year + 1, 1, 1)
+        else:
+            local_end = datetime(year, month + 1, 1)
+
+        utc_start = (local_start + timedelta(minutes=tz_offset)).replace(
+            tzinfo=timezone.utc
+        )
+        utc_end = (local_end + timedelta(minutes=tz_offset)).replace(
+            tzinfo=timezone.utc
+        )
+
+        # SQLite date() 修饰符：将 UTC 偏移到用户本地时区
+        offset_modifier = f"{-tz_offset} minutes"
+        local_date_expr = func.date(
+            DeduplicationGroupOrm.created_at, offset_modifier
+        )
+
+        stmt = (
+            select(
+                local_date_expr.label("date"),
+                func.count().label("count"),
+            )
+            .where(
+                DeduplicationGroupOrm.created_at >= utc_start,
+                DeduplicationGroupOrm.created_at < utc_end,
+            )
+            .group_by(local_date_expr)
+            .order_by(local_date_expr)
+        )
+
+        result = await self._session.execute(stmt)
+        rows = result.fetchall()
+
+        return [{"date": row.date, "count": row.count} for row in rows]
 
     @staticmethod
     def generate_group_id() -> str:
