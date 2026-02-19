@@ -36,10 +36,33 @@ async def get_feed(
     ),
     limit: int | None = Query(None, ge=1, description="最大返回条数"),
     include_summary: bool = Query(True, description="是否包含摘要和翻译"),
+    author: str | None = Query(
+        None, description="按作者用户名筛选（单个，大小写不敏感）"
+    ),
+    authors: str | None = Query(
+        None, description="按多个作者筛选（逗号分隔，大小写不敏感）"
+    ),
+    keyword: str | None = Query(
+        None, description="关键词过滤（搜索推文正文、摘要、翻译）"
+    ),
     current_user: UserDomain = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> FeedResponse:
     """获取指定时间区间内的推文列表。"""
+    # author 和 authors 互斥
+    if author and authors:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="author 和 authors 参数不能同时使用",
+        )
+
+    # authors 字符串转列表
+    authors_list: list[str] | None = None
+    if authors:
+        authors_list = [a.strip() for a in authors.split(",") if a.strip()]
+        if not authors_list:
+            authors_list = None
+
     try:
         settings = get_settings()
 
@@ -73,6 +96,9 @@ async def get_feed(
             until=actual_until,
             limit=actual_limit,
             include_summary=include_summary,
+            author=author,
+            authors=authors_list,
+            keyword=keyword,
         )
 
         # 构建响应

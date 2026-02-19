@@ -143,6 +143,72 @@ async def seed_feed_data(feed_test_session: AsyncSession):
     return {"tweets": tweets, "base_time": base_time}
 
 
+@pytest.fixture
+async def seed_multi_author_data(feed_test_session: AsyncSession):
+    """准备多作者 Feed 测试数据。
+
+    - alice: 2 条推文（text 含 "alpha"）
+    - bob: 1 条推文（text 含 "beta"）
+    摘要：alice 的第一条有摘要
+    """
+    now = datetime.now(timezone.utc)
+    base_time = now - timedelta(hours=2)
+
+    tweets = [
+        TweetOrm(
+            tweet_id="ma_tweet_1",
+            text="alpha content from alice",
+            created_at=base_time + timedelta(minutes=30),
+            db_created_at=base_time + timedelta(minutes=10),
+            author_username="alice",
+            author_display_name="Alice",
+            media=None,
+        ),
+        TweetOrm(
+            tweet_id="ma_tweet_2",
+            text="alpha again from alice",
+            created_at=base_time + timedelta(minutes=20),
+            db_created_at=base_time + timedelta(minutes=20),
+            author_username="alice",
+            author_display_name="Alice",
+            media=None,
+        ),
+        TweetOrm(
+            tweet_id="ma_tweet_3",
+            text="beta content from bob",
+            created_at=base_time + timedelta(minutes=10),
+            db_created_at=base_time + timedelta(minutes=30),
+            author_username="bob",
+            author_display_name="Bob",
+            media=None,
+        ),
+    ]
+
+    for tweet in tweets:
+        feed_test_session.add(tweet)
+    await feed_test_session.flush()
+
+    summary = SummaryOrm(
+        summary_id=str(uuid4()),
+        tweet_id="ma_tweet_1",
+        summary_text="alice 的摘要",
+        translation_text="alice translation",
+        model_provider="minimax",
+        model_name="test-model",
+        prompt_tokens=100,
+        completion_tokens=50,
+        total_tokens=150,
+        cost_usd=0.001,
+        cached=False,
+        is_generated_summary=True,
+        content_hash="ma_hash_1",
+    )
+    feed_test_session.add(summary)
+    await feed_test_session.commit()
+
+    return {"tweets": tweets, "base_time": base_time}
+
+
 class TestFeedAPISuccess:
     """测试成功场景。"""
 
@@ -321,3 +387,104 @@ class TestFeedAPILimitClamping:
         finally:
             os.environ.pop("FEED_MAX_TWEETS", None)
             clear_settings_cache()
+
+
+class TestFeedAPIFiltering:
+    """测试过滤参数。"""
+
+    async def test_filter_by_author(
+        self, feed_client: AsyncClient, seed_multi_author_data
+    ):
+        """author 参数仅返回该作者推文。"""
+        base = seed_multi_author_data["base_time"]
+        since = base.isoformat()
+        until = (base + timedelta(hours=1)).isoformat()
+
+        response = await feed_client.get(
+            "/api/feed",
+            params={"since": since, "until": until, "author": "alice"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["total"] == 2
+        assert data["count"] == 2
+        for item in data["items"]:
+            assert item["author_username"] == "alice"
+
+    async def test_filter_by_authors(
+        self, feed_client: AsyncClient, seed_multi_author_data
+    ):
+        """authors 逗号分隔返回多个作者推文。"""
+        base = seed_multi_author_data["base_time"]
+        since = base.isoformat()
+        until = (base + timedelta(hours=1)).isoformat()
+
+        response = await feed_client.get(
+            "/api/feed",
+            params={"since": since, "until": until, "authors": "alice,bob"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["total"] == 3
+        assert data["count"] == 3
+
+    async def test_filter_by_keyword(
+        self, feed_client: AsyncClient, seed_multi_author_data
+    ):
+        """keyword 匹配推文正文。"""
+        base = seed_multi_author_data["base_time"]
+        since = base.isoformat()
+        until = (base + timedelta(hours=1)).isoformat()
+
+        response = await feed_client.get(
+            "/api/feed",
+            params={"since": since, "until": until, "keyword": "beta"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["total"] == 1
+        assert data["items"][0]["tweet_id"] == "ma_tweet_3"
+
+    async def test_author_and_authors_mutual_exclusive(
+        self, feed_client: AsyncClient
+    ):
+        """同时传 author 和 authors 返回 422。"""
+        response = await feed_client.get(
+            "/api/feed",
+            params={
+                "since": "2025-01-01T00:00:00Z",
+                "author": "alice",
+                "authors": "alice,bob",
+            },
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        data = response.json()
+        assert "author" in data["detail"]
+
+    async def test_filter_preserves_total_and_has_more(
+        self, feed_client: AsyncClient, seed_multi_author_data
+    ):
+        """过滤后 total 只计算匹配的推文，has_more 正确。"""
+        base = seed_multi_author_data["base_time"]
+        since = base.isoformat()
+        until = (base + timedelta(hours=1)).isoformat()
+
+        response = await feed_client.get(
+            "/api/feed",
+            params={
+                "since": since,
+                "until": until,
+                "author": "alice",
+                "limit": 1,
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["total"] == 2
+        assert data["count"] == 1
+        assert data["has_more"] is True

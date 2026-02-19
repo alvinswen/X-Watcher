@@ -6,7 +6,7 @@
 import logging
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.feed.api.schemas import FeedResult
@@ -31,6 +31,9 @@ class FeedService:
         until: datetime,
         limit: int,
         include_summary: bool = True,
+        author: str | None = None,
+        authors: list[str] | None = None,
+        keyword: str | None = None,
     ) -> FeedResult:
         """查询指定时间区间内的推文。
 
@@ -39,19 +42,53 @@ class FeedService:
             until: 截止时间（不含），过滤 created_at < until
             limit: 最大返回条数
             include_summary: 是否包含摘要和翻译
+            author: 按单个作者用户名筛选（大小写不敏感）
+            authors: 按多个作者用户名筛选（大小写不敏感）
+            keyword: 关键词过滤（搜索推文正文、摘要、翻译）
 
         Returns:
             FeedResult: 查询结果
         """
-        # 1. COUNT 查询：获取满足时间条件的总数
-        count_stmt = (
-            select(func.count())
-            .select_from(TweetOrm)
-            .where(
-                TweetOrm.created_at >= since,
-                TweetOrm.created_at < until,
+        # 构建过滤条件
+        conditions = [
+            TweetOrm.created_at >= since,
+            TweetOrm.created_at < until,
+        ]
+
+        if author:
+            conditions.append(func.lower(TweetOrm.author_username) == author.lower())
+        elif authors:
+            conditions.append(
+                func.lower(TweetOrm.author_username).in_([a.lower() for a in authors])
             )
-        )
+
+        if keyword:
+            like_pattern = f"%{keyword}%"
+            if include_summary:
+                conditions.append(
+                    or_(
+                        TweetOrm.text.ilike(like_pattern),
+                        SummaryOrm.summary_text.ilike(like_pattern),
+                        SummaryOrm.translation_text.ilike(like_pattern),
+                    )
+                )
+            else:
+                conditions.append(TweetOrm.text.ilike(like_pattern))
+
+        # 1. COUNT 查询
+        if keyword and include_summary:
+            count_stmt = (
+                select(func.count())
+                .select_from(TweetOrm)
+                .outerjoin(SummaryOrm, TweetOrm.tweet_id == SummaryOrm.tweet_id)
+                .where(*conditions)
+            )
+        else:
+            count_stmt = (
+                select(func.count())
+                .select_from(TweetOrm)
+                .where(*conditions)
+            )
         count_result = await self._session.execute(count_stmt)
         total = count_result.scalar() or 0
 
@@ -72,10 +109,7 @@ class FeedService:
                     SummaryOrm.translation_text,
                 )
                 .outerjoin(SummaryOrm, TweetOrm.tweet_id == SummaryOrm.tweet_id)
-                .where(
-                    TweetOrm.created_at >= since,
-                    TweetOrm.created_at < until,
-                )
+                .where(*conditions)
                 .order_by(TweetOrm.created_at.desc())
                 .limit(limit)
             )
@@ -92,10 +126,7 @@ class FeedService:
                     TweetOrm.referenced_tweet_id,
                     TweetOrm.media,
                 )
-                .where(
-                    TweetOrm.created_at >= since,
-                    TweetOrm.created_at < until,
-                )
+                .where(*conditions)
                 .order_by(TweetOrm.created_at.desc())
                 .limit(limit)
             )

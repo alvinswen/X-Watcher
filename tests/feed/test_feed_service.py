@@ -254,6 +254,150 @@ class TestFeedServiceLimitAndHasMore:
         assert result.has_more is False
 
 
+class TestFeedServiceFiltering:
+    """测试作者/关键词过滤。"""
+
+    async def test_filter_by_author(self, async_session, feed_data):
+        """author="user1" 返回该作者的 2 条推文。"""
+        base = feed_data["base_time"]
+        service = FeedService(async_session)
+
+        result = await service.get_feed(
+            since=base,
+            until=base + timedelta(hours=1),
+            limit=100,
+            author="user1",
+        )
+
+        assert result.total == 2
+        assert result.count == 2
+        for item in result.items:
+            assert item["author_username"] == "user1"
+
+    async def test_filter_by_author_case_insensitive(self, async_session, feed_data):
+        """author 大小写不敏感。"""
+        base = feed_data["base_time"]
+        service = FeedService(async_session)
+
+        result = await service.get_feed(
+            since=base,
+            until=base + timedelta(hours=1),
+            limit=100,
+            author="User1",
+        )
+
+        assert result.total == 2
+        assert result.count == 2
+
+    async def test_filter_by_authors_list(self, async_session, feed_data):
+        """authors=["user1","user2"] 返回全部 3 条。"""
+        base = feed_data["base_time"]
+        service = FeedService(async_session)
+
+        result = await service.get_feed(
+            since=base,
+            until=base + timedelta(hours=1),
+            limit=100,
+            authors=["user1", "user2"],
+        )
+
+        assert result.total == 3
+        assert result.count == 3
+
+    async def test_filter_by_keyword_in_text(self, async_session, feed_data):
+        """keyword 匹配推文正文。"""
+        base = feed_data["base_time"]
+        service = FeedService(async_session)
+
+        result = await service.get_feed(
+            since=base,
+            until=base + timedelta(hours=1),
+            limit=100,
+            keyword="First",
+        )
+
+        assert result.total == 1
+        assert result.items[0]["tweet_id"] == "feed_tweet_1"
+
+    async def test_filter_by_keyword_in_summary(self, async_session, feed_data):
+        """keyword 匹配摘要字段。"""
+        base = feed_data["base_time"]
+        service = FeedService(async_session)
+
+        result = await service.get_feed(
+            since=base,
+            until=base + timedelta(hours=1),
+            limit=100,
+            keyword="摘要2",
+        )
+
+        assert result.total == 1
+        assert result.items[0]["tweet_id"] == "feed_tweet_2"
+
+    async def test_filter_by_keyword_in_translation(self, async_session, feed_data):
+        """keyword 匹配翻译字段。"""
+        base = feed_data["base_time"]
+        service = FeedService(async_session)
+
+        result = await service.get_feed(
+            since=base,
+            until=base + timedelta(hours=1),
+            limit=100,
+            keyword="翻译1",
+        )
+
+        assert result.total == 1
+        assert result.items[0]["tweet_id"] == "feed_tweet_1"
+
+    async def test_filter_by_keyword_no_summary(self, async_session, feed_data):
+        """include_summary=False 时 keyword 不搜索摘要字段。"""
+        base = feed_data["base_time"]
+        service = FeedService(async_session)
+
+        result = await service.get_feed(
+            since=base,
+            until=base + timedelta(hours=1),
+            limit=100,
+            include_summary=False,
+            keyword="摘要",
+        )
+
+        assert result.total == 0
+        assert result.count == 0
+
+    async def test_filter_combined_author_and_keyword(self, async_session, feed_data):
+        """author + keyword 组合过滤。"""
+        base = feed_data["base_time"]
+        service = FeedService(async_session)
+
+        result = await service.get_feed(
+            since=base,
+            until=base + timedelta(hours=1),
+            limit=100,
+            author="user1",
+            keyword="First",
+        )
+
+        assert result.total == 1
+        assert result.items[0]["tweet_id"] == "feed_tweet_1"
+
+    async def test_filter_no_match(self, async_session, feed_data):
+        """无匹配结果。"""
+        base = feed_data["base_time"]
+        service = FeedService(async_session)
+
+        result = await service.get_feed(
+            since=base,
+            until=base + timedelta(hours=1),
+            limit=100,
+            keyword="不存在的内容",
+        )
+
+        assert result.total == 0
+        assert result.count == 0
+        assert result.items == []
+
+
 class TestFeedServiceOrdering:
     """测试排序。"""
 
