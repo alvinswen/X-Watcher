@@ -3,6 +3,92 @@
     <el-skeleton v-if="loading" :rows="6" animated />
 
     <template v-else-if="config">
+      <!-- 手动抓取 -->
+      <el-card class="section-card">
+        <template #header>
+          <span>手动抓取</span>
+        </template>
+        <div class="manual-scrape-section">
+          <div class="manual-scrape-row">
+            <!-- 全量抓取 -->
+            <el-button
+              type="primary"
+              :icon="VideoPlay"
+              :loading="triggeringAll"
+              :disabled="!!scrapeTaskId"
+              @click="handleTriggerAllScraping"
+            >
+              抓取全部账号
+            </el-button>
+
+            <!-- 定向抓取 -->
+            <span class="manual-scrape-divider">或</span>
+            <el-select
+              v-model="scrapeUsername"
+              placeholder="选择账号"
+              filterable
+              clearable
+              style="width: 180px"
+            >
+              <el-option
+                v-for="f in follows"
+                :key="f.username"
+                :label="'@' + f.username"
+                :value="f.username"
+              />
+            </el-select>
+            <el-input-number
+              v-model="scrapeLimit"
+              :min="1"
+              :max="1000"
+              :step="10"
+              controls-position="right"
+              style="width: 130px"
+            />
+            <el-button
+              type="primary"
+              plain
+              :loading="scrapeSubmitting"
+              :disabled="!scrapeUsername || !!scrapeTaskId"
+              @click="handleStartScrape"
+            >
+              定向抓取
+            </el-button>
+          </div>
+
+          <!-- 任务状态展示 -->
+          <div v-if="scrapeTaskStatus" class="scrape-task-status">
+            <el-descriptions :column="3" border size="small">
+              <el-descriptions-item label="任务 ID">
+                {{ scrapeTaskStatus.task_id.slice(0, 8) }}...
+              </el-descriptions-item>
+              <el-descriptions-item label="状态">
+                <el-tag :type="scrapeStatusTagType" size="small">
+                  {{ scrapeStatusText }}
+                </el-tag>
+              </el-descriptions-item>
+              <el-descriptions-item label="进度">
+                {{ scrapeTaskStatus.progress.current }} / {{ scrapeTaskStatus.progress.total }}
+                ({{ scrapeTaskStatus.progress.percentage.toFixed(0) }}%)
+              </el-descriptions-item>
+            </el-descriptions>
+
+            <div v-if="scrapeTaskStatus.status === 'completed'" class="scrape-result success">
+              抓取完成。
+              <span v-if="scrapeTaskStatus.result">
+                新增 {{ scrapeTaskStatus.result.total_new ?? scrapeTaskStatus.result.success_count ?? 0 }} 条，
+                跳过 {{ scrapeTaskStatus.result.total_skipped ?? scrapeTaskStatus.result.skipped_count ?? 0 }} 条。
+              </span>
+              <el-button link type="primary" size="small" @click="clearScrapeTask">清除</el-button>
+            </div>
+            <div v-if="scrapeTaskStatus.status === 'failed'" class="scrape-result error">
+              抓取失败：{{ scrapeTaskStatus.error }}
+              <el-button link type="primary" size="small" @click="clearScrapeTask">清除</el-button>
+            </div>
+          </div>
+        </div>
+      </el-card>
+
       <!-- 抓取调度状态 -->
       <el-card class="section-card">
         <template #header>
@@ -219,76 +305,6 @@
         </el-table>
       </el-card>
 
-      <!-- 手动定向抓取 -->
-      <el-card class="section-card">
-        <template #header>
-          <span>手动定向抓取</span>
-        </template>
-        <div class="manual-scrape-section">
-          <div class="manual-scrape-form">
-            <el-select
-              v-model="scrapeUsername"
-              placeholder="选择账号"
-              filterable
-              style="width: 200px"
-            >
-              <el-option
-                v-for="f in follows"
-                :key="f.username"
-                :label="'@' + f.username"
-                :value="f.username"
-              />
-            </el-select>
-            <el-input-number
-              v-model="scrapeLimit"
-              :min="1"
-              :max="1000"
-              :step="10"
-              controls-position="right"
-              style="width: 140px"
-            />
-            <el-button
-              type="primary"
-              :loading="scrapeSubmitting"
-              :disabled="!scrapeUsername || !!scrapeTaskId"
-              @click="handleStartScrape"
-            >
-              开始抓取
-            </el-button>
-          </div>
-
-          <!-- 任务状态展示 -->
-          <div v-if="scrapeTaskStatus" class="scrape-task-status">
-            <el-descriptions :column="3" border size="small">
-              <el-descriptions-item label="任务 ID">
-                {{ scrapeTaskStatus.task_id.slice(0, 8) }}...
-              </el-descriptions-item>
-              <el-descriptions-item label="状态">
-                <el-tag :type="scrapeStatusTagType" size="small">
-                  {{ scrapeStatusText }}
-                </el-tag>
-              </el-descriptions-item>
-              <el-descriptions-item label="进度">
-                {{ scrapeTaskStatus.progress.current }} / {{ scrapeTaskStatus.progress.total }}
-                ({{ scrapeTaskStatus.progress.percentage.toFixed(0) }}%)
-              </el-descriptions-item>
-            </el-descriptions>
-
-            <div v-if="scrapeTaskStatus.status === 'completed'" class="scrape-result success">
-              抓取完成。
-              <span v-if="scrapeTaskStatus.result">
-                新增 {{ scrapeTaskStatus.result.total_new ?? scrapeTaskStatus.result.success_count ?? 0 }} 条，
-                跳过 {{ scrapeTaskStatus.result.total_skipped ?? scrapeTaskStatus.result.skipped_count ?? 0 }} 条。
-              </span>
-              <el-button link type="primary" size="small" @click="clearScrapeTask">清除</el-button>
-            </div>
-            <div v-if="scrapeTaskStatus.status === 'failed'" class="scrape-result error">
-              抓取失败：{{ scrapeTaskStatus.error }}
-              <el-button link type="primary" size="small" @click="clearScrapeTask">清除</el-button>
-            </div>
-          </div>
-        </div>
-      </el-card>
     </template>
 
     <!-- 抓取分析弹窗 -->
@@ -329,6 +345,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from "vue"
+import { VideoPlay } from "@element-plus/icons-vue"
 import { ElMessage } from "element-plus"
 import { schedulerApi, followsApi, tasksApi } from "@/api"
 import { formatDuration, formatFullDateTime, formatRelativeTime } from "@/utils/format"
@@ -404,6 +421,9 @@ const analysisLoading = ref(false)
 const tweetTimeRange = ref<Record<string, TweetTimeRange>>({})
 
 // ==================== 手动抓取状态 ====================
+
+/** 全量抓取提交中 */
+const triggeringAll = ref(false)
 
 /** 手动抓取目标账号 */
 const scrapeUsername = ref("")
@@ -662,7 +682,30 @@ async function loadTweetTimeRange() {
 
 // ==================== 手动抓取方法 ====================
 
-/** 触发手动抓取 */
+/** 触发全量抓取（所有活跃账号） */
+async function handleTriggerAllScraping() {
+  const activeFollows = follows.value.filter((f) => f.is_active)
+  if (activeFollows.length === 0) {
+    ElMessage.warning("没有活跃的关注账号，无法抓取")
+    return
+  }
+
+  triggeringAll.value = true
+  try {
+    const usernames = activeFollows.map((f) => f.username).join(",")
+    const resp = await tasksApi.triggerScraping({ usernames, limit: 100 })
+    scrapeTaskId.value = resp.task_id
+    scrapeTaskStatus.value = null
+    ElMessage.success(`已提交全量抓取任务（${activeFollows.length} 个账号）`)
+    startPolling()
+  } catch (error) {
+    console.error("触发全量抓取失败:", error)
+  } finally {
+    triggeringAll.value = false
+  }
+}
+
+/** 触发定向抓取（单个账号） */
 async function handleStartScrape() {
   if (!scrapeUsername.value) return
   scrapeSubmitting.value = true
@@ -816,10 +859,16 @@ onUnmounted(() => {
   gap: 16px;
 }
 
-.manual-scrape-form {
+.manual-scrape-row {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-wrap: wrap;
+}
+
+.manual-scrape-divider {
+  color: var(--el-text-color-placeholder);
+  font-size: 13px;
 }
 
 .scrape-task-status {

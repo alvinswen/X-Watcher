@@ -55,16 +55,22 @@ export interface ScrapeTriggerResponse {
 export interface TaskListItem {
   /** 任务 ID */
   task_id: string
+  /** 任务名称 */
+  task_name: string
   /** 任务状态 */
   status: TaskStatus
   /** 创建时间 */
   created_at: string | null
+  /** 开始时间 */
+  started_at: string | null
   /** 进度信息 */
   progress: TaskProgress
   /** 错误信息 */
   error: string | null
   /** 结果信息 */
   result: Record<string, unknown> | null
+  /** 元数据 */
+  metadata: Record<string, unknown>
 }
 
 /** 抓取账号信息。 */

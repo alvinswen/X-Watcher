@@ -2,52 +2,59 @@
   <div class="tasks-view">
     <div class="page-header">
       <h1>任务监控</h1>
-      <el-button
-        type="primary"
-        :icon="VideoPlay"
-        @click="handleTriggerScraping"
-        :loading="triggering"
-      >
-        立即抓取
-      </el-button>
     </div>
 
-    <!-- 当前任务状态 -->
-    <el-card v-if="currentTask" class="current-task-card">
+    <!-- 活跃任务（内存中的 pending / running 任务） -->
+    <el-card class="active-tasks-card">
       <template #header>
         <div class="card-header">
-          <span>当前任务</span>
-          <el-tag :type="getStatusType(currentTask.status)">
-            {{ getStatusText(currentTask.status) }}
-          </el-tag>
+          <span>
+            活跃任务
+            <el-badge
+              v-if="activeTasks.length > 0"
+              :value="activeTasks.length"
+              type="warning"
+              class="active-badge"
+            />
+          </span>
+          <el-button link @click="loadActiveTasks">刷新</el-button>
         </div>
       </template>
-      <div class="task-info">
-        <div class="task-id">任务 ID: {{ currentTask.task_id }}</div>
-        <el-progress
-          v-if="currentTask.status === 'running'"
-          :percentage="currentTask.progress.percentage"
-          :format="() => `${currentTask!.progress.current}/${currentTask!.progress.total}`"
-        />
-        <div v-if="currentTask.error" class="task-error">
-          <el-alert type="error" :closable="false">
-            {{ currentTask.error }}
-          </el-alert>
-        </div>
-        <div v-if="currentTask.result" class="task-result">
-          <el-descriptions :column="2" border size="small">
-            <el-descriptions-item label="抓取推文数">
-              {{ (currentTask.result as any).tweets_count || 0 }}
-            </el-descriptions-item>
-            <el-descriptions-item label="去重组数">
-              {{ (currentTask.result as any).deduplication_count || 0 }}
-            </el-descriptions-item>
-            <el-descriptions-item label="摘要数">
-              {{ (currentTask.result as any).summary_count || 0 }}
-            </el-descriptions-item>
-          </el-descriptions>
-        </div>
-      </div>
+
+      <el-empty
+        v-if="activeTasks.length === 0"
+        description="当前没有正在执行或等待中的任务"
+        :image-size="60"
+      />
+
+      <el-table v-else :data="activeTasks" stripe>
+        <el-table-column prop="task_name" label="任务名称" min-width="160" />
+        <el-table-column label="状态" width="100">
+          <template #default="{ row }">
+            <el-tag :type="getStatusType(row.status)" size="small">
+              {{ getStatusText(row.status) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="进度" width="200">
+          <template #default="{ row }">
+            <el-progress
+              v-if="row.status === 'running' && row.progress.total > 0"
+              :percentage="row.progress.percentage"
+              :format="() => `${row.progress.current}/${row.progress.total}`"
+            />
+            <span v-else-if="row.status === 'pending'" class="text-muted">
+              等待执行...
+            </span>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="创建时间" width="180">
+          <template #default="{ row }">
+            {{ row.created_at ? formatLocalizedDateTime(row.created_at) : '-' }}
+          </template>
+        </el-table-column>
+      </el-table>
     </el-card>
 
     <!-- 任务历史（持久化，重启后保留） -->
@@ -235,10 +242,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from "vue"
-import { VideoPlay } from "@element-plus/icons-vue"
-import { ElMessage } from "element-plus"
-import { tasksApi, followsApi } from "@/api"
-import { taskPollingService } from "@/services/polling"
+import { tasksApi } from "@/api"
 import {
   formatLocalizedDateTime,
   formatFullDateTime,
@@ -247,19 +251,16 @@ import {
   formatCostUsd,
   formatNumber,
 } from "@/utils/format"
-import type { TaskHistoryItem, TaskStatusResponse } from "@/types"
+import type { TaskHistoryItem, TaskListItem } from "@/types"
+
+/** 活跃任务列表（pending + running，来自 TaskRegistry 内存） */
+const activeTasks = ref<TaskListItem[]>([])
 
 /** 持久化的任务历史列表 */
 const historyTasks = ref<TaskHistoryItem[]>([])
 
-/** 当前正在执行的任务 */
-const currentTask = ref<TaskStatusResponse | null>(null)
-
 /** 加载状态 */
 const loading = ref(false)
-
-/** 触发任务状态 */
-const triggering = ref(false)
 
 /** 详情对话框显示状态 */
 const detailDialogVisible = ref(false)
@@ -267,8 +268,43 @@ const detailDialogVisible = ref(false)
 /** 选中的任务（历史记录） */
 const selectedTask = ref<TaskHistoryItem | null>(null)
 
-/** 轮询句柄 */
-let pollingHandle: { cancel: () => void } | null = null
+/** 活跃任务轮询定时器 */
+let activeTasksTimer: ReturnType<typeof setInterval> | null = null
+
+/** 轮询间隔（毫秒） */
+const ACTIVE_TASKS_POLL_INTERVAL = 3000
+
+/** 加载活跃任务（pending + running） */
+async function loadActiveTasks() {
+  try {
+    const allTasks = await tasksApi.listTasks()
+    const newActiveTasks = allTasks.filter(
+      (t) => t.status === "pending" || t.status === "running",
+    )
+    // 活跃任务数减少时（有任务完成），自动刷新历史列表
+    if (activeTasks.value.length > 0 && newActiveTasks.length < activeTasks.value.length) {
+      loadHistory()
+    }
+    activeTasks.value = newActiveTasks
+  } catch (error) {
+    console.error("加载活跃任务失败:", error)
+  }
+}
+
+/** 启动活跃任务轮询 */
+function startActiveTasksPolling() {
+  stopActiveTasksPolling()
+  loadActiveTasks()
+  activeTasksTimer = setInterval(loadActiveTasks, ACTIVE_TASKS_POLL_INTERVAL)
+}
+
+/** 停止活跃任务轮询 */
+function stopActiveTasksPolling() {
+  if (activeTasksTimer) {
+    clearInterval(activeTasksTimer)
+    activeTasksTimer = null
+  }
+}
 
 /** 加载持久化的任务历史 */
 async function loadHistory() {
@@ -279,83 +315,6 @@ async function loadHistory() {
     console.error("加载任务历史失败:", error)
   } finally {
     loading.value = false
-  }
-}
-
-/** 触发抓取任务 */
-async function handleTriggerScraping() {
-  triggering.value = true
-  try {
-    // 先获取活跃账号列表
-    const follows = await followsApi.list()
-    const activeFollows = follows.filter((f) => f.is_active)
-
-    if (activeFollows.length === 0) {
-      ElMessage.warning("没有活跃的关注账号，无法抓取")
-      return
-    }
-
-    const usernames = activeFollows.map((f) => f.username).join(",")
-
-    const response = await tasksApi.triggerScraping({
-      usernames,
-      limit: 100,
-    })
-
-    // 设置当前任务
-    currentTask.value = {
-      task_id: response.task_id,
-      status: "pending",
-      result: null,
-      error: null,
-      created_at: new Date().toISOString(),
-      started_at: null,
-      completed_at: null,
-      progress: { current: 0, total: 0, percentage: 0 },
-      metadata: {},
-    }
-
-    // 启动轮询
-    startPolling(response.task_id)
-  } catch (error) {
-    console.error("触发抓取任务失败:", error)
-  } finally {
-    triggering.value = false
-  }
-}
-
-/** 启动任务状态轮询 */
-function startPolling(taskId: string) {
-  // 停止之前的轮询
-  if (pollingHandle) {
-    pollingHandle.cancel()
-  }
-
-  pollingHandle = taskPollingService.startPolling(
-    taskId,
-    async () => {
-      const status = await tasksApi.getStatus(taskId)
-      return status as TaskStatusResponse
-    },
-    (status) => {
-      currentTask.value = status
-    },
-    (status) => {
-      // 任务完成，刷新持久化历史
-      currentTask.value = status
-      loadHistory()
-    },
-    (error) => {
-      console.error("轮询任务状态失败:", error)
-    },
-  )
-}
-
-/** 停止轮询 */
-function stopPolling() {
-  if (pollingHandle) {
-    pollingHandle.cancel()
-    pollingHandle = null
   }
 }
 
@@ -408,11 +367,12 @@ function isScrapingResult(result: Record<string, unknown>): boolean {
 /** 组件挂载时加载数据 */
 onMounted(() => {
   loadHistory()
+  startActiveTasksPolling()
 })
 
 /** 组件卸载时清理轮询 */
 onUnmounted(() => {
-  stopPolling()
+  stopActiveTasksPolling()
 })
 </script>
 
@@ -435,33 +395,23 @@ onUnmounted(() => {
   color: #333;
 }
 
-.current-task-card {
+.active-tasks-card {
   margin-bottom: 1.5rem;
+}
+
+.active-badge {
+  margin-left: 8px;
+}
+
+.text-muted {
+  color: #909399;
+  font-size: 0.875rem;
 }
 
 .card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-}
-
-.task-info {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.task-id {
-  font-family: monospace;
-  color: #666;
-}
-
-.task-error {
-  margin-top: 0.5rem;
-}
-
-.task-result {
-  margin-top: 0.5rem;
 }
 
 .history-card {

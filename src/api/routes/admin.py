@@ -136,6 +136,7 @@ class TaskStatusResponse:
         self,
         task_id: str,
         task_status: Literal["pending", "running", "completed", "failed"],
+        task_name: str = "",
         result: dict | None = None,
         error: str | None = None,
         created_at: datetime | None = None,
@@ -149,6 +150,7 @@ class TaskStatusResponse:
         Args:
             task_id: 任务 ID
             task_status: 任务状态
+            task_name: 任务名称
             result: 任务结果（完成时）
             error: 错误信息（失败时）
             created_at: 创建时间
@@ -158,6 +160,7 @@ class TaskStatusResponse:
             metadata: 元数据
         """
         self.task_id = task_id
+        self.task_name = task_name
         self.status = task_status
         self.result = result
         self.error = error
@@ -171,6 +174,7 @@ class TaskStatusResponse:
         """转换为字典。"""
         return {
             "task_id": self.task_id,
+            "task_name": self.task_name,
             "status": self.status,
             "result": self.result,
             "error": self.error,
@@ -334,6 +338,7 @@ async def get_scraping_status(
     response = TaskStatusResponse(
         task_id=task_data["task_id"],
         task_status=task_data["status"],
+        task_name=task_data.get("task_name", ""),
         result=task_data.get("result"),
         error=task_data.get("error"),
         created_at=task_data.get("created_at"),
@@ -371,6 +376,7 @@ async def list_scraping_tasks(
         TaskStatusResponse(
             task_id=t["task_id"],
             task_status=t["status"],
+            task_name=t.get("task_name", ""),
             result=t.get("result"),
             error=t.get("error"),
             created_at=t.get("created_at"),
