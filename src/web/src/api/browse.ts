@@ -11,6 +11,11 @@ import type {
 /** 浏览 API 路径前缀 */
 const BROWSE_PREFIX = "/browse"
 
+/** 获取浏览器时区偏移量（分钟），传给后端用于本地时区日期分组 */
+function getTzOffset(): number {
+  return new Date().getTimezoneOffset()
+}
+
 /** 推文浏览 API 客户端 */
 export const browseApi = {
   /** 获取每日推文统计 */
@@ -20,7 +25,7 @@ export const browseApi = {
   ): Promise<DailyStatsResponse> {
     const response = await client.get<DailyStatsResponse>(
       `${BROWSE_PREFIX}/stats/daily`,
-      { params: { year, month } },
+      { params: { year, month, tz_offset: getTzOffset() } },
     )
     return response.data
   },
@@ -31,7 +36,7 @@ export const browseApi = {
   }): Promise<AuthorListResponse> {
     const response = await client.get<AuthorListResponse>(
       `${BROWSE_PREFIX}/authors`,
-      { params },
+      { params: { ...params, tz_offset: getTzOffset() } },
     )
     return response.data
   },
@@ -42,7 +47,7 @@ export const browseApi = {
   ): Promise<BrowseTweetListResponse> {
     const response = await client.get<BrowseTweetListResponse>(
       `${BROWSE_PREFIX}/tweets`,
-      { params },
+      { params: { ...params, tz_offset: getTzOffset() } },
     )
     return response.data
   },

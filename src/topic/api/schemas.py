@@ -25,6 +25,7 @@ class CreateSummaryTaskRequest(BaseModel):
     time_span_hours: int = Field(..., ge=1, le=720)
     deadline: datetime
     custom_prompt: str | None = Field(default=None, max_length=5000)
+    tz_offset: int = Field(default=0, ge=-720, le=840, description="用户时区偏移（分钟），来自 JS getTimezoneOffset()")
 
 
 # ── 响应模型 ──

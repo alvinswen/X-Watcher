@@ -23,7 +23,11 @@ from src.topic.infrastructure.repository import TopicRepository, TopicSummaryTas
 logger = logging.getLogger(__name__)
 
 # 默认主题摘要提示词模板
-DEFAULT_TOPIC_SUMMARY_PROMPT = """你是一位专业的信息分析师。请根据以下来自 {account_count} 个 Twitter 账号在过去 {time_span} 内发布的 {tweet_count} 条推文，生成一份综合摘要报告。
+DEFAULT_TOPIC_SUMMARY_PROMPT = """你是一位专业的信息分析师。请根据以下来自 {account_count} 个 Twitter 账号的 {tweet_count} 条推文，生成一份科技信息摘要报告。
+
+报告开头必须包含以下元数据（每项单独一行，使用 Markdown 加粗格式）：
+**数据范围：** {account_count}个账号 | {tweet_count}条推文
+**覆盖时段：** {coverage_period}
 
 要求：
 1. 按话题/事件组织内容，找出主要讨论议题
@@ -32,6 +36,7 @@ DEFAULT_TOPIC_SUMMARY_PROMPT = """你是一位专业的信息分析师。请根�
 4. 综合多方观点，呈现全面的信息图景
 5. 忽略与政治相关的讨论内容
 6. 使用中文撰写报告
+7. 不要在报告中添加"报告生成时间"或当前日期
 
 推文数据：
 {tweets_content}
@@ -128,6 +133,7 @@ class TopicSummaryService:
         time_span_hours: int,
         deadline: datetime,
         custom_prompt: str | None = None,
+        tz_offset: int = 0,
     ) -> TopicSummaryTaskDomain:
         """创建摘要任务并异步启动执行。返回 pending 状态的任务。"""
         # 验证主题存在
@@ -146,6 +152,7 @@ class TopicSummaryService:
             time_span_hours=time_span_hours,
             deadline=deadline,
             custom_prompt=custom_prompt,
+            tz_offset=tz_offset,
             status=TopicSummaryTaskStatus.pending.value,
         )
         await self._task_repo.create_task(session, task_orm)
@@ -213,7 +220,8 @@ class TopicSummaryService:
 
                 # 构建聚合 prompt
                 prompt, tweet_count = self._build_prompt(
-                    tweets_data, usernames, task.time_span_hours, task.custom_prompt
+                    tweets_data, usernames, task.time_span_hours,
+                    start_time, end_time, task.tz_offset, task.custom_prompt,
                 )
 
                 # 调用 LLM
@@ -298,11 +306,57 @@ class TopicSummaryService:
             for row in rows
         ]
 
+    @staticmethod
+    def _format_coverage_period(
+        start_time: datetime, end_time: datetime, tz_offset: int
+    ) -> str:
+        """根据 UTC 起止时间和 tz_offset 生成用户本地时区的覆盖时段字符串。
+
+        Args:
+            start_time: UTC 起始时间
+            end_time: UTC 截止时间
+            tz_offset: JS ``getTimezoneOffset()`` 的值（分钟），UTC+8 为 -480
+
+        Returns:
+            如 ``2026/02/18 00:00 ~ 2026/02/19 00:00 (UTC+8)``
+        """
+        # getTimezoneOffset() 返回 UTC - local，所以 local = UTC + (-tz_offset)
+        offset_td = timedelta(minutes=-tz_offset)
+        user_tz = timezone(offset_td)
+        # 从 SQLite 取出的 naive datetime 实际是 UTC，需要显式标记
+        if start_time.tzinfo is None:
+            start_time = start_time.replace(tzinfo=timezone.utc)
+        if end_time.tzinfo is None:
+            end_time = end_time.replace(tzinfo=timezone.utc)
+        start_local = start_time.astimezone(user_tz)
+        end_local = end_time.astimezone(user_tz)
+
+        # 时区标签
+        if offset_td >= timedelta():
+            sign = "+"
+        else:
+            sign = "-"
+        abs_seconds = int(abs(offset_td).total_seconds())
+        tz_hours = abs_seconds // 3600
+        tz_mins = (abs_seconds % 3600) // 60
+        if tz_mins:
+            tz_label = f"UTC{sign}{tz_hours}:{tz_mins:02d}"
+        else:
+            tz_label = f"UTC{sign}{tz_hours}"
+
+        return (
+            f"{start_local.strftime('%Y/%m/%d %H:%M')} ~ "
+            f"{end_local.strftime('%Y/%m/%d %H:%M')} ({tz_label})"
+        )
+
     def _build_prompt(
         self,
         tweets_data: list[dict],
         usernames: list[str],
         time_span_hours: int,
+        start_time: datetime,
+        end_time: datetime,
+        tz_offset: int = 0,
         custom_prompt: str | None = None,
     ) -> tuple[str, int]:
         """构建聚合提示词。返回 (prompt, tweet_count)。"""
@@ -344,7 +398,7 @@ class TopicSummaryService:
         tweets_content = "".join(content_parts)
         tweet_count = included_count
 
-        # 时间跨度描述
+        # 时间跨度描述（保留用于 custom_prompt 向后兼容）
         if time_span_hours < 24:
             time_span = f"{time_span_hours} 小时"
         else:
@@ -354,21 +408,21 @@ class TopicSummaryService:
             if remaining_hours:
                 time_span += f" {remaining_hours} 小时"
 
+        # 覆盖时段描述
+        coverage_period = self._format_coverage_period(start_time, end_time, tz_offset)
+
         # 选择提示词模板
+        format_kwargs = {
+            "account_count": len(usernames),
+            "time_span": time_span,
+            "tweet_count": tweet_count,
+            "tweets_content": tweets_content,
+            "coverage_period": coverage_period,
+        }
         if custom_prompt:
-            prompt = custom_prompt.format(
-                account_count=len(usernames),
-                time_span=time_span,
-                tweet_count=tweet_count,
-                tweets_content=tweets_content,
-            )
+            prompt = custom_prompt.format(**format_kwargs)
         else:
-            prompt = DEFAULT_TOPIC_SUMMARY_PROMPT.format(
-                account_count=len(usernames),
-                time_span=time_span,
-                tweet_count=tweet_count,
-                tweets_content=tweets_content,
-            )
+            prompt = DEFAULT_TOPIC_SUMMARY_PROMPT.format(**format_kwargs)
 
         return prompt, tweet_count
 

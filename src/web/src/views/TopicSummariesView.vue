@@ -196,6 +196,9 @@
           <el-descriptions-item label="截止时间">
             {{ formatFullDateTime(taskDetail.deadline) }}
           </el-descriptions-item>
+          <el-descriptions-item label="覆盖时段" :span="2">
+            {{ formatCoverageRange(taskDetail.deadline, taskDetail.time_span_hours) }}
+          </el-descriptions-item>
           <el-descriptions-item label="创建时间">
             {{ formatFullDateTime(taskDetail.created_at) }}
           </el-descriptions-item>
@@ -361,6 +364,29 @@ function statusText(status: TopicSummaryTaskStatus): string {
   }
 }
 
+/** 格式化覆盖时段：起始时间 ~ 截止时间 (时区) */
+function formatCoverageRange(deadline: string, timeSpanHours: number): string {
+  const end = new Date(deadline)
+  const start = new Date(end.getTime() - timeSpanHours * 3600_000)
+  const fmt = (d: Date) =>
+    d.toLocaleString("zh-CN", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    })
+  const offset = new Date().getTimezoneOffset()
+  const sign = offset <= 0 ? "+" : "-"
+  const h = Math.abs(Math.floor(offset / 60))
+  const m = Math.abs(offset % 60)
+  const tz =
+    m > 0
+      ? `UTC${sign}${h}:${String(m).padStart(2, "0")}`
+      : `UTC${sign}${h}`
+  return `${fmt(start)} ~ ${fmt(end)} (${tz})`
+}
+
 // ==================== 数据加载方法 ====================
 
 /** 加载主题列表 */
@@ -477,6 +503,7 @@ async function handleSubmitCreate() {
       time_span_hours: createFormData.time_span_hours,
       deadline: localDate.toISOString(),
       custom_prompt: customPrompt,
+      tz_offset: new Date().getTimezoneOffset(),
     })
     ElMessage.success("摘要任务已创建")
     createDialogVisible.value = false

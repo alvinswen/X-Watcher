@@ -111,6 +111,7 @@ class TopicSummaryTaskOrm(Base):
     time_span_hours: Mapped[int] = mapped_column(Integer, nullable=False)
     deadline: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     custom_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tz_offset: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0", comment="用户时区偏移（分钟），来自 JS getTimezoneOffset()")
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=TopicSummaryTaskStatus.pending.value)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_utc_now)

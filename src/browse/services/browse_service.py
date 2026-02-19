@@ -22,35 +22,70 @@ class BrowseService:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def get_daily_stats(
-        self, year: int, month: int
-    ) -> list[dict]:
-        """按月查询每日推文数量。
+    @staticmethod
+    def _local_date_to_utc_range(
+        date_str: str, tz_offset: int
+    ) -> tuple[datetime, datetime]:
+        """将用户本地日期 + tz_offset 转为 UTC 起止时间。
 
         Args:
-            year: 年份
-            month: 月份（1-12）
+            date_str: 用户本地日期字符串，YYYY-MM-DD 格式
+            tz_offset: JS ``getTimezoneOffset()`` 的值（分钟），UTC+8 为 -480。
+                       含义为 UTC - local，因此 local + offset = UTC。
+
+        Returns:
+            (day_start_utc, day_end_utc) 元组
+        """
+        local_midnight = datetime.strptime(date_str, "%Y-%m-%d")
+        utc_start = (local_midnight + timedelta(minutes=tz_offset)).replace(
+            tzinfo=timezone.utc
+        )
+        utc_end = utc_start + timedelta(days=1)
+        return utc_start, utc_end
+
+    async def get_daily_stats(
+        self, year: int, month: int, tz_offset: int = 0
+    ) -> list[dict]:
+        """按月查询每日推文数量（按用户本地时区分组）。
+
+        Args:
+            year: 年份（用户本地时区）
+            month: 月份 1-12（用户本地时区）
+            tz_offset: JS ``getTimezoneOffset()`` 的值（分钟），默认 0（UTC）
 
         Returns:
             日期-数量的字典列表，如 [{"date": "2026-02-01", "count": 5}, ...]
         """
-        start = datetime(year, month, 1, tzinfo=timezone.utc)
+        # 用户本地月份起止 → UTC 范围
+        local_start = datetime(year, month, 1)
         if month == 12:
-            end = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+            local_end = datetime(year + 1, 1, 1)
         else:
-            end = datetime(year, month + 1, 1, tzinfo=timezone.utc)
+            local_end = datetime(year, month + 1, 1)
+
+        utc_start = (local_start + timedelta(minutes=tz_offset)).replace(
+            tzinfo=timezone.utc
+        )
+        utc_end = (local_end + timedelta(minutes=tz_offset)).replace(
+            tzinfo=timezone.utc
+        )
+
+        # SQLite date() 支持修饰符：date(col, '+480 minutes') 将 UTC 时间偏移到用户本地时区后取日期
+        # getTimezoneOffset() 返回 UTC-local，取反得到 local = UTC + (-tz_offset) minutes
+        offset_modifier = f"{-tz_offset} minutes"
+        local_date_expr = func.date(TweetOrm.created_at, offset_modifier)
 
         stmt = (
             select(
-                func.date(TweetOrm.created_at).label("date"),
+                local_date_expr.label("date"),
                 func.count().label("count"),
             )
             .where(
-                TweetOrm.created_at >= start,
-                TweetOrm.created_at < end,
+                TweetOrm.created_at >= utc_start,
+                TweetOrm.created_at < utc_end,
             )
-            .group_by(func.date(TweetOrm.created_at))
-            .order_by(func.date(TweetOrm.created_at))
+            .group_by(local_date_expr)
+            .order_by(local_date_expr)
         )
 
         result = await self._session.execute(stmt)
@@ -58,19 +93,19 @@ class BrowseService:
 
         return [{"date": row.date, "count": row.count} for row in rows]
 
-    async def get_authors(self, date: str) -> list[dict]:
+    async def get_authors(self, date: str, tz_offset: int = 0) -> list[dict]:
         """查询指定日期有推文的作者列表。
 
         按最后活跃时间降序排序。通过单独查询获取每个作者最新推文的 display_name。
 
         Args:
-            date: 日期字符串，YYYY-MM-DD 格式
+            date: 用户本地日期字符串，YYYY-MM-DD 格式
+            tz_offset: JS ``getTimezoneOffset()`` 的值（分钟），默认 0
 
         Returns:
             作者信息字典列表
         """
-        day_start = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-        day_end = day_start + timedelta(days=1)
+        day_start, day_end = self._local_date_to_utc_range(date, tz_offset)
 
         # 主查询：按 author_username 分组
         stmt = (
@@ -139,20 +174,21 @@ class BrowseService:
         author: str | None,
         page: int,
         page_size: int,
+        tz_offset: int = 0,
     ) -> tuple[list[dict], int]:
         """查询指定日期（可选作者）的推文列表，含摘要和翻译。
 
         Args:
-            date: 日期字符串，YYYY-MM-DD 格式
+            date: 用户本地日期字符串，YYYY-MM-DD 格式
             author: 作者用户名，None 表示不筛选
             page: 页码（从 1 开始）
             page_size: 每页条数
+            tz_offset: JS ``getTimezoneOffset()`` 的值（分钟），默认 0
 
         Returns:
             (推文字典列表, 总数) 元组
         """
-        day_start = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-        day_end = day_start + timedelta(days=1)
+        day_start, day_end = self._local_date_to_utc_range(date, tz_offset)
 
         conditions = [
             TweetOrm.created_at >= day_start,

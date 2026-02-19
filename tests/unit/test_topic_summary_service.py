@@ -145,64 +145,99 @@ def test_build_llm_providers_empty():
 def test_build_prompt_groups_by_author():
     """按作者分组、填充模板变量。"""
     service = TopicSummaryService(providers=[])
+    start = datetime(2025, 1, 1, 0, 0, tzinfo=timezone.utc)
+    end = datetime(2025, 1, 2, 0, 0, tzinfo=timezone.utc)
     tweets = [
         {"tweet_id": "1", "text": "Hello from A", "author": "user_a", "created_at": "2025-01-01 10:00", "translation": None},
         {"tweet_id": "2", "text": "Hello from B", "author": "user_b", "created_at": "2025-01-01 11:00", "translation": None},
         {"tweet_id": "3", "text": "Second from A", "author": "user_a", "created_at": "2025-01-01 12:00", "translation": None},
     ]
-    prompt, count = service._build_prompt(tweets, ["user_a", "user_b"], 24)
+    prompt, count = service._build_prompt(tweets, ["user_a", "user_b"], 24, start, end)
 
     assert "@user_a" in prompt
     assert "@user_b" in prompt
     assert count == 3
-    assert "1 天" in prompt
+    assert "覆盖时段" in prompt
+    assert "2025/01/01 00:00" in prompt  # UTC start
     assert "3 条推文" in prompt or str(count) in prompt
 
 
 def test_build_prompt_prefers_translation():
     """优先使用已有翻译。"""
     service = TopicSummaryService(providers=[])
+    start = datetime(2025, 1, 1, 0, 0, tzinfo=timezone.utc)
+    end = datetime(2025, 1, 2, 0, 0, tzinfo=timezone.utc)
     tweets = [
         {"tweet_id": "1", "text": "Original English", "author": "user_a", "created_at": "2025-01-01", "translation": "已有中文翻译"},
     ]
-    prompt, count = service._build_prompt(tweets, ["user_a"], 24)
+    prompt, count = service._build_prompt(tweets, ["user_a"], 24, start, end)
 
     assert "已有中文翻译" in prompt
     assert "Original English" not in prompt
     assert count == 1
 
 
-def test_build_prompt_time_span_hours():
-    """时间跨度小于 24 小时用小时表示。"""
+def test_build_prompt_coverage_period():
+    """覆盖时段使用精确时间格式。"""
     service = TopicSummaryService(providers=[])
+    start = datetime(2025, 1, 1, 6, 0, tzinfo=timezone.utc)
+    end = datetime(2025, 1, 1, 18, 0, tzinfo=timezone.utc)
     tweets = [
         {"tweet_id": "1", "text": "Test", "author": "user_a", "created_at": "2025-01-01", "translation": None},
     ]
-    prompt, _ = service._build_prompt(tweets, ["user_a"], 12)
+    prompt, _ = service._build_prompt(tweets, ["user_a"], 12, start, end)
 
-    assert "12 小时" in prompt
+    assert "覆盖时段" in prompt
+    assert "2025/01/01 06:00" in prompt  # UTC start
+    assert "2025/01/01 18:00" in prompt  # UTC end
+    assert "(UTC+0)" in prompt  # 默认 tz_offset=0
 
 
-def test_build_prompt_time_span_days_and_hours():
-    """时间跨度超过 24 小时含余数时显示天和小时。"""
+def test_build_prompt_coverage_period_with_tz_offset():
+    """覆盖时段根据 tz_offset 显示用户本地时区。"""
     service = TopicSummaryService(providers=[])
+    # UTC 时间 16:00 ~ 次日 22:00，tz_offset=-480 (UTC+8)
+    start = datetime(2025, 1, 1, 16, 0, tzinfo=timezone.utc)
+    end = datetime(2025, 1, 2, 22, 0, tzinfo=timezone.utc)
     tweets = [
         {"tweet_id": "1", "text": "Test", "author": "user_a", "created_at": "2025-01-01", "translation": None},
     ]
-    prompt, _ = service._build_prompt(tweets, ["user_a"], 30)
+    prompt, _ = service._build_prompt(tweets, ["user_a"], 30, start, end, tz_offset=-480)
 
-    assert "1 天" in prompt
-    assert "6 小时" in prompt
+    # 本地时间应该是 2025/01/02 00:00 ~ 2025/01/03 06:00
+    assert "2025/01/02 00:00" in prompt
+    assert "2025/01/03 06:00" in prompt
+    assert "(UTC+8)" in prompt
+
+
+def test_build_prompt_coverage_period_naive_datetime():
+    """naive datetime（从 SQLite 取出）应被当作 UTC 处理后再转本地时区。"""
+    service = TopicSummaryService(providers=[])
+    # 模拟 SQLite 返回的 naive datetime（实际存储的是 UTC 值）
+    start = datetime(2025, 1, 1, 16, 0)   # 无 tzinfo
+    end = datetime(2025, 1, 2, 16, 0)     # 无 tzinfo
+    tweets = [
+        {"tweet_id": "1", "text": "Test", "author": "user_a", "created_at": "2025-01-01", "translation": None},
+    ]
+    prompt, _ = service._build_prompt(tweets, ["user_a"], 24, start, end, tz_offset=-480)
+
+    # naive datetime 应被标记为 UTC，然后转 UTC+8：
+    # UTC 16:00 → UTC+8 次日 00:00
+    assert "2025/01/02 00:00" in prompt
+    assert "2025/01/03 00:00" in prompt
+    assert "(UTC+8)" in prompt
 
 
 def test_build_prompt_custom_prompt():
     """使用自定义提示词模板。"""
     service = TopicSummaryService(providers=[])
+    start = datetime(2025, 1, 1, 0, 0, tzinfo=timezone.utc)
+    end = datetime(2025, 1, 2, 0, 0, tzinfo=timezone.utc)
     tweets = [
         {"tweet_id": "1", "text": "Test", "author": "user_a", "created_at": "2025-01-01", "translation": None},
     ]
     custom = "自定义模板: {account_count} 个账号, {time_span}, {tweet_count} 条推文\n{tweets_content}"
-    prompt, count = service._build_prompt(tweets, ["user_a"], 24, custom_prompt=custom)
+    prompt, count = service._build_prompt(tweets, ["user_a"], 24, start, end, custom_prompt=custom)
 
     assert "自定义模板" in prompt
     assert "1 个账号" in prompt
@@ -226,7 +261,9 @@ def test_build_prompt_token_truncation():
             "translation": None,
         })
 
-    prompt, count = service._build_prompt(tweets, ["user_a"], 24)
+    start = datetime(2025, 1, 1, 0, 0, tzinfo=timezone.utc)
+    end = datetime(2025, 1, 2, 0, 0, tzinfo=timezone.utc)
+    prompt, count = service._build_prompt(tweets, ["user_a"], 24, start, end)
 
     # 应该截断，不是全部包含
     assert count < 500

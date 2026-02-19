@@ -186,6 +186,7 @@ async def create_summary_task(
             time_span_hours=request.time_span_hours,
             deadline=request.deadline,
             custom_prompt=request.custom_prompt,
+            tz_offset=request.tz_offset,
         )
         return task
     except ValueError as e:

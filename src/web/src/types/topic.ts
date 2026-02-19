@@ -91,6 +91,7 @@ export interface CreateSummaryTaskRequest {
   time_span_hours: number
   deadline: string
   custom_prompt?: string | null
+  tz_offset?: number
 }
 
 /** 配图提示词响应 */
