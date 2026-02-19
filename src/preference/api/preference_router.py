@@ -10,6 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.async_session import get_async_session
 from src.preference.api.schemas import (
+    BatchFollowRequest,
+    BatchFollowResponse,
+    BatchFollowError,
     CreateFollowRequest,
     FollowResponse,
     ErrorResponse,
@@ -157,6 +160,70 @@ async def get_follows(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="获取关注列表失败"
+        ) from e
+
+
+@router.post(
+    "/follows/batch",
+    response_model=BatchFollowResponse,
+    summary="批量添加关注",
+    description="批量添加多个 Twitter 账号到用户关注列表，部分失败不影响其余操作。",
+)
+async def batch_create_follows(
+    request: BatchFollowRequest,
+    current_user: UserDomain = Depends(get_current_user),
+    service: PreferenceService = Depends(_get_preference_service),
+) -> BatchFollowResponse:
+    """批量添加关注。"""
+    try:
+        result = await service.batch_add_follows(
+            user_id=current_user.id,
+            usernames=request.usernames,
+        )
+        return BatchFollowResponse(
+            succeeded=result.succeeded,
+            failed=[BatchFollowError(**f) for f in result.failed],
+            total=len(request.usernames),
+            succeeded_count=len(result.succeeded),
+            failed_count=len(result.failed),
+        )
+    except Exception as e:
+        logger.error(f"批量添加关注失败: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="批量添加关注失败",
+        ) from e
+
+
+@router.delete(
+    "/follows/batch",
+    response_model=BatchFollowResponse,
+    summary="批量移除关注",
+    description="批量移除多个 Twitter 账号，部分失败不影响其余操作。",
+)
+async def batch_delete_follows(
+    request: BatchFollowRequest,
+    current_user: UserDomain = Depends(get_current_user),
+    service: PreferenceService = Depends(_get_preference_service),
+) -> BatchFollowResponse:
+    """批量移除关注。"""
+    try:
+        result = await service.batch_remove_follows(
+            user_id=current_user.id,
+            usernames=request.usernames,
+        )
+        return BatchFollowResponse(
+            succeeded=result.succeeded,
+            failed=[BatchFollowError(**f) for f in result.failed],
+            total=len(request.usernames),
+            succeeded_count=len(result.succeeded),
+            failed_count=len(result.failed),
+        )
+    except Exception as e:
+        logger.error(f"批量移除关注失败: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="批量移除关注失败",
         ) from e
 
 

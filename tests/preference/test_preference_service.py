@@ -132,3 +132,99 @@ class TestPreferenceService:
         assert len(follows) == 3
         usernames = {f.username for f in follows}
         assert usernames == {"user1", "user2", "user3"}
+
+
+@pytest.mark.asyncio
+class TestBatchFollowService:
+    """批量关注操作测试。"""
+
+    async def test_batch_add_all_success(self, async_session):
+        """批量添加全部成功。"""
+        scraper_repo = ScraperConfigRepository(async_session)
+        pref_repo = PreferenceRepository(async_session)
+        service = PreferenceService(pref_repo, scraper_repo)
+
+        await scraper_repo.create_scraper_follow("user1", "理由", "admin")
+        await scraper_repo.create_scraper_follow("user2", "理由", "admin")
+
+        result = await service.batch_add_follows(
+            user_id=1, usernames=["user1", "user2"]
+        )
+
+        assert result.succeeded == ["user1", "user2"]
+        assert result.failed == []
+
+    async def test_batch_add_partial_failure_not_in_list(self, async_session):
+        """批量添加部分失败：不在抓取列表。"""
+        scraper_repo = ScraperConfigRepository(async_session)
+        pref_repo = PreferenceRepository(async_session)
+        service = PreferenceService(pref_repo, scraper_repo)
+
+        await scraper_repo.create_scraper_follow("user1", "理由", "admin")
+
+        result = await service.batch_add_follows(
+            user_id=1, usernames=["user1", "notexist"]
+        )
+
+        assert result.succeeded == ["user1"]
+        assert len(result.failed) == 1
+        assert result.failed[0]["username"] == "notexist"
+        assert "抓取列表" in result.failed[0]["reason"]
+
+    async def test_batch_add_partial_failure_duplicate(self, async_session):
+        """批量添加部分失败：已存在。"""
+        scraper_repo = ScraperConfigRepository(async_session)
+        pref_repo = PreferenceRepository(async_session)
+        service = PreferenceService(pref_repo, scraper_repo)
+
+        await scraper_repo.create_scraper_follow("user1", "理由", "admin")
+        await scraper_repo.create_scraper_follow("user2", "理由", "admin")
+        await service.add_follow(user_id=1, username="user1")
+
+        result = await service.batch_add_follows(
+            user_id=1, usernames=["user1", "user2"]
+        )
+
+        assert result.succeeded == ["user2"]
+        assert len(result.failed) == 1
+        assert result.failed[0]["username"] == "user1"
+        assert "已存在" in result.failed[0]["reason"]
+
+    async def test_batch_remove_all_success(self, async_session):
+        """批量移除全部成功。"""
+        scraper_repo = ScraperConfigRepository(async_session)
+        pref_repo = PreferenceRepository(async_session)
+        service = PreferenceService(pref_repo, scraper_repo)
+
+        await scraper_repo.create_scraper_follow("user1", "理由", "admin")
+        await scraper_repo.create_scraper_follow("user2", "理由", "admin")
+        await service.add_follow(user_id=1, username="user1")
+        await service.add_follow(user_id=1, username="user2")
+
+        result = await service.batch_remove_follows(
+            user_id=1, usernames=["user1", "user2"]
+        )
+
+        assert result.succeeded == ["user1", "user2"]
+        assert result.failed == []
+
+        follows = await pref_repo.get_follows_by_user(user_id=1)
+        assert len(follows) == 0
+
+    async def test_batch_remove_partial_failure_not_found(self, async_session):
+        """批量移除部分失败：不存在。"""
+        scraper_repo = ScraperConfigRepository(async_session)
+        pref_repo = PreferenceRepository(async_session)
+        service = PreferenceService(pref_repo, scraper_repo)
+
+        await scraper_repo.create_scraper_follow("user1", "理由", "admin")
+        await service.add_follow(user_id=1, username="user1")
+
+        result = await service.batch_remove_follows(
+            user_id=1, usernames=["user1", "notexist"]
+        )
+
+        assert result.succeeded == ["user1"]
+        assert len(result.failed) == 1
+        assert result.failed[0]["username"] == "notexist"
+        assert "不存在" in result.failed[0]["reason"]

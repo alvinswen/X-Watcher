@@ -179,3 +179,117 @@ class TestFollowManagementAPI(TestPreferenceAPI):
         )
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+class TestBatchFollowAPI(TestPreferenceAPI):
+    """测试批量关注 API。"""
+
+    @pytest.mark.asyncio
+    async def test_batch_add_all_success(self, client, test_user, setup_scraper_follows):
+        """批量添加全部成功。"""
+        response = await client.post(
+            "/api/preferences/follows/batch",
+            json={"usernames": ["testuser1", "testuser2"]},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["succeeded_count"] == 2
+        assert data["failed_count"] == 0
+        assert data["total"] == 2
+        assert set(data["succeeded"]) == {"testuser1", "testuser2"}
+
+    @pytest.mark.asyncio
+    async def test_batch_add_partial_failure(self, client, test_user, setup_scraper_follows, async_session):
+        """批量添加部分失败（已存在 + 不在列表）。"""
+        pref_repo = PreferenceRepository(async_session)
+        await pref_repo.create_follow(test_user.id, "testuser1")
+        await async_session.commit()
+
+        response = await client.post(
+            "/api/preferences/follows/batch",
+            json={"usernames": ["testuser1", "testuser2", "notinlist"]},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["succeeded_count"] == 1
+        assert data["succeeded"] == ["testuser2"]
+        assert data["failed_count"] == 2
+        failed_usernames = {f["username"] for f in data["failed"]}
+        assert failed_usernames == {"testuser1", "notinlist"}
+
+    @pytest.mark.asyncio
+    async def test_batch_add_empty_list_returns_422(self, client, test_user):
+        """空列表返回 422。"""
+        response = await client.post(
+            "/api/preferences/follows/batch",
+            json={"usernames": []},
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+    @pytest.mark.asyncio
+    async def test_batch_add_exceeds_max_returns_422(self, client, test_user):
+        """超过 100 个返回 422。"""
+        usernames = [f"user{i}" for i in range(101)]
+        response = await client.post(
+            "/api/preferences/follows/batch",
+            json={"usernames": usernames},
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+    @pytest.mark.asyncio
+    async def test_batch_delete_all_success(self, client, test_user, setup_scraper_follows, async_session):
+        """批量删除全部成功。"""
+        pref_repo = PreferenceRepository(async_session)
+        await pref_repo.create_follow(test_user.id, "testuser1")
+        await pref_repo.create_follow(test_user.id, "testuser2")
+        await async_session.commit()
+
+        response = await client.request(
+            "DELETE",
+            "/api/preferences/follows/batch",
+            json={"usernames": ["testuser1", "testuser2"]},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["succeeded_count"] == 2
+        assert data["failed_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_batch_delete_partial_failure(self, client, test_user, setup_scraper_follows, async_session):
+        """批量删除部分失败（不存在）。"""
+        pref_repo = PreferenceRepository(async_session)
+        await pref_repo.create_follow(test_user.id, "testuser1")
+        await async_session.commit()
+
+        response = await client.request(
+            "DELETE",
+            "/api/preferences/follows/batch",
+            json={"usernames": ["testuser1", "testuser2"]},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["succeeded_count"] == 1
+        assert data["succeeded"] == ["testuser1"]
+        assert data["failed_count"] == 1
+        assert data["failed"][0]["username"] == "testuser2"
+
+    @pytest.mark.asyncio
+    async def test_batch_response_format(self, client, test_user, setup_scraper_follows):
+        """验证批量响应格式完整性。"""
+        response = await client.post(
+            "/api/preferences/follows/batch",
+            json={"usernames": ["testuser1"]},
+        )
+
+        data = response.json()
+        assert "succeeded" in data
+        assert "failed" in data
+        assert "total" in data
+        assert "succeeded_count" in data
+        assert "failed_count" in data

@@ -4,15 +4,25 @@
 """
 
 import logging
+from dataclasses import dataclass, field
 
 from src.preference.domain.models import TwitterFollow
 from src.preference.infrastructure.preference_repository import (
     PreferenceRepository,
     NotFoundError,
+    DuplicateError,
 )
 from src.preference.infrastructure.scraper_config_repository import (
     ScraperConfigRepository,
 )
+
+
+@dataclass
+class BatchFollowResult:
+    """批量操作结果。"""
+
+    succeeded: list[str] = field(default_factory=list)
+    failed: list[dict] = field(default_factory=list)
 
 logger = logging.getLogger(__name__)
 
@@ -143,3 +153,95 @@ class PreferenceService:
             list[TwitterFollow]: 关注记录列表
         """
         return await self._pref_repo.get_follows_by_user(user_id)
+
+    async def batch_add_follows(
+        self,
+        user_id: int,
+        usernames: list[str],
+    ) -> BatchFollowResult:
+        """批量添加关注。
+
+        逐条处理，部分失败不影响其余操作。
+        使用预检查避免 IntegrityError 导致 session rollback。
+
+        Args:
+            user_id: 用户 ID
+            usernames: 用户名列表
+
+        Returns:
+            BatchFollowResult: 成功/失败列表
+        """
+        result = BatchFollowResult()
+        for username in usernames:
+            # 预检查：是否在抓取列表中
+            is_valid = await self._scraper_repo.is_username_in_follows(
+                username=username, active_only=True,
+            )
+            if not is_valid:
+                result.failed.append(
+                    {"username": username, "reason": "不在平台抓取列表中"}
+                )
+                continue
+
+            # 预检查：是否已关注
+            existing = await self._pref_repo.get_follow_by_username(
+                user_id, username,
+            )
+            if existing:
+                result.failed.append(
+                    {"username": username, "reason": "已存在"}
+                )
+                continue
+
+            try:
+                await self._pref_repo.create_follow(
+                    user_id=user_id, username=username,
+                )
+                result.succeeded.append(username)
+            except DuplicateError:
+                result.failed.append(
+                    {"username": username, "reason": "已存在"}
+                )
+            except Exception as e:
+                result.failed.append(
+                    {"username": username, "reason": str(e)}
+                )
+        return result
+
+    async def batch_remove_follows(
+        self,
+        user_id: int,
+        usernames: list[str],
+    ) -> BatchFollowResult:
+        """批量移除关注。
+
+        逐条处理，部分失败不影响其余操作。
+        使用预检查避免不必要的异常。
+
+        Args:
+            user_id: 用户 ID
+            usernames: 用户名列表
+
+        Returns:
+            BatchFollowResult: 成功/失败列表
+        """
+        result = BatchFollowResult()
+        for username in usernames:
+            # 预检查：是否存在
+            existing = await self._pref_repo.get_follow_by_username(
+                user_id, username,
+            )
+            if not existing:
+                result.failed.append(
+                    {"username": username, "reason": "关注记录不存在"}
+                )
+                continue
+
+            try:
+                await self._pref_repo.delete_follow(user_id, username)
+                result.succeeded.append(username)
+            except Exception as e:
+                result.failed.append(
+                    {"username": username, "reason": str(e)}
+                )
+        return result

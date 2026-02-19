@@ -86,6 +86,53 @@ class FollowResponse(UTCDatetimeModel):
     created_at: datetime = Field(..., description="创建时间")
 
 
+# ==================== 批量操作模型 ====================
+
+
+class BatchFollowRequest(BaseModel):
+    """批量关注操作请求模型。"""
+
+    usernames: list[str] = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="Twitter 用户名列表（1-100 个）",
+    )
+
+    @field_validator("usernames")
+    @classmethod
+    def validate_usernames(cls, v: list[str]) -> list[str]:
+        """验证并标准化用户名列表。"""
+        normalized = []
+        for username in v:
+            u = _normalize_username(username)
+            if not u:
+                raise ValueError(f"用户名不能为空: '{username}'")
+            if len(u) > 15:
+                raise ValueError(f"用户名不能超过 15 个字符: '{u}'")
+            if not u.replace("_", "").isalnum():
+                raise ValueError(f"用户名包含无效字符: '{u}'")
+            normalized.append(u)
+        return normalized
+
+
+class BatchFollowError(BaseModel):
+    """批量操作中的单条失败信息。"""
+
+    username: str = Field(..., description="失败的用户名")
+    reason: str = Field(..., description="失败原因")
+
+
+class BatchFollowResponse(BaseModel):
+    """批量关注操作响应模型。"""
+
+    succeeded: list[str] = Field(..., description="成功的用户名列表")
+    failed: list[BatchFollowError] = Field(..., description="失败的详情列表")
+    total: int = Field(..., description="请求总数")
+    succeeded_count: int = Field(..., description="成功数")
+    failed_count: int = Field(..., description="失败数")
+
+
 # ==================== 管理员 API 模型 ====================
 
 

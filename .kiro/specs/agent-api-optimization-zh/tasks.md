@@ -48,26 +48,26 @@ Agent 经常需要"查找提到某个话题的推文"，但目前只能按日期
 
 当前逐条添加/删除关注，Agent 批量初始化或调整监控列表效率低。
 
-- [ ] 2.1 定义批量操作请求/响应模型
+- [x] 2.1 定义批量操作请求/响应模型
   - 在 `src/preference/api/schemas.py` 中添加：
     - `BatchFollowRequest`：`usernames: list[str]`（1-100 个用户名），复用现有用户名验证器
     - `BatchFollowResponse`：`succeeded: list[str]`、`failed: list[BatchFollowError]`、`total`、`succeeded_count`、`failed_count`
     - `BatchFollowError`：`username: str`、`reason: str`
 
-- [ ] 2.2 在 PreferenceService 中实现批量添加/删除逻辑
+- [x] 2.2 在 PreferenceService 中实现批量添加/删除逻辑
   - 在 `src/preference/services/preference_service.py` 中添加 `batch_add_follows` 和 `batch_remove_follows` 方法
   - 逐条处理，每条独立 try/catch，确保部分失败不影响其余操作
   - 批量添加时复用 `add_follow` 的验证逻辑（检查 scraper_follows 存在性）
   - 返回成功/失败列表，包含每个失败项的原因（不在抓取列表、已存在、不存在等）
 
-- [ ] 2.3 实现批量关注 API 端点
+- [x] 2.3 实现批量关注 API 端点
   - 在 `src/preference/api/preference_router.py` 中添加：
     - `POST /api/preferences/follows/batch` — 批量添加关注
     - `DELETE /api/preferences/follows/batch` — 批量删除关注（请求体携带 usernames 列表）
   - 使用 `get_current_user` 认证
   - 返回 200（部分成功也算成功）+ 详细的成功/失败清单
 
-- [ ] 2.4 编写批量关注 API 测试
+- [x] 2.4 编写批量关注 API 测试
   - 测试批量添加正常流程（多个用户名全部成功）
   - 测试批量添加部分失败（部分不在抓取列表、部分已存在）
   - 测试批量删除正常流程和部分失败
