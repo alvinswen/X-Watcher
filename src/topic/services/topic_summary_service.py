@@ -484,6 +484,16 @@ class TopicSummaryService:
             "llm_model": result.model,
         }
 
+    async def get_latest_summary(
+        self, session: AsyncSession, topic_id: int
+    ) -> TopicSummaryTaskDomain | None:
+        """获取主题的最新已完成摘要任务（含摘要内容）。"""
+        topic = await self._topic_repo.get_by_id(session, topic_id)
+        if not topic:
+            raise ValueError("主题不存在")
+        task = await self._task_repo.get_latest_completed_task(session, topic_id)
+        return task.to_domain() if task else None
+
     async def delete_task(self, session: AsyncSession, task_id: int) -> bool:
         """删除任务（级联删除摘要结果）。"""
         result = await self._task_repo.delete_task(session, task_id)

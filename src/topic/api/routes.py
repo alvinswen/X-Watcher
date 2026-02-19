@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.async_session import get_db_session
-from src.user.api.auth import get_current_admin_user
+from src.user.api.auth import get_current_admin_user, get_current_user
 from src.user.domain.models import UserDomain
 from src.topic.api.schemas import (
     AccountResponse,
@@ -14,6 +14,7 @@ from src.topic.api.schemas import (
     CreateTopicRequest,
     DefaultPromptResponse,
     ImagePromptResponse,
+    LatestSummaryResponse,
     SetAccountsRequest,
     SummaryTaskDetailResponse,
     SummaryTaskResponse,
@@ -55,6 +56,34 @@ async def list_topics(
     _admin: UserDomain = Depends(get_current_admin_user),
 ):
     return await _topic_service.list_topics(session)
+
+
+@router.get("/{topic_id}/latest-summary", response_model=LatestSummaryResponse)
+async def get_latest_summary(
+    topic_id: int,
+    session: AsyncSession = Depends(get_db_session),
+    _user: UserDomain = Depends(get_current_user),
+):
+    """获取主题的最新摘要（快捷接口）。"""
+    from src.topic.services.topic_summary_service import TopicSummaryService
+    service = TopicSummaryService.get_instance()
+    try:
+        task = await service.get_latest_summary(session, topic_id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    if not task or not task.summary:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="该主题暂无已完成的摘要")
+    return LatestSummaryResponse(
+        topic_id=task.topic_id,
+        topic_name=task.topic_name,
+        content=task.summary.content,
+        generated_at=task.completed_at,
+        time_span_hours=task.time_span_hours,
+        deadline=task.deadline,
+        tweet_count=task.summary.tweet_count,
+        account_count=task.summary.account_count,
+        task_id=task.id,
+    )
 
 
 @router.get("/{topic_id}", response_model=TopicDetailResponse)

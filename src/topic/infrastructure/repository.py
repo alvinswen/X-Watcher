@@ -154,6 +154,26 @@ class TopicSummaryTaskRepository:
         await session.flush()
         return True
 
+    async def get_latest_completed_task(
+        self, session: AsyncSession, topic_id: int
+    ) -> TopicSummaryTaskOrm | None:
+        """获取主题最新的已完成摘要任务。"""
+        stmt = (
+            select(TopicSummaryTaskOrm)
+            .options(
+                selectinload(TopicSummaryTaskOrm.summary),
+                selectinload(TopicSummaryTaskOrm.topic),
+            )
+            .where(
+                TopicSummaryTaskOrm.topic_id == topic_id,
+                TopicSummaryTaskOrm.status == "completed",
+            )
+            .order_by(TopicSummaryTaskOrm.completed_at.desc())
+            .limit(1)
+        )
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def create_summary(self, session: AsyncSession, summary: TopicSummaryOrm) -> TopicSummaryOrm:
         session.add(summary)
         await session.flush()

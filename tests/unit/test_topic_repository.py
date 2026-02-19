@@ -650,6 +650,67 @@ async def test_topic_to_detail_domain(async_session, topic_repo):
 
 
 @pytest.mark.asyncio
+async def test_get_latest_completed_task(async_session, topic_repo, task_repo):
+    """获取主题最新的已完成摘要任务。"""
+    topic = _make_topic()
+    await topic_repo.create(async_session, topic)
+    await async_session.flush()
+
+    now = datetime.now(timezone.utc)
+
+    # 创建较早的已完成任务
+    old_task = _make_task(
+        topic.id,
+        status=TopicSummaryTaskStatus.completed.value,
+        completed_at=now - timedelta(hours=2),
+    )
+    await task_repo.create_task(async_session, old_task)
+    await async_session.flush()
+    old_summary = _make_summary(old_task.id, content="旧摘要")
+    await task_repo.create_summary(async_session, old_summary)
+
+    # 创建较新的已完成任务
+    new_task = _make_task(
+        topic.id,
+        status=TopicSummaryTaskStatus.completed.value,
+        completed_at=now,
+    )
+    await task_repo.create_task(async_session, new_task)
+    await async_session.flush()
+    new_summary = _make_summary(new_task.id, content="新摘要")
+    await task_repo.create_summary(async_session, new_summary)
+
+    # 创建一个 pending 任务（不应被返回）
+    pending_task = _make_task(topic.id, status=TopicSummaryTaskStatus.pending.value)
+    await task_repo.create_task(async_session, pending_task)
+    await async_session.commit()
+
+    found = await task_repo.get_latest_completed_task(async_session, topic.id)
+    assert found is not None
+    assert found.id == new_task.id
+    assert found.summary is not None
+    assert found.summary.content == "新摘要"
+    assert found.topic is not None
+    assert found.topic.name == topic.name
+
+
+@pytest.mark.asyncio
+async def test_get_latest_completed_task_none(async_session, topic_repo, task_repo):
+    """无已完成任务时返回 None。"""
+    topic = _make_topic()
+    await topic_repo.create(async_session, topic)
+    await async_session.flush()
+
+    # 只有 pending 任务
+    pending_task = _make_task(topic.id, status=TopicSummaryTaskStatus.pending.value)
+    await task_repo.create_task(async_session, pending_task)
+    await async_session.commit()
+
+    found = await task_repo.get_latest_completed_task(async_session, topic.id)
+    assert found is None
+
+
+@pytest.mark.asyncio
 async def test_summary_to_domain(async_session, topic_repo, task_repo):
     """TopicSummaryOrm.to_domain() 正确转换。"""
     topic = _make_topic()

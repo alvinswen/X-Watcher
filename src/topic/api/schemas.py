@@ -82,6 +82,18 @@ class SummaryTaskDetailResponse(SummaryTaskResponse):
     summary: SummaryResponse | None
 
 
+class LatestSummaryResponse(UTCDatetimeModel):
+    topic_id: int
+    topic_name: str
+    content: str
+    generated_at: datetime
+    time_span_hours: int
+    deadline: datetime
+    tweet_count: int
+    account_count: int
+    task_id: int
+
+
 class DefaultPromptResponse(BaseModel):
     prompt: str
 
