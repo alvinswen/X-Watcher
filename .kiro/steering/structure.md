@@ -25,6 +25,7 @@ src/
 │   └── routes/
 │       ├── admin.py         # 管理功能 API（抓取任务、任务历史查询）
 │       ├── scheduler.py     # 调度器执行历史 API（GET /api/admin/scheduler/history）
+│       ├── status.py        # 系统状态概览 API（GET /api/status/overview）
 │       └── tweets.py        # 推文列表/详情 API
 ├── agent/                   # Nanobot Agent 配置
 │   ├── tools.py             # API 工具元数据定义（Feed、摘要修复）

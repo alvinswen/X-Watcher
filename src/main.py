@@ -30,6 +30,14 @@ logger = logging.getLogger(__name__)
 # 全局调度器实例
 _scheduler: BackgroundScheduler | None = None
 
+# 服务启动时间
+_server_start_time: datetime | None = None
+
+
+def get_server_start_time() -> datetime | None:
+    """获取服务启动时间。供 status 路由使用。"""
+    return _server_start_time
+
 
 async def _get_schedule_config_from_db() -> tuple[int | None, datetime | None, bool]:
     """从数据库获取调度配置。
@@ -215,6 +223,10 @@ async def lifespan(app: FastAPI):  # noqa: ARG001 - app 参数是 FastAPI 要求
     _summarization_queue = SummarizationQueue.get_instance()
     await _summarization_queue.start()
 
+    # 记录服务启动时间
+    global _server_start_time
+    _server_start_time = datetime.now(timezone.utc)
+
     yield
 
     # 关闭时的清理工作（先停队列，再停调度器）
@@ -353,6 +365,11 @@ app.include_router(browse_router)
 from src.search.api.routes import router as search_router
 
 app.include_router(search_router)
+
+# 注册系统状态 API 路由
+from src.api.routes.status import router as status_router
+
+app.include_router(status_router)
 
 # 配置前端静态资源服务（如果存在）
 import os
