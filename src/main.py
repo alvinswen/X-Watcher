@@ -371,6 +371,11 @@ from src.api.routes.status import router as status_router
 
 app.include_router(status_router)
 
+# 注册配置验证 API 路由
+from src.api.routes.config_routes import router as config_router
+
+app.include_router(config_router)
+
 # 配置前端静态资源服务（如果存在）
 import os
 from fastapi.staticfiles import StaticFiles

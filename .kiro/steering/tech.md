@@ -26,18 +26,21 @@ Service 层 (业务编排)
 | **Web 框架** | FastAPI | 高性能、异步支持、自动文档 |
 | **任务调度** | APScheduler | 定时抓取新闻任务（惰性启动，需管理员 API 显式启用） |
 | **数据库** | SQLite（WAL 模式） → PostgreSQL | 本地开发用 SQLite，云端升级 |
-| **LLM** | MiniMax M2.1 / OpenRouter (Claude Sonnet 4.5) | 双提供商，高性价比 |
+| **LLM** | 通用 OpenAI 兼容协议（OpenRouter / MiniMax / DeepSeek / 智谱 / Moonshot 等） | 统一 Provider 架构，可扩展 |
 | **Agent 框架** | HKUDS/nanobot（计划中） | 超轻量（4000 行），微内核设计 |
 
 ## AI 能力
 
 | 功能 | 提供商 | 模型 | 成本估算 |
 |------|--------|------|----------|
-| 摘要/翻译 | MiniMax | M2.1 (abab6.5s-chat) | ¥0.015/千 tokens |
 | 摘要/翻译 | OpenRouter | Claude Sonnet 4.5 | $0.003-0.015/千 tokens |
+| 摘要/翻译 | MiniMax | M2.1 (abab6.5s-chat) | ¥0.015/千 tokens |
+| 摘要/翻译 | DeepSeek | deepseek-chat | ¥0.001-0.002/千 tokens |
+| 摘要/翻译 | 智谱 AI | glm-4-flash | ¥0.001/千 tokens |
+| 摘要/翻译 | Moonshot | moonshot-v1-8k | ¥0.012/千 tokens |
 | 去重判断 | 嵌入模型（可选） | - | 另计 |
 
-**成本优势**：MiniMax 比 OpenAI 便宜 10 倍以上；OpenRouter 提供更高质量但稍贵的选择
+**LLM 架构**：统一 `OpenAICompatibleProvider` + 预设（presets.py），所有提供商通过 OpenAI 兼容协议调用。新增提供商只需添加预设配置，无需编写新代码。
 
 ## X 平台数据获取
 
@@ -66,7 +69,7 @@ alembic             # 数据库迁移
 httpx               # 异步 HTTP
 
 # LLM 集成
-openai              # MiniMax 和 OpenRouter 均兼容 OpenAI 格式
+openai              # 所有 LLM 提供商均兼容 OpenAI 格式（统一 Provider 架构）
 
 # 认证
 bcrypt              # 密码哈希（SHA-256 预处理 + bcrypt 12 rounds）
@@ -112,13 +115,16 @@ python-dotenv       # 环境变量
 
 ### 环境变量
 ```bash
-# MiniMax API
-MINIMAX_API_KEY=your_api_key
-MINIMAX_BASE_URL=https://api.minimaxi.com
+# === 新格式：统一 LLM Provider 配置（推荐） ===
+LLM_PROVIDERS=openrouter,deepseek          # 提供商优先级列表
+LLM_OPENROUTER_API_KEY=your_api_key        # 各提供商 API Key
+LLM_DEEPSEEK_API_KEY=your_api_key
+# LLM_<SLUG>_MODEL=custom-model            # 可选：覆盖默认模型
+# LLM_<SLUG>_BASE_URL=https://...          # 可选：覆盖默认 base_url
 
-# OpenRouter API（可选）
-OPENROUTER_API_KEY=your_api_key
-OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+# === 旧格式（向后兼容，优先级低于新格式） ===
+# MINIMAX_API_KEY=your_api_key
+# OPENROUTER_API_KEY=your_api_key
 
 # X 平台 API
 TWITTER_API_KEY=your_api_key
@@ -265,10 +271,12 @@ mypy src/
 - **文件轮转**：`RotatingFileHandler`，50MB/文件，5 个备份，避免磁盘爆满
 - **增强文本格式**：在消息后追加关键 extra 字段（`| provider=xxx tweet_id=xxx`），开发时也能看到结构化上下文
 
-### 为什么选择 MiniMax + OpenRouter 双 LLM？
-- **MiniMax 成本优势**：比 OpenAI 便宜 10 倍以上，中文友好
-- **OpenRouter 质量优势**：Claude Sonnet 4.5 提供更高质量的摘要
-- **按量付费**：两者均无需固定套餐，灵活切换
+### 为什么使用统一 OpenAI 兼容 Provider 架构？
+- **协议统一**：所有目标提供商（OpenRouter、MiniMax、DeepSeek、智谱、Moonshot 等）均兼容 OpenAI Chat Completions API
+- **代码复用**：单一 `OpenAICompatibleProvider` 替代重复的 Provider 实现
+- **易于扩展**：新增提供商只需在 `presets.py` 添加预设配置，无需编写新代码
+- **向后兼容**：旧的 `OpenRouterProvider` / `MiniMaxProvider` 作为 thin wrapper 保留
+- **灵活配置**：新格式 `LLM_PROVIDERS=openrouter,deepseek` + 旧格式 `MINIMAX_API_KEY` 均可使用
 
 ---
 _记录标准和模式，而非每个依赖_

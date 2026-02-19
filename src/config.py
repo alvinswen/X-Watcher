@@ -19,8 +19,16 @@ class Settings(BaseSettings):
     从环境变量加载配置，使用 Pydantic 进行验证。
     """
 
-    # MiniMax API 配置
-    minimax_api_key: str = Field(..., description="MiniMax API 密钥")
+    # LLM 提供商配置（新格式）
+    llm_providers: str = Field(
+        default="",
+        description="LLM 提供商优先级列表（逗号分隔，如 openrouter,deepseek）"
+    )
+
+    # MiniMax API 配置（旧格式，向后兼容）
+    minimax_api_key: str | None = Field(
+        default=None, description="MiniMax API 密钥（旧格式，建议改用 LLM_PROVIDERS）"
+    )
     minimax_base_url: str = Field(
         default="https://api.minimaxi.com",
         description="MiniMax API 地址"

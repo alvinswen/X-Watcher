@@ -77,18 +77,18 @@ class TestLLMResponse:
         )
         assert response.total_tokens == response.prompt_tokens + response.completion_tokens
 
-    def test_llm_response_provider_validation(self):
-        """测试提供商必须为有效值。"""
-        with pytest.raises(ValidationError):
-            LLMResponse(
-                content="测试",
-                model="test",
-                provider="invalid_provider",  # 无效
-                prompt_tokens=100,
-                completion_tokens=50,
-                total_tokens=150,
-                cost_usd=0.001,
-            )
+    def test_llm_response_accepts_any_provider_string(self):
+        """测试提供商接受任意字符串（支持自定义 Provider）。"""
+        response = LLMResponse(
+            content="测试",
+            model="test",
+            provider="deepseek",
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+            cost_usd=0.001,
+        )
+        assert response.provider == "deepseek"
 
 
 class TestSummaryRecord:

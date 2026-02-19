@@ -24,6 +24,7 @@ src/
 ├── api/                     # FastAPI 路由和端点
 │   └── routes/
 │       ├── admin.py         # 管理功能 API（抓取任务、任务历史查询）
+│       ├── config_routes.py # 配置验证 API（GET /api/admin/config/validate）
 │       ├── scheduler.py     # 调度器执行历史 API（GET /api/admin/scheduler/history）
 │       ├── status.py        # 系统状态概览 API（GET /api/status/overview）
 │       └── tweets.py        # 推文列表/详情 API
@@ -60,6 +61,11 @@ src/
 │   ├── services/
 │   │   └── deduplication_service.py
 │   └── api/routes.py        # API 端点
+├── cli/                     # CLI 命令模块
+│   ├── __init__.py
+│   ├── main.py              # click Group 入口（init/validate/serve）
+│   ├── init_command.py      # x-watcher init 实现
+│   └── validate_command.py  # x-watcher validate 实现
 ├── summarization/           # AI 摘要模块
 │   ├── domain/models.py     # 领域模型
 │   ├── infrastructure/
@@ -68,11 +74,13 @@ src/
 │   ├── services/
 │   │   ├── summarization_service.py
 │   │   └── summarization_queue.py  # 集中式摘要任务队列（PriorityQueue + 单 worker）
-│   ├── llm/                 # LLM 集成
+│   ├── llm/                 # LLM 集成（统一 OpenAI 兼容架构）
 │   │   ├── base.py          # 抽象基类
-│   │   ├── config.py        # LLM 配置
-│   │   ├── minimax.py       # MiniMax 集成
-│   │   └── openrouter.py    # OpenRouter 集成
+│   │   ├── config.py        # LLM 配置（新旧格式兼容）
+│   │   ├── presets.py       # Provider 预设配置（6+ 提供商）
+│   │   ├── openai_compatible.py  # 通用 OpenAI 兼容 Provider
+│   │   ├── minimax.py       # MiniMax 集成（已废弃，thin wrapper）
+│   │   └── openrouter.py    # OpenRouter 集成（已废弃，thin wrapper）
 │   └── api/
 │       ├── routes.py        # API 端点
 │       └── schemas.py       # 请求/响应模型
@@ -251,7 +259,8 @@ External (数据库, TwitterAPI.io, MiniMax LLM)
 ### 当前阶段：API + Service 层直接驱动
 - FastAPI 路由直接调用 Service 层
 - Service 层编排业务逻辑（抓取、去重、摘要、关注列表）
-- 双 LLM 提供商：MiniMax M2.1 / OpenRouter (Claude Sonnet 4.5)
+- 统一 LLM Provider 架构：通用 OpenAI 兼容协议，支持 6+ 提供商
+- CLI 工具（click）：init / validate / serve 命令
 
 ### 未来阶段：Agent 集成（按需）
 当出现以下需求时，考虑引入 Agent 层：

@@ -118,8 +118,8 @@ class TestSingleTweetPerformance:
             config = LLMProviderConfig.from_env()
 
             with patch(
-                "src.summarization.services.summarization_service.OpenRouterProvider",
-                return_value=mock_llm_providers["openrouter"],
+                "src.summarization.services.summarization_service._build_providers_from_config",
+                return_value=[mock_llm_providers["openrouter"]],
             ):
                 service = create_summarization_service(
                     session_factory=test_session_factory,
@@ -212,8 +212,8 @@ class TestBatchPerformance:
             config = LLMProviderConfig.from_env()
 
             with patch(
-                "src.summarization.services.summarization_service.OpenRouterProvider",
-                return_value=mock_llm_providers["openrouter"],
+                "src.summarization.services.summarization_service._build_providers_from_config",
+                return_value=[mock_llm_providers["openrouter"]],
             ):
                 service = create_summarization_service(
                     session_factory=test_session_factory,
@@ -344,8 +344,8 @@ class TestMemoryUsage:
             config = LLMProviderConfig.from_env()
 
             with patch(
-                "src.summarization.services.summarization_service.OpenRouterProvider",
-                return_value=mock_llm_providers["openrouter"],
+                "src.summarization.services.summarization_service._build_providers_from_config",
+                return_value=[mock_llm_providers["openrouter"]],
             ):
                 service = create_summarization_service(
                     session_factory=test_session_factory,
@@ -437,8 +437,8 @@ class TestPerformanceRegression:
             config = LLMProviderConfig.from_env()
 
             with patch(
-                "src.summarization.services.summarization_service.OpenRouterProvider",
-                return_value=mock_llm_providers["openrouter"],
+                "src.summarization.services.summarization_service._build_providers_from_config",
+                return_value=[mock_llm_providers["openrouter"]],
             ):
                 service = create_summarization_service(
                     session_factory=test_session_factory,

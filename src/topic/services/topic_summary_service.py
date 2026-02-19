@@ -13,8 +13,6 @@ from src.summarization.domain.models import LLMResponse
 from src.summarization.infrastructure.models import SummaryOrm
 from src.summarization.llm.base import LLMProvider
 from src.summarization.llm.config import LLMProviderConfig
-from src.summarization.llm.minimax import MiniMaxProvider
-from src.summarization.llm.openrouter import OpenRouterProvider
 from src.summarization.services.summarization_service import _get_global_llm_semaphore
 from src.topic.domain.models import TopicSummaryTaskDomain, TopicSummaryTaskStatus
 from src.topic.infrastructure.models import TopicSummaryOrm, TopicSummaryTaskOrm
@@ -62,30 +60,14 @@ MAX_CONTEXT_TOKENS = 80000
 
 
 def build_llm_providers() -> list[LLMProvider]:
-    """从环境配置构建 LLM provider 列表（按优先级排序）。"""
+    """从环境配置构建 LLM provider 列表（按优先级排序）。
+
+    复用 summarization_service 中的统一构建逻辑。
+    """
+    from src.summarization.services.summarization_service import _build_providers_from_config
+
     config = LLMProviderConfig.from_env()
-    providers: list[LLMProvider] = []
-
-    if config.openrouter:
-        providers.append(OpenRouterProvider(
-            api_key=config.openrouter.api_key,
-            base_url=config.openrouter.base_url,
-            model=config.openrouter.model,
-            timeout_seconds=config.openrouter.timeout_seconds,
-            max_retries=config.openrouter.max_retries,
-        ))
-
-    if config.minimax:
-        providers.append(MiniMaxProvider(
-            api_key=config.minimax.api_key,
-            base_url=config.minimax.base_url,
-            model=config.minimax.model,
-            group_id=config.minimax.group_id,
-            timeout_seconds=config.minimax.timeout_seconds,
-            max_retries=config.minimax.max_retries,
-        ))
-
-    return providers
+    return _build_providers_from_config(config)
 
 
 def estimate_tokens(text: str) -> int:

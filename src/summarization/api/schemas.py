@@ -75,7 +75,7 @@ class SummaryResponse(UTCDatetimeModel):
     tweet_id: str = Field(..., description="关联的推文 ID")
     summary_text: str = Field(..., description="中文摘要内容")
     translation_text: str | None = Field(None, description="中文翻译内容")
-    model_provider: Literal["openrouter", "minimax", "open_source"] = Field(
+    model_provider: str = Field(
         ..., description="模型提供商"
     )
     model_name: str = Field(..., description="模型名称")

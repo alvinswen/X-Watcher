@@ -2,6 +2,7 @@
 """种子数据脚本。
 
 插入默认管理员账户到数据库，设置初始密码。
+支持参数化调用（供 CLI 使用）和独立运行。
 """
 
 import base64
@@ -31,45 +32,46 @@ def _hash_password(password: str) -> str:
     return bcrypt.hashpw(password_bytes, bcrypt.gensalt(rounds=12)).decode("utf-8")
 
 
-def seed_admin_user() -> None:
-    """插入默认管理员账户。
+def create_admin_user(
+    email: str = "admin@x-watcher.local",
+    name: str = "System Administrator",
+    password: str | None = None,
+) -> tuple[str, str]:
+    """创建或更新管理员账户。
 
-    默认管理员：
-    - Email: xi.sun@metalight.ai
-    - Name: System Administrator
-    - is_admin: True
+    Args:
+        email: 管理员邮箱
+        name: 管理员名称
+        password: 密码（None 则自动生成）
+
+    Returns:
+        tuple[email, password]: 管理员邮箱和密码
     """
+    if password is None:
+        password = _generate_temp_password()
+
     engine = get_engine()
 
     with Session(engine) as session:
-        # 检查是否已存在管理员
-        existing_admin = session.query(User).filter_by(email="xi.sun@metalight.ai").first()
+        existing_admin = session.query(User).filter_by(email=email).first()
 
         if existing_admin:
             print(f"管理员账户已存在: {existing_admin.email}")
-            # 确保是管理员
             if not existing_admin.is_admin:
                 existing_admin.is_admin = True
                 session.commit()
                 print("已将现有账户设置为管理员")
-            # 如果没有密码，设置初始密码
             if not existing_admin.password_hash:
-                temp_password = _generate_temp_password()
-                existing_admin.password_hash = _hash_password(temp_password)
+                existing_admin.password_hash = _hash_password(password)
                 session.commit()
-                print(f"已设置初始密码: {temp_password}")
-            return
+                print(f"已设置初始密码: {password}")
+            return email, password
 
-        # 生成临时密码
-        temp_password = _generate_temp_password()
-        password_hash = _hash_password(temp_password)
-
-        # 创建新的管理员账户
         admin_user = User(
-            name="System Administrator",
-            email="xi.sun@metalight.ai",
+            name=name,
+            email=email,
             is_admin=True,
-            password_hash=password_hash,
+            password_hash=_hash_password(password),
         )
 
         session.add(admin_user)
@@ -79,8 +81,15 @@ def seed_admin_user() -> None:
         print(f"  Email: {admin_user.email}")
         print(f"  Name: {admin_user.name}")
         print(f"  is_admin: {admin_user.is_admin}")
-        print(f"  临时密码: {temp_password}")
+        print(f"  临时密码: {password}")
         print("  请登录后立即修改密码！")
+
+        return email, password
+
+
+def seed_admin_user() -> None:
+    """插入默认管理员账户（向后兼容接口）。"""
+    create_admin_user()
 
 
 if __name__ == "__main__":

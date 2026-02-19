@@ -5,8 +5,6 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import Literal
-
 from pydantic import BaseModel, Field, field_validator
 
 from src.summarization.domain.language_utils import (
@@ -45,7 +43,7 @@ class LLMResponse(BaseModel):
 
     content: str = Field(..., description="生成的内容")
     model: str = Field(..., description="使用的模型名称")
-    provider: Literal["openrouter", "minimax", "open_source"] = Field(
+    provider: str = Field(
         ..., description="模型提供商"
     )
     prompt_tokens: int = Field(..., ge=0, description="输入 token 数")
@@ -82,7 +80,7 @@ class SummaryRecord(BaseModel):
         ..., min_length=1, max_length=500, description="中文摘要内容"
     )
     translation_text: str | None = Field(None, description="中文翻译内容")
-    model_provider: Literal["openrouter", "minimax", "open_source"] = Field(
+    model_provider: str = Field(
         ..., description="模型提供商"
     )
     model_name: str = Field(..., description="模型名称")

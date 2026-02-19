@@ -2,17 +2,145 @@
 
 面向 Agent 的 X 平台智能信息监控服务
 
-## 项目简介
+## Quick Start (Agent)
 
-X-watcher 是一个面向 Agent 的 X 平台（Twitter）智能信息监控服务，为 AI Agent 提供结构化的信息采集、处理和分发能力。系统能够：
+```bash
+pip install -e .
+x-watcher init --no-input \
+  --twitter-api-key=YOUR_TWITTER_API_KEY \
+  --llm-provider=deepseek \
+  --llm-api-key=YOUR_LLM_API_KEY
+x-watcher serve
+```
 
-- 从 X（Twitter）平台抓取关注人物的动态
-- 自动去重和合并相似内容
-- 生成简洁的中文摘要和翻译
-- 支持动态调整关注列表
-- 提供 Web 管理界面（Vue 3 + Element Plus）
-- 用户认证和权限管理
-- Prometheus 监控指标
+服务启动后访问 `http://localhost:8000/docs` 查看 API 文档。
+
+## Quick Start (人类开发者)
+
+```bash
+git clone <repository-url> && cd x-watcher
+pip install -e ".[dev]"
+x-watcher init                  # 交互式引导配置
+x-watcher serve                 # 启动服务
+```
+
+## 支持的 LLM 提供商
+
+| Provider | Slug | Default Model | 备注 |
+|----------|------|---------------|------|
+| OpenRouter | `openrouter` | `anthropic/claude-sonnet-4.5` | 高质量，支持多模型 |
+| MiniMax | `minimax` | `abab6.5s-chat` | 国内低成本 |
+| DeepSeek | `deepseek` | `deepseek-chat` | 国内高性价比 |
+| 智谱 AI | `zhipu` | `glm-4-flash` | 国内免费额度 |
+| Moonshot (Kimi) | `moonshot` | `moonshot-v1-8k` | 国内 |
+| Custom | `custom` | (用户提供) | 任何 OpenAI 兼容 API |
+
+## 环境配置
+
+### 新格式（推荐）
+
+```bash
+# .env
+LLM_PROVIDERS=openrouter,deepseek        # 提供商优先级
+LLM_OPENROUTER_API_KEY=sk-or-xxx         # 各提供商 API Key
+LLM_DEEPSEEK_API_KEY=sk-xxx
+TWITTER_API_KEY=your_key                  # TwitterAPI.io Key
+TWITTER_BEARER_TOKEN=placeholder
+```
+
+可选覆盖默认值：
+```bash
+LLM_OPENROUTER_MODEL=anthropic/claude-sonnet-4.5
+LLM_DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
+```
+
+### 旧格式（向后兼容）
+
+```bash
+MINIMAX_API_KEY=your_key
+OPENROUTER_API_KEY=your_key
+```
+
+### 完整环境变量参考
+
+| 变量 | 必填 | 默认值 | 说明 |
+|------|------|--------|------|
+| `LLM_PROVIDERS` | 否* | `""` | 提供商优先级列表（逗号分隔） |
+| `LLM_<SLUG>_API_KEY` | 是* | - | 各提供商 API Key |
+| `LLM_<SLUG>_MODEL` | 否 | 预设默认值 | 覆盖默认模型 |
+| `LLM_<SLUG>_BASE_URL` | 否 | 预设默认值 | 覆盖默认 API 地址 |
+| `TWITTER_API_KEY` | 是 | - | TwitterAPI.io API Key |
+| `TWITTER_BEARER_TOKEN` | 是 | - | Twitter Bearer Token |
+| `DATABASE_URL` | 否 | `sqlite:///./news_agent.db` | 数据库连接 |
+| `JWT_SECRET_KEY` | 否 | auto-generated | JWT 签名密钥 |
+| `SCRAPER_ENABLED` | 否 | `true` | 启用定时抓取 |
+| `SCRAPER_INTERVAL` | 否 | `43200` | 抓取间隔（秒） |
+| `AUTO_SUMMARIZATION_ENABLED` | 否 | `true` | 抓取后自动摘要 |
+| `LOG_LEVEL` | 否 | `INFO` | 日志级别 |
+
+*新格式和旧格式二选一，至少配置一个 LLM 提供商
+
+## CLI 命令
+
+```bash
+x-watcher init [OPTIONS]     # 初始化项目（生成 .env、创建数据库、创建管理员）
+x-watcher validate           # 验证配置和服务连通性
+x-watcher serve [OPTIONS]    # 启动 API 服务
+```
+
+### init 选项
+
+| 选项 | 说明 |
+|------|------|
+| `--twitter-api-key` | TwitterAPI.io API Key |
+| `--llm-provider` | LLM 提供商 (openrouter/deepseek/minimax/zhipu/moonshot) |
+| `--llm-api-key` | LLM API Key |
+| `--admin-email` | 管理员邮箱（默认 admin@x-watcher.local） |
+| `--admin-password` | 管理员密码（默认自动生成） |
+| `--no-input` | 非交互模式 |
+| `--skip-db` | 跳过数据库初始化 |
+| `--skip-validate` | 跳过验证 |
+
+## Agent 工作流示例
+
+```bash
+# 1. 登录获取 JWT Token
+TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@x-watcher.local","password":"YOUR_PASSWORD"}' | jq -r .access_token)
+
+# 2. 添加关注账号
+curl -X POST http://localhost:8000/api/follows/batch \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"usernames":["elonmusk","OpenAI","nvidia"]}'
+
+# 3. 手动触发抓取
+TASK_ID=$(curl -s -X POST http://localhost:8000/api/admin/scrape \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"usernames":"elonmusk,OpenAI","limit":20}' | jq -r .task_id)
+
+# 4. 查询抓取状态
+curl http://localhost:8000/api/admin/scrape/$TASK_ID \
+  -H "Authorization: Bearer $TOKEN"
+
+# 5. 获取 Feed（增量拉取）
+curl "http://localhost:8000/api/feed?since=2025-01-01T00:00:00Z" \
+  -H "Authorization: Bearer $TOKEN"
+
+# 6. 搜索推文
+curl "http://localhost:8000/api/search/tweets?q=AI&limit=10" \
+  -H "Authorization: Bearer $TOKEN"
+
+# 7. 系统状态概览
+curl http://localhost:8000/api/status/overview \
+  -H "Authorization: Bearer $TOKEN"
+
+# 8. 验证配置健康度
+curl http://localhost:8000/api/admin/config/validate \
+  -H "Authorization: Bearer $TOKEN"
+```
 
 ## 技术栈
 
@@ -20,165 +148,16 @@ X-watcher 是一个面向 Agent 的 X 平台（Twitter）智能信息监控服�
 |------|------|
 | **Web 框架** | FastAPI + Uvicorn |
 | **前端** | Vue 3 + Element Plus + TypeScript |
-| **LLM** | MiniMax M2.1 / OpenRouter (Claude Sonnet 4.5) |
+| **LLM** | 通用 OpenAI 兼容协议（支持 6+ 提供商） |
 | **数据库** | SQLite（开发）→ PostgreSQL（生产） |
 | **ORM** | SQLAlchemy 2.0 + Alembic |
 | **任务调度** | APScheduler |
-| **测试** | pytest + pytest-asyncio（510+ 测试） |
+| **CLI** | Click |
+| **测试** | pytest + pytest-asyncio（550+ 测试） |
 | **代码质量** | Ruff + Black + mypy |
 | **监控** | Prometheus |
 | **数据源** | TwitterAPI.io |
 | **认证** | JWT + bcrypt |
-| **Agent 框架** | HKUDS/nanobot（计划中） |
-
-## 安装
-
-### 前置要求
-
-- Python 3.11+
-- Node.js >= 18（前端开发）
-- Git
-
-### 步骤
-
-1. 克隆仓库
-```bash
-git clone <repository-url>
-cd X-watcher
-```
-
-2. 安装依赖
-```bash
-pip install -e .
-```
-
-3. 安装开发依赖（可选）
-```bash
-pip install -e ".[dev]"
-```
-
-4. 安装前端依赖（可选）
-```bash
-cd src/web
-npm install
-```
-
-## 配置
-
-1. 复制环境变量模板
-```bash
-cp .env.example .env
-```
-
-2. 编辑 `.env` 文件，填入必要的配置：
-
-```bash
-# MiniMax API 配置
-MINIMAX_API_KEY=your_minimax_api_key_here
-MINIMAX_BASE_URL=https://api.minimaxi.com
-
-# X 平台 API 配置（使用 TwitterAPI.io）
-TWITTER_API_KEY=your_twitterapi_io_api_key_here
-TWITTER_BEARER_TOKEN=dummy_placeholder
-TWITTER_BASE_URL=https://api.twitterapi.io/twitter
-
-# 管理员 API Key
-ADMIN_API_KEY=your_admin_api_key
-
-# 抓取器配置
-SCRAPER_ENABLED=true
-SCRAPER_INTERVAL=3600
-SCRAPER_USERNAMES=elonmusk,OpenAI,nvidia
-SCRAPER_LIMIT=100
-
-# 数据库配置
-DATABASE_URL=sqlite:///./news_agent.db
-
-# 日志级别
-LOG_LEVEL=INFO
-
-# 自动摘要
-AUTO_SUMMARIZATION_ENABLED=true
-AUTO_SUMMARIZATION_BATCH_SIZE=50
-```
-
-### TwitterAPI.io 配置说明
-
-本项目使用 [TwitterAPI.io](https://twitterapi.io/) 作为 X 平台数据源：
-
-1. 访问 https://twitterapi.io/ 注册账号
-2. 从 Dashboard 获取 API Key
-3. 在 `.env` 文件中设置 `TWITTER_API_KEY`
-4. **注意**: TwitterAPI.io 使用 `X-API-Key` header 认证，不是标准的 Bearer Token
-
-## 运行
-
-### 启动后端服务
-
-```bash
-# 初始化数据库和管理员账户
-python -m scripts.seed_admin
-
-# 启动开发服务器
-python -m src.main
-
-# 或使用 uvicorn
-uvicorn src.main:app --reload
-
-# 或使用安装后的命令
-x-watcher
-```
-
-应用将在 `http://localhost:8000` 启动。
-
-### 启动前端开发服务器
-
-```bash
-cd src/web
-npm run dev
-```
-
-前端运行在 `http://localhost:5173`，已配置 API 代理。
-
-### 访问 API 文档
-
-- Swagger UI: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
-
-### API 使用指南
-详细的 API 使用文档请参阅：[docs/api-guide.md](docs/api-guide.md)
-
-**快速链接**：
-- [推文 API](docs/api-guide.md#推文-api) - 推文列表和详情查询
-- [抓取 API](docs/api-guide.md#抓取-api) - 从 X 平台抓取推文
-- [抓取配置 API](docs/api-guide.md#抓取配置-api) - 平台抓取账号管理
-- [去重 API](docs/api-guide.md#去重-api) - 推文去重和合并
-- [摘要 API](docs/api-guide.md#摘要-api) - 生成中文摘要
-- [关注列表 API](docs/api-guide.md#关注列表-api) - 关注列表管理
-- [监控 API](docs/api-guide.md#监控-api) - Prometheus 指标
-
-### Python 示例代码
-```bash
-# 运行 API 使用示例
-python examples/api_examples.py
-```
-
-## 测试
-
-```bash
-# 运行所有测试
-pytest
-
-# 运行测试并显示覆盖率
-pytest --cov=src --cov-report=html
-
-# 运行特定测试文件
-pytest tests/scraper/test_twitter_client.py
-```
-
-### 测试覆盖率
-
-当前测试规模：510+ 个测试函数，39 个测试文件，覆盖抓取、去重、摘要、偏好、用户管理、Feed API 等全部模块。
 
 ## 功能模块
 
@@ -186,147 +165,78 @@ pytest tests/scraper/test_twitter_client.py
 |------|------|
 | **推文抓取** | 从 X 平台抓取关注人物推文，支持定时和手动触发 |
 | **内容去重** | 基于文本相似度识别和合并重复/相似推文 |
-| **AI 摘要** | 使用 MiniMax/OpenRouter 生成中文摘要和翻译 |
+| **AI 摘要** | 使用多提供商生成中文摘要和翻译，智能降级 |
 | **关注列表** | 动态管理 Twitter 关注列表 |
 | **Feed** | 增量信息流 API |
 | **用户管理** | 用户注册、JWT 认证、管理员权限 |
-| **Web 管理** | Vue 3 前端 SPA（推文浏览、关注管理、任务监控） |
-| **系统监控** | Prometheus 指标（HTTP 请求、任务状态、数据库连接） |
+| **主题聚合** | 多账号推文聚合分析，生成主题报告 |
+| **推文搜索** | 多字段关键词搜索（正文、摘要、翻译） |
+| **推文浏览** | 按日期和作者维度浏览推文 |
+| **系统监控** | Prometheus 指标 + 系统状态概览 API |
 
 ## API 端点
 
-### 抓取相关端点
+访问 `http://localhost:8000/docs` 查看完整 Swagger 文档。
 
-#### 手动抓取推文
-```bash
-POST /api/admin/scrape
-Content-Type: application/json
+详细 API 使用指南：[docs/api-guide.md](docs/api-guide.md)
 
-{
-  "usernames": "elonmusk,OpenAI",
-  "limit": 10
-}
-```
+### 核心端点
 
-#### 查询任务状态
-```bash
-GET /api/admin/scrape/{task_id}
-```
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/auth/login` | 用户登录 |
+| GET | `/api/feed` | 增量 Feed |
+| POST | `/api/admin/scrape` | 触发抓取 |
+| POST | `/api/summaries/batch` | 批量摘要 |
+| GET | `/api/search/tweets` | 推文搜索 |
+| GET | `/api/status/overview` | 系统状态 |
+| GET | `/api/admin/config/validate` | 配置验证 |
+| GET | `/health` | 健康检查 |
 
-#### 列出所有任务
-```bash
-GET /api/admin/scrape
-```
-
-### 示例：使用 curl 测试抓取功能
+## 测试
 
 ```bash
-# 1. 启动服务
-python -m src.main
-
-# 2. 触发抓取任务
-curl -X POST "http://localhost:8000/api/admin/scrape" \
-  -H "Content-Type: application/json" \
-  -d '{"usernames": "elonmusk", "limit": 10}'
-
-# 3. 查询任务状态（替换 {task_id}）
-curl "http://localhost:8000/api/admin/scrape/{task_id}"
+pytest                                      # 运行所有测试
+pytest tests/summarization/ -q              # 运行摘要模块测试
+pytest --cov=src --cov-report=html          # 覆盖率报告
 ```
 
 ## 代码质量
 
 ```bash
-# 代码格式化
-black src/ tests/
-
-# Lint 检查
-ruff check src/ tests/
-
-# 自动修复 Lint 问题
-ruff check --fix src/ tests/
+black src/ tests/        # 格式化
+ruff check src/ tests/   # Lint
+ruff check --fix src/    # 自动修复
 ```
 
 ## 项目结构
 
 ```
-X-watcher/
+x-watcher/
 ├── src/
-│   ├── api/routes/          # API 路由（admin, tweets）
-│   ├── agent/               # Agent 配置（nanobot 集成）
+│   ├── api/routes/          # API 路由
+│   ├── cli/                 # CLI 命令（init/validate/serve）
 │   ├── scraper/             # 推文抓取模块
-│   │   ├── domain/          # 领域模型（Tweet, Media 等）
-│   │   └── infrastructure/  # ORM 模型和仓库
 │   ├── deduplication/       # 内容去重模块
-│   │   ├── domain/          # 领域模型和检测器
-│   │   ├── infrastructure/  # 仓库
-│   │   ├── services/        # 去重服务
-│   │   └── api/             # 去重 API 端点
 │   ├── summarization/       # AI 摘要模块
-│   │   ├── domain/          # 领域模型
-│   │   ├── infrastructure/  # ORM 模型和仓库
-│   │   ├── services/        # 摘要服务
-│   │   ├── llm/             # LLM 集成（MiniMax, OpenRouter）
-│   │   └── api/             # 摘要 API 端点
-│   ├── preference/          # 关注列表管理模块
-│   │   ├── domain/          # 领域模型和验证
-│   │   ├── infrastructure/  # 仓库
-│   │   ├── services/        # 关注列表服务
-│   │   └── api/             # 关注列表 API 端点
-│   ├── feed/                # 信息流模块
-│   │   └── api/             # Feed API 端点
-│   ├── user/                # 用户管理模块
-│   │   └── api/             # 认证和用户 API
+│   │   └── llm/             # LLM 集成（通用 OpenAI 兼容 + 预设）
+│   ├── preference/          # 关注列表管理
+│   ├── feed/                # Feed API
+│   ├── topic/               # 主题聚合
+│   ├── search/              # 推文搜索
+│   ├── browse/              # 推文浏览
+│   ├── user/                # 用户管理
 │   ├── monitoring/          # Prometheus 监控
-│   ├── database/            # 数据库（ORM 模型, 异步会话）
-│   ├── web/                 # 前端 SPA（Vue 3 + Element Plus）
+│   ├── database/            # 数据库层
+│   ├── web/                 # 前端 SPA
 │   ├── config.py            # 配置管理
-│   └── main.py              # FastAPI 应用入口
-├── tests/
-│   ├── unit/                # 单元测试
-│   ├── scraper/             # 抓取模块测试
-│   ├── deduplication/       # 去重模块测试
-│   ├── summarization/       # 摘要模块测试
-│   ├── preference/          # 关注列表模块测试
-│   ├── api/                 # API 端点测试
-│   ├── integration/         # 集成测试
-│   └── conftest.py          # pytest 配置
-├── alembic/                 # 数据库迁移脚本
-├── docs/                    # 项目文档
-│   ├── api-guide.md         # API 使用指南
-│   ├── architecture.md      # 架构文档
-│   ├── news-scraper.md      # 抓取模块文档
-│   ├── user-guide.md        # 使用指南
-│   └── nanobot-integration-plan.md  # Nanobot 集成计划
-├── examples/                # 代码示例
-├── scripts/                 # 脚本（seed_admin.py 等）
-├── pyproject.toml           # 项目配置
-├── alembic.ini              # 数据库迁移配置
-├── .env.example             # 环境变量模板
-└── README.md                # 本文件
+│   └── main.py              # FastAPI 入口
+├── tests/                   # 550+ 测试
+├── scripts/                 # 工具脚本
+├── docs/                    # 文档
+└── pyproject.toml           # 项目配置
 ```
-
-## 开发指南
-
-### TDD 开发流程
-
-本项目遵循测试驱动开发（TDD）：
-
-1. **RED** - 先写失败的测试
-2. **GREEN** - 写最小代码使测试通过
-3. **REFACTOR** - 清理代码
-
-### 添加新功能
-
-1. 在 `tests/` 中创建测试
-2. 运行测试确认失败
-3. 实现功能代码
-4. 运行测试确认通过
-5. 运行 `black` 和 `ruff` 检查代码质量
 
 ## 许可证
 
 MIT License
-
-## 联系方式
-
-- 项目主页: [GitHub Repository]

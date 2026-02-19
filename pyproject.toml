@@ -58,6 +58,12 @@ dependencies = [
     "bcrypt>=5.0.0",
     "PyJWT>=2.11.0",
 
+    # LLM 集成
+    "openai>=1.0.0",
+
+    # CLI
+    "click>=8.0.0",
+
     # Agent 框架 (需要从 GitHub 安装)
     # "nanobot-ai @ git+https://github.com/HKUDS/nanobot.git",
 ]
@@ -82,7 +88,7 @@ Homepage = "https://github.com/your-org/x-watcher"
 Repository = "https://github.com/your-org/x-watcher"
 
 [project.scripts]
-x-watcher = "src.main:main"
+x-watcher = "src.cli.main:cli"
 
 # Black 配置
 [tool.black]

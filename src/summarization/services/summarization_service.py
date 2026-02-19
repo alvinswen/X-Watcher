@@ -1353,40 +1353,7 @@ def create_summarization_service(
     Raises:
         ValueError: 没有配置任何提供商时抛出
     """
-    providers: list[LLMProvider] = []
-
-    # 按优先级顺序创建提供商
-    if config.openrouter:
-        from src.summarization.llm.openrouter import OpenRouterProvider
-
-        providers.append(
-            OpenRouterProvider(
-                api_key=config.openrouter.api_key,
-                base_url=config.openrouter.base_url,
-                model=config.openrouter.model,
-                timeout_seconds=config.openrouter.timeout_seconds,
-                max_retries=config.openrouter.max_retries,
-            )
-        )
-
-    if config.minimax:
-        from src.summarization.llm.minimax import MiniMaxProvider
-
-        providers.append(
-            MiniMaxProvider(
-                api_key=config.minimax.api_key,
-                base_url=config.minimax.base_url,
-                model=config.minimax.model,
-                group_id=config.minimax.group_id,
-                timeout_seconds=config.minimax.timeout_seconds,
-                max_retries=config.minimax.max_retries,
-            )
-        )
-
-    if config.open_source:
-        # TODO: 实现开源模型提供商
-        logger.warning("开源模型提供商尚未实现")
-        pass
+    providers: list[LLMProvider] = _build_providers_from_config(config)
 
     if not providers:
         raise ValueError("至少需要配置一个 LLM 提供商")
@@ -1397,3 +1364,90 @@ def create_summarization_service(
         prompt_config=prompt_config,
         max_concurrent=max_concurrent,
     )
+
+
+def _build_providers_from_config(config: "LLMProviderConfig") -> list[LLMProvider]:
+    """根据配置构建 LLM 提供商列表。
+
+    优先使用新的统一格式（unified_providers），回退到旧格式。
+
+    Args:
+        config: LLM 提供商聚合配置
+
+    Returns:
+        按优先级排序的提供商列表
+    """
+    from src.summarization.llm.openai_compatible import OpenAICompatibleProvider
+
+    providers: list[LLMProvider] = []
+
+    # 优先使用新格式
+    if config.uses_unified_format():
+        for inst in config.unified_providers:
+            try:
+                providers.append(
+                    OpenAICompatibleProvider.from_preset(
+                        slug=inst.slug,
+                        api_key=inst.api_key,
+                        base_url=inst.base_url or None,
+                        model=inst.model or None,
+                        timeout_seconds=inst.timeout_seconds,
+                        max_retries=inst.max_retries,
+                    )
+                )
+            except ValueError:
+                # 未知 slug 时使用 custom 模式
+                providers.append(
+                    OpenAICompatibleProvider(
+                        provider_name=inst.slug,
+                        api_key=inst.api_key,
+                        base_url=inst.base_url,
+                        model=inst.model,
+                        timeout_seconds=inst.timeout_seconds,
+                        max_retries=inst.max_retries,
+                    )
+                )
+        return providers
+
+    # 回退到旧格式
+    if config.openrouter:
+        providers.append(
+            OpenAICompatibleProvider(
+                provider_name="openrouter",
+                api_key=config.openrouter.api_key,
+                base_url=config.openrouter.base_url,
+                model=config.openrouter.model,
+                timeout_seconds=config.openrouter.timeout_seconds,
+                max_retries=config.openrouter.max_retries,
+                cost_info=None,  # 使用默认值
+            )
+        )
+
+    if config.minimax:
+        from src.summarization.llm.presets import MINIMAX
+
+        providers.append(
+            OpenAICompatibleProvider(
+                provider_name="minimax",
+                api_key=config.minimax.api_key,
+                base_url=config.minimax.base_url,
+                model=config.minimax.model,
+                timeout_seconds=config.minimax.timeout_seconds,
+                max_retries=config.minimax.max_retries,
+                cost_info=MINIMAX.cost_info,
+            )
+        )
+
+    if config.open_source:
+        providers.append(
+            OpenAICompatibleProvider(
+                provider_name="open_source",
+                api_key=config.open_source.api_key,
+                base_url=config.open_source.base_url,
+                model=config.open_source.model,
+                timeout_seconds=config.open_source.timeout_seconds,
+                max_retries=config.open_source.max_retries,
+            )
+        )
+
+    return providers
