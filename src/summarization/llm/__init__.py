@@ -11,9 +11,7 @@ from src.summarization.llm.config import (
     OpenSourceConfig,
     ProviderInstanceConfig,
 )
-from src.summarization.llm.minimax import MiniMaxProvider
 from src.summarization.llm.openai_compatible import OpenAICompatibleProvider
-from src.summarization.llm.openrouter import OpenRouterProvider
 from src.summarization.llm.presets import PROVIDER_PRESETS, ProviderPreset
 
 __all__ = [
@@ -23,8 +21,6 @@ __all__ = [
     "OpenRouterConfig",
     "MiniMaxConfig",
     "OpenSourceConfig",
-    "OpenRouterProvider",
-    "MiniMaxProvider",
     "ProviderInstanceConfig",
     "ProviderPreset",
     "PROVIDER_PRESETS",

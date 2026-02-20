@@ -299,7 +299,7 @@ npm run dev
 | 抓取配置 | `/api/admin/scraping` | 平台抓取账号管理 | 是（Admin API Key） |
 | 推文 | `/api/tweets` | 推文列表和详情查询 | 否 |
 | 摘要 | `/api/summaries` | AI 摘要生成 | 否 |
-| 关注列表 | `/api/preferences` | 关注列表管理 | 否 |
+| 主题 | `/api/topics` | 主题管理与摘要任务 | 是（JWT / API Key） |
 | 监控 | `/metrics` | Prometheus 指标 | 否 |
 
 ### 常用 API 示例
@@ -374,20 +374,6 @@ curl "http://localhost:8000/api/summaries/stats"
 3. 点击任意推文查看详情和 AI 摘要
 4. 使用作者筛选功能查看特定账号的推文
 
-### Step 6：（可选）管理关注列表
-
-通过 API 管理用户关注列表：
-
-```bash
-# 添加关注（user_id=1 为种子脚本创建的管理员）
-curl -X POST "http://localhost:8000/api/preferences/follows?user_id=1" \
-  -H "Content-Type: application/json" \
-  -d '{"username": "elonmusk"}'
-
-# 获取关注列表
-curl "http://localhost:8000/api/preferences/follows?user_id=1"
-```
-
 ---
 
 ## 常见问题
@@ -399,10 +385,10 @@ curl "http://localhost:8000/api/preferences/follows?user_id=1"
 - 前端是否正确安装了依赖（`cd src/web && npm install`）
 - 浏览器控制台是否有报错（按 F12 查看）
 
-### Q2: 关注管理页面提示「认证失败」？
+### Q2: 管理页面提示「认证失败」？
 
-- 确认已在前端右上角齿轮按钮中正确配置了 Admin API Key
-- 确认 `.env` 中的 `ADMIN_API_KEY` 与前端输入的一致
+- 确认已通过登录获取有效的 JWT 令牌，或在前端正确配置了 API Key
+- 确认账户具有相应的访问权限（管理员 vs 普通用户）
 
 ### Q3: 抓取任务失败？
 

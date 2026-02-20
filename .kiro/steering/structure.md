@@ -69,9 +69,7 @@ src/
 │   │   ├── base.py          # 抽象基类
 │   │   ├── config.py        # LLM 配置（新旧格式兼容）
 │   │   ├── presets.py       # Provider 预设配置（6+ 提供商）
-│   │   ├── openai_compatible.py  # 通用 OpenAI 兼容 Provider
-│   │   ├── minimax.py       # MiniMax 集成（已废弃，thin wrapper）
-│   │   └── openrouter.py    # OpenRouter 集成（已废弃，thin wrapper）
+│   │   └── openai_compatible.py  # 通用 OpenAI 兼容 Provider
 │   └── api/
 │       ├── routes.py        # API 端点
 │       └── schemas.py       # 请求/响应模型
@@ -143,9 +141,6 @@ src/
 ├── database/                # 数据库层
 │   ├── models.py            # SQLAlchemy 基础模型（User, ScraperScheduleConfig, TaskExecutionLog 等）
 │   └── async_session.py     # 异步会话管理（WAL 模式 + busy_timeout）
-├── models/                  # （legacy 空壳，待清理）
-├── services/                # （legacy 空壳，待清理）
-├── tools/                   # （legacy 空壳，待清理）
 ├── web/                     # 前端 SPA（Vue 3 + Element Plus）
 ├── scheduler_accessor.py    # 调度器全局引用管理（解耦 Service 与 APScheduler）
 ├── logging_config.py        # 日志配置（JSONFormatter + EnhancedTextFormatter + TraceIdFilter + trace_id_var + setup_logging）

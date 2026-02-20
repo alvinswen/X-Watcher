@@ -15,19 +15,23 @@ def clear_test_data() -> None:
     """清除所有测试数据，保留 users 表。
 
     清除顺序：
-    1. summaries（依赖 tweets）
-    2. deduplication_groups（依赖 tweets）
-    3. tweets
-    4. twitter_follows（依赖 users）
-    5. scraper_follows（独立表）
+    1. topic_summaries（依赖 topic_summary_tasks）
+    2. topic_summary_tasks（依赖 topics）
+    3. topic_accounts（依赖 topics）
+    4. topics
+    5. summaries（依赖 tweets）
+    6. tweets
+    7. scraper_follows（独立表）
     """
     engine = get_engine()
 
     tables_to_clear = [
+        "topic_summaries",
+        "topic_summary_tasks",
+        "topic_accounts",
+        "topics",
         "summaries",
-        "deduplication_groups",
         "tweets",
-        "twitter_follows",
         "scraper_follows",
     ]
 

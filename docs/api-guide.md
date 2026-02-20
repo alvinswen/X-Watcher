@@ -9,7 +9,6 @@
 - [抓取 API](#抓取-api)
 - [抓取配置 API](#抓取配置-api)
 - [摘要 API](#摘要-api)
-- [关注列表 API](#关注列表-api)
 - [监控 API](#监控-api)
 - [错误处理](#错误处理)
 - [代码示例](#代码示例)
@@ -428,47 +427,6 @@ curl "http://localhost:8000/api/summaries/tasks/c3d4e5f6-g7h8-9012-cdef-gh345678
 **请求示例**:
 ```bash
 curl -X DELETE "http://localhost:8000/api/summaries/tasks/c3d4e5f6-g7h8-9012-cdef-gh3456789012"
-```
-
----
-
-## 关注列表 API
-
-关注列表 API 用于管理用户的 Twitter 关注列表。
-
-### 1. 添加关注
-
-**端点**: `POST /api/preferences/follows?user_id={user_id}`
-
-**请求参数**:
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| username | string | 是 | Twitter 用户名 |
-
-**请求示例**:
-```bash
-curl -X POST "http://localhost:8000/api/preferences/follows?user_id=1" \
-  -H "Content-Type: application/json" \
-  -d '{"username": "elonmusk"}'
-```
-
-### 2. 获取关注列表
-
-**端点**: `GET /api/preferences/follows?user_id={user_id}`
-
-**请求示例**:
-```bash
-curl "http://localhost:8000/api/preferences/follows?user_id=1"
-```
-
-### 3. 删除关注
-
-**端点**: `DELETE /api/preferences/follows/{username}?user_id={user_id}`
-
-**请求示例**:
-```bash
-curl -X DELETE "http://localhost:8000/api/preferences/follows/elonmusk?user_id=1"
 ```
 
 ---
