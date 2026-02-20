@@ -83,7 +83,7 @@ summarization_queue_size = Gauge(
 summarization_queue_enqueued_total = Counter(
     "summarization_queue_enqueued_total",
     "Total items enqueued to summarization queue",
-    ["source"],  # scraping/deduplication/batch_api/retry
+    ["source"],  # scraping/batch_api/retry
 )
 
 summarization_queue_processed_total = Counter(

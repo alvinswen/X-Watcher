@@ -15,6 +15,7 @@ import {
   FullScreen,
   Collection,
   DataAnalysis,
+  Search,
 } from "@element-plus/icons-vue"
 import { useAuthStore } from "@/stores/auth"
 import { ElMessage } from "element-plus"
@@ -44,6 +45,7 @@ const menuItems = [
   { index: "/dashboard", title: "仪表盘", icon: Odometer },
   { index: "/tweets", title: "推文管理", icon: Document },
   { index: "/browse", title: "推文浏览", icon: Reading },
+  { index: "/search", title: "推文搜索", icon: Search },
   { index: "/follows", title: "关注管理", icon: User },
   { index: "/tasks", title: "任务监控", icon: Monitor },
   { index: "/scraping", title: "抓取管理", icon: Timer },

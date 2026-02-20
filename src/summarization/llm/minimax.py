@@ -22,8 +22,8 @@ class MiniMaxProvider(LLMProvider):
         使用 `OpenAICompatibleProvider.from_preset("minimax", ...)` 代替。
     """
 
-    DEFAULT_BASE_URL = "https://api.minimaxi.com"
-    DEFAULT_MODEL = "abab6.5s-chat"
+    DEFAULT_BASE_URL = "https://api.minimaxi.com/v1"
+    DEFAULT_MODEL = "MiniMax-M2.5"
     DEFAULT_TIMEOUT_SECONDS = 30
     DEFAULT_MAX_RETRIES = 1
 

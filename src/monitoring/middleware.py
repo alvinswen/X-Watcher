@@ -91,9 +91,6 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
         # 定义需要标准化的路径模式
         patterns = [
             ("/api/admin/scrape/", "/api/admin/scrape/{task_id}"),
-            ("/api/deduplicate/groups/", "/api/deduplicate/groups/{group_id}"),
-            ("/api/deduplicate/tweets/", "/api/deduplicate/tweets/{tweet_id}"),
-            ("/api/deduplicate/tasks/", "/api/deduplicate/tasks/{task_id}"),
             ("/api/summaries/tweets/", "/api/summaries/tweets/{tweet_id}"),
             ("/api/summaries/tasks/", "/api/summaries/tasks/{task_id}"),
         ]

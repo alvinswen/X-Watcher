@@ -23,10 +23,10 @@ X-watcher 采用分层架构设计，结合 AI 摘要能力，为 Agent 提供�
                           ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                    Service 层 (业务编排)                      │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐  │
-│  │ Scraping │ │ Dedup    │ │Summarize │ │ Preference   │  │
-│  │ Service  │ │ Service  │ │ Service  │ │ Service      │  │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────────┘  │
+│  ┌──────────┐ ┌──────────┐ ┌──────────────┐              │
+│  │ Scraping │ │Summarize │ │ Preference   │              │
+│  │ Service  │ │ Service  │ │ Service      │              │
+│  └──────────┘ └──────────┘ └──────────────┘              │
 └─────────────────────────┬───────────────────────────────────┘
                           │
                           ▼
@@ -75,16 +75,7 @@ X-watcher 采用分层架构设计，结合 AI 摘要能力，为 Agent 提供�
 - `referenced_tweet_id`: 引用的推文 ID
 - `reference_type`: 引用类型
 - `media`: JSON 媒体附件
-- `deduplication_group_id`: 去重组 ID
 - `db_created_at`, `db_updated_at`: 数据库时间戳
-
-#### DeduplicationGroupOrm (去重组)
-- `group_id`: 主键
-- `representative_tweet_id`: 代表推文 ID
-- `deduplication_type`: 去重类型
-- `similarity_score`: 相似度分数
-- `tweet_ids`: JSON 推文 ID 列表
-- `created_at`: 创建时间
 
 ## 数据流
 
@@ -118,7 +109,7 @@ Infrastructure 层执行操作 (数据库 / 外部 API)
 
 ### 当前阶段: API + Service 层
 - FastAPI 路由直接调用 Service 层
-- Service 层编排业务逻辑（抓取、去重、摘要、关注列表）
+- Service 层编排业务逻辑（抓取、摘要、关注列表）
 - 支持双 LLM 提供商（MiniMax / OpenRouter）
 
 ### 未来阶段: Agent 集成 (按需)

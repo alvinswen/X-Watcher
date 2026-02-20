@@ -16,10 +16,6 @@ vi.mock("@/api", () => ({
     batchSummarize: vi.fn(),
     getTaskStatus: vi.fn(),
   },
-  dedupApi: {
-    batchDeduplicate: vi.fn(),
-    getTaskStatus: vi.fn(),
-  },
 }))
 
 // Mock polling service
@@ -56,7 +52,6 @@ const mockTweets: TweetListItem[] = [
     reference_type: null,
     referenced_tweet_id: null,
     has_summary: true,
-    has_deduplication: false,
     media_count: 0,
   },
   {
@@ -69,7 +64,6 @@ const mockTweets: TweetListItem[] = [
     reference_type: null,
     referenced_tweet_id: null,
     has_summary: false,
-    has_deduplication: true,
     media_count: 1,
   },
 ]

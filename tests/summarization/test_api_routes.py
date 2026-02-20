@@ -425,7 +425,7 @@ class TestTaskStatusEndpoints:
         registry.update_task_status(
             task_id,
             TaskStatus.COMPLETED,
-            result={"total_tweets": 10, "total_groups": 5},
+            result={"total_tweets": 10},
         )
 
         response = client.get(f"/api/summaries/tasks/{task_id}")

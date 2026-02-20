@@ -5,19 +5,16 @@
 - 并发控制
 - 降级逻辑
 - 错误分类
-- 去重组优化处理
-- 独立推文处理（无去重组）
+- 独立推文处理
 """
 
 from collections.abc import Sequence
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import uuid4
 
 import pytest
 
-from src.deduplication.domain.models import DeduplicationGroup, DeduplicationType
 from src.summarization.domain.models import (
     LLMErrorType,
     LLMResponse,
@@ -237,19 +234,6 @@ def mock_llm_response():
     )
 
 
-@pytest.fixture
-def sample_deduplication_group():
-    """创建示例去重组。"""
-    return DeduplicationGroup(
-        group_id=str(uuid4()),
-        representative_tweet_id="rep_tweet_123",
-        deduplication_type=DeduplicationType.exact_duplicate,
-        similarity_score=None,
-        tweet_ids=["rep_tweet_123", "tweet_456", "tweet_789"],
-        created_at=datetime.now(timezone.utc),
-    )
-
-
 class TestSummarizationService:
     """测试 SummarizationService。"""
 
@@ -271,7 +255,6 @@ class TestSummarizationService:
         self,
         mock_repository,
         mock_llm_response,
-        sample_deduplication_group,
     ):
         """测试成功摘要推文。"""
         provider = MockLLMProvider("openrouter", responses=[mock_llm_response])
@@ -281,24 +264,18 @@ class TestSummarizationService:
             providers=[provider],
         )
 
-        # Mock 去重组加载和推文文本加载
-        service._load_deduplication_groups = AsyncMock(
-            return_value=[sample_deduplication_group]
-        )
         service._load_tweets = AsyncMock(
-            return_value={"rep_tweet_123": {"text": "This is a representative tweet that is long enough to trigger summarization and translation by the LLM provider service", "reference_type": None}}
+            return_value={"tweet_123": {"text": "This is a representative tweet that is long enough to trigger summarization and translation by the LLM provider service", "reference_type": None}}
         )
 
         result = await service.summarize_tweets(
-            tweet_ids=["rep_tweet_123", "tweet_456"],
-            deduplication_groups=[sample_deduplication_group],
+            tweet_ids=["tweet_123"],
         )
 
         assert isinstance(result, Success)
         summary_result = result.unwrap()
-        assert summary_result.total_tweets == 2
+        assert summary_result.total_tweets == 1
         assert summary_result.total_tweets_succeeded == 1
-        assert summary_result.total_groups == 1
         assert summary_result.cache_misses == 1
         assert summary_result.total_tokens == 150
         assert summary_result.failed_tweets == []
@@ -308,7 +285,6 @@ class TestSummarizationService:
         self,
         mock_repository,
         mock_llm_response,
-        sample_deduplication_group,
     ):
         """测试缓存逻辑：首次调用 LLM，第二次命中缓存。"""
         provider = MockLLMProvider("openrouter", responses=[mock_llm_response])
@@ -317,17 +293,13 @@ class TestSummarizationService:
             providers=[provider],
         )
 
-        service._load_deduplication_groups = AsyncMock(
-            return_value=[sample_deduplication_group]
-        )
         service._load_tweets = AsyncMock(
-            return_value={"rep_tweet_123": {"text": "This is a representative tweet that is long enough to trigger summarization and translation by the LLM provider service", "reference_type": None}}
+            return_value={"tweet_123": {"text": "This is a representative tweet that is long enough to trigger summarization and translation by the LLM provider service", "reference_type": None}}
         )
 
         # 第一次调用
         result1 = await service.summarize_tweets(
-            tweet_ids=["rep_tweet_123"],
-            deduplication_groups=[sample_deduplication_group],
+            tweet_ids=["tweet_123"],
         )
 
         assert isinstance(result1, Success)
@@ -336,13 +308,11 @@ class TestSummarizationService:
 
         # 第二次调用（应命中缓存）
         result2 = await service.summarize_tweets(
-            tweet_ids=["rep_tweet_123"],
-            deduplication_groups=[sample_deduplication_group],
+            tweet_ids=["tweet_123"],
         )
 
         assert isinstance(result2, Success)
         summary2 = result2.unwrap()
-        # 由于有去重组，应该命中缓存
         assert summary2.cache_hits >= 0
 
     @pytest.mark.asyncio
@@ -350,7 +320,6 @@ class TestSummarizationService:
         self,
         mock_repository,
         mock_llm_response,
-        sample_deduplication_group,
     ):
         """测试强制刷新跳过缓存。"""
         provider = MockLLMProvider(
@@ -361,23 +330,18 @@ class TestSummarizationService:
             providers=[provider],
         )
 
-        service._load_deduplication_groups = AsyncMock(
-            return_value=[sample_deduplication_group]
-        )
         service._load_tweets = AsyncMock(
-            return_value={"rep_tweet_123": {"text": "This is a representative tweet that is long enough to trigger summarization and translation by the LLM provider service", "reference_type": None}}
+            return_value={"tweet_123": {"text": "This is a representative tweet that is long enough to trigger summarization and translation by the LLM provider service", "reference_type": None}}
         )
 
         # 第一次调用
         await service.summarize_tweets(
-            tweet_ids=["rep_tweet_123"],
-            deduplication_groups=[sample_deduplication_group],
+            tweet_ids=["tweet_123"],
         )
 
         # 强制刷新
         result = await service.summarize_tweets(
-            tweet_ids=["rep_tweet_123"],
-            deduplication_groups=[sample_deduplication_group],
+            tweet_ids=["tweet_123"],
             force_refresh=True,
         )
 
@@ -392,20 +356,6 @@ class TestSummarizationService:
         mock_llm_response,
     ):
         """测试并发控制：Semaphore 限制并发数。"""
-        # 创建多个去重组
-        groups = []
-        for i in range(10):
-            groups.append(
-                DeduplicationGroup(
-                    group_id=str(uuid4()),
-                    representative_tweet_id=f"rep_tweet_{i}",
-                    deduplication_type=DeduplicationType.exact_duplicate,
-                    similarity_score=None,
-                    tweet_ids=[f"rep_tweet_{i}", f"tweet_{i}_b"],
-                    created_at=datetime.now(timezone.utc),
-                )
-            )
-
         # 创建返回多个响应的提供商
         provider = MockLLMProvider(
             "openrouter", responses=[mock_llm_response] * 10
@@ -417,29 +367,26 @@ class TestSummarizationService:
             max_concurrent=3,  # 限制并发为 3
         )
 
-        service._load_deduplication_groups = AsyncMock(return_value=groups)
-        # Mock _load_tweets to return text for each representative tweet
+        # Mock _load_tweets to return text for each tweet
         tweets_map = {
-            f"rep_tweet_{i}": {"text": f"This is representative tweet {i} with enough text to trigger summarization and translation by the LLM provider service", "reference_type": None}
+            f"tweet_{i}": {"text": f"This is tweet {i} with enough text to trigger summarization and translation by the LLM provider service", "reference_type": None}
             for i in range(10)
         }
         service._load_tweets = AsyncMock(return_value=tweets_map)
 
         result = await service.summarize_tweets(
-            tweet_ids=[f"rep_tweet_{i}" for i in range(10)],
-            deduplication_groups=groups,
+            tweet_ids=[f"tweet_{i}" for i in range(10)],
         )
 
         assert isinstance(result, Success)
         summary = result.unwrap()
-        assert summary.total_groups == 10
+        assert summary.total_tweets == 10
 
     @pytest.mark.asyncio
     async def test_fallback_openrouter_to_minimax(
         self,
         mock_repository,
         mock_llm_response,
-        sample_deduplication_group,
     ):
         """测试降级逻辑：OpenRouter 失败 → MiniMax 成功。"""
         # OpenRouter 返回永久错误
@@ -472,16 +419,12 @@ class TestSummarizationService:
             providers=[openrouter, minimax],
         )
 
-        service._load_deduplication_groups = AsyncMock(
-            return_value=[sample_deduplication_group]
-        )
         service._load_tweets = AsyncMock(
-            return_value={"rep_tweet_123": {"text": "This is a representative tweet that is long enough to trigger summarization and translation by the LLM provider service", "reference_type": None}}
+            return_value={"tweet_123": {"text": "This is a representative tweet that is long enough to trigger summarization and translation by the LLM provider service", "reference_type": None}}
         )
 
         result = await service.summarize_tweets(
-            tweet_ids=["rep_tweet_123"],
-            deduplication_groups=[sample_deduplication_group],
+            tweet_ids=["tweet_123"],
         )
 
         assert isinstance(result, Success)
@@ -493,7 +436,6 @@ class TestSummarizationService:
     async def test_temporary_error_retry_then_fallback(
         self,
         mock_repository,
-        sample_deduplication_group,
     ):
         """测试临时错误重试：429 错误重试后降级。"""
         # OpenRouter 第一次返回 429 临时错误，第二次也失败
@@ -526,16 +468,12 @@ class TestSummarizationService:
             providers=[openrouter, minimax],
         )
 
-        service._load_deduplication_groups = AsyncMock(
-            return_value=[sample_deduplication_group]
-        )
         service._load_tweets = AsyncMock(
-            return_value={"rep_tweet_123": {"text": "This is a representative tweet that is long enough to trigger summarization and translation by the LLM provider service", "reference_type": None}}
+            return_value={"tweet_123": {"text": "This is a representative tweet that is long enough to trigger summarization and translation by the LLM provider service", "reference_type": None}}
         )
 
         result = await service.summarize_tweets(
-            tweet_ids=["rep_tweet_123"],
-            deduplication_groups=[sample_deduplication_group],
+            tweet_ids=["tweet_123"],
         )
 
         assert isinstance(result, Success)
@@ -547,7 +485,6 @@ class TestSummarizationService:
     async def test_all_providers_fail(
         self,
         mock_repository,
-        sample_deduplication_group,
     ):
         """测试所有提供商失败的情况。"""
         # 所有提供商都返回永久错误
@@ -571,13 +508,8 @@ class TestSummarizationService:
             providers=[openrouter, minimax],
         )
 
-        service._load_deduplication_groups = AsyncMock(
-            return_value=[sample_deduplication_group]
-        )
-
         result = await service.summarize_tweets(
-            tweet_ids=["rep_tweet_123"],
-            deduplication_groups=[sample_deduplication_group],
+            tweet_ids=["tweet_123"],
         )
 
         # 应该返回失败
@@ -743,65 +675,25 @@ class TestSummarizationService:
 
         result = await service.summarize_tweets(
             tweet_ids=[],
-            deduplication_groups=[],
         )
 
         assert isinstance(result, Success)
         summary = result.unwrap()
         assert summary.total_tweets == 0
-        assert summary.total_groups == 0
-        assert summary.independent_tweets == 0
 
     @pytest.mark.asyncio
-    async def test_shared_summary_for_deduplication_group(
-        self,
-        mock_llm_response,
-        sample_deduplication_group,
-    ):
-        """测试同一去重组共享摘要。
-
-        验证 summarize_tweets 对去重组返回 Success，
-        且结果中包含正确的摘要记录。
-        """
-        provider = MockLLMProvider("openrouter", responses=[mock_llm_response])
-        service = SummarizationService(
-            session_factory=create_mock_session_factory(),
-            providers=[provider],
-        )
-
-        service._load_deduplication_groups = AsyncMock(
-            return_value=[sample_deduplication_group]
-        )
-        service._load_tweets = AsyncMock(
-            return_value={"rep_tweet_123": {"text": "This is a representative tweet that is long enough to trigger summarization and translation by the LLM provider service", "reference_type": None}}
-        )
-
-        result = await service.summarize_tweets(
-            tweet_ids=sample_deduplication_group.tweet_ids,
-            deduplication_groups=[sample_deduplication_group],
-        )
-
-        # 验证结果成功且有摘要记录
-        assert isinstance(result, Success)
-        summary_result = result.unwrap()
-        assert summary_result.total_tweets_succeeded >= 1
-        assert summary_result.total_groups == 1
-
-
-    @pytest.mark.asyncio
-    async def test_summarize_independent_tweets_no_dedup_groups(
+    async def test_summarize_independent_tweets(
         self,
         mock_repository,
         mock_llm_response,
     ):
-        """测试无去重组时独立处理推文。"""
+        """测试独立处理推文。"""
         provider = MockLLMProvider("openrouter", responses=[mock_llm_response])
         service = SummarizationService(
             session_factory=create_mock_session_factory(),
             providers=[provider],
         )
 
-        service._load_deduplication_groups = AsyncMock(return_value=[])
         service._load_tweets = AsyncMock(
             return_value={
                 "tweet_standalone": {
@@ -817,75 +709,26 @@ class TestSummarizationService:
         summary_result = result.unwrap()
         assert summary_result.total_tweets == 1
         assert summary_result.total_tweets_succeeded == 1
-        assert summary_result.total_groups == 0
-        assert summary_result.independent_tweets == 1
         assert summary_result.cache_misses == 1
         assert summary_result.failed_tweets == []
 
     @pytest.mark.asyncio
-    async def test_summarize_mixed_grouped_and_independent(
-        self,
-        mock_repository,
-        mock_llm_response,
-        sample_deduplication_group,
-    ):
-        """测试同时处理有去重组和无去重组的推文。"""
-        provider = MockLLMProvider(
-            "openrouter", responses=[mock_llm_response, mock_llm_response]
-        )
-        service = SummarizationService(
-            session_factory=create_mock_session_factory(),
-            providers=[provider],
-        )
-
-        service._load_deduplication_groups = AsyncMock(
-            return_value=[sample_deduplication_group]
-        )
-        service._load_tweets = AsyncMock(
-            return_value={
-                "rep_tweet_123": {
-                    "text": "This is a grouped tweet with enough text to trigger summarization and translation by the LLM provider service",
-                    "reference_type": None,
-                },
-                "standalone_1": {
-                    "text": "This is a standalone tweet with enough text to trigger summarization and translation by the LLM provider service",
-                    "reference_type": None,
-                },
-            }
-        )
-
-        result = await service.summarize_tweets(
-            tweet_ids=["rep_tweet_123", "tweet_456", "standalone_1"],
-            deduplication_groups=[sample_deduplication_group],
-        )
-
-        assert isinstance(result, Success)
-        summary_result = result.unwrap()
-        assert summary_result.total_groups == 1
-        assert summary_result.independent_tweets == 1
-        assert summary_result.total_tweets_succeeded == 2
-        # 应该有 2 个 cache miss（1 个去重组 + 1 个独立推文）
-        assert summary_result.cache_misses == 2
-        assert summary_result.failed_tweets == []
-
-    @pytest.mark.asyncio
-    async def test_regenerate_summary_without_dedup_group(
+    async def test_regenerate_summary(
         self,
         mock_repository,
         mock_llm_response,
     ):
-        """测试无去重组时重新生成摘要。"""
+        """测试重新生成摘要。"""
         provider = MockLLMProvider("openrouter", responses=[mock_llm_response])
         service = SummarizationService(
             session_factory=create_mock_session_factory(),
             providers=[provider],
         )
 
-        service._load_deduplication_groups = AsyncMock(return_value=[])
         service._load_tweets = AsyncMock(
             return_value={
                 "orphan_tweet": {
-                    "text": "An orphan tweet without dedup group with enough text to trigger summarization and translation by the LLM provider service",
+                    "text": "An orphan tweet with enough text to trigger summarization and translation by the LLM provider service",
                     "reference_type": None,
                 }
             }
@@ -1177,8 +1020,6 @@ class TestFailureTracking:
             providers=[provider],
         )
 
-        service._load_deduplication_groups = AsyncMock(return_value=[])
-
         # 直接 mock _process_single_tweet 控制每条推文的结果
         call_count = 0
         original_process = service._process_single_tweet
@@ -1217,74 +1058,6 @@ class TestFailureTracking:
         assert summary_result.failed_tweets[0]["error_type"] == "llm_failure"
 
     @pytest.mark.asyncio
-    async def test_partial_group_failure_tracks_failed_ids(
-        self, mock_repository, mock_llm_response,
-    ):
-        """测试部分去重组失败时记录组内所有推文。"""
-        group_ok = DeduplicationGroup(
-            group_id="group-ok",
-            representative_tweet_id="rep_ok",
-            deduplication_type=DeduplicationType.exact_duplicate,
-            similarity_score=None,
-            tweet_ids=["rep_ok", "dup_ok"],
-            created_at=datetime.now(timezone.utc),
-        )
-        group_fail = DeduplicationGroup(
-            group_id="group-fail",
-            representative_tweet_id="rep_fail",
-            deduplication_type=DeduplicationType.exact_duplicate,
-            similarity_score=None,
-            tweet_ids=["rep_fail", "dup_fail1", "dup_fail2"],
-            created_at=datetime.now(timezone.utc),
-        )
-
-        provider = MockLLMProvider("openrouter", responses=[mock_llm_response])
-        service = SummarizationService(
-            session_factory=create_mock_session_factory(),
-            providers=[provider],
-        )
-
-        service._load_deduplication_groups = AsyncMock(
-            return_value=[group_ok, group_fail]
-        )
-
-        async def mock_process_group(group, force_refresh):
-            if group.group_id == "group-fail":
-                return None
-            # 模拟成功
-            return SummaryRecord(
-                summary_id="s1",
-                tweet_id=group.representative_tweet_id,
-                summary_text="这是一条测试摘要，包含了足够长的内容以满足最小长度要求。" * 2,
-                translation_text="Test translation",
-                model_provider="openrouter",
-                model_name="test",
-                prompt_tokens=100,
-                completion_tokens=50,
-                total_tokens=150,
-                cost_usd=0.001,
-                cached=False,
-                content_hash="hash1",
-                created_at=datetime.now(timezone.utc),
-                updated_at=datetime.now(timezone.utc),
-            )
-
-        service._process_deduplication_group = mock_process_group  # type: ignore
-
-        result = await service.summarize_tweets(
-            tweet_ids=["rep_ok", "dup_ok", "rep_fail", "dup_fail1", "dup_fail2"],
-            deduplication_groups=[group_ok, group_fail],
-        )
-
-        assert isinstance(result, Success)
-        summary_result = result.unwrap()
-        assert summary_result.total_tweets == 5
-        assert summary_result.total_tweets_succeeded == 1  # 只有 group_ok 成功
-        assert len(summary_result.failed_tweets) == 3  # group_fail 的 3 条推文
-        failed_ids = {f["tweet_id"] for f in summary_result.failed_tweets}
-        assert failed_ids == {"rep_fail", "dup_fail1", "dup_fail2"}
-
-    @pytest.mark.asyncio
     async def test_per_tweet_retry_recovers_transient_failure(
         self, mock_repository, mock_llm_response,
     ):
@@ -1294,8 +1067,6 @@ class TestFailureTracking:
             session_factory=create_mock_session_factory(),
             providers=[provider],
         )
-
-        service._load_deduplication_groups = AsyncMock(return_value=[])
 
         # 第一次调用失败，第二次（重试）成功
         attempt_count = {}
@@ -1345,8 +1116,6 @@ class TestFailureTracking:
             session_factory=create_mock_session_factory(),
             providers=[provider],
         )
-
-        service._load_deduplication_groups = AsyncMock(return_value=[])
 
         async def mock_process(tweet_id, force_refresh):
             return None  # 永远失败

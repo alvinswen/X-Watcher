@@ -38,7 +38,6 @@ _DISPLAY_EXTRA_KEYS = frozenset({
     "cache_hits",
     "cache_misses",
     "total_tweets",
-    "total_groups",
     "processing_time_ms",
     "retry_attempt",
     "wait_seconds",

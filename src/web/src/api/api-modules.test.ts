@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest"
 import type { Mocked } from "vitest"
 import type { AxiosInstance } from "axios"
 
-// --- Mock 策略 1: client（scheduler / users / summaries / dedup 共用） ---
+// --- Mock 策略 1: client（scheduler / users / summaries 共用） ---
 vi.mock("./client", () => {
   const client = {
     get: vi.fn(),
@@ -29,7 +29,6 @@ import { schedulerApi } from "./scheduler"
 import { usersApi } from "./users"
 import { healthApi } from "./health"
 import { summariesApi } from "./summaries"
-import { dedupApi } from "./dedup"
 
 const mockedClient = client as Mocked<Pick<AxiosInstance, "get" | "post" | "put">>
 const mockedAxios = axios as Mocked<Pick<typeof axios, "get">>
@@ -318,44 +317,3 @@ describe("summariesApi - 摘要 API", () => {
   })
 })
 
-// ============================================================
-// dedupApi
-// ============================================================
-describe("dedupApi - 去重 API", () => {
-  beforeEach(() => {
-    vi.resetAllMocks()
-  })
-
-  it("batchDeduplicate 应发送 POST 请求到 /deduplicate/batch 并携带请求体", async () => {
-    const tweetIds = ["t-1", "t-2"]
-    const mockData = { task_id: "dedup-task-1", status: "pending" }
-    mockedClient.post.mockResolvedValueOnce({ data: mockData })
-
-    const result = await dedupApi.batchDeduplicate(tweetIds)
-
-    expect(mockedClient.post).toHaveBeenCalledWith("/deduplicate/batch", {
-      tweet_ids: tweetIds,
-    })
-    expect(result).toEqual(mockData)
-  })
-
-  it("getTaskStatus 应发送 GET 请求到 /deduplicate/tasks/:id", async () => {
-    const mockData = {
-      task_id: "task-1",
-      status: "running",
-      result: null,
-      error: null,
-      created_at: "2025-01-01T00:00:00Z",
-      started_at: "2025-01-01T00:00:01Z",
-      completed_at: null,
-      progress: { current: 1, total: 2, percentage: 50 },
-      metadata: {},
-    }
-    mockedClient.get.mockResolvedValueOnce({ data: mockData })
-
-    const result = await dedupApi.getTaskStatus("task-1")
-
-    expect(mockedClient.get).toHaveBeenCalledWith("/deduplicate/tasks/task-1")
-    expect(result).toEqual(mockData)
-  })
-})

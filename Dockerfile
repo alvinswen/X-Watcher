@@ -22,7 +22,7 @@ RUN npm run build
 # =============================================================================
 FROM python:3.11-slim AS python-deps
 
-# 安装编译依赖（gcc for bcrypt/scikit-learn, libpq-dev for asyncpg）
+# 安装编译依赖（gcc for bcrypt, libpq-dev for asyncpg）
 RUN apt-get update \
     && apt-get install -y --no-install-recommends gcc g++ libpq-dev \
     && rm -rf /var/lib/apt/lists/*

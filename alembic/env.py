@@ -16,7 +16,7 @@ from src.database.models import Base
 
 # 导入所有 ORM 模型以确保它们被注册到 Base.metadata
 # 必须导入所有继承自 Base 的模型类
-import src.scraper.infrastructure.models  # noqa: F401 导入 TweetOrm, DeduplicationGroupOrm
+import src.scraper.infrastructure.models  # noqa: F401 导入 TweetOrm
 import src.scraper.infrastructure.fetch_stats_models  # noqa: F401 导入 FetchStatsOrm
 import src.scraper.infrastructure.scheduler_log_models  # noqa: F401 导入 SchedulerExecutionLogOrm
 import src.summarization.infrastructure.models  # noqa: F401 导入 SummaryOrm

@@ -13,6 +13,7 @@ import type {
   TopicSummaryTaskDetail,
   CreateSummaryTaskRequest,
   ImagePromptResponse,
+  LatestSummaryResponse,
 } from "@/types/topic"
 
 const TOPICS_PREFIX = "/topics"
@@ -98,6 +99,15 @@ export const topicsApi = {
   async generateImagePrompt(taskId: number): Promise<ImagePromptResponse> {
     const response = await client.post<ImagePromptResponse>(
       `${SUMMARY_TASKS_PREFIX}/${taskId}/generate-image-prompt`,
+    )
+    return response.data
+  },
+
+  // ── 最新摘要 ──
+
+  async getLatestSummary(topicId: number): Promise<LatestSummaryResponse> {
+    const response = await client.get<LatestSummaryResponse>(
+      `${TOPICS_PREFIX}/${topicId}/latest-summary`,
     )
     return response.data
   },

@@ -6,7 +6,7 @@
 
 ## 项目概况
 
-X-watcher 是一个面向 AI Agent 的 X 平台（Twitter）智能信息监控服务，提供推文抓取、内容去重、AI 摘要、偏好管理、Feed API 等核心能力。项目采用六边形架构（Hexagonal Architecture），具备完善的测试体系和文档。
+X-watcher 是一个面向 AI Agent 的 X 平台（Twitter）智能信息监控服务，提供推文抓取、AI 摘要、偏好管理、Feed API 等核心能力。项目采用六边形架构（Hexagonal Architecture），具备完善的测试体系和文档。
 
 ### 核心指标
 
@@ -25,7 +25,6 @@ X-watcher 是一个面向 AI Agent 的 X 平台（Twitter）智能信息监控�
 | 模块 | 测试覆盖 | API | 说明 |
 |------|---------|-----|------|
 | 推文抓取 (scraper) | 11+ 测试文件 | 4 端点 | TwitterAPI.io 集成，引用关系处理，动态 limit（EMA） |
-| 内容去重 (deduplication) | 5+ 测试文件 | 5 端点 | 基于 scikit-learn 文本相似度检测 |
 | AI 摘要 (summarization) | 8+ 测试文件 | 6 端点 | 双 LLM（MiniMax / OpenRouter），智能长度策略 |
 | 用户偏好 (preference) | 6+ 测试文件 | 10+ 端点 | 关注管理、过滤规则、相关性排序 |
 | Feed API (feed) | 2+ 测试文件 | 1 端点 | 增量拉取，时间范围查询 |
@@ -142,7 +141,6 @@ X-watcher 是一个面向 AI Agent 的 X 平台（Twitter）智能信息监控�
 | `src/agent/config.py:8` | 安装 nanobot-ai |
 | `src/agent/config.py:72` | 实现 Nanobot 集成 |
 | `src/agent/config.py:77` | 实现 Nanobot Agent 创建逻辑 |
-| `src/api/routes/tweets.py:278` | 通过查询 deduplication_groups 表获取去重信息 |
 | `src/summarization/services/summarization_service.py:1168` | 实现开源模型提供商 |
 
 ---
@@ -155,7 +153,6 @@ X-watcher 是一个面向 AI Agent 的 X 平台（Twitter）智能信息监控�
 |------|------|-------------|--------|-------|------|
 | project-init-zh | implemented | ✅ | ✅ | ✅ | 完成 |
 | news-scraper-zh | completed | ✅ | ✅ | ✅ | 完成 |
-| news-deduplicator-zh | completed | ✅ | ✅ | ✅ | 完成 |
 | news-summarizer-zh | completed | ✅ | ✅ | ✅ | 完成 |
 | preference-manager-zh | completed | ✅ | ✅ | ✅ | 完成 |
 | scheduler-admin-zh | completed | ✅ | ✅ | ✅ | 完成 |

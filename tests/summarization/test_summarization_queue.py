@@ -325,7 +325,7 @@ async def test_worker_processes_multiple_requests(mock_settings, mock_registry):
 
     # 入队多个请求
     await queue.enqueue(["t1", "t2"], source="scraping")
-    await queue.enqueue(["t3", "t4"], source="deduplication")
+    await queue.enqueue(["t3", "t4"], source="batch_api")
 
     # 等待处理
     await asyncio.sleep(1.0)
@@ -601,7 +601,6 @@ async def test_task_not_completed_until_all_chunks_done(mock_settings, mock_regi
 
     mock_result = SummaryResult(
         total_tweets=50, total_tweets_succeeded=50,
-        total_groups=10, independent_tweets=0,
         cache_hits=5, cache_misses=45, total_tokens=1000,
         total_cost_usd=0.01, providers_used={"openrouter": 45},
         processing_time_ms=500,
@@ -664,7 +663,6 @@ async def test_partial_chunk_failure_still_completes(mock_settings, mock_registr
 
     mock_result = SummaryResult(
         total_tweets=50, total_tweets_succeeded=50,
-        total_groups=10, independent_tweets=0,
         cache_hits=5, cache_misses=45, total_tokens=1000,
         total_cost_usd=0.01, providers_used={"openrouter": 45},
         processing_time_ms=500,
@@ -749,7 +747,6 @@ def test_classify_task_type():
     assert SummarizationQueue._classify_task_type("batch_api", False) == "backfill"
     assert SummarizationQueue._classify_task_type("batch_api", True) == "reset"
     assert SummarizationQueue._classify_task_type("scraping", False) == "scraping"
-    assert SummarizationQueue._classify_task_type("deduplication", False) == "deduplication"
     assert SummarizationQueue._classify_task_type("retry", False) == "retry"
     assert SummarizationQueue._classify_task_type("unknown_source", False) == "unknown"
 
@@ -769,14 +766,13 @@ async def test_chunk_success_propagates_individual_failures(mock_settings, mock_
     # 模拟分块成功但包含个别推文失败
     mock_result = SummaryResult(
         total_tweets=50, total_tweets_succeeded=47,
-        total_groups=0, independent_tweets=50,
         cache_hits=0, cache_misses=47, total_tokens=1000,
         total_cost_usd=0.01, providers_used={"openrouter": 47},
         processing_time_ms=500,
         failed_tweets=[
-            {"tweet_id": "t1", "error_type": "llm_failure", "error_message": "timeout", "group_id": None},
-            {"tweet_id": "t2", "error_type": "llm_failure", "error_message": "rate limit", "group_id": None},
-            {"tweet_id": "t3", "error_type": "llm_failure", "error_message": "parse error", "group_id": None},
+            {"tweet_id": "t1", "error_type": "llm_failure", "error_message": "timeout"},
+            {"tweet_id": "t2", "error_type": "llm_failure", "error_message": "rate limit"},
+            {"tweet_id": "t3", "error_type": "llm_failure", "error_message": "parse error"},
         ],
     )
 
@@ -811,13 +807,12 @@ async def test_total_tweets_summarized_uses_succeeded_count(mock_settings, mock_
     # 第一个分块：50 输入，45 成功
     result1 = SummaryResult(
         total_tweets=50, total_tweets_succeeded=45,
-        total_groups=0, independent_tweets=50,
         cache_hits=0, cache_misses=45, total_tokens=500,
         total_cost_usd=0.005, providers_used={"openrouter": 45},
         processing_time_ms=300,
         failed_tweets=[
             {"tweet_id": f"f{i}", "error_type": "llm_failure",
-             "error_message": "error", "group_id": None}
+             "error_message": "error"}
             for i in range(5)
         ],
     )
@@ -830,13 +825,12 @@ async def test_total_tweets_summarized_uses_succeeded_count(mock_settings, mock_
     # 第二个分块：50 输入，48 成功
     result2 = SummaryResult(
         total_tweets=50, total_tweets_succeeded=48,
-        total_groups=0, independent_tweets=50,
         cache_hits=0, cache_misses=48, total_tokens=600,
         total_cost_usd=0.006, providers_used={"openrouter": 48},
         processing_time_ms=400,
         failed_tweets=[
             {"tweet_id": f"g{i}", "error_type": "llm_failure",
-             "error_message": "error", "group_id": None}
+             "error_message": "error"}
             for i in range(2)
         ],
     )

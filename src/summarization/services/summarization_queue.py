@@ -1,7 +1,7 @@
 """摘要任务队列。
 
 集中管理摘要任务的调度、并发控制和重试。
-替代散落在 ScrapingService 和 DeduplicationService 中的 fire-and-forget 模式。
+替代散落在 ScrapingService 中的 fire-and-forget 模式。
 
 设计要点：
 - 使用 asyncio.PriorityQueue 实现有界优先级队列
@@ -66,7 +66,6 @@ class ChunkTracker:
     # 聚合统计
     total_tweets_requested: int = 0
     total_tweets_summarized: int = 0
-    total_groups: int = 0
     cache_hits: int = 0
     cache_misses: int = 0
     total_tokens: int = 0
@@ -95,7 +94,6 @@ class ChunkTracker:
             "total_tweets_summarized": self.total_tweets_summarized,
             # 兼容旧字段名（保持向后兼容）
             "total_tweets": self.total_tweets_summarized,
-            "total_groups": self.total_groups,
             "cache_hits": self.cache_hits,
             "cache_misses": self.cache_misses,
             "total_tokens": self.total_tokens,
@@ -247,7 +245,7 @@ class SummarizationQueue:
         Args:
             tweet_ids: 推文 ID 列表
             force_refresh: 是否强制刷新缓存
-            source: 触发来源（scraping/deduplication/batch_api/retry）
+            source: 触发来源（scraping/batch_api/retry）
             priority: 优先级
             task_id: 任务 ID（可选，未提供时自动创建）
 
@@ -523,7 +521,6 @@ class SummarizationQueue:
         logger.info(
             f"Worker 处理完成: chunk {request.chunk_index + 1}/{request.total_chunks}, "
             f"{summary_result.total_tweets} 条推文, "
-            f"{summary_result.total_groups} 个组, "
             f"缓存命中 {summary_result.cache_hits}, "
             f"成本 ${summary_result.total_cost_usd:.4f}"
         )
@@ -561,7 +558,6 @@ class SummarizationQueue:
                 result={
                     "total_tweets": summary_result.total_tweets,
                     "total_tweets_succeeded": summary_result.total_tweets_succeeded,
-                    "total_groups": summary_result.total_groups,
                     "cache_hits": summary_result.cache_hits,
                     "cache_misses": summary_result.cache_misses,
                     "total_tokens": summary_result.total_tokens,
@@ -576,7 +572,6 @@ class SummarizationQueue:
         # 聚合到 tracker
         tracker.completed_chunks += 1
         tracker.total_tweets_summarized += summary_result.total_tweets_succeeded
-        tracker.total_groups += summary_result.total_groups
         tracker.cache_hits += summary_result.cache_hits
         tracker.cache_misses += summary_result.cache_misses
         tracker.total_tokens += summary_result.total_tokens
@@ -600,7 +595,6 @@ class SummarizationQueue:
             "total_tweets": summary_result.total_tweets,
             "total_tweets_succeeded": summary_result.total_tweets_succeeded,
             "failed_count": len(summary_result.failed_tweets),
-            "total_groups": summary_result.total_groups,
             "cache_hits": summary_result.cache_hits,
             "cache_misses": summary_result.cache_misses,
             "total_tokens": summary_result.total_tokens,
@@ -792,8 +786,6 @@ class SummarizationQueue:
             return "backfill"
         elif source == "scraping":
             return "scraping"
-        elif source == "deduplication":
-            return "deduplication"
         elif source == "retry":
             return "retry"
         return "unknown"

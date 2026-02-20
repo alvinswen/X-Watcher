@@ -1,6 +1,6 @@
 """端到端集成测试。
 
-测试完整的抓取 → 去重 → 摘要流程。
+测试完整的抓取 → 摘要流程。
 """
 
 import os
@@ -10,10 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from sqlalchemy import select
 
-from src.deduplication.domain.models import DeduplicationType
-from src.deduplication.infrastructure.repository import DeduplicationRepository
-from src.deduplication.services.deduplication_service import DeduplicationService
-from src.scraper import TaskStatus, TaskRegistry
+from src.scraper import TaskRegistry
 from src.scraper.domain.models import Tweet
 from src.scraper.infrastructure.models import TweetOrm
 from src.summarization.domain.models import (
@@ -71,10 +68,7 @@ def clean_registry():
 
 @pytest.fixture
 def sample_tweets() -> list[Tweet]:
-    """创建示例推文数据。
-
-    包含一些重复和相似的推文用于测试。
-    """
+    """创建示例推文数据。"""
     now = datetime.now(timezone.utc)
 
     return [
@@ -87,144 +81,16 @@ def sample_tweets() -> list[Tweet]:
         Tweet(
             tweet_id="tweet2",
             author_username="user2",
-            text="This is the first tweet about AI",  # 精确重复
+            text="AI is transforming technology rapidly",
             created_at=now,
         ),
         Tweet(
             tweet_id="tweet3",
             author_username="user3",
-            text="AI is transforming technology rapidly",
-            created_at=now,
-        ),
-        Tweet(
-            tweet_id="tweet4",
-            author_username="user4",
-            text="Artificial Intelligence changes tech fast",  # 相似内容
+            text="Artificial Intelligence changes tech fast",
             created_at=now,
         ),
     ]
-
-
-class TestEndToEndDeduplicationSummarization:
-    """测试去重 → 摘要端到端流程。"""
-
-    @pytest.mark.asyncio
-    async def test_deduplication_triggers_summarization(
-        self,
-        async_session,
-        sample_tweets,
-        clean_registry,
-    ):
-        """测试去重完成后自动触发摘要队列入队。"""
-        # 1. 保存推文到数据库
-        for tweet in sample_tweets:
-            orm = TweetOrm.from_domain(tweet)
-            async_session.add(orm)
-        await async_session.commit()
-
-        # 2. Mock SummarizationQueue
-        mock_queue = MagicMock()
-        mock_queue.enqueue = AsyncMock(return_value="mock-task-id")
-        mock_queue._loop = asyncio.get_running_loop()
-
-        # 3. 创建去重服务
-        dedup_repo = DeduplicationRepository(async_session)
-        dedup_service = DeduplicationService(
-            repository=dedup_repo,
-            task_registry=TaskRegistry.get_instance(),
-        )
-
-        # 4. 执行去重（with mocked queue）
-        with patch(
-            "src.summarization.services.summarization_queue.SummarizationQueue.get_instance",
-            return_value=mock_queue,
-        ):
-            tweet_ids = [t.tweet_id for t in sample_tweets]
-            result = await dedup_service.deduplicate_tweets(tweet_ids)
-
-        # 5. 验证去重结果
-        assert result.total_tweets == 4
-        assert result.exact_duplicate_count == 1  # tweet1 和 tweet2
-        # 相似内容检测取决于算法阈值和实现，这里只验证不为负数
-        assert result.similar_content_count >= 0
-
-        # 6. 验证摘要队列被调用
-        mock_queue.enqueue.assert_called_once()
-        call_args = mock_queue.enqueue.call_args
-        # 代表推文 ID 列表作为第一个位置参数
-        assert len(call_args[0][0]) > 0
-        assert call_args[1]["source"] == "deduplication"
-
-    @pytest.mark.asyncio
-    async def test_deduplication_without_summarization_service(
-        self,
-        async_session,
-        sample_tweets,
-    ):
-        """测试未配置摘要服务时，去重正常工作。"""
-        # 保存推文
-        for tweet in sample_tweets:
-            orm = TweetOrm.from_domain(tweet)
-            async_session.add(orm)
-        await async_session.commit()
-
-        # 创建去重服务（不带摘要服务）
-        dedup_repo = DeduplicationRepository(async_session)
-        dedup_service = DeduplicationService(
-            repository=dedup_repo,
-            summarization_service=None,
-        )
-
-        # 执行去重
-        tweet_ids = [t.tweet_id for t in sample_tweets]
-        result = await dedup_service.deduplicate_tweets(tweet_ids)
-
-        # 验证去重正常完成
-        assert result.total_tweets == 4
-        assert result.exact_duplicate_count >= 1
-
-    @pytest.mark.asyncio
-    async def test_summarization_failure_doesnt_affect_deduplication(
-        self,
-        async_session,
-        sample_tweets,
-        clean_registry,
-    ):
-        """测试摘要入队失败不影响去重结果。"""
-        # 保存推文
-        for tweet in sample_tweets:
-            orm = TweetOrm.from_domain(tweet)
-            async_session.add(orm)
-        await async_session.commit()
-
-        # Mock SummarizationQueue（enqueue 抛出异常）
-        mock_queue = MagicMock()
-        mock_queue.enqueue = AsyncMock(
-            side_effect=Exception("Queue error")
-        )
-        mock_queue._loop = asyncio.get_running_loop()
-
-        # 创建去重服务
-        dedup_repo = DeduplicationRepository(async_session)
-        dedup_service = DeduplicationService(
-            repository=dedup_repo,
-            task_registry=TaskRegistry.get_instance(),
-        )
-
-        # 执行去重（with mocked queue that fails）
-        with patch(
-            "src.summarization.services.summarization_queue.SummarizationQueue.get_instance",
-            return_value=mock_queue,
-        ):
-            tweet_ids = [t.tweet_id for t in sample_tweets]
-            result = await dedup_service.deduplicate_tweets(tweet_ids)
-
-        # 验证去重成功完成（即使摘要入队失败）
-        assert result.total_tweets == 4
-        assert result.exact_duplicate_count >= 1
-
-        # 验证 enqueue 被尝试调用
-        mock_queue.enqueue.assert_called_once()
 
 
 class TestCacheMechanism:
@@ -249,29 +115,9 @@ class TestCacheMechanism:
         async_session.add(orm)
         await async_session.commit()
 
-        # 2. 保存去重组
-        from src.deduplication.domain.models import DeduplicationGroup
-        from src.scraper.infrastructure.models import DeduplicationGroupOrm
-
-        group = DeduplicationGroup(
-            group_id="group1",
-            representative_tweet_id="tweet1",
-            deduplication_type=DeduplicationType.exact_duplicate,
-            similarity_score=None,
-            tweet_ids=["tweet1"],
-            created_at=datetime.now(timezone.utc),
-        )
-        group_orm = DeduplicationGroupOrm.from_domain(group)
-        async_session.add(group_orm)
-
-        # 更新推文的去重组 ID
-        stmt = select(TweetOrm).where(TweetOrm.tweet_id == "tweet1")
-        result = await async_session.execute(stmt)
-        tweet_orm = result.scalar_one()
-        tweet_orm.deduplication_group_id = "group1"
         await async_session.commit()
 
-        # 3. 创建摘要服务（使用 mock provider）
+        # 2. 创建摘要服务（使用 mock provider）
         from returns.result import Failure, Success
         from src.summarization.domain.models import LLMResponse
 
@@ -307,7 +153,6 @@ class TestCacheMechanism:
         assert not isinstance(result1, Failure)
         summary_result1 = result1.unwrap()
         assert summary_result1.total_tweets == 1
-        assert summary_result1.total_groups == 1
         assert summary_result1.cache_misses == 1
         assert summary_result1.cache_hits == 0
         assert mock_provider.complete.call_count == 1  # LLM 被调用了 1 次
@@ -321,7 +166,6 @@ class TestCacheMechanism:
         assert not isinstance(result2, Failure)
         summary_result2 = result2.unwrap()
         assert summary_result2.total_tweets == 1
-        assert summary_result2.total_groups == 1
         assert summary_result2.cache_hits == 1
         assert summary_result2.cache_misses == 0
         assert mock_provider.complete.call_count == 1  # LLM 仍然只被调用了 1 次（缓存命中）
@@ -338,7 +182,7 @@ class TestDegradationStrategy:
         clean_registry,
     ):
         """测试 OpenRouter 失败时降级到 MiniMax。"""
-        # 保存推文和去重组
+        # 保存推文
         tweet = Tweet(
             tweet_id="tweet1",
             author_username="user1",
@@ -347,25 +191,6 @@ class TestDegradationStrategy:
         )
         orm = TweetOrm.from_domain(tweet)
         async_session.add(orm)
-
-        from src.deduplication.domain.models import DeduplicationGroup
-        from src.scraper.infrastructure.models import DeduplicationGroupOrm
-
-        group = DeduplicationGroup(
-            group_id="group1",
-            representative_tweet_id="tweet1",
-            deduplication_type=DeduplicationType.exact_duplicate,
-            similarity_score=None,
-            tweet_ids=["tweet1"],
-            created_at=datetime.now(timezone.utc),
-        )
-        group_orm = DeduplicationGroupOrm.from_domain(group)
-        async_session.add(group_orm)
-
-        stmt = select(TweetOrm).where(TweetOrm.tweet_id == "tweet1")
-        result = await async_session.execute(stmt)
-        tweet_orm = result.scalar_one()
-        tweet_orm.deduplication_group_id = "group1"
         await async_session.commit()
 
         # 创建模拟的 OpenRouter（失败）和 MiniMax（成功）
@@ -418,73 +243,6 @@ class TestDegradationStrategy:
         assert summary_result.providers_used.get("openrouter", 0) == 0
 
 
-class TestTransactionConsistency:
-    """测试事务一致性。"""
-
-    @pytest.mark.asyncio
-    async def test_summary_failure_preserves_deduplication(
-        self,
-        async_session,
-        sample_tweets,
-        clean_registry,
-    ):
-        """测试摘要失败时去重结果不受影响。"""
-        # 保存推文
-        for tweet in sample_tweets:
-            orm = TweetOrm.from_domain(tweet)
-            async_session.add(orm)
-        await async_session.commit()
-
-        # 创建去重服务
-        dedup_repo = DeduplicationRepository(async_session)
-
-        # 模拟摘要服务失败
-        mock_summary_service = MagicMock()
-        from returns.result import Failure
-
-        mock_summary_service.summarize_tweets = AsyncMock(
-            return_value=Failure(Exception("Summary failed"))
-        )
-
-        dedup_service = DeduplicationService(
-            repository=dedup_repo,
-            summarization_service=mock_summary_service,
-            task_registry=TaskRegistry.get_instance(),
-        )
-
-        # 执行去重
-        tweet_ids = [t.tweet_id for t in sample_tweets]
-        dedup_result = await dedup_service.deduplicate_tweets(tweet_ids)
-
-        # 等待后台任务
-        await asyncio.sleep(0.2)
-
-        # 验证去重结果已保存
-        assert dedup_result.total_tweets == 4
-
-        # 验证去重组存在于数据库
-        from src.scraper.infrastructure.models import DeduplicationGroupOrm
-
-        stmt = select(DeduplicationGroupOrm)
-        result = await async_session.execute(stmt)
-        groups = result.scalars().all()
-
-        # 应该有去重组（即使摘要失败）
-        assert len(groups) >= 1
-
-        # 验证推文的去重组 ID 已设置
-        stmt = select(TweetOrm).where(
-            TweetOrm.tweet_id.in_(tweet_ids)
-        )
-        result = await async_session.execute(stmt)
-        tweets = result.scalars().all()
-
-        tweets_with_groups = [
-            t for t in tweets if t.deduplication_group_id is not None
-        ]
-        assert len(tweets_with_groups) > 0
-
-
 class TestIntelligentSummaryLength:
     """测试智能摘要长度策略。"""
 
@@ -507,29 +265,7 @@ class TestIntelligentSummaryLength:
         async_session.add(orm)
         await async_session.commit()
 
-        # 2. 保存去重组
-        from src.deduplication.domain.models import DeduplicationGroup
-        from src.scraper.infrastructure.models import DeduplicationGroupOrm
-
-        group = DeduplicationGroup(
-            group_id="group_short",
-            representative_tweet_id="short_tweet_1",
-            deduplication_type=DeduplicationType.exact_duplicate,
-            similarity_score=None,
-            tweet_ids=["short_tweet_1"],
-            created_at=datetime.now(timezone.utc),
-        )
-        group_orm = DeduplicationGroupOrm.from_domain(group)
-        async_session.add(group_orm)
-
-        # 更新推文的去重组 ID
-        stmt = select(TweetOrm).where(TweetOrm.tweet_id == "short_tweet_1")
-        result = await async_session.execute(stmt)
-        tweet_orm = result.scalar_one()
-        tweet_orm.deduplication_group_id = "group_short"
-        await async_session.commit()
-
-        # 3. 创建 mock provider（短推文也需要调用 LLM 翻译）
+        # 2. 创建 mock provider（短推文也需要调用 LLM 翻译）
         from returns.result import Failure, Success
         from src.summarization.domain.models import LLMResponse
 
@@ -604,28 +340,7 @@ class TestIntelligentSummaryLength:
         async_session.add(orm)
         await async_session.commit()
 
-        # 2. 保存去重组
-        from src.deduplication.domain.models import DeduplicationGroup
-        from src.scraper.infrastructure.models import DeduplicationGroupOrm
-
-        group = DeduplicationGroup(
-            group_id="group_long",
-            representative_tweet_id="long_tweet_1",
-            deduplication_type=DeduplicationType.exact_duplicate,
-            similarity_score=None,
-            tweet_ids=["long_tweet_1"],
-            created_at=datetime.now(timezone.utc),
-        )
-        group_orm = DeduplicationGroupOrm.from_domain(group)
-        async_session.add(group_orm)
-
-        stmt = select(TweetOrm).where(TweetOrm.tweet_id == "long_tweet_1")
-        result = await async_session.execute(stmt)
-        tweet_orm = result.scalar_one()
-        tweet_orm.deduplication_group_id = "group_long"
-        await async_session.commit()
-
-        # 3. 创建 mock provider
+        # 2. 创建 mock provider
         from returns.result import Failure, Success
         from src.summarization.domain.models import LLMResponse
 
@@ -682,5 +397,3 @@ class TestIntelligentSummaryLength:
         assert summary_orm.total_tokens > 0
 
 
-# 导入 asyncio 用于延迟
-import asyncio

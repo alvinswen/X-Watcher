@@ -30,7 +30,7 @@ class Settings(BaseSettings):
         default=None, description="MiniMax API 密钥（旧格式，建议改用 LLM_PROVIDERS）"
     )
     minimax_base_url: str = Field(
-        default="https://api.minimaxi.com",
+        default="https://api.minimaxi.com/v1",
         description="MiniMax API 地址"
     )
 

@@ -22,7 +22,6 @@ from src.user.api.auth import get_current_admin_user
 from src.user.domain.models import BOOTSTRAP_ADMIN
 
 # 导入所有 ORM 模型以确保表注册
-from src.scraper.infrastructure.models import DeduplicationGroupOrm  # noqa: F401
 from src.summarization.infrastructure.models import SummaryOrm  # noqa: F401
 
 

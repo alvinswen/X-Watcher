@@ -173,7 +173,6 @@ class TestSummaryResult:
         """测试创建有效的处理结果。"""
         result = SummaryResult(
             total_tweets=10,
-            total_groups=5,
             cache_hits=3,
             cache_misses=2,
             total_tokens=1500,
@@ -182,14 +181,14 @@ class TestSummaryResult:
             processing_time_ms=5000,
         )
         assert result.total_tweets == 10
-        assert result.cache_hits + result.cache_misses == result.total_groups
+        assert result.cache_hits == 3
+        assert result.cache_misses == 2
         assert "openrouter" in result.providers_used
 
     def test_summary_result_cache_calculation(self):
         """测试缓存统计计算。"""
         result = SummaryResult(
             total_tweets=100,
-            total_groups=50,
             cache_hits=30,
             cache_misses=20,
             total_tokens=10000,
@@ -197,14 +196,14 @@ class TestSummaryResult:
             providers_used={"openrouter": 20},
             processing_time_ms=30000,
         )
-        cache_hit_rate = result.cache_hits / result.total_groups
+        total_processed = result.cache_hits + result.cache_misses
+        cache_hit_rate = result.cache_hits / total_processed
         assert cache_hit_rate == 0.6  # 30/50
 
     def test_summary_result_multiple_providers(self):
         """测试多个提供商的使用统计。"""
         result = SummaryResult(
             total_tweets=20,
-            total_groups=10,
             cache_hits=5,
             cache_misses=5,
             total_tokens=2000,
@@ -223,7 +222,6 @@ class TestSummaryResult:
         """测试成本计算。"""
         result = SummaryResult(
             total_tweets=50,
-            total_groups=25,
             cache_hits=10,
             cache_misses=15,
             total_tokens=5000,

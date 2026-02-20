@@ -103,10 +103,9 @@ class TweetFailure(BaseModel):
     tweet_id: str = Field(..., description="失败的推文 ID")
     error_type: str = Field(
         ...,
-        description="错误类型: llm_failure / processing_error / group_failure",
+        description="错误类型: llm_failure / processing_error",
     )
     error_message: str = Field(..., description="错误详情")
-    group_id: str | None = Field(default=None, description="所属去重组 ID（如适用）")
 
 
 class SummaryResult(BaseModel):
@@ -119,8 +118,6 @@ class SummaryResult(BaseModel):
     total_tweets_succeeded: int = Field(
         0, ge=0, description="实际成功处理的推文数"
     )
-    total_groups: int = Field(..., ge=0, description="处理的去重组数")
-    independent_tweets: int = Field(0, ge=0, description="独立处理的推文数")
     cache_hits: int = Field(..., ge=0, description="缓存命中数")
     cache_misses: int = Field(..., ge=0, description="缓存未命中数")
     total_tokens: int = Field(..., ge=0, description="总 token 使用数")

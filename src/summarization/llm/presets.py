@@ -71,8 +71,8 @@ MINIMAX = _register(
     ProviderPreset(
         slug="minimax",
         display_name="MiniMax",
-        base_url="https://api.minimaxi.com",
-        default_model="abab6.5s-chat",
+        base_url="https://api.minimaxi.com/v1",
+        default_model="MiniMax-M2.5",
         cost_info=CostInfo(
             input_cost_per_1k=0.015,
             output_cost_per_1k=0.015,

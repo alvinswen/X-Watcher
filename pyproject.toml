@@ -48,9 +48,6 @@ dependencies = [
     # Result 类型
     "returns>=0.23.0",
 
-    # 文本处理 (去重功能)
-    "scikit-learn>=1.8.0",
-
     # 监控
     "prometheus-client>=0.19.0",
 
@@ -195,6 +192,5 @@ module = [
     "nanobot.*",
     "apscheduler.*",
     "returns.*",
-    "sklearn.*",
 ]
 ignore_missing_imports = true

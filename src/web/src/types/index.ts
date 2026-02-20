@@ -7,6 +7,8 @@ export * from "./user"
 export * from "./health"
 export * from "./browse"
 export * from "./topic"
+export * from "./status"
+export * from "./search"
 
 /** API 错误响应。 */
 export interface ApiError {

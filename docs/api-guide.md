@@ -8,7 +8,6 @@
 - [推文 API](#推文-api)
 - [抓取 API](#抓取-api)
 - [抓取配置 API](#抓取配置-api)
-- [去重 API](#去重-api)
 - [摘要 API](#摘要-api)
 - [关注列表 API](#关注列表-api)
 - [监控 API](#监控-api)
@@ -83,7 +82,6 @@ curl "http://localhost:8000/api/tweets?author=elonmusk"
       "reference_type": "retweeted",
       "referenced_tweet_id": null,
       "has_summary": true,
-      "has_deduplication": false,
       "media_count": 0
     }
   ],
@@ -103,7 +101,7 @@ curl "http://localhost:8000/api/tweets?author=elonmusk"
 curl "http://localhost:8000/api/tweets/1234567890"
 ```
 
-**响应**: 在列表项字段基础上，额外包含 `media`（媒体附件）、`summary`（摘要信息）、`deduplication`（去重信息）。
+**响应**: 在列表项字段基础上，额外包含 `media`（媒体附件）、`summary`（摘要信息）。
 
 ---
 
@@ -297,107 +295,6 @@ curl -X PUT "http://localhost:8000/api/admin/scraping/follows/elonmusk" \
 ```bash
 curl -X DELETE "http://localhost:8000/api/admin/scraping/follows/elonmusk" \
   -H "X-API-Key: your_admin_api_key"
-```
-
----
-
-## 去重 API
-
-去重 API 用于识别和合并重复或相似的推文内容。
-
-### 1. 批量去重
-
-对指定推文列表执行去重操作。
-
-**端点**: `POST /api/deduplicate/batch`
-
-**请求参数**:
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| tweet_ids | array[string] | 是 | 推文 ID 列表，最多 10000 条 |
-| config | object | 否 | 去重配置（可选） |
-
-**请求示例**:
-```bash
-curl -X POST "http://localhost:8000/api/deduplicate/batch" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "tweet_ids": [
-      "1234567890",
-      "0987654321",
-      "1122334455"
-    ]
-  }'
-```
-
-**响应** (202 Accepted):
-```json
-{
-  "task_id": "b2c3d4e5-f6g7-8901-bcde-fg2345678901",
-  "status": "pending"
-}
-```
-
-### 2. 查询去重组
-
-查询指定去重组的详细信息。
-
-**端点**: `GET /api/deduplicate/groups/{group_id}`
-
-**请求示例**:
-```bash
-curl "http://localhost:8000/api/deduplicate/groups/grp_123456"
-```
-
-**响应**:
-```json
-{
-  "group_id": "grp_123456",
-  "representative_tweet_id": "1234567890",
-  "deduplication_type": "similar_content",
-  "similarity_score": 0.92,
-  "tweet_ids": ["1234567890", "0987654321"],
-  "created_at": "2025-01-15T11:00:00"
-}
-```
-
-**去重类型说明**:
-
-| 类型 | 说明 |
-|------|------|
-| exact_duplicate | 完全相同的推文 |
-| similar_content | 相似内容的推文（基于文本相似度） |
-
-### 3. 查询推文去重状态
-
-查询指定推文的去重信息。
-
-**端点**: `GET /api/deduplicate/tweets/{tweet_id}`
-
-**请求示例**:
-```bash
-curl "http://localhost:8000/api/deduplicate/tweets/1234567890"
-```
-
-### 4. 撤销去重
-
-删除去重组，恢复原始推文状态。
-
-**端点**: `DELETE /api/deduplicate/groups/{group_id}`
-
-**请求示例**:
-```bash
-curl -X DELETE "http://localhost:8000/api/deduplicate/groups/grp_123456"
-```
-
-### 5. 查询去重任务状态
-
-**端点**: `GET /api/deduplicate/tasks/{task_id}`
-
-**请求示例**:
-```bash
-curl "http://localhost:8000/api/deduplicate/tasks/b2c3d4e5-f6g7-8901-bcde-fg2345678901"
 ```
 
 ---
@@ -674,21 +571,14 @@ while True:
     print(f"任务状态: {data['status']}, 进度: {data['progress']['percentage']}%")
     time.sleep(2)
 
-# 3. 批量去重
-response = requests.post(
-    f"{BASE_URL}/api/deduplicate/batch",
-    json={"tweet_ids": ["1234567890", "0987654321"]}
-)
-dedup_task_id = response.json()["task_id"]
-
-# 4. 生成摘要
+# 3. 生成摘要
 response = requests.post(
     f"{BASE_URL}/api/summaries/batch",
     json={"tweet_ids": ["1234567890"], "force_refresh": False}
 )
 summary_task_id = response.json()["task_id"]
 
-# 5. 查询推文摘要
+# 4. 查询推文摘要
 response = requests.get(f"{BASE_URL}/api/summaries/tweets/1234567890")
 summary = response.json()
 print(f"摘要: {summary['summary_chinese']}")

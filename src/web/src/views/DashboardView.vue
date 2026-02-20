@@ -1,53 +1,38 @@
 <template>
   <div class="dashboard-view">
-    <!-- 统计卡片 -->
+    <!-- 统计卡片 - 第一行 -->
     <el-row :gutter="16" class="stats-row">
       <el-col :xs="24" :sm="12" :lg="6">
         <el-card shadow="hover" class="stat-card">
-          <el-skeleton v-if="tweetsLoading" :rows="1" animated />
-          <el-alert
-            v-else-if="tweetsError"
-            type="warning"
-            :title="tweetsError"
-            :closable="false"
-            show-icon
-          />
-          <el-statistic v-else title="推文总数" :value="tweetsTotal" />
+          <el-skeleton v-if="overviewLoading" :rows="1" animated />
+          <el-statistic v-else title="推文总数" :value="overview?.tweets.total ?? 0" />
         </el-card>
       </el-col>
       <el-col :xs="24" :sm="12" :lg="6">
         <el-card shadow="hover" class="stat-card">
-          <el-skeleton v-if="followsLoading" :rows="1" animated />
-          <el-alert
-            v-else-if="followsError"
-            type="warning"
-            :title="followsError"
-            :closable="false"
-            show-icon
-          />
-          <el-statistic v-else title="活跃关注数" :value="activeFollowsCount" />
+          <el-skeleton v-if="overviewLoading" :rows="1" animated />
+          <el-statistic v-else title="活跃关注" :value="overview?.follows.active ?? 0" />
         </el-card>
       </el-col>
       <el-col :xs="24" :sm="12" :lg="6">
         <el-card shadow="hover" class="stat-card">
-          <el-skeleton v-if="schedulerLoading" :rows="1" animated />
-          <el-alert
-            v-else-if="schedulerError"
-            type="warning"
-            :title="schedulerError"
-            :closable="false"
-            show-icon
-          />
+          <el-skeleton v-if="overviewLoading" :rows="1" animated />
           <template v-else>
             <div class="scheduler-stat">
               <div class="stat-label">调度器状态</div>
               <div class="stat-value">
-                <el-tag :type="schedulerConfig?.is_enabled ? 'success' : 'danger'" size="large">
-                  {{ schedulerConfig?.is_enabled ? '已启用' : '已禁用' }}
+                <el-tag
+                  :type="overview?.scheduler.status === 'running' ? 'success' : 'danger'"
+                  size="large"
+                >
+                  {{ overview?.scheduler.status === 'running' ? '运行中' : '已停止' }}
                 </el-tag>
               </div>
-              <div class="stat-extra" v-if="schedulerConfig">
-                间隔: {{ formatDuration(schedulerConfig.interval_seconds) }}
+              <div class="stat-extra" v-if="overview?.scheduler.next_run_time">
+                下次运行: {{ formatFullDateTime(overview.scheduler.next_run_time) }}
+              </div>
+              <div class="stat-extra" v-else-if="overview?.scheduler.interval_seconds">
+                间隔: {{ formatDuration(overview.scheduler.interval_seconds) }}
               </div>
             </div>
           </template>
@@ -55,20 +40,41 @@
       </el-col>
       <el-col :xs="24" :sm="12" :lg="6">
         <el-card shadow="hover" class="stat-card">
-          <el-skeleton v-if="costLoading" :rows="1" animated />
-          <el-alert
-            v-else-if="costError"
-            type="warning"
-            :title="costError"
-            :closable="false"
-            show-icon
-          />
+          <el-skeleton v-if="overviewLoading" :rows="1" animated />
+          <el-statistic v-else title="摘要总数" :value="overview?.summaries.total ?? 0" />
+        </el-card>
+      </el-col>
+    </el-row>
+
+    <!-- 统计卡片 - 第二行 -->
+    <el-row :gutter="16" class="stats-row">
+      <el-col :xs="24" :sm="12" :lg="6">
+        <el-card shadow="hover" class="stat-card">
+          <el-skeleton v-if="overviewLoading" :rows="1" animated />
+          <el-statistic v-else title="今日新增" :value="overview?.tweets.today_count ?? 0" />
+        </el-card>
+      </el-col>
+      <el-col :xs="24" :sm="12" :lg="6">
+        <el-card shadow="hover" class="stat-card">
+          <el-skeleton v-if="overviewLoading" :rows="1" animated />
+          <el-statistic v-else title="待摘要推文" :value="overview?.summaries.pending_tweets ?? 0" />
+        </el-card>
+      </el-col>
+      <el-col :xs="24" :sm="12" :lg="6">
+        <el-card shadow="hover" class="stat-card">
+          <el-skeleton v-if="overviewLoading" :rows="1" animated />
+          <el-statistic v-else title="主题数量" :value="overview?.topics.total ?? 0" />
+        </el-card>
+      </el-col>
+      <el-col :xs="24" :sm="12" :lg="6">
+        <el-card shadow="hover" class="stat-card">
+          <el-skeleton v-if="overviewLoading" :rows="1" animated />
           <el-statistic
             v-else
-            title="摘要总成本"
-            :value="costStats?.total_cost_usd ?? 0"
-            :precision="4"
-            prefix="$"
+            title="数据库大小"
+            :value="overview?.system.database_size_mb ?? 0"
+            :precision="1"
+            suffix="MB"
           />
         </el-card>
       </el-col>
@@ -77,26 +83,106 @@
     <!-- 系统健康状态 -->
     <el-card class="section-card">
       <template #header>
-        <span>系统健康状态</span>
+        <div class="section-header">
+          <span>服务连通性检查</span>
+          <el-button
+            text
+            type="primary"
+            size="small"
+            :loading="configLoading"
+            @click="refreshConfig"
+          >
+            刷新
+          </el-button>
+        </div>
       </template>
-      <el-skeleton v-if="healthLoading" :rows="1" animated />
+      <el-skeleton v-if="configLoading" :rows="2" animated />
       <el-alert
-        v-else-if="healthError"
+        v-else-if="configError"
         type="warning"
-        :title="healthError"
+        :title="configError"
         :closable="false"
         show-icon
       />
-      <div v-else-if="healthData" class="health-tags">
-        <el-tag
-          v-for="(info, name) in healthData.components"
-          :key="name"
-          :type="info.status === 'healthy' ? 'success' : 'danger'"
-          size="large"
-          class="health-tag"
-        >
-          {{ name }}: {{ info.status }}
-        </el-tag>
+      <div v-else-if="configData" class="health-section">
+        <!-- LLM 提供商 -->
+        <div class="health-group">
+          <div class="health-group-title">LLM 提供商</div>
+          <div class="health-items">
+            <div
+              v-for="provider in configData.llm_providers"
+              :key="provider.name"
+              class="health-item"
+            >
+              <el-tag
+                :type="provider.status === 'healthy' ? 'success' : 'danger'"
+                size="large"
+                class="health-tag"
+              >
+                {{ provider.name }}
+              </el-tag>
+              <span v-if="provider.model" class="health-detail">{{ provider.model }}</span>
+              <span v-if="provider.latency_ms" class="health-latency">{{ provider.latency_ms }}ms</span>
+              <span v-if="provider.error" class="health-error">{{ provider.error }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Twitter API -->
+        <div class="health-group">
+          <div class="health-group-title">Twitter API</div>
+          <div class="health-items">
+            <div class="health-item">
+              <el-tag
+                :type="configData.twitter_api.status === 'healthy' ? 'success' : 'danger'"
+                size="large"
+                class="health-tag"
+              >
+                {{ configData.twitter_api.status }}
+              </el-tag>
+              <span v-if="configData.twitter_api.latency_ms" class="health-latency">
+                {{ configData.twitter_api.latency_ms }}ms
+              </span>
+              <span v-if="configData.twitter_api.error" class="health-error">
+                {{ configData.twitter_api.error }}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 数据库 -->
+        <div class="health-group">
+          <div class="health-group-title">数据库</div>
+          <div class="health-items">
+            <div class="health-item">
+              <el-tag
+                :type="configData.database.status === 'healthy' ? 'success' : 'danger'"
+                size="large"
+                class="health-tag"
+              >
+                {{ configData.database.status }}
+              </el-tag>
+              <span v-if="configData.database.latency_ms" class="health-latency">
+                {{ configData.database.latency_ms }}ms
+              </span>
+              <span v-if="configData.database.error" class="health-error">
+                {{ configData.database.error }}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 系统信息 -->
+        <div v-if="overview?.system.server_start_time" class="health-group">
+          <div class="health-group-title">系统</div>
+          <div class="health-items">
+            <div class="health-item">
+              <span class="health-detail">
+                启动时间: {{ formatFullDateTime(overview.system.server_start_time) }}
+              </span>
+            </div>
+          </div>
+        </div>
       </div>
     </el-card>
 
@@ -134,39 +220,19 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from "vue"
-import { tweetsApi, followsApi, tasksApi, schedulerApi, healthApi, summariesApi } from "@/api"
-import { formatRelativeTime, formatDuration } from "@/utils/format"
-import type {
-  ScheduleConfig,
-  HealthResponse,
-  CostStats,
-  TaskListItem,
-} from "@/types"
+import { statusApi, configApi, tasksApi } from "@/api"
+import { formatRelativeTime, formatDuration, formatFullDateTime } from "@/utils/format"
+import type { StatusOverviewResponse, ConfigValidateResponse } from "@/types/status"
+import type { TaskListItem } from "@/types"
 
-/** 推文统计 */
-const tweetsTotal = ref(0)
-const tweetsLoading = ref(true)
-const tweetsError = ref("")
+/** 状态概览 */
+const overview = ref<StatusOverviewResponse | null>(null)
+const overviewLoading = ref(true)
 
-/** 活跃关注数 */
-const activeFollowsCount = ref(0)
-const followsLoading = ref(true)
-const followsError = ref("")
-
-/** 调度器配置 */
-const schedulerConfig = ref<ScheduleConfig | null>(null)
-const schedulerLoading = ref(true)
-const schedulerError = ref("")
-
-/** 成本统计 */
-const costStats = ref<CostStats | null>(null)
-const costLoading = ref(true)
-const costError = ref("")
-
-/** 健康状态 */
-const healthData = ref<HealthResponse | null>(null)
-const healthLoading = ref(true)
-const healthError = ref("")
+/** 配置验证 */
+const configData = ref<ConfigValidateResponse | null>(null)
+const configLoading = ref(true)
+const configError = ref("")
 
 /** 最近任务 */
 const recentTasks = ref<TaskListItem[]>([])
@@ -198,68 +264,47 @@ function getStatusText(status: string): string {
   return statusMap[status] || status
 }
 
+/** 刷新配置验证 */
+async function refreshConfig() {
+  configLoading.value = true
+  configError.value = ""
+  try {
+    configData.value = await configApi.validate()
+  } catch {
+    configError.value = "加载服务连通性检查失败"
+  } finally {
+    configLoading.value = false
+  }
+}
+
 /** 并行加载所有数据 */
 async function loadDashboardData() {
   const results = await Promise.allSettled([
-    // 0: 推文总数
-    tweetsApi.getList({ page: 1, page_size: 1 }),
-    // 1: 关注列表
-    followsApi.list(),
-    // 2: 调度器配置
-    schedulerApi.getConfig(),
-    // 3: 成本统计
-    summariesApi.getStats(),
-    // 4: 健康状态
-    healthApi.getStatus(),
-    // 5: 最近任务
+    // 0: 状态概览
+    statusApi.getOverview(),
+    // 1: 配置验证
+    configApi.validate(),
+    // 2: 最近任务
     tasksApi.listTasks(),
   ])
 
-  // 推文总数
+  // 状态概览
   if (results[0].status === "fulfilled") {
-    tweetsTotal.value = results[0].value.total
-  } else {
-    tweetsError.value = "加载推文统计失败"
+    overview.value = results[0].value
   }
-  tweetsLoading.value = false
+  overviewLoading.value = false
 
-  // 活跃关注数
+  // 配置验证
   if (results[1].status === "fulfilled") {
-    activeFollowsCount.value = results[1].value.filter(
-      (f) => f.is_active,
-    ).length
+    configData.value = results[1].value
   } else {
-    followsError.value = "加载关注数据失败"
+    configError.value = "加载服务连通性检查失败"
   }
-  followsLoading.value = false
-
-  // 调度器配置
-  if (results[2].status === "fulfilled") {
-    schedulerConfig.value = results[2].value
-  } else {
-    schedulerError.value = "加载调度器状态失败"
-  }
-  schedulerLoading.value = false
-
-  // 成本统计
-  if (results[3].status === "fulfilled") {
-    costStats.value = results[3].value
-  } else {
-    costError.value = "加载成本统计失败"
-  }
-  costLoading.value = false
-
-  // 健康状态
-  if (results[4].status === "fulfilled") {
-    healthData.value = results[4].value
-  } else {
-    healthError.value = "加载健康状态失败"
-  }
-  healthLoading.value = false
+  configLoading.value = false
 
   // 最近任务
-  if (results[5].status === "fulfilled") {
-    recentTasks.value = results[5].value.slice(0, 5)
+  if (results[2].status === "fulfilled") {
+    recentTasks.value = results[2].value.slice(0, 5)
   } else {
     tasksError.value = "加载任务列表失败"
   }
@@ -315,13 +360,53 @@ onMounted(() => {
   margin-bottom: 1.5rem;
 }
 
-.health-tags {
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.health-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.health-group-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  margin-bottom: 8px;
+}
+
+.health-items {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
 
+.health-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .health-tag {
   font-size: 14px;
+}
+
+.health-detail {
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+}
+
+.health-latency {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+.health-error {
+  font-size: 12px;
+  color: var(--el-color-danger);
 }
 </style>

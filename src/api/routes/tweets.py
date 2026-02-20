@@ -38,7 +38,6 @@ class TweetListItem(UTCDatetimeModel):
     reference_type: str | None = Field(None, description="引用类型")
     referenced_tweet_id: str | None = Field(None, description="引用的推文 ID")
     has_summary: bool = Field(False, description="是否有摘要")
-    has_deduplication: bool = Field(False, description="是否去重")
     media_count: int = Field(0, description="媒体数量")
 
 
@@ -47,7 +46,6 @@ class TweetDetailResponse(TweetListItem):
 
     media: list[dict] | None = Field(None, description="媒体附件")
     summary: dict | None = Field(None, description="摘要信息")
-    deduplication: dict | None = Field(None, description="去重信息")
 
 
 class TweetListResponse(BaseModel):
@@ -213,7 +211,6 @@ async def list_tweets(
                     reference_type=tweet_dict.get("reference_type"),
                     referenced_tweet_id=tweet_dict.get("referenced_tweet_id"),
                     has_summary=has_summary,
-                    has_deduplication=False,  # 暂不查询去重状态
                     media_count=media_count,
                 )
             )
@@ -300,7 +297,6 @@ async def get_tweet_detail(
             "referenced_tweet_id": row.referenced_tweet_id,
             "media": row.media,
             "has_summary": False,
-            "has_deduplication": False,  # 暂不查询去重状态
             "media_count": len(row.media) if row.media else 0,
         }
 
@@ -335,14 +331,9 @@ async def get_tweet_detail(
         except Exception as e:
             logger.warning(f"查询摘要信息失败: {e}")
 
-        # 查询去重信息（暂时跳过，因为需要 deduplication_group_id 列）
-        deduplication = None
-        # TODO: 在数据库迁移后，可以通过查询 deduplication_groups 表获取去重信息
-
         return TweetDetailResponse(
             **tweet_dict,
             summary=summary,
-            deduplication=deduplication,
         )
 
     except HTTPException:

@@ -59,7 +59,6 @@ class SummaryLogger:
     def log_summary_batch_completed(
         self,
         total_tweets: int,
-        total_groups: int,
         cache_hits: int,
         cache_misses: int,
         total_tokens: int,
@@ -71,7 +70,6 @@ class SummaryLogger:
 
         Args:
             total_tweets: 总推文数
-            total_groups: 总去重组数
             cache_hits: 缓存命中数
             cache_misses: 缓存未命中数
             total_tokens: 总 token 数
@@ -84,7 +82,6 @@ class SummaryLogger:
             extra={
                 "event": "batch_completed",
                 "total_tweets": total_tweets,
-                "total_groups": total_groups,
                 "cache_hits": cache_hits,
                 "cache_misses": cache_misses,
                 "total_tokens": total_tokens,

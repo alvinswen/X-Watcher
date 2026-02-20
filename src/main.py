@@ -310,12 +310,10 @@ async def health_check():
 # 导入并注册 API 路由
 from src.api.routes import admin
 from src.api.routes.tweets import router as tweets_router
-from src.deduplication.api import routes as deduplication_routes
 from src.summarization.api import routes as summarization_routes
 
 app.include_router(admin.router)
 app.include_router(tweets_router)
-app.include_router(deduplication_routes.router)
 app.include_router(summarization_routes.router)
 
 # 注册偏好管理 API 路由

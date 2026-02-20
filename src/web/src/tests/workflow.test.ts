@@ -44,7 +44,6 @@ describe("抓取工作流端到端测试", () => {
         status: "completed",
         result: {
           tweets_count: 50,
-          deduplication_count: 5,
           summary_count: 45,
         },
         error: null,
@@ -80,7 +79,6 @@ describe("抓取工作流端到端测试", () => {
       expect(completedStatusResult!.status).toBe("completed")
       expect(completedStatusResult!.result).toEqual({
         tweets_count: 50,
-        deduplication_count: 5,
         summary_count: 45,
       })
 
@@ -252,7 +250,7 @@ describe("抓取工作流端到端测试", () => {
             started_at: new Date().toISOString(),
             completed_at: null,
             progress: { current: 60, total: 100, percentage: 60 },
-            metadata: { stage: "deduplication" },
+            metadata: { stage: "summarization" },
           },
           {
             task_id: "progress-task",

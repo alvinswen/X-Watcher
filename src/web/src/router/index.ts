@@ -97,6 +97,14 @@ const routes: RouteRecordRaw[] = [
       title: "我的关注",
     },
   },
+  {
+    path: "/search",
+    name: "search",
+    component: () => import("@/views/SearchView.vue"),
+    meta: {
+      title: "推文搜索",
+    },
+  },
 ]
 
 /** 创建路由实例 */

@@ -164,7 +164,6 @@ curl http://localhost:8000/api/admin/config/validate \
 | 模块 | 说明 |
 |------|------|
 | **推文抓取** | 从 X 平台抓取关注人物推文，支持定时和手动触发 |
-| **内容去重** | 基于文本相似度识别和合并重复/相似推文 |
 | **AI 摘要** | 使用多提供商生成中文摘要和翻译，智能降级 |
 | **关注列表** | 动态管理 Twitter 关注列表 |
 | **Feed** | 增量信息流 API |
@@ -217,7 +216,6 @@ x-watcher/
 │   ├── api/routes/          # API 路由
 │   ├── cli/                 # CLI 命令（init/validate/serve）
 │   ├── scraper/             # 推文抓取模块
-│   ├── deduplication/       # 内容去重模块
 │   ├── summarization/       # AI 摘要模块
 │   │   └── llm/             # LLM 集成（通用 OpenAI 兼容 + 预设）
 │   ├── preference/          # 关注列表管理

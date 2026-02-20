@@ -299,10 +299,10 @@ class TestScrapingService:
         assert call_kwargs["since_id"] == "123456"
 
     @pytest.mark.asyncio
-    async def test_scrape_single_user_deduplication(
+    async def test_scrape_single_user_skip_existing(
         self, service, mock_client, mock_parser, mock_validator, mock_repository
     ):
-        """测试去重逻辑。"""
+        """测试跳过已存在推文。"""
         mock_client.fetch_user_tweets.return_value = Success(
             {
                 "data": [

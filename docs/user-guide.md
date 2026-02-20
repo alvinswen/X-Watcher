@@ -220,7 +220,7 @@ npm run dev
    - 任务 ID
    - 状态（等待中 → 执行中 → 已完成/失败）
    - 实时进度条（执行中时）
-   - 执行结果（完成后显示抓取推文数、去重组数、摘要数）
+   - 执行结果（完成后显示抓取推文数、摘要数）
 
 **查看任务历史：**
 
@@ -244,7 +244,7 @@ npm run dev
    - 作者显示名和用户名（如 `Elon Musk @elonmusk`）
    - 发布时间（相对时间，如「2小时前」）
    - 推文内容预览（最多 3 行）
-   - 状态标签：「已摘要」/「未摘要」、「已去重」、媒体数量
+   - 状态标签：「已摘要」/「未摘要」、媒体数量
 
 **按作者筛选：**
 
@@ -283,11 +283,6 @@ npm run dev
    - 中文翻译
    - 元信息：使用的 AI 模型、生成成本、是否为缓存
 
-   **去重信息卡片**（如果有相似推文）：
-   - 去重组 ID
-   - 去重类型（完全重复 / 相似内容）
-   - 相似度百分比
-
 3. 点击左上角「返回」按钮回到列表
 
 ---
@@ -303,7 +298,6 @@ npm run dev
 | 抓取任务 | `/api/admin/scrape` | 推文抓取任务管理 | 否 |
 | 抓取配置 | `/api/admin/scraping` | 平台抓取账号管理 | 是（Admin API Key） |
 | 推文 | `/api/tweets` | 推文列表和详情查询 | 否 |
-| 去重 | `/api/deduplicate` | 推文去重 | 否 |
 | 摘要 | `/api/summaries` | AI 摘要生成 | 否 |
 | 关注列表 | `/api/preferences` | 关注列表管理 | 否 |
 | 监控 | `/metrics` | Prometheus 指标 | 否 |
@@ -332,14 +326,6 @@ curl "http://localhost:8000/api/tweets?author=elonmusk&page=1&page_size=20"
 curl -X POST "http://localhost:8000/api/summaries/batch" \
   -H "Content-Type: application/json" \
   -d '{"tweet_ids": ["123", "456"], "force_refresh": false}'
-```
-
-#### 批量去重
-
-```bash
-curl -X POST "http://localhost:8000/api/deduplicate/batch" \
-  -H "Content-Type: application/json" \
-  -d '{"tweet_ids": ["123", "456", "789"]}'
 ```
 
 #### 查看摘要成本统计

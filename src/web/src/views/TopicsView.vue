@@ -26,8 +26,17 @@
           </el-tooltip>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="220" fixed="right">
+      <el-table-column label="操作" width="280" fixed="right">
         <template #default="{ row }">
+          <el-button
+            link
+            type="success"
+            size="small"
+            @click="handleViewSummary(row)"
+            :disabled="submitting"
+          >
+            查看摘要
+          </el-button>
           <el-button
             link
             type="primary"
@@ -96,6 +105,25 @@
       </template>
     </el-dialog>
 
+    <!-- 摘要预览抽屉 -->
+    <el-drawer
+      v-model="summaryDrawerVisible"
+      :title="`最新摘要 - ${summaryTopic?.name || ''}`"
+      size="600px"
+    >
+      <el-skeleton v-if="summaryLoading" :rows="8" animated />
+      <el-empty v-else-if="!summaryData" description="暂无已完成的摘要" />
+      <div v-else class="summary-content">
+        <el-descriptions :column="2" border size="small" class="summary-meta">
+          <el-descriptions-item label="推文数">{{ summaryData.tweet_count }}</el-descriptions-item>
+          <el-descriptions-item label="账号数">{{ summaryData.account_count }}</el-descriptions-item>
+          <el-descriptions-item label="时间跨度">{{ summaryData.time_span_hours }} 小时</el-descriptions-item>
+          <el-descriptions-item label="生成时间">{{ formatFullDateTime(summaryData.generated_at) }}</el-descriptions-item>
+        </el-descriptions>
+        <div class="summary-body">{{ summaryData.content }}</div>
+      </div>
+    </el-drawer>
+
     <!-- 账号管理抽屉 -->
     <el-drawer
       v-model="drawerVisible"
@@ -163,7 +191,7 @@ import { Plus } from "@element-plus/icons-vue"
 import { ElMessageBox, ElMessage, type FormInstance, type FormRules } from "element-plus"
 import { topicsApi, followsApi } from "@/api"
 import { formatRelativeTime, formatFullDateTime } from "@/utils/format"
-import type { TopicListItem, TopicDetail, TopicAccount } from "@/types/topic"
+import type { TopicListItem, TopicDetail, TopicAccount, LatestSummaryResponse } from "@/types/topic"
 import type { ScrapingFollow } from "@/types"
 
 /** 主题列表 */
@@ -199,6 +227,20 @@ const formRules: FormRules = {
     { required: true, message: "请输入主题名称", trigger: "blur" },
   ],
 }
+
+// ==================== 摘要预览状态 ====================
+
+/** 摘要抽屉显示状态 */
+const summaryDrawerVisible = ref(false)
+
+/** 当前查看摘要的主题 */
+const summaryTopic = ref<TopicListItem | null>(null)
+
+/** 摘要数据 */
+const summaryData = ref<LatestSummaryResponse | null>(null)
+
+/** 摘要加载状态 */
+const summaryLoading = ref(false)
 
 // ==================== 账号管理状态 ====================
 
@@ -319,6 +361,28 @@ async function handleDelete(topic: TopicListItem) {
     }
   } finally {
     submitting.value = false
+  }
+}
+
+// ==================== 摘要预览方法 ====================
+
+/** 查看最新摘要 */
+async function handleViewSummary(topic: TopicListItem) {
+  summaryTopic.value = topic
+  summaryData.value = null
+  summaryDrawerVisible.value = true
+  summaryLoading.value = true
+  try {
+    summaryData.value = await topicsApi.getLatestSummary(topic.id)
+  } catch (error: any) {
+    if (error?.response?.status === 404) {
+      summaryData.value = null
+    } else {
+      console.error("加载最新摘要失败:", error)
+      summaryData.value = null
+    }
+  } finally {
+    summaryLoading.value = false
   }
 }
 
@@ -466,5 +530,23 @@ onMounted(() => {
   text-align: center;
   color: var(--el-text-color-placeholder);
   padding: 40px 0;
+}
+
+.summary-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.summary-meta {
+  margin-bottom: 8px;
+}
+
+.summary-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.8;
+  font-size: 14px;
+  color: var(--el-text-color-primary);
 }
 </style>

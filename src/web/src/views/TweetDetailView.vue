@@ -84,28 +84,6 @@
         </el-empty>
       </el-card>
 
-      <!-- 去重信息卡片 -->
-      <el-card v-if="tweet.deduplication" class="deduplication-card">
-        <template #header>
-          <span>去重信息</span>
-        </template>
-        <el-descriptions :column="2" size="small" border>
-          <el-descriptions-item label="去重组 ID">
-            {{ tweet.deduplication.group_id }}
-          </el-descriptions-item>
-          <el-descriptions-item label="去重类型">
-            <el-tag :type="tweet.deduplication.deduplication_type === 'exact_duplicate' ? 'danger' : 'warning'" size="small">
-              {{ tweet.deduplication.deduplication_type === 'exact_duplicate' ? '完全重复' : '相似内容' }}
-            </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="相似度" v-if="tweet.deduplication.similarity_score !== null">
-            {{ (tweet.deduplication.similarity_score * 100).toFixed(1) }}%
-          </el-descriptions-item>
-          <el-descriptions-item label="包含推文数">
-            {{ tweet.deduplication.tweet_ids?.length || 0 }}
-          </el-descriptions-item>
-        </el-descriptions>
-      </el-card>
     </div>
 
     <!-- 错误状态 -->
@@ -261,7 +239,6 @@ onMounted(() => {
 }
 
 .summary-card,
-.deduplication-card,
 .info-card {
   border-radius: 8px;
 }

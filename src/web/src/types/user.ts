@@ -59,3 +59,18 @@ export interface UserFollow {
   /** 创建时间 */
   created_at: string
 }
+
+/** 批量关注失败项。 */
+export interface BatchFollowError {
+  username: string
+  reason: string
+}
+
+/** 批量关注响应。 */
+export interface BatchFollowResponse {
+  succeeded: string[]
+  failed: BatchFollowError[]
+  total: number
+  succeeded_count: number
+  failed_count: number
+}

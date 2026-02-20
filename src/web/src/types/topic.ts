@@ -100,3 +100,16 @@ export interface ImagePromptResponse {
   llm_provider: string
   llm_model: string
 }
+
+/** 主题最新摘要响应 */
+export interface LatestSummaryResponse {
+  topic_id: number
+  topic_name: string
+  content: string
+  generated_at: string
+  time_span_hours: number
+  deadline: string
+  tweet_count: number
+  account_count: number
+  task_id: number
+}

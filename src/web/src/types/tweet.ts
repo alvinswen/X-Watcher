@@ -20,8 +20,6 @@ export interface TweetListItem {
   referenced_tweet_id: string | null
   /** 是否有摘要 */
   has_summary: boolean
-  /** 是否去重 */
-  has_deduplication: boolean
   /** 媒体数量 */
   media_count: number
 }
@@ -32,8 +30,6 @@ export interface TweetDetail extends TweetListItem {
   media: MediaItem[] | null
   /** 摘要信息 */
   summary: Summary | null
-  /** 去重信息 */
-  deduplication: DeduplicationInfo | null
 }
 
 /** 媒体项。 */
@@ -68,18 +64,6 @@ export interface Summary {
   is_generated_summary: boolean
   /** 创建时间 */
   created_at: string | null
-}
-
-/** 去重信息。 */
-export interface DeduplicationInfo {
-  /** 去重组 ID */
-  group_id: string
-  /** 去重类型 */
-  deduplication_type: string
-  /** 相似度分数 */
-  similarity_score: number | null
-  /** 推文 ID 列表 */
-  tweet_ids: string[]
 }
 
 /** 推文列表响应。 */

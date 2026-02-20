@@ -128,9 +128,9 @@ class MiniMaxConfig(BaseModel):
 
     api_key: str = Field(..., description="MiniMax API 密钥")
     base_url: str = Field(
-        default="https://api.minimaxi.com", description="API 基础 URL（中国版）"
+        default="https://api.minimaxi.com/v1", description="API 基础 URL（中国版）"
     )
-    model: str = Field(default="abab6.5s-chat", description="模型名称（M2.1）")
+    model: str = Field(default="MiniMax-M2.5", description="模型名称")
     group_id: str | None = Field(default=None, description="分组 ID（可选）")
     timeout_seconds: int = Field(default=30, ge=1, description="请求超时时间（秒）")
     max_retries: int = Field(default=1, ge=0, description="最大重试次数")
@@ -148,8 +148,8 @@ class MiniMaxConfig(BaseModel):
 
         return cls(
             api_key=api_key,
-            base_url=os.getenv("MINIMAX_BASE_URL", "https://api.minimaxi.com"),
-            model=os.getenv("MINIMAX_MODEL", "abab6.5s-chat"),
+            base_url=os.getenv("MINIMAX_BASE_URL", "https://api.minimaxi.com/v1"),
+            model=os.getenv("MINIMAX_MODEL", "MiniMax-M2.5"),
             group_id=os.getenv("MINIMAX_GROUP_ID"),
             timeout_seconds=int(os.getenv("MINIMAX_TIMEOUT_SECONDS", "30")),
             max_retries=int(os.getenv("MINIMAX_MAX_RETRIES", "1")),

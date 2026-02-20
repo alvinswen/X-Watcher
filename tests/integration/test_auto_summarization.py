@@ -1,6 +1,6 @@
 """抓取-摘要自动化工作流集成测试。
 
-测试完整的抓取 → 去重 → 摘要流程。
+测试完整的抓取 → 摘要流程。
 改造后使用 SummarizationQueue 替代 asyncio.create_task。
 """
 
@@ -19,7 +19,7 @@ from src.scraper.task_registry import TaskRegistry, TaskStatus
 
 @pytest.mark.asyncio
 async def test_scraping_triggers_summarization_flow():
-    """端到端测试：抓取 → 保存 → 去重 → 摘要。"""
+    """端到端测试：抓取 → 保存 → 摘要。"""
     # 重置单例
     TaskRegistry._instance = None
     TaskRegistry._initialized = False
@@ -33,16 +33,12 @@ async def test_scraping_triggers_summarization_flow():
     # 创建服务
     service = ScrapingService()
 
-    # Mock 去重和摘要（避免实际执行）
+    # Mock 摘要（避免实际执行）
     tasks_created = []
-
-    async def mock_trigger_deduplication(tweet_ids):
-        tasks_created.append(("deduplication", tweet_ids))
 
     async def mock_trigger_summarization(tweet_ids):
         tasks_created.append(("summarization", tweet_ids))
 
-    service._trigger_deduplication = mock_trigger_deduplication
     service._trigger_summarization = mock_trigger_summarization
 
     # 创建测试推文
@@ -55,19 +51,16 @@ async def test_scraping_triggers_summarization_flow():
         ),
     ]
 
-    # 模拟保存结果，触发去重和摘要
+    # 模拟保存结果，触发摘要
     result = SaveResult(success_count=1, skipped_count=0, error_count=0)
     if result.success_count > 0:
         tweet_ids = [t.tweet_id for t in tweets]
-        await service._trigger_deduplication(tweet_ids)
         await service._trigger_summarization(tweet_ids)
 
-    # 验证去重和摘要都被触发
-    assert len(tasks_created) == 2
-    assert tasks_created[0][0] == "deduplication"
-    assert tasks_created[1][0] == "summarization"
+    # 验证摘要被触发
+    assert len(tasks_created) == 1
+    assert tasks_created[0][0] == "summarization"
     assert tasks_created[0][1] == ["123"]
-    assert tasks_created[1][1] == ["123"]
 
 
 @pytest.mark.asyncio

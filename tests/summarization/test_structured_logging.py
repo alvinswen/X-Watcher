@@ -10,12 +10,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.deduplication.domain.models import DeduplicationGroup, DeduplicationType
 from src.scraper.domain.models import Tweet
 from src.scraper.infrastructure.models import TweetOrm
 from src.summarization.domain.models import PromptConfig
 from src.summarization.infrastructure.models import SummaryOrm
-from sqlalchemy import select
 
 
 @pytest.fixture(autouse=True)
@@ -80,24 +78,6 @@ class TestStructuredLogging:
             )
             orm = TweetOrm.from_domain(tweet)
             async_session.add(orm)
-
-            from src.scraper.infrastructure.models import DeduplicationGroupOrm
-
-            group = DeduplicationGroup(
-                group_id="test_group_1",
-                representative_tweet_id="test_tweet_1",
-                deduplication_type=DeduplicationType.exact_duplicate,
-                similarity_score=None,
-                tweet_ids=["test_tweet_1"],
-                created_at=datetime.now(timezone.utc),
-            )
-            group_orm = DeduplicationGroupOrm.from_domain(group)
-            async_session.add(group_orm)
-
-            stmt = select(TweetOrm).where(TweetOrm.tweet_id == "test_tweet_1")
-            result = await async_session.execute(stmt)
-            tweet_orm = result.scalar_one()
-            tweet_orm.deduplication_group_id = "test_group_1"
             await async_session.commit()
 
             # 创建摘要服务
@@ -195,24 +175,6 @@ class TestStructuredLogging:
             )
             orm = TweetOrm.from_domain(tweet)
             async_session.add(orm)
-
-            from src.scraper.infrastructure.models import DeduplicationGroupOrm
-
-            group = DeduplicationGroup(
-                group_id="degrade_group",
-                representative_tweet_id="test_degrade",
-                deduplication_type=DeduplicationType.exact_duplicate,
-                similarity_score=None,
-                tweet_ids=["test_degrade"],
-                created_at=datetime.now(timezone.utc),
-            )
-            group_orm = DeduplicationGroupOrm.from_domain(group)
-            async_session.add(group_orm)
-
-            stmt = select(TweetOrm).where(TweetOrm.tweet_id == "test_degrade")
-            result = await async_session.execute(stmt)
-            tweet_orm = result.scalar_one()
-            tweet_orm.deduplication_group_id = "degrade_group"
             await async_session.commit()
 
             # 创建摘要服务
@@ -359,24 +321,6 @@ class TestStructuredLogging:
             )
             orm = TweetOrm.from_domain(tweet)
             async_session.add(orm)
-
-            from src.scraper.infrastructure.models import DeduplicationGroupOrm
-
-            group = DeduplicationGroup(
-                group_id="error_group",
-                representative_tweet_id="error_tweet",
-                deduplication_type=DeduplicationType.exact_duplicate,
-                similarity_score=None,
-                tweet_ids=["error_tweet"],
-                created_at=datetime.now(timezone.utc),
-            )
-            group_orm = DeduplicationGroupOrm.from_domain(group)
-            async_session.add(group_orm)
-
-            stmt = select(TweetOrm).where(TweetOrm.tweet_id == "error_tweet")
-            result = await async_session.execute(stmt)
-            tweet_orm = result.scalar_one()
-            tweet_orm.deduplication_group_id = "error_group"
             await async_session.commit()
 
             # 创建摘要服务
@@ -430,24 +374,6 @@ class TestLogContext:
             )
             orm = TweetOrm.from_domain(tweet)
             async_session.add(orm)
-
-            from src.scraper.infrastructure.models import DeduplicationGroupOrm
-
-            group = DeduplicationGroup(
-                group_id="ctx_group",
-                representative_tweet_id="ctx_tweet",
-                deduplication_type=DeduplicationType.exact_duplicate,
-                similarity_score=None,
-                tweet_ids=["ctx_tweet"],
-                created_at=datetime.now(timezone.utc),
-            )
-            group_orm = DeduplicationGroupOrm.from_domain(group)
-            async_session.add(group_orm)
-
-            stmt = select(TweetOrm).where(TweetOrm.tweet_id == "ctx_tweet")
-            result = await async_session.execute(stmt)
-            tweet_orm = result.scalar_one()
-            tweet_orm.deduplication_group_id = "ctx_group"
             await async_session.commit()
 
             # 创建摘要服务
@@ -492,24 +418,6 @@ class TestLogContext:
             )
             orm = TweetOrm.from_domain(tweet)
             async_session.add(orm)
-
-            from src.scraper.infrastructure.models import DeduplicationGroupOrm
-
-            group = DeduplicationGroup(
-                group_id="token_group",
-                representative_tweet_id="token_tweet",
-                deduplication_type=DeduplicationType.exact_duplicate,
-                similarity_score=None,
-                tweet_ids=["token_tweet"],
-                created_at=datetime.now(timezone.utc),
-            )
-            group_orm = DeduplicationGroupOrm.from_domain(group)
-            async_session.add(group_orm)
-
-            stmt = select(TweetOrm).where(TweetOrm.tweet_id == "token_tweet")
-            result = await async_session.execute(stmt)
-            tweet_orm = result.scalar_one()
-            tweet_orm.deduplication_group_id = "token_group"
             await async_session.commit()
 
             # 创建摘要服务
@@ -543,4 +451,4 @@ class TestLogContext:
             if "完成" in r.message or "complete" in r.message.lower()
         ]
         # 完成日志应该存在
-        assert len(completion_logs) > 0 or summary_result.total_groups > 0
+        assert len(completion_logs) > 0 or summary_result.total_tweets > 0

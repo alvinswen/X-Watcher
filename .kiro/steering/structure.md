@@ -4,7 +4,7 @@
 
 采用**六边形架构 + 模块化设计**：
 - 清晰的层次划分（API / Service / Domain / Infrastructure）
-- 按业务功能组织独立模块（scraper, deduplication, summarization, preference, topic）
+- 按业务功能组织独立模块（scraper, summarization, preference, topic）
 - 每个模块遵循 Domain → Service → Infrastructure 分层
 - 保持低耦合、高内聚
 
@@ -44,7 +44,7 @@ src/
 │   │   ├── fetch_stats.py   # 抓取统计领域模型（FetchStats）
 │   │   └── scheduler_log.py # 调度器执行日志领域模型（SchedulerEventType, SchedulerExecutionLog）
 │   ├── infrastructure/
-│   │   ├── models.py        # ORM 模型（TweetOrm, DeduplicationGroupOrm）
+│   │   ├── models.py        # ORM 模型（TweetOrm）
 │   │   ├── repository.py    # 推文数据仓库
 │   │   ├── fetch_stats_models.py     # FetchStatsOrm
 │   │   ├── fetch_stats_repository.py # 抓取统计仓库
@@ -52,15 +52,6 @@ src/
 │   │   └── scheduler_log_repository.py # 调度器日志仓库（同步写入 + 异步查询）
 │   └── services/
 │       └── limit_calculator.py  # 动态抓取数量计算（EMA 算法）
-├── deduplication/           # 内容去重模块
-│   ├── domain/
-│   │   ├── models.py        # 领域模型
-│   │   └── detectors.py     # 相似度检测器
-│   ├── infrastructure/
-│   │   └── repository.py    # 仓库
-│   ├── services/
-│   │   └── deduplication_service.py
-│   └── api/routes.py        # API 端点
 ├── cli/                     # CLI 命令模块
 │   ├── __init__.py
 │   ├── main.py              # click Group 入口（init/validate/serve）
@@ -174,7 +165,6 @@ src/
 tests/
 ├── unit/               # 单元测试（config, main, models）
 ├── scraper/            # 抓取模块测试
-├── deduplication/      # 去重模块测试
 ├── summarization/      # 摘要模块测试
 ├── preference/         # 关注列表模块测试（含调度配置、公共只读端点测试）
 ├── user/               # 用户认证测试
@@ -258,7 +248,7 @@ External (数据库, TwitterAPI.io, MiniMax LLM)
 
 ### 当前阶段：API + Service 层直接驱动
 - FastAPI 路由直接调用 Service 层
-- Service 层编排业务逻辑（抓取、去重、摘要、关注列表）
+- Service 层编排业务逻辑（抓取、摘要、关注列表）
 - 统一 LLM Provider 架构：通用 OpenAI 兼容协议，支持 6+ 提供商
 - CLI 工具（click）：init / validate / serve 命令
 

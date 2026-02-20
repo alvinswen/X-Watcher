@@ -4,7 +4,7 @@
 
 采用 **API + Service 层** 的架构模式：
 - **FastAPI**：Web 服务，提供 API 端点和定时任务调度
-- **Service 层**：独立的业务编排（抓取、去重、摘要、关注列表）
+- **Service 层**：独立的业务编排（抓取、摘要、关注列表）
 - **Agent（计划中）**：未来引入 HKUDS/nanobot 实现意图理解
 - **演进策略**：按需引入 Agent 层实现自然语言交互
 
@@ -38,8 +38,6 @@ Service 层 (业务编排)
 | 摘要/翻译 | DeepSeek | deepseek-chat | ¥0.001-0.002/千 tokens |
 | 摘要/翻译 | 智谱 AI | glm-4-flash | ¥0.001/千 tokens |
 | 摘要/翻译 | Moonshot | moonshot-v1-8k | ¥0.012/千 tokens |
-| 去重判断 | 嵌入模型（可选） | - | 另计 |
-
 **LLM 架构**：统一 `OpenAICompatibleProvider` + 预设（presets.py），所有提供商通过 OpenAI 兼容协议调用。新增提供商只需添加预设配置，无需编写新代码。
 
 ## X 平台数据获取

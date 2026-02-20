@@ -9,10 +9,7 @@ from datetime import datetime, timezone
 from unittest.mock import patch
 
 import pytest
-from sqlalchemy import select
 
-from src.deduplication.domain.models import DeduplicationGroup, DeduplicationType
-from src.scraper.infrastructure.models import DeduplicationGroupOrm
 from src.scraper.domain.models import Tweet
 from src.scraper.infrastructure.models import TweetOrm
 from src.summarization.domain.models import PromptConfig
@@ -94,24 +91,6 @@ class TestSingleTweetPerformance:
             )
             orm = TweetOrm.from_domain(tweet)
             async_session.add(orm)
-
-            # 创建去重组
-            group = DeduplicationGroup(
-                group_id="perf_group_1",
-                representative_tweet_id="perf_tweet_1",
-                deduplication_type=DeduplicationType.exact_duplicate,
-                similarity_score=None,
-                tweet_ids=["perf_tweet_1"],
-                created_at=datetime.now(timezone.utc),
-            )
-            group_orm = DeduplicationGroupOrm.from_domain(group)
-            async_session.add(group_orm)
-
-            # 更新推文的去重组 ID
-            stmt = select(TweetOrm).where(TweetOrm.tweet_id == "perf_tweet_1")
-            result = await async_session.execute(stmt)
-            tweet_orm = result.scalar_one()
-            tweet_orm.deduplication_group_id = "perf_group_1"
             await async_session.commit()
 
             # 创建摘要服务
@@ -145,7 +124,6 @@ class TestSingleTweetPerformance:
 
         # 验证结果
         assert result.total_tweets == 1
-        assert result.total_groups == 1
 
         # pytest-benchmark 会自动记录时间
 
@@ -170,26 +148,6 @@ class TestBatchPerformance:
         for tweet in tweets:
             orm = TweetOrm.from_domain(tweet)
             async_session.add(orm)
-
-        # 创建去重组
-        for i, tweet in enumerate(tweets):
-            group = DeduplicationGroup(
-                group_id=f"perf_group_{i}",
-                representative_tweet_id=tweet.tweet_id,
-                deduplication_type=DeduplicationType.exact_duplicate,
-                similarity_score=None,
-                tweet_ids=[tweet.tweet_id],
-                created_at=datetime.now(timezone.utc),
-            )
-            group_orm = DeduplicationGroupOrm.from_domain(group)
-            async_session.add(group_orm)
-
-        # 更新推文的去重组 ID
-        for tweet in tweets:
-            stmt = select(TweetOrm).where(TweetOrm.tweet_id == tweet.tweet_id)
-            result = await async_session.execute(stmt)
-            tweet_orm = result.scalar_one()
-            tweet_orm.deduplication_group_id = f"perf_group_{tweets.index(tweet)}"
 
         await async_session.commit()
         return [t.tweet_id for t in tweets]
@@ -237,7 +195,6 @@ class TestBatchPerformance:
 
         # 验证结果
         assert result.total_tweets == 10
-        assert result.total_groups == 10
 
 
 class TestCachePerformance:
@@ -315,26 +272,6 @@ class TestMemoryUsage:
             orm = TweetOrm.from_domain(tweet)
             async_session.add(orm)
 
-        # 创建去重组
-        for i, tweet in enumerate(tweets):
-            group = DeduplicationGroup(
-                group_id=f"mem_group_{i}",
-                representative_tweet_id=tweet.tweet_id,
-                deduplication_type=DeduplicationType.exact_duplicate,
-                similarity_score=None,
-                tweet_ids=[tweet.tweet_id],
-                created_at=datetime.now(timezone.utc),
-            )
-            group_orm = DeduplicationGroupOrm.from_domain(group)
-            async_session.add(group_orm)
-
-        # 更新推文的去重组 ID
-        for tweet in tweets:
-            stmt = select(TweetOrm).where(TweetOrm.tweet_id == tweet.tweet_id)
-            result = await async_session.execute(stmt)
-            tweet_orm = result.scalar_one()
-            tweet_orm.deduplication_group_id = f"mem_group_{tweets.index(tweet)}"
-
         await async_session.commit()
 
         tweet_ids = [t.tweet_id for t in tweets]
@@ -407,26 +344,6 @@ class TestPerformanceRegression:
         for tweet in tweets:
             orm = TweetOrm.from_domain(tweet)
             async_session.add(orm)
-
-        # 创建去重组
-        for i, tweet in enumerate(tweets):
-            group = DeduplicationGroup(
-                group_id=f"regress_group_{i}",
-                representative_tweet_id=tweet.tweet_id,
-                deduplication_type=DeduplicationType.exact_duplicate,
-                similarity_score=None,
-                tweet_ids=[tweet.tweet_id],
-                created_at=datetime.now(timezone.utc),
-            )
-            group_orm = DeduplicationGroupOrm.from_domain(group)
-            async_session.add(group_orm)
-
-        # 更新推文的去重组 ID
-        for tweet in tweets:
-            stmt = select(TweetOrm).where(TweetOrm.tweet_id == tweet.tweet_id)
-            result = await async_session.execute(stmt)
-            tweet_orm = result.scalar_one()
-            tweet_orm.deduplication_group_id = f"regress_group_{tweets.index(tweet)}"
 
         await async_session.commit()
 

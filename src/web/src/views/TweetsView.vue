@@ -44,17 +44,6 @@
             批量摘要
           </el-button>
         </el-tooltip>
-        <el-tooltip content="请先选择推文" :disabled="selectedTweetIds.size > 0" placement="top">
-          <el-button
-            type="warning"
-            size="small"
-            :disabled="selectedTweetIds.size === 0"
-            :loading="batchDeduplicating"
-            @click="handleBatchDeduplicate"
-          >
-            批量去重
-          </el-button>
-        </el-tooltip>
         <el-dropdown @command="handleSummaryToolCommand">
           <el-button type="info" size="small">
             摘要工具 <el-icon class="el-icon--right"><ArrowDown /></el-icon>
@@ -103,7 +92,6 @@
           <div class="tweet-footer">
             <el-tag v-if="tweet.has_summary" type="success" size="small">已摘要</el-tag>
             <el-tag v-else type="info" size="small">未摘要</el-tag>
-            <el-tag v-if="tweet.has_deduplication" type="warning" size="small">已去重</el-tag>
             <el-tag v-if="tweet.media_count > 0" size="small">
               {{ tweet.media_count }} 媒体
             </el-tag>
@@ -187,7 +175,7 @@ import { ref, computed, onMounted, onUnmounted } from "vue"
 import { useRouter } from "vue-router"
 import { ArrowDown, Refresh, Search } from "@element-plus/icons-vue"
 import { ElMessage } from "element-plus"
-import { tweetsApi, summariesApi, dedupApi } from "@/api"
+import { tweetsApi, summariesApi } from "@/api"
 import { taskPollingService } from "@/services/polling"
 import { formatRelativeTime } from "@/utils/format"
 import type { TweetListItem, TaskStatusResponse } from "@/types"
@@ -230,9 +218,6 @@ const isIndeterminate = computed(() => {
 
 /** 批量摘要状态 */
 const batchSummarizing = ref(false)
-
-/** 批量去重状态 */
-const batchDeduplicating = ref(false)
 
 /** 补缺对话框 */
 const backfillDialogVisible = ref(false)
@@ -356,47 +341,6 @@ async function handleBatchSummarize() {
     console.error("批量摘要失败:", error)
     ElMessage.error("批量摘要提交失败")
     batchSummarizing.value = false
-  }
-}
-
-/** 批量去重 */
-async function handleBatchDeduplicate() {
-  if (selectedTweetIds.value.size === 0) return
-
-  batchDeduplicating.value = true
-  try {
-    const response = await dedupApi.batchDeduplicate(
-      Array.from(selectedTweetIds.value),
-    )
-    ElMessage.success("批量去重任务已提交")
-
-    // 启动轮询
-    pollingHandle = taskPollingService.startPolling(
-      response.task_id,
-      async () => {
-        const status = await dedupApi.getTaskStatus(response.task_id)
-        return status as TaskStatusResponse
-      },
-      () => {
-        // 状态更新（无需额外操作）
-      },
-      () => {
-        // 任务完成
-        ElMessage.success("批量去重完成")
-        selectedTweetIds.value = new Set()
-        selectAll.value = false
-        batchDeduplicating.value = false
-        loadTweets()
-      },
-      (error) => {
-        console.error("批量去重轮询失败:", error)
-        batchDeduplicating.value = false
-      },
-    )
-  } catch (error) {
-    console.error("批量去重失败:", error)
-    ElMessage.error("批量去重提交失败")
-    batchDeduplicating.value = false
   }
 }
 
