@@ -25,13 +25,17 @@ class TopicRepository:
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_by_name(self, session: AsyncSession, name: str) -> TopicOrm | None:
-        stmt = select(TopicOrm).where(TopicOrm.name == name)
+    async def get_by_name(self, session: AsyncSession, name: str, user_id: int | None = None) -> TopicOrm | None:
+        stmt = select(TopicOrm).where(TopicOrm.name == name, TopicOrm.user_id == user_id)
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def list_all(self, session: AsyncSession) -> list[tuple[TopicOrm, int]]:
-        """列出所有主题及其账号数量，按创建时间倒序。"""
+    async def list_all(self, session: AsyncSession, user_id: int | None = None) -> list[tuple[TopicOrm, int]]:
+        """列出主题及其账号数量，按创建时间倒序。
+
+        Args:
+            user_id: 非 None 时只返回该用户的主题，None 时返回全部。
+        """
         account_count_subq = (
             select(func.count(TopicAccountOrm.id))
             .where(TopicAccountOrm.topic_id == TopicOrm.id)
@@ -42,6 +46,8 @@ class TopicRepository:
             select(TopicOrm, account_count_subq.label("account_count"))
             .order_by(TopicOrm.created_at.desc())
         )
+        if user_id is not None:
+            stmt = stmt.where(TopicOrm.user_id == user_id)
         result = await session.execute(stmt)
         return [(row[0], row[1]) for row in result.all()]
 
@@ -128,7 +134,9 @@ class TopicSummaryTaskRepository:
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def list_tasks(self, session: AsyncSession, topic_id: int | None = None) -> list[TopicSummaryTaskOrm]:
+    async def list_tasks(
+        self, session: AsyncSession, topic_id: int | None = None, user_id: int | None = None
+    ) -> list[TopicSummaryTaskOrm]:
         stmt = (
             select(TopicSummaryTaskOrm)
             .options(
@@ -139,6 +147,10 @@ class TopicSummaryTaskRepository:
         )
         if topic_id is not None:
             stmt = stmt.where(TopicSummaryTaskOrm.topic_id == topic_id)
+        if user_id is not None:
+            stmt = stmt.join(TopicOrm, TopicSummaryTaskOrm.topic_id == TopicOrm.id).where(
+                TopicOrm.user_id == user_id
+            )
         result = await session.execute(stmt)
         return list(result.scalars().all())
 

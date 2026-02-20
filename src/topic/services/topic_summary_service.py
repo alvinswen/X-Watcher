@@ -443,10 +443,10 @@ class TopicSummaryService:
         return task.to_domain() if task else None
 
     async def list_tasks(
-        self, session: AsyncSession, topic_id: int | None = None
+        self, session: AsyncSession, topic_id: int | None = None, user_id: int | None = None
     ) -> list[TopicSummaryTaskDomain]:
-        """列出任务（按创建时间倒序），可按 topic_id 筛选。"""
-        tasks = await self._task_repo.list_tasks(session, topic_id)
+        """列出任务（按创建时间倒序），可按 topic_id 和 user_id 筛选。"""
+        tasks = await self._task_repo.list_tasks(session, topic_id, user_id=user_id)
         return [t.to_domain() for t in tasks]
 
     async def generate_image_prompt(self, session: AsyncSession, task_id: int) -> dict:

@@ -299,7 +299,7 @@ async def async_client(async_session):
     """
     from httpx import AsyncClient, ASGITransport
     from src.database.async_session import get_db_session
-    from src.user.api.auth import get_current_admin_user
+    from src.user.api.auth import get_current_admin_user, get_current_user
     from src.user.domain.models import BOOTSTRAP_ADMIN
 
     # 使用 ASGI 传输
@@ -312,11 +312,16 @@ async def async_client(async_session):
     async def override_get_current_admin_user():
         return BOOTSTRAP_ADMIN
 
+    async def override_get_current_user():
+        return BOOTSTRAP_ADMIN
+
     # 使用 FastAPI 的 app.dependency_overrides
     original_db_override = app.dependency_overrides.get(get_db_session)
-    original_auth_override = app.dependency_overrides.get(get_current_admin_user)
+    original_admin_override = app.dependency_overrides.get(get_current_admin_user)
+    original_user_override = app.dependency_overrides.get(get_current_user)
     app.dependency_overrides[get_db_session] = override_get_db_session
     app.dependency_overrides[get_current_admin_user] = override_get_current_admin_user
+    app.dependency_overrides[get_current_user] = override_get_current_user
 
     try:
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -327,7 +332,11 @@ async def async_client(async_session):
             app.dependency_overrides[get_db_session] = original_db_override
         else:
             app.dependency_overrides.pop(get_db_session, None)
-        if original_auth_override:
-            app.dependency_overrides[get_current_admin_user] = original_auth_override
+        if original_admin_override:
+            app.dependency_overrides[get_current_admin_user] = original_admin_override
         else:
             app.dependency_overrides.pop(get_current_admin_user, None)
+        if original_user_override:
+            app.dependency_overrides[get_current_user] = original_user_override
+        else:
+            app.dependency_overrides.pop(get_current_user, None)

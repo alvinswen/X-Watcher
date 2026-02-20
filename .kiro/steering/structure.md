@@ -75,31 +75,27 @@ src/
 │   └── api/
 │       ├── routes.py        # API 端点
 │       └── schemas.py       # 请求/响应模型
-├── preference/              # 关注列表管理模块
+├── preference/              # 抓取配置与调度管理模块
 │   ├── domain/
 │   │   ├── models.py        # 领域模型
 │   │   └── validators.py    # 验证逻辑
 │   ├── infrastructure/
-│   │   ├── preference_repository.py
 │   │   ├── scraper_config_repository.py
 │   │   └── schedule_repository.py   # 调度配置仓库（singleton 单行模式）
 │   ├── services/
-│   │   ├── preference_service.py
 │   │   ├── scraper_config_service.py
 │   │   └── schedule_service.py      # 调度配置业务服务（含启用/暂停、惰性 job 创建、独立 session 重试）
 │   └── api/
 │       ├── routes.py        # 路由导出
 │       ├── auth.py          # API Key 认证
 │       ├── schemas.py       # 请求/响应模型
-│       ├── preference_router.py   # 关注列表 API
 │       └── scraper_config_router.py  # 管理员抓取配置 + 调度管理（含 enable/disable）+ 账号运行时统计（follows/stats）+ 公共只读 API
 ├── user/                    # 用户管理与认证模块
 │   ├── api/
 │   │   ├── auth.py          # JWT + API Key 统一认证依赖
 │   │   ├── auth_router.py   # POST /api/auth/login
 │   │   ├── user_router.py   # 用户资料、API Key 管理
-│   │   ├── admin_user_router.py  # 管理员创建/管理/编辑用户
-│   │   └── admin_user_follows_router.py  # 管理员代理管理用户关注列表
+│   │   └── admin_user_router.py  # 管理员创建/管理/编辑用户
 │   ├── domain/
 │   │   ├── models.py        # UserDomain, ApiKeyInfo, BOOTSTRAP_ADMIN
 │   │   └── schemas.py       # Login/User/ApiKey 请求响应模型
@@ -114,17 +110,17 @@ src/
 │   │   └── schemas.py       # FeedTweetItem, FeedResponse
 │   └── services/
 │       └── feed_service.py  # Feed 查询（tweets LEFT JOIN summaries）
-├── topic/                   # 主题管理模块（多账号聚合分析）
+├── topic/                   # 主题管理模块（多账号聚合分析，支持多用户所有权）
 │   ├── domain/
 │   │   └── models.py        # 领域模型（TopicDomain, TopicSummaryTaskDomain, TopicSummaryTaskStatus）
 │   ├── infrastructure/
 │   │   ├── models.py        # ORM 模型（TopicOrm, TopicAccountOrm, TopicSummaryTaskOrm, TopicSummaryOrm）
-│   │   └── repository.py    # TopicRepository + TopicSummaryTaskRepository
+│   │   └── repository.py    # TopicRepository + TopicSummaryTaskRepository（支持 user_id 过滤）
 │   ├── services/
-│   │   ├── topic_service.py           # 主题 CRUD + 账号管理
+│   │   ├── topic_service.py           # 主题 CRUD + 账号管理（per-user 所有权）
 │   │   └── topic_summary_service.py   # 摘要任务异步执行（LLM 聚合摘要）
 │   └── api/
-│       ├── routes.py        # 主题 CRUD + 账号管理 + 摘要任务 API 端点
+│       ├── routes.py        # 主题 CRUD + 账号管理 + 摘要任务 API 端点（含所有权检查）
 │       └── schemas.py       # 请求/响应模型
 ├── browse/                  # 推文浏览模块（按日期/作者维度浏览）
 │   ├── api/
@@ -166,7 +162,7 @@ tests/
 ├── unit/               # 单元测试（config, main, models）
 ├── scraper/            # 抓取模块测试
 ├── summarization/      # 摘要模块测试
-├── preference/         # 关注列表模块测试（含调度配置、公共只读端点测试）
+├── preference/         # 抓取配置与调度模块测试（含公共只读端点测试）
 ├── user/               # 用户认证测试
 ├── feed/               # Feed API 测试
 ├── search/             # 搜索 API 测试

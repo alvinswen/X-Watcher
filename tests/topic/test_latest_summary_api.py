@@ -80,9 +80,10 @@ async def _create_topic_with_completed_task(
     summary_content: str = "这是一段摘要内容",
     tweet_count: int = 10,
     account_count: int = 3,
+    user_id: int = 1,
 ) -> tuple[TopicOrm, TopicSummaryTaskOrm, TopicSummaryOrm]:
     """创建带有已完成摘要任务的主题。"""
-    topic = TopicOrm.from_domain(name=topic_name, description="测试主题")
+    topic = TopicOrm.from_domain(name=topic_name, description="测试主题", user_id=user_id)
     session.add(topic)
     await session.flush()
 
@@ -150,8 +151,8 @@ class TestLatestSummarySuccess:
         """多个已完成摘要时返回最新的。"""
         now = datetime.now(timezone.utc)
 
-        # 创建主题
-        topic = TopicOrm.from_domain(name="多摘要主题", description="测试")
+        # 创建主题（user_id=1 匹配 mock_user）
+        topic = TopicOrm.from_domain(name="多摘要主题", description="测试", user_id=1)
         ls_test_session.add(topic)
         await ls_test_session.flush()
 
@@ -230,8 +231,8 @@ class TestLatestSummary404:
 
     async def test_no_completed_summary(self, ls_client: AsyncClient, ls_test_session):
         """无已完成摘要 → 404。"""
-        # 创建主题
-        topic = TopicOrm.from_domain(name="空主题", description="无摘要")
+        # 创建主题（user_id=1 匹配 mock_user）
+        topic = TopicOrm.from_domain(name="空主题", description="无摘要", user_id=1)
         ls_test_session.add(topic)
         await ls_test_session.flush()
 

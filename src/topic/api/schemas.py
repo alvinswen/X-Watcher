@@ -34,6 +34,7 @@ class TopicResponse(UTCDatetimeModel):
     id: int
     name: str
     description: str | None
+    user_id: int | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -41,6 +42,7 @@ class TopicListItem(UTCDatetimeModel):
     id: int
     name: str
     description: str | None
+    user_id: int | None = None
     account_count: int
     created_at: datetime
 

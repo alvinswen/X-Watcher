@@ -24,10 +24,17 @@ def _utc_now() -> datetime:
 class TopicOrm(Base):
     """主题表 ORM 模型。"""
     __tablename__ = "topics"
+    __table_args__ = (
+        UniqueConstraint("user_id", "name", name="uq_topics_user_id_name"),
+        Index("ix_topics_user_id", "user_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    name: Mapped[str] = mapped_column(String(200), nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    user_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_utc_now, onupdate=_utc_now)
 
@@ -44,6 +51,7 @@ class TopicOrm(Base):
             id=self.id,
             name=self.name,
             description=self.description,
+            user_id=self.user_id,
             created_at=self.created_at,
             updated_at=self.updated_at,
         )
@@ -53,6 +61,7 @@ class TopicOrm(Base):
             id=self.id,
             name=self.name,
             description=self.description,
+            user_id=self.user_id,
             created_at=self.created_at,
             updated_at=self.updated_at,
             account_count=account_count,
@@ -63,14 +72,15 @@ class TopicOrm(Base):
             id=self.id,
             name=self.name,
             description=self.description,
+            user_id=self.user_id,
             created_at=self.created_at,
             updated_at=self.updated_at,
             accounts=[a.to_domain() for a in self.accounts],
         )
 
     @classmethod
-    def from_domain(cls, name: str, description: str | None = None) -> "TopicOrm":
-        return cls(name=name, description=description)
+    def from_domain(cls, name: str, description: str | None = None, user_id: int | None = None) -> "TopicOrm":
+        return cls(name=name, description=description, user_id=user_id)
 
 
 class TopicAccountOrm(Base):

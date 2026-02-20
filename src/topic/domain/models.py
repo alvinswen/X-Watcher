@@ -19,6 +19,7 @@ class TopicDomain(BaseModel):
     id: int
     name: str
     description: str | None
+    user_id: int | None = None
     created_at: datetime
     updated_at: datetime
 

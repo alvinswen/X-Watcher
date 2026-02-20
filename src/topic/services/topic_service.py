@@ -20,21 +20,25 @@ class TopicService:
         self._repo = TopicRepository()
 
     async def create_topic(
-        self, session: AsyncSession, name: str, description: str | None = None
+        self, session: AsyncSession, name: str, description: str | None = None, user_id: int | None = None
     ) -> TopicDomain:
-        """创建主题。名称重复时抛出 ValueError。"""
-        existing = await self._repo.get_by_name(session, name)
+        """创建主题。同一用户下名称重复时抛出 ValueError。"""
+        existing = await self._repo.get_by_name(session, name, user_id=user_id)
         if existing:
             raise ValueError(f"主题名称 '{name}' 已存在")
 
-        topic = TopicOrm.from_domain(name=name, description=description)
+        topic = TopicOrm.from_domain(name=name, description=description, user_id=user_id)
         created = await self._repo.create(session, topic)
         await session.commit()
         return created.to_domain()
 
-    async def list_topics(self, session: AsyncSession) -> list[TopicWithCountDomain]:
-        """列出所有主题（按创建时间倒序），包含关联账号数量。"""
-        results = await self._repo.list_all(session)
+    async def list_topics(self, session: AsyncSession, user_id: int | None = None) -> list[TopicWithCountDomain]:
+        """列出主题（按创建时间倒序），包含关联账号数量。
+
+        Args:
+            user_id: 非 None 时只返回该用户的主题，None 时返回全部。
+        """
+        results = await self._repo.list_all(session, user_id=user_id)
         return [topic.to_domain_with_count(count) for topic, count in results]
 
     async def get_topic(self, session: AsyncSession, topic_id: int) -> TopicDetailDomain | None:
@@ -54,7 +58,7 @@ class TopicService:
             return None
 
         if name is not None and name != topic.name:
-            existing = await self._repo.get_by_name(session, name)
+            existing = await self._repo.get_by_name(session, name, user_id=topic.user_id)
             if existing:
                 raise ValueError(f"主题名称 '{name}' 已存在")
             topic.name = name

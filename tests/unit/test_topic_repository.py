@@ -207,12 +207,14 @@ async def test_delete_topic_not_found(async_session, topic_repo):
 
 @pytest.mark.asyncio
 async def test_unique_topic_name(async_session, topic_repo):
-    """主题名称唯一约束：相同名称报 IntegrityError。"""
+    """同一 user_id 下主题名称唯一：相同 (user_id, name) 报 IntegrityError。"""
     t1 = _make_topic(name="相同名称")
+    t1.user_id = 1
     await topic_repo.create(async_session, t1)
     await async_session.commit()
 
     t2 = _make_topic(name="相同名称")
+    t2.user_id = 1
     with pytest.raises(IntegrityError):
         await topic_repo.create(async_session, t2)
         await async_session.flush()
