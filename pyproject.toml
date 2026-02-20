@@ -60,9 +60,6 @@ dependencies = [
 
     # CLI
     "click>=8.0.0",
-
-    # Agent 框架 (需要从 GitHub 安装)
-    # "nanobot-ai @ git+https://github.com/HKUDS/nanobot.git",
 ]
 
 [project.optional-dependencies]
@@ -189,7 +186,6 @@ plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
 module = [
-    "nanobot.*",
     "apscheduler.*",
     "returns.*",
 ]

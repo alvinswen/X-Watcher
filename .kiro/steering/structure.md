@@ -28,9 +28,6 @@ src/
 │       ├── scheduler.py     # 调度器执行历史 API（GET /api/admin/scheduler/history）
 │       ├── status.py        # 系统状态概览 API（GET /api/status/overview）
 │       └── tweets.py        # 推文列表/详情 API
-├── agent/                   # Nanobot Agent 配置
-│   ├── tools.py             # API 工具元数据定义（Feed、摘要修复）
-│   └── config.py            # Agent 系统提示和工具注册
 ├── scraper/                 # 推文抓取模块
 │   ├── client.py            # TwitterAPI.io 客户端（含引用推文预处理）
 │   ├── parser.py            # 推文解析器
@@ -239,21 +236,14 @@ External (数据库, TwitterAPI.io, MiniMax LLM)
 
 ### 当前阶段：API + Service 层直接驱动
 - FastAPI 路由直接调用 Service 层
-- Service 层编排业务逻辑（抓取、摘要、关注列表）
+- Service 层编排业务逻辑（抓取、摘要、主题管理）
 - 统一 LLM Provider 架构：通用 OpenAI 兼容协议，支持 6+ 提供商
 - CLI 工具（click）：init / validate / serve 命令
 
-### 未来阶段：Agent 集成（按需）
-当出现以下需求时，考虑引入 Agent 层：
-- 需要自然语言意图理解和多步推理
-- 需要动态工具调度
-- 不同功能需要使用不同 LLM（成本优化）
-
-演进方式：
-```
-当前: API → Service → Infrastructure
-未来: API → Agent (意图理解) → Service → Infrastructure
-```
+### 未来扩展方向
+- MCP 协议集成：提供 Model Context Protocol 接口
+- Webhook 推送：主动通知下游消费者
+- 多数据源：扩展到 Newsletter、RSS 等
 
 ---
 _记录模式，而非文件树。遵循模式的新文件不需要更新此文档_

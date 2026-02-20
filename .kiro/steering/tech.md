@@ -4,9 +4,7 @@
 
 采用 **API + Service 层** 的架构模式：
 - **FastAPI**：Web 服务，提供 API 端点和定时任务调度
-- **Service 层**：独立的业务编排（抓取、摘要、关注列表）
-- **Agent（计划中）**：未来引入 HKUDS/nanobot 实现意图理解
-- **演进策略**：按需引入 Agent 层实现自然语言交互
+- **Service 层**：独立的业务编排（抓取、摘要、主题管理）
 
 ```
 用户请求 (Web / API)
@@ -27,7 +25,6 @@ Service 层 (业务编排)
 | **任务调度** | APScheduler | 定时抓取新闻任务（惰性启动，需管理员 API 显式启用） |
 | **数据库** | SQLite（WAL 模式） → PostgreSQL | 本地开发用 SQLite，云端升级 |
 | **LLM** | 通用 OpenAI 兼容协议（OpenRouter / MiniMax / DeepSeek / 智谱 / Moonshot 等） | 统一 Provider 架构，可扩展 |
-| **Agent 框架** | HKUDS/nanobot（计划中） | 超轻量（4000 行），微内核设计 |
 
 ## AI 能力
 
@@ -79,9 +76,6 @@ prometheus_client   # Prometheus 指标采集
 # 工具库
 python-dotenv       # 环境变量
 # logging — 使用标准库 logging + 自定义 logging_config.py（JSON/文本双格式 + trace_id + 文件轮转）
-
-# Agent 框架（计划中）
-# nanobot-ai        # HKUDS/nanobot — 待引入
 ```
 
 ## 开发标准
@@ -95,7 +89,7 @@ python-dotenv       # 环境变量
 ### 架构原则
 - **YAGNI**：不提前实现不需要的功能
 - **单职责**：每个 Service 只做一件事
-- **易演进**：保持 Service 独立，便于未来引入 Agent 层
+- **易演进**：保持 Service 独立，便于未来扩展
 - **数据完整性**：抓取逻辑原则上需保留所有抓取到的重要信息，如果这与当前程序逻辑冲突（如 FK 约束、存储格式限制等），需要及时提醒
 
 ### 测试
@@ -238,15 +232,6 @@ mypy src/
 
 ## 关键技术决策
 
-### 为什么暂不引入 Agent 框架？
-- **YAGNI 原则**：当前 API + Service 层架构已满足所有需求
-- **直接驱动**：FastAPI 路由直接调用 Service，减少不必要的中间层
-- **演进灵活**：Service 独立，未来可按需引入 Nanobot Agent 层
-
-### 为什么选择 Nanobot 作为未来 Agent 框架？
-- **轻量优先**：4000 行代码 vs 数十万行，易于理解和维护
-- **微内核设计**：只提供核心调度能力，不引入过多抽象
-
 ### 为什么用集中式队列替代 fire-and-forget 摘要触发？
 - **并发安全**：原有 `asyncio.create_task()` 散落在多个 Service 中，多用户并发时产生大量协程堆积
 - **背压控制**：有界 `asyncio.PriorityQueue(100)` 提供背压信号，队列满时丢弃并告警而非无限堆积
@@ -273,7 +258,7 @@ mypy src/
 - **协议统一**：所有目标提供商（OpenRouter、MiniMax、DeepSeek、智谱、Moonshot 等）均兼容 OpenAI Chat Completions API
 - **代码复用**：单一 `OpenAICompatibleProvider` 替代重复的 Provider 实现
 - **易于扩展**：新增提供商只需在 `presets.py` 添加预设配置，无需编写新代码
-- **向后兼容**：旧的 `OpenRouterProvider` / `MiniMaxProvider` 作为 thin wrapper 保留
+- **简洁架构**：废弃的 thin wrapper 已移除，只保留统一 Provider
 - **灵活配置**：新格式 `LLM_PROVIDERS=openrouter,deepseek` + 旧格式 `MINIMAX_API_KEY` 均可使用
 
 ---
