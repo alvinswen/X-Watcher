@@ -3,7 +3,7 @@
 移除 per-user follows 功能，删除 twitter_follows 表。
 
 Revision ID: p1_drop_twitter_follows
-Revises: t4_add_tz_offset
+Revises: d1_drop_deduplication
 Create Date: 2026-02-20
 
 """
@@ -15,7 +15,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "p1_drop_twitter_follows"
-down_revision: Union[str, None] = "t4_add_tz_offset"
+down_revision: Union[str, None] = "d1_drop_deduplication"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

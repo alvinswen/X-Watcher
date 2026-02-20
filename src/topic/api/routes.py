@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.async_session import get_db_session
-from src.user.api.auth import get_current_admin_user, get_current_user
+from src.user.api.auth import get_current_user
 from src.user.domain.models import UserDomain
 from src.topic.api.schemas import (
     AccountResponse,
