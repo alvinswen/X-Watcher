@@ -9,38 +9,10 @@ import pytest
 from pydantic import ValidationError
 
 from src.preference.api.schemas import (
-    CreateFollowRequest,
-    FollowResponse,
     CreateScraperFollowRequest,
     ScraperFollowResponse,
     UpdateScraperFollowRequest,
 )
-
-
-class TestCreateFollowRequest:
-    """创建关注请求模型测试。"""
-
-    def test_create_valid_follow_request(self):
-        """测试创建有效的关注请求。"""
-        request = CreateFollowRequest(username="karpathy")
-        assert request.username == "karpathy"
-
-    def test_create_follow_request_with_at_symbol(self):
-        """测试创建带 @ 符号的关注请求。"""
-        request = CreateFollowRequest(username="@ylecun")
-        assert request.username == "ylecun"  # 应该去除 @ 符号
-
-    def test_create_follow_request_invalid_username_too_long(self):
-        """测试用户名超过 15 字符时验证失败。"""
-        with pytest.raises(ValidationError) as exc_info:
-            CreateFollowRequest(username="thisusernameistoolong")
-        assert "username" in str(exc_info.value).lower()
-
-    def test_create_follow_request_invalid_username_special_chars(self):
-        """测试用户名包含非法字符时验证失败。"""
-        with pytest.raises(ValidationError) as exc_info:
-            CreateFollowRequest(username="user@name")
-        assert "username" in str(exc_info.value).lower()
 
 
 class TestCreateScraperFollowRequest:
@@ -127,17 +99,6 @@ class TestUpdateScraperFollowRequest:
 
 class TestResponseModels:
     """响应模型测试。"""
-
-    def test_follow_response(self):
-        """测试关注响应。"""
-        now = datetime.now(timezone.utc)
-        response = FollowResponse(
-            id=1,
-            user_id=1,
-            username="karpathy",
-            created_at=now,
-        )
-        assert response.username == "karpathy"
 
     def test_scraper_follow_response(self):
         """测试抓取账号响应。"""

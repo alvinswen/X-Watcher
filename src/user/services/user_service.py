@@ -29,19 +29,6 @@ class UserService:
         raw_key, key_hash, key_prefix = self._auth.generate_api_key()
         await self._repo.create_api_key(user.id, key_hash, key_prefix, "default")
 
-        # 初始化关注列表（可选，需要 PreferenceService）
-        try:
-            from src.preference.infrastructure.preference_repository import PreferenceRepository
-            from src.preference.infrastructure.scraper_config_repository import ScraperConfigRepository
-            from src.preference.services.preference_service import PreferenceService
-
-            pref_repo = PreferenceRepository(self._session)
-            scraper_repo = ScraperConfigRepository(self._session)
-            pref_service = PreferenceService(pref_repo, scraper_repo)
-            await pref_service.initialize_user_follows(user.id)
-        except Exception as e:
-            logger.warning(f"初始化关注列表失败（非致命）: {e}")
-
         return user, temp_password, raw_key
 
     async def create_api_key(self, user_id: int, name: str = "default") -> tuple[ApiKeyInfo, str]:

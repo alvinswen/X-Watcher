@@ -9,7 +9,6 @@ import {
   Monitor,
   Timer,
   UserFilled,
-  Star,
   Fold,
   Expand,
   FullScreen,
@@ -47,7 +46,6 @@ const menuItems = [
   { index: "/topic-summaries", title: "主题摘要", icon: DataAnalysis },
   { index: "/browse", title: "推文浏览", icon: Reading },
   { index: "/search", title: "推文搜索", icon: Search },
-  { index: "/my-follows", title: "我的关注", icon: Star },
   // —— 管理功能 ——
   { index: "/topics", title: "主题管理", icon: Collection },
   { index: "/tweets", title: "推文管理", icon: Document },

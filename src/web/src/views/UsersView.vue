@@ -8,49 +8,6 @@
     <el-card>
       <el-skeleton v-if="loading" :rows="4" animated />
       <el-table v-else :data="users" stripe row-key="id">
-        <el-table-column type="expand">
-          <template #default="{ row }">
-            <div class="expand-content">
-              <div class="expand-header">
-                <span class="expand-title">关注列表</span>
-                <div class="expand-add">
-                  <el-input
-                    v-model="newFollowUsername"
-                    placeholder="输入 Twitter 用户名"
-                    size="small"
-                    style="width: 200px"
-                    @keyup.enter="handleAddFollow(row)"
-                  />
-                  <el-button
-                    type="primary"
-                    size="small"
-                    :loading="addingFollow"
-                    @click="handleAddFollow(row)"
-                  >
-                    添加
-                  </el-button>
-                </div>
-              </div>
-              <div v-if="userFollowsLoading[row.id]" class="expand-loading">
-                <el-skeleton :rows="2" animated />
-              </div>
-              <div v-else-if="getUserFollows(row.id).length === 0" class="expand-empty">
-                暂无关注账号
-              </div>
-              <div v-else class="follows-tags">
-                <el-tag
-                  v-for="follow in getUserFollows(row.id)"
-                  :key="follow.id"
-                  closable
-                  class="follow-tag"
-                  @close="handleRemoveFollow(row, follow.username)"
-                >
-                  @{{ follow.username }}
-                </el-tag>
-              </div>
-            </div>
-          </template>
-        </el-table-column>
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column prop="name" label="名称" min-width="120" />
         <el-table-column prop="email" label="邮箱" min-width="200" />
@@ -201,7 +158,7 @@ import { ElMessage, ElMessageBox } from "element-plus"
 import type { FormInstance, FormRules } from "element-plus"
 import { usersApi } from "@/api"
 import { formatLocalizedDateTime } from "@/utils/format"
-import type { UserInfo, UserFollow } from "@/types"
+import type { UserInfo } from "@/types"
 
 // ==================== 用户列表 ====================
 
@@ -362,60 +319,6 @@ async function handleResetPassword(user: UserInfo) {
   }
 }
 
-// ==================== 展开行：用户关注列表 ====================
-
-const userFollowsMap = reactive<Record<number, UserFollow[]>>({})
-const userFollowsLoading = reactive<Record<number, boolean>>({})
-const newFollowUsername = ref("")
-const addingFollow = ref(false)
-
-function getUserFollows(userId: number): UserFollow[] {
-  return userFollowsMap[userId] || []
-}
-
-async function loadUserFollows(userId: number) {
-  userFollowsLoading[userId] = true
-  try {
-    userFollowsMap[userId] = await usersApi.getUserFollows(userId)
-  } catch (error) {
-    console.error(`加载用户 ${userId} 关注列表失败:`, error)
-  } finally {
-    userFollowsLoading[userId] = false
-  }
-}
-
-async function handleAddFollow(user: UserInfo) {
-  const username = newFollowUsername.value.trim().replace(/^@/, "")
-  if (!username) {
-    ElMessage.warning("请输入用户名")
-    return
-  }
-
-  addingFollow.value = true
-  try {
-    await usersApi.addUserFollow(user.id, username)
-    ElMessage.success(`已为 ${user.name} 添加关注 @${username}`)
-    newFollowUsername.value = ""
-    await loadUserFollows(user.id)
-  } catch (error: any) {
-    const message = error?.response?.data?.detail || "添加关注失败"
-    ElMessage.error(message)
-  } finally {
-    addingFollow.value = false
-  }
-}
-
-async function handleRemoveFollow(user: UserInfo, username: string) {
-  try {
-    await usersApi.removeUserFollow(user.id, username)
-    ElMessage.success(`已移除 @${username}`)
-    await loadUserFollows(user.id)
-  } catch (error: any) {
-    const message = error?.response?.data?.detail || "移除关注失败"
-    ElMessage.error(message)
-  }
-}
-
 // ==================== 工具函数 ====================
 
 async function copyToClipboard(text: string) {
@@ -431,10 +334,6 @@ async function copyToClipboard(text: string) {
 
 onMounted(async () => {
   await loadUsers()
-  // 预加载所有用户的关注列表
-  for (const user of users.value) {
-    loadUserFollows(user.id)
-  }
 })
 </script>
 
@@ -463,47 +362,5 @@ onMounted(async () => {
   font-size: 14px;
   color: var(--el-text-color-regular);
   margin-bottom: 4px;
-}
-
-.expand-content {
-  padding: 12px 20px;
-}
-
-.expand-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-
-.expand-title {
-  font-weight: 600;
-  font-size: 14px;
-  color: var(--el-text-color-primary);
-}
-
-.expand-add {
-  display: flex;
-  gap: 8px;
-}
-
-.expand-loading {
-  padding: 8px 0;
-}
-
-.expand-empty {
-  color: var(--el-text-color-secondary);
-  font-size: 13px;
-  padding: 8px 0;
-}
-
-.follows-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.follow-tag {
-  font-size: 13px;
 }
 </style>

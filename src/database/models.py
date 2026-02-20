@@ -93,9 +93,6 @@ class User(Base):
     news_items: Mapped[list["NewsItem"]] = relationship(
         "NewsItem", back_populates="user", cascade="all, delete-orphan"
     )
-    twitter_follows: Mapped[list["TwitterFollow"]] = relationship(
-        "TwitterFollow", back_populates="user", cascade="all, delete-orphan"
-    )
     api_keys: Mapped[list["ApiKey"]] = relationship(
         "ApiKey", back_populates="user", cascade="all, delete-orphan"
     )
@@ -174,33 +171,6 @@ class ScraperFollow(Base):
         Index("idx_scraper_follows_active", "is_active"),
     )
 
-
-class TwitterFollow(Base):
-    """用户关注列表模型。
-
-    用户从平台抓取列表中选择的 Twitter 关注账号。
-    """
-
-    __tablename__ = "twitter_follows"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
-    )
-    username: Mapped[str] = mapped_column(String(15), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
-    )
-
-    # 关系
-    user: Mapped["User"] = relationship("User", back_populates="twitter_follows")
-
-    # 约束和索引
-    __table_args__ = (
-        UniqueConstraint("user_id", "username", name="uq_twitter_follows_user_username"),
-        Index("idx_twitter_follows_user_id", "user_id"),
-        Index("idx_twitter_follows_username", "username"),
-    )
 
 
 class ScraperScheduleConfig(Base):

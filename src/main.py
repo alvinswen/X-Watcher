@@ -317,11 +317,10 @@ app.include_router(tweets_router)
 app.include_router(summarization_routes.router)
 
 # 注册偏好管理 API 路由
-from src.preference.api.routes import scraper_config_router, scraper_public_router, preference_router
+from src.preference.api.routes import scraper_config_router, scraper_public_router
 
 app.include_router(scraper_config_router)
 app.include_router(scraper_public_router)
-app.include_router(preference_router)
 
 # 注册 Feed API 路由
 from src.feed.api.routes import router as feed_router
@@ -329,12 +328,11 @@ from src.feed.api.routes import router as feed_router
 app.include_router(feed_router)
 
 # 注册用户管理 API 路由
-from src.user.api import auth_router, user_router, admin_user_router, admin_user_follows_router
+from src.user.api import auth_router, user_router, admin_user_router
 
 app.include_router(auth_router)
 app.include_router(user_router)
 app.include_router(admin_user_router)
-app.include_router(admin_user_follows_router)
 
 # 注册 Prometheus 监控路由
 from src.monitoring import routes as monitoring_routes

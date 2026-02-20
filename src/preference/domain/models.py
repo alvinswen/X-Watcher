@@ -64,32 +64,3 @@ class ScraperFollow(BaseModel):
             is_active=orm_obj.is_active,
             manual_limit=orm_obj.manual_limit,
         )
-
-
-class TwitterFollow(BaseModel):
-    """用户关注领域模型。
-
-    表示用户选择的 Twitter 关注账号。
-    """
-
-    id: int = Field(..., description="关注记录 ID")
-    user_id: int = Field(..., description="用户 ID")
-    username: str = Field(..., description="Twitter 用户名")
-    created_at: datetime = Field(..., description="创建时间")
-
-    @classmethod
-    def from_orm(cls, orm_obj: "TwitterFollowORM") -> "TwitterFollow":
-        """从 ORM 模型转换为领域模型。
-
-        Args:
-            orm_obj: SQLAlchemy ORM 模型实例
-
-        Returns:
-            领域模型实例
-        """
-        return cls(
-            id=orm_obj.id,
-            user_id=orm_obj.user_id,
-            username=orm_obj.username,
-            created_at=orm_obj.created_at,
-        )

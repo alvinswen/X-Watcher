@@ -9,11 +9,9 @@ import pytest
 
 from src.preference.domain.models import (
     ScraperFollow,
-    TwitterFollow,
 )
 from src.database.models import (
     ScraperFollow as ScraperFollowORM,
-    TwitterFollow as TwitterFollowORM,
 )
 
 
@@ -67,43 +65,3 @@ class TestScraperFollow:
         assert "id" in data
         assert "username" in data
         assert data["username"] == "karpathy"
-
-
-class TestTwitterFollow:
-    """TwitterFollow 领域模型测试。"""
-
-    @pytest.fixture
-    def sample_twitter_follow_data(self):
-        """示例用户关注数据。"""
-        return {
-            "id": 1,
-            "user_id": 1,
-            "username": "ylecun",
-            "created_at": datetime.now(timezone.utc),
-        }
-
-    def test_create_valid_twitter_follow(self, sample_twitter_follow_data):
-        """测试创建有效的用户关注模型。"""
-        follow = TwitterFollow(**sample_twitter_follow_data)
-        assert follow.username == "ylecun"
-        assert follow.user_id == 1
-
-    def test_twitter_follow_from_orm(self):
-        """测试从 ORM 模型转换。"""
-        orm = TwitterFollowORM(
-            id=1,
-            user_id=1,
-            username="ylecun",
-            created_at=datetime.now(timezone.utc),
-        )
-        domain = TwitterFollow.from_orm(orm)
-        assert domain.id == orm.id
-        assert domain.username == orm.username
-
-    def test_twitter_follow_to_dict(self, sample_twitter_follow_data):
-        """测试转换为字典。"""
-        follow = TwitterFollow(**sample_twitter_follow_data)
-        data = follow.model_dump()
-        assert "id" in data
-        assert "username" in data
-        assert "created_at" in data

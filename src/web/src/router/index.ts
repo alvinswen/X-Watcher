@@ -89,15 +89,7 @@ const routes: RouteRecordRaw[] = [
       title: "主题摘要",
     },
   },
-  {
-    path: "/my-follows",
-    name: "my-follows",
-    component: () => import("@/views/MyFollowsView.vue"),
-    meta: {
-      title: "我的关注",
-    },
-  },
-  {
+{
     path: "/search",
     name: "search",
     component: () => import("@/views/SearchView.vue"),
