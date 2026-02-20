@@ -11,6 +11,7 @@ import pytest
 from fastapi import status
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import StaticPool
 
 from src.database.models import Base, ScraperFollow, ScraperScheduleConfig
 from src.main import app
@@ -21,22 +22,33 @@ from src.user.domain.models import UserDomain
 
 
 @pytest.fixture
-async def status_test_session():
-    """独立的异步数据库会话 fixture。"""
+async def status_test_engine():
+    """独立的异步数据库引擎 fixture（StaticPool 确保内存 SQLite 多 session 共享连接）。"""
     engine = create_async_engine(
         "sqlite+aiosqlite:///:memory:",
         connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
     )
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    session_maker = async_sessionmaker(
-        engine, class_=AsyncSession, expire_on_commit=False
-    )
-    async with session_maker() as session:
-        yield session
-
+    yield engine
     await engine.dispose()
+
+
+@pytest.fixture
+async def status_test_session_maker(status_test_engine):
+    """异步 session maker fixture。"""
+    return async_sessionmaker(
+        status_test_engine, class_=AsyncSession, expire_on_commit=False
+    )
+
+
+@pytest.fixture
+async def status_test_session(status_test_session_maker):
+    """独立的异步数据库会话 fixture（用于数据种子和旧式 DI 覆盖）。"""
+    async with status_test_session_maker() as session:
+        yield session
 
 
 @pytest.fixture
@@ -58,18 +70,13 @@ def mock_start_time() -> datetime:
 
 
 @pytest.fixture
-async def status_client(status_test_session, mock_user, mock_start_time):
+async def status_client(status_test_session_maker, mock_user, mock_start_time):
     """Status API 集成测试客户端（带认证 + mock scheduler/start_time）。"""
-    from src.database.async_session import get_db_session
     from src.user.api.auth import get_current_user
-
-    async def override_get_db_session():
-        yield status_test_session
 
     async def override_get_current_user():
         return mock_user
 
-    app.dependency_overrides[get_db_session] = override_get_db_session
     app.dependency_overrides[get_current_user] = override_get_current_user
 
     # Mock scheduler: running, has a scraper_job
@@ -86,29 +93,27 @@ async def status_client(status_test_session, mock_user, mock_start_time):
             "src.api.routes.status.get_server_start_time",
             return_value=mock_start_time,
         ),
+        patch(
+            "src.database.async_session.get_async_session_maker",
+            return_value=status_test_session_maker,
+        ),
     ):
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             yield ac
 
-    app.dependency_overrides.pop(get_db_session, None)
     app.dependency_overrides.pop(get_current_user, None)
 
 
 @pytest.fixture
 async def status_client_stopped_scheduler(
-    status_test_session, mock_user, mock_start_time
+    status_test_session_maker, mock_user, mock_start_time
 ):
     """Status API 客户端（scheduler=None，模拟停止状态）。"""
-    from src.database.async_session import get_db_session
     from src.user.api.auth import get_current_user
-
-    async def override_get_db_session():
-        yield status_test_session
 
     async def override_get_current_user():
         return mock_user
 
-    app.dependency_overrides[get_db_session] = override_get_db_session
     app.dependency_overrides[get_current_user] = override_get_current_user
 
     transport = ASGITransport(app=app)
@@ -118,11 +123,14 @@ async def status_client_stopped_scheduler(
             "src.api.routes.status.get_server_start_time",
             return_value=mock_start_time,
         ),
+        patch(
+            "src.database.async_session.get_async_session_maker",
+            return_value=status_test_session_maker,
+        ),
     ):
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             yield ac
 
-    app.dependency_overrides.pop(get_db_session, None)
     app.dependency_overrides.pop(get_current_user, None)
 
 

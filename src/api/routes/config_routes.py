@@ -28,9 +28,11 @@ async def validate_config() -> dict:
     - twitter_api: Twitter API 状态
     - database: 数据库连接状态
     """
-    llm_results = await _check_llm_providers()
-    twitter_result = await _check_twitter_api()
-    db_result = await _check_database()
+    llm_results, twitter_result, db_result = await asyncio.gather(
+        _check_llm_providers(),
+        _check_twitter_api(),
+        _check_database(),
+    )
 
     return {
         "llm_providers": llm_results,
@@ -48,54 +50,55 @@ async def _check_llm_providers() -> list[dict]:
         logger.warning(f"LLM 配置加载失败: {e}")
         return [{"name": "config_error", "status": "unhealthy", "error": str(e)}]
 
-    results = []
-    for provider in providers:
-        name = provider.get_provider_name()
-        model = provider.get_model_name()
-        try:
-            start = time.monotonic()
-            result = await asyncio.wait_for(
-                provider.complete("Say OK", max_tokens=10, temperature=0),
-                timeout=15,
-            )
-            latency_ms = int((time.monotonic() - start) * 1000)
+    tasks = [_check_single_provider(p) for p in providers]
+    return list(await asyncio.gather(*tasks))
 
-            # 检查 Result 类型
-            if hasattr(result, "value_or"):
-                response = result.value_or(None)
-                if response is None:
-                    # Failure case
-                    failure = result.failure()
-                    results.append({
-                        "name": name,
-                        "status": "unhealthy",
-                        "model": model,
-                        "error": str(failure),
-                    })
-                    continue
 
-            results.append({
-                "name": name,
-                "status": "healthy",
-                "model": model,
-                "latency_ms": latency_ms,
-            })
-        except asyncio.TimeoutError:
-            results.append({
-                "name": name,
-                "status": "unhealthy",
-                "model": model,
-                "error": "请求超时 (>15s)",
-            })
-        except Exception as e:
-            results.append({
-                "name": name,
-                "status": "unhealthy",
-                "model": model,
-                "error": str(e)[:200],
-            })
+async def _check_single_provider(provider) -> dict:
+    """检查单个 LLM 提供商连通性。"""
+    name = provider.get_provider_name()
+    model = provider.get_model_name()
+    try:
+        start = time.monotonic()
+        result = await asyncio.wait_for(
+            provider.complete("Say OK", max_tokens=10, temperature=0),
+            timeout=15,
+        )
+        latency_ms = int((time.monotonic() - start) * 1000)
 
-    return results
+        # 检查 Result 类型
+        if hasattr(result, "value_or"):
+            response = result.value_or(None)
+            if response is None:
+                # Failure case
+                failure = result.failure()
+                return {
+                    "name": name,
+                    "status": "unhealthy",
+                    "model": model,
+                    "error": str(failure),
+                }
+
+        return {
+            "name": name,
+            "status": "healthy",
+            "model": model,
+            "latency_ms": latency_ms,
+        }
+    except asyncio.TimeoutError:
+        return {
+            "name": name,
+            "status": "unhealthy",
+            "model": model,
+            "error": "请求超时 (>15s)",
+        }
+    except Exception as e:
+        return {
+            "name": name,
+            "status": "unhealthy",
+            "model": model,
+            "error": str(e)[:200],
+        }
 
 
 async def _check_twitter_api() -> dict:

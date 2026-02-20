@@ -3,6 +3,7 @@
 提供 GET /api/status/overview 端点，聚合返回推文、关注、摘要、主题、调度器和系统维度的关键指标。
 """
 
+import asyncio
 import logging
 import os
 from datetime import datetime, timezone
@@ -13,7 +14,6 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_settings
-from src.database.async_session import get_db_session
 from src.database.models import ScraperFollow
 from src.main import get_server_start_time
 from src.scheduler_accessor import get_scheduler
@@ -86,13 +86,31 @@ class StatusOverviewResponse(BaseModel):
 )
 async def get_status_overview(
     current_user: UserDomain = Depends(get_current_user),
-    session: AsyncSession = Depends(get_db_session),
 ) -> StatusOverviewResponse:
     """获取系统状态概览。"""
-    tweets = await _get_tweet_stats(session)
-    follows = await _get_follow_stats(session)
-    summaries = await _get_summary_stats(session)
-    topics = await _get_topic_stats(session)
+    from src.database.async_session import get_async_session_maker
+
+    session_maker = get_async_session_maker()
+
+    async def _tweets():
+        async with session_maker() as s:
+            return await _get_tweet_stats(s)
+
+    async def _follows():
+        async with session_maker() as s:
+            return await _get_follow_stats(s)
+
+    async def _summaries():
+        async with session_maker() as s:
+            return await _get_summary_stats(s)
+
+    async def _topics():
+        async with session_maker() as s:
+            return await _get_topic_stats(s)
+
+    tweets, follows, summaries, topics = await asyncio.gather(
+        _tweets(), _follows(), _summaries(), _topics(),
+    )
     scheduler = _get_scheduler_stats()
     system = _get_system_stats()
 
