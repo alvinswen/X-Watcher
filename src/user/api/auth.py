@@ -53,6 +53,11 @@ async def get_current_user(
             if user:
                 logger.debug(f"API Key 认证成功: user_id={user.id}")
                 return user
+        # Fallback: 检查是否匹配 ADMIN_API_KEY 环境变量
+        settings = get_settings()
+        if settings.admin_api_key and api_key == settings.admin_api_key:
+            logger.debug("ADMIN_API_KEY 引导认证成功")
+            return BOOTSTRAP_ADMIN
         logger.warning("API Key 认证失败: 无效或非活跃的 Key")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

@@ -239,9 +239,10 @@ async def test_admin_api_key_bootstrap(async_session):
 
 
 @pytest.mark.asyncio
-async def test_admin_api_key_not_for_current_user(async_session):
-    """ADMIN_API_KEY 不可用于 get_current_user（它不是数据库中的 Key）。"""
-    from fastapi import HTTPException
-    with pytest.raises(HTTPException) as exc_info:
-        await get_current_user(api_key=ADMIN_API_KEY_VALUE, bearer=None, session=async_session)
-    assert exc_info.value.status_code == 401
+async def test_admin_api_key_for_current_user(async_session):
+    """ADMIN_API_KEY 可用于 get_current_user，返回 BOOTSTRAP_ADMIN。"""
+    result = await get_current_user(
+        api_key=ADMIN_API_KEY_VALUE, bearer=None, session=async_session
+    )
+    assert result.id == BOOTSTRAP_ADMIN.id
+    assert result.is_admin is True
