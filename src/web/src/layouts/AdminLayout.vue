@@ -42,17 +42,19 @@ const apiKeyInput = ref("")
 
 /** 菜单项配置 */
 const menuItems = [
+  // —— 日常使用 ——
   { index: "/dashboard", title: "仪表盘", icon: Odometer },
-  { index: "/tweets", title: "推文管理", icon: Document },
+  { index: "/topic-summaries", title: "主题摘要", icon: DataAnalysis },
   { index: "/browse", title: "推文浏览", icon: Reading },
   { index: "/search", title: "推文搜索", icon: Search },
-  { index: "/follows", title: "关注管理", icon: User },
-  { index: "/tasks", title: "任务监控", icon: Monitor },
-  { index: "/scraping", title: "抓取管理", icon: Timer },
-  { index: "/topics", title: "主题管理", icon: Collection },
-  { index: "/topic-summaries", title: "主题摘要", icon: DataAnalysis },
-  { index: "/users", title: "用户管理", icon: UserFilled },
   { index: "/my-follows", title: "我的关注", icon: Star },
+  // —— 管理功能 ——
+  { index: "/topics", title: "主题管理", icon: Collection },
+  { index: "/tweets", title: "推文管理", icon: Document },
+  { index: "/follows", title: "关注管理", icon: User },
+  { index: "/scraping", title: "抓取管理", icon: Timer },
+  { index: "/tasks", title: "任务监控", icon: Monitor },
+  { index: "/users", title: "用户管理", icon: UserFilled },
 ]
 
 /** 打开 API Key 设置对话框 */
