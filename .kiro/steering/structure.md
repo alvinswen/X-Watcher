@@ -130,6 +130,18 @@ src/
 │   │   └── schemas.py       # SearchTweetItem, SearchResponse
 │   └── services/
 │       └── search_service.py  # 多字段搜索（正文、摘要、翻译、引用推文）
+├── analytics/               # 聚类分析模块（发推时段聚类）
+│   ├── domain/
+│   │   └── models.py        # 领域模型（ClusteringRunDomain, ClusterAssignmentDomain, AccountDistribution）
+│   ├── infrastructure/
+│   │   ├── models.py        # ORM 模型（ClusteringRunOrm, ClusterAssignmentOrm）
+│   │   └── repository.py    # ClusteringRepository
+│   ├── services/
+│   │   ├── feature_engineering.py  # 24 维小时分布向量构建
+│   │   └── clustering_service.py   # 层次聚类（JSD + average linkage）
+│   └── api/
+│       ├── routes.py        # /api/admin/analytics/* 端点（分布预览、聚类运行、重切割、手动调整）
+│       └── schemas.py       # 请求/响应模型
 ├── monitoring/              # Prometheus 监控
 │   ├── metrics.py           # 指标定义
 │   ├── middleware.py         # 中间件
@@ -160,6 +172,7 @@ tests/
 ├── user/               # 用户认证测试
 ├── feed/               # Feed API 测试
 ├── search/             # 搜索 API 测试
+├── analytics/          # 聚类分析模块测试
 ├── api/                # API 端点测试
 ├── integration/        # 集成测试
 ├── performance/        # 性能测试
