@@ -540,7 +540,7 @@ async def get_user_profile(
 
     try:
         repo = XUserProfileRepository(session)
-        profile = await repo.get_profile_by_username(username.lower())
+        profile = await repo.get_profile_by_username(username)
 
         if profile is None:
             raise HTTPException(
@@ -679,7 +679,7 @@ async def generate_follow_intro(
 
         # 查询档案
         profile_repo = XUserProfileRepository(session)
-        profile = await profile_repo.get_profile_by_username(username.lower())
+        profile = await profile_repo.get_profile_by_username(username)
         if profile is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -752,103 +752,6 @@ async def generate_follow_intro(
             detail="生成极简介绍失败",
         ) from e
 
-
-@router.post(
-    "/follows/generate-intros",
-    responses={
-        status.HTTP_401_UNAUTHORIZED: {"model": ErrorResponse},
-        status.HTTP_403_FORBIDDEN: {"model": ErrorResponse},
-    },
-)
-async def generate_follow_intros_batch(
-    session: AsyncSession = Depends(get_async_session),
-    admin: UserDomain = Depends(get_current_admin_user),
-) -> dict:
-    """批量为所有缺少极简介绍的活跃账号生成。
-
-    遍历所有 brief_intro IS NULL 的活跃账号，
-    查询档案并调用 LLM 生成极简介绍。
-    """
-    from src.preference.infrastructure.x_user_profile_repository import (
-        XUserProfileRepository,
-    )
-    from returns.result import Success as SuccessResult
-
-    try:
-        config_repo = ScraperConfigRepository(session)
-        follows = await config_repo.get_active_follows()
-        need_intro = [f for f in follows if not f.brief_intro]
-
-        if not need_intro:
-            return {"generated": 0, "skipped": 0, "message": "所有活跃账号已有极简介绍"}
-
-        profile_repo = XUserProfileRepository(session)
-        profiles = await profile_repo.get_all_profiles()
-        profiles_map = {p.username.lower(): p for p in profiles}
-
-        providers = build_llm_providers()
-        if not providers:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="没有可用的 LLM 提供商",
-            )
-
-        generated = 0
-        skipped = 0
-
-        for follow in need_intro:
-            profile = profiles_map.get(follow.username.lower())
-            if profile is None:
-                skipped += 1
-                continue
-
-            display_name = profile.display_name or follow.username
-            description = profile.description or ""
-
-            prompt = (
-                "根据以下 Twitter 账号信息，生成一个不超过10个汉字的中文极简介绍。\n"
-                f"显示名: {display_name}\n"
-                f"个人简介: {description}\n"
-                "只输出介绍文本，不要包含引号、标点或额外说明。"
-            )
-
-            llm_result = None
-            for provider in providers:
-                try:
-                    result = await provider.complete(
-                        prompt=prompt, max_tokens=100, temperature=0.3,
-                    )
-                    if isinstance(result, SuccessResult):
-                        llm_result = result.unwrap()
-                        break
-                except Exception as e:
-                    logger.warning(f"Provider {provider.get_provider_name()} 调用失败: {e}")
-
-            if llm_result is None:
-                skipped += 1
-                continue
-
-            brief_intro = llm_result.content.strip()[:50]
-            await config_repo.update_scraper_follow(
-                username=follow.username, brief_intro=brief_intro,
-            )
-            generated += 1
-
-        await session.commit()
-
-        return {
-            "generated": generated,
-            "skipped": skipped,
-            "message": f"生成 {generated} 个极简介绍，跳过 {skipped} 个（无档案或 LLM 失败）",
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"批量生成极简介绍失败: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="批量生成极简介绍失败",
-        ) from e
 
 
 @router.delete(

@@ -76,4 +76,14 @@ export const followsApi = {
     )
     return response.data
   },
+
+  /** 为单个账号生成极简介绍 */
+  async generateIntro(username: string): Promise<ScrapingFollow> {
+    const response = await client.post<ScrapingFollow>(
+      `${FOLLOWS_PREFIX}/${username}/generate-intro`,
+      undefined,
+      { timeout: 120_000 },
+    )
+    return response.data
+  },
 }

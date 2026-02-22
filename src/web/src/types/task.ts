@@ -183,4 +183,6 @@ export interface UpdateScrapingFollowRequest {
   is_active?: boolean
   /** 手动推文数量限制（0 清除，null 不修改） */
   manual_limit?: number | null
+  /** 极简介绍（≤10汉字，null 不修改，空字符串清空） */
+  brief_intro?: string | null
 }

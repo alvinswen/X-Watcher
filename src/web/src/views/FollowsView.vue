@@ -289,6 +289,7 @@ const formRef = ref<FormInstance>()
 const formData = reactive({
   username: "",
   reason: "",
+  brief_intro: "",
 })
 
 /** 档案 Map（username -> profile） */
@@ -352,6 +353,7 @@ function handleAdd() {
   currentFollow.value = null
   formData.username = ""
   formData.reason = ""
+  formData.brief_intro = ""
   dialogVisible.value = true
 }
 
@@ -361,6 +363,7 @@ function handleEdit(follow: ScrapingFollow) {
   currentFollow.value = follow
   formData.username = follow.username
   formData.reason = follow.reason
+  formData.brief_intro = follow.brief_intro ?? ""
   dialogVisible.value = true
 }
 
@@ -401,6 +404,7 @@ async function handleSubmit() {
       // 编辑
       await followsApi.update(currentFollow.value.username, {
         reason: formData.reason,
+        brief_intro: formData.brief_intro || null,
       })
       ElMessage.success("账号更新成功")
     } else {
