@@ -167,12 +167,23 @@ class ScraperFollow(Base):
     platform_user_id: Mapped[str | None] = mapped_column(
         String(64), nullable=True, unique=True, comment="X 平台永久 user_id"
     )
+    brief_intro: Mapped[str | None] = mapped_column(
+        String(50), nullable=True, default=None, comment="极简介绍（≤10汉字）"
+    )
+    backfill_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pending",
+        comment="回溯状态: pending/running/completed/skipped",
+    )
+    backfill_completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True, comment="回溯完成时间",
+    )
 
     # 索引
     __table_args__ = (
         Index("idx_scraper_follows_username", "username"),
         Index("idx_scraper_follows_active", "is_active"),
         Index("idx_scraper_follows_platform_user_id", "platform_user_id"),
+        Index("idx_scraper_follows_backfill_status", "backfill_status"),
     )
 
 

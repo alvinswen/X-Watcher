@@ -629,6 +629,106 @@ async def test_delete_task(async_session, topic_repo, task_repo):
     assert found is None
 
 
+# ── _build_prompt + account_profiles 测试 ──
+
+
+def test_build_prompt_with_account_profiles():
+    """有档案时，分隔符使用显示名，且 account_reference 正确。"""
+    service = TopicSummaryService(providers=[])
+    start = datetime(2025, 1, 1, 0, 0, tzinfo=timezone.utc)
+    end = datetime(2025, 1, 2, 0, 0, tzinfo=timezone.utc)
+    tweets = [
+        {"tweet_id": "1", "text": "Hello", "author": "user_a", "created_at": "2025-01-01 10:00", "translation": None},
+        {"tweet_id": "2", "text": "World", "author": "user_b", "created_at": "2025-01-01 11:00", "translation": None},
+    ]
+    profiles = {
+        "user_a": {"display_name": "Alice", "brief_intro": "AI研究员"},
+        "user_b": {"display_name": "Bob", "brief_intro": "科技博主"},
+    }
+    prompt, count = service._build_prompt(
+        tweets, ["user_a", "user_b"], 24, start, end,
+        account_profiles=profiles,
+    )
+
+    # 分隔符使用显示名
+    assert "--- Alice（@user_a）---" in prompt
+    assert "--- Bob（@user_b）---" in prompt
+    # account_reference 包含关注账号列表
+    assert "关注账号列表" in prompt
+    assert "- Alice（@user_a）：AI研究员" in prompt
+    assert "- Bob（@user_b）：科技博主" in prompt
+    assert count == 2
+
+
+def test_build_prompt_without_account_profiles():
+    """无档案时保持原行为（@username 格式），无动态账号列表。"""
+    service = TopicSummaryService(providers=[])
+    start = datetime(2025, 1, 1, 0, 0, tzinfo=timezone.utc)
+    end = datetime(2025, 1, 2, 0, 0, tzinfo=timezone.utc)
+    tweets = [
+        {"tweet_id": "1", "text": "Hello", "author": "user_a", "created_at": "2025-01-01 10:00", "translation": None},
+    ]
+    prompt, count = service._build_prompt(
+        tweets, ["user_a"], 24, start, end,
+        account_profiles=None,
+    )
+
+    assert "--- @user_a ---" in prompt
+    # 无动态账号列表（不含 "- xxx（@user_a）" 格式的条目）
+    assert "- " + "user_a" not in prompt.split("推文数据")[1] if "推文数据" in prompt else True
+    assert count == 1
+
+
+def test_build_prompt_partial_profiles():
+    """部分有简介的混合格式。"""
+    service = TopicSummaryService(providers=[])
+    start = datetime(2025, 1, 1, 0, 0, tzinfo=timezone.utc)
+    end = datetime(2025, 1, 2, 0, 0, tzinfo=timezone.utc)
+    tweets = [
+        {"tweet_id": "1", "text": "Hello", "author": "user_a", "created_at": "2025-01-01 10:00", "translation": None},
+        {"tweet_id": "2", "text": "World", "author": "user_b", "created_at": "2025-01-01 11:00", "translation": None},
+    ]
+    profiles = {
+        "user_a": {"display_name": "Alice", "brief_intro": "AI研究员"},
+        "user_b": {"display_name": "Bob", "brief_intro": None},
+    }
+    prompt, count = service._build_prompt(
+        tweets, ["user_a", "user_b"], 24, start, end,
+        account_profiles=profiles,
+    )
+
+    # user_a 有 brief_intro
+    assert "- Alice（@user_a）：AI研究员" in prompt
+    # user_b 无 brief_intro
+    assert "- Bob（@user_b）" in prompt
+    assert "- Bob（@user_b）：" not in prompt
+    assert count == 2
+
+
+def test_build_prompt_custom_prompt_backward_compatible():
+    """旧 custom_prompt 不含 account_reference 时不报错。"""
+    service = TopicSummaryService(providers=[])
+    start = datetime(2025, 1, 1, 0, 0, tzinfo=timezone.utc)
+    end = datetime(2025, 1, 2, 0, 0, tzinfo=timezone.utc)
+    tweets = [
+        {"tweet_id": "1", "text": "Test", "author": "user_a", "created_at": "2025-01-01", "translation": None},
+    ]
+    # 旧模板不包含 {account_reference}
+    custom = "自定义: {account_count}个账号 {tweet_count}条推文\n{tweets_content}"
+    profiles = {
+        "user_a": {"display_name": "Alice", "brief_intro": "AI研究员"},
+    }
+    # str.format 忽略未使用的 kwargs，不会报错
+    prompt, count = service._build_prompt(
+        tweets, ["user_a"], 24, start, end,
+        custom_prompt=custom, account_profiles=profiles,
+    )
+
+    assert "自定义" in prompt
+    assert "1个账号" in prompt
+    assert count == 1
+
+
 # ── 单例模式测试 ──
 
 

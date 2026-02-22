@@ -35,6 +35,10 @@ DEFAULT_TOPIC_SUMMARY_PROMPT = """你是一位专业的信息分析师。请根�
 5. 忽略与政治相关的讨论内容
 6. 使用中文撰写报告
 7. 不要在报告中添加"报告生成时间"或当前日期
+8. 账号引用格式：
+   - 对于下方"关注账号列表"中的账号：首次提及时使用「显示名（@用户名，极简介绍）」格式；后续提及直接使用显示名
+   - 对于列表之外的其他 @账号：保持 @用户名 格式不变
+{account_reference}
 
 推文数据：
 {tweets_content}
@@ -172,6 +176,32 @@ class TopicSummaryService:
                 accounts = await self._topic_repo.get_accounts(session, task.topic_id)
                 usernames = [a.username for a in accounts]
 
+                # 查询档案和简介（降级容错）
+                account_profiles: dict[str, dict] = {}
+                try:
+                    from src.preference.infrastructure.x_user_profile_repository import XUserProfileRepository
+                    from src.preference.infrastructure.scraper_config_repository import ScraperConfigRepository
+
+                    profile_repo = XUserProfileRepository(session)
+                    profiles = await profile_repo.get_profiles_by_usernames(usernames)
+                    profiles_map = {p.username.lower(): p for p in profiles}
+
+                    config_repo = ScraperConfigRepository(session)
+                    follows = await config_repo.get_active_follows()
+                    follows_map = {f.username.lower(): f for f in follows}
+
+                    for uname in usernames:
+                        key = uname.lower()
+                        profile = profiles_map.get(key)
+                        follow = follows_map.get(key)
+                        account_profiles[key] = {
+                            "display_name": (profile.display_name if profile else None) or uname,
+                            "brief_intro": follow.brief_intro if follow else None,
+                        }
+                except Exception:
+                    logger.warning("查询账号档案/简介失败，使用默认格式", exc_info=True)
+                    account_profiles = {}
+
                 # 计算时间范围
                 end_time = task.deadline
                 start_time = end_time - timedelta(hours=task.time_span_hours)
@@ -204,6 +234,7 @@ class TopicSummaryService:
                 prompt, tweet_count = self._build_prompt(
                     tweets_data, usernames, task.time_span_hours,
                     start_time, end_time, task.tz_offset, task.custom_prompt,
+                    account_profiles=account_profiles or None,
                 )
 
                 # 调用 LLM
@@ -340,6 +371,7 @@ class TopicSummaryService:
         end_time: datetime,
         tz_offset: int = 0,
         custom_prompt: str | None = None,
+        account_profiles: dict[str, dict] | None = None,
     ) -> tuple[str, int]:
         """构建聚合提示词。返回 (prompt, tweet_count)。"""
         # 按作者分组
@@ -356,7 +388,11 @@ class TopicSummaryService:
         included_count = 0
 
         for author, author_tweets in by_author.items():
-            author_section = f"\n--- @{author} ---\n"
+            if account_profiles and author.lower() in account_profiles:
+                dn = account_profiles[author.lower()]["display_name"]
+                author_section = f"\n--- {dn}（@{author}）---\n"
+            else:
+                author_section = f"\n--- @{author} ---\n"
             author_tokens = estimate_tokens(author_section)
 
             for tweet in author_tweets:
@@ -393,6 +429,23 @@ class TopicSummaryService:
         # 覆盖时段描述
         coverage_period = self._format_coverage_period(start_time, end_time, tz_offset)
 
+        # 构建关注账号列表引用
+        account_reference = ""
+        if account_profiles:
+            ref_lines = []
+            for uname in usernames:
+                key = uname.lower()
+                if key in account_profiles:
+                    ap = account_profiles[key]
+                    dn = ap["display_name"]
+                    intro = ap.get("brief_intro")
+                    if intro:
+                        ref_lines.append(f"- {dn}（@{uname}）：{intro}")
+                    else:
+                        ref_lines.append(f"- {dn}（@{uname}）")
+            if ref_lines:
+                account_reference = "\n关注账号列表：\n" + "\n".join(ref_lines)
+
         # 选择提示词模板
         format_kwargs = {
             "account_count": len(usernames),
@@ -400,6 +453,7 @@ class TopicSummaryService:
             "tweet_count": tweet_count,
             "tweets_content": tweets_content,
             "coverage_period": coverage_period,
+            "account_reference": account_reference,
         }
         if custom_prompt:
             prompt = custom_prompt.format(**format_kwargs)

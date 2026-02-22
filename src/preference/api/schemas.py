@@ -95,6 +95,7 @@ class ScraperFollowResponse(UTCDatetimeModel):
     added_by: str = Field(..., description="添加人")
     is_active: bool = Field(..., description="是否启用")
     manual_limit: int | None = Field(None, description="手动推文数量限制")
+    brief_intro: str | None = Field(None, description="极简介绍（≤10汉字）")
 
 
 class UpdateScraperFollowRequest(BaseModel):
@@ -118,6 +119,11 @@ class UpdateScraperFollowRequest(BaseModel):
         ge=0,
         le=1000,
         description="手动推文数量限制（0 表示清除手动设置恢复自动计算，null 表示不修改）",
+    )
+    brief_intro: str | None = Field(
+        default=None,
+        max_length=50,
+        description="极简介绍（≤10汉字，null 表示不修改，空字符串表示清空）",
     )
 
 

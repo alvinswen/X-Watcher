@@ -48,6 +48,9 @@ class ScraperFollow(BaseModel):
     is_active: bool = Field(..., description="是否启用")
     manual_limit: int | None = Field(None, description="手动推文数量限制")
     platform_user_id: str | None = Field(None, description="X 平台永久 user_id")
+    brief_intro: str | None = Field(None, description="极简介绍（≤10汉字）")
+    backfill_status: str = Field("pending", description="回溯状态: pending/running/completed/skipped")
+    backfill_completed_at: datetime | None = Field(None, description="回溯完成时间")
 
     @classmethod
     def from_orm(cls, orm_obj: ScraperFollowORM) -> ScraperFollow:
@@ -68,6 +71,9 @@ class ScraperFollow(BaseModel):
             is_active=orm_obj.is_active,
             manual_limit=orm_obj.manual_limit,
             platform_user_id=orm_obj.platform_user_id,
+            brief_intro=orm_obj.brief_intro,
+            backfill_status=orm_obj.backfill_status or "pending",
+            backfill_completed_at=orm_obj.backfill_completed_at,
         )
 
 

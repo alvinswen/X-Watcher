@@ -7,7 +7,7 @@ import json
 import logging
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.x_user_profile_model import XUserProfileOrm
@@ -168,6 +168,24 @@ class XUserProfileRepository:
         except Exception as e:
             logger.error("获取所有用户档案失败: %s", e)
             raise RepositoryError(f"获取所有用户档案失败: {e}") from e
+
+    async def get_profiles_by_usernames(
+        self,
+        usernames: list[str],
+    ) -> list[XUserProfile]:
+        """根据用户名列表批量查询用户档案（大小写不敏感）。"""
+        try:
+            if not usernames:
+                return []
+            lower_names = [u.lower() for u in usernames]
+            stmt = select(XUserProfileOrm).where(
+                func.lower(XUserProfileOrm.username).in_(lower_names)
+            )
+            result = await self._session.execute(stmt)
+            return [XUserProfile.from_orm(r) for r in result.scalars().all()]
+        except Exception as e:
+            logger.error("按用户名列表批量查询档案失败: %s", e)
+            raise RepositoryError(f"按用户名列表批量查询档案失败: {e}") from e
 
     async def get_profile_by_username(
         self,

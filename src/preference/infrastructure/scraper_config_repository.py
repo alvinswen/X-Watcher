@@ -178,6 +178,7 @@ class ScraperConfigRepository:
         reason: str | None = None,
         is_active: bool | None = None,
         manual_limit: int | None = None,
+        brief_intro: str | None = None,
     ) -> ScraperFollowDomain:
         """更新抓取账号。
 
@@ -186,6 +187,7 @@ class ScraperConfigRepository:
             reason: 新的添加理由（可选）
             is_active: 是否启用（可选）
             manual_limit: 手动推文数量限制（0 清除，正整数设置，None 不修改）
+            brief_intro: 极简介绍（None 不修改，空字符串清空）
 
         Returns:
             ScraperFollowDomain: 更新后的抓取账号记录
@@ -196,8 +198,8 @@ class ScraperConfigRepository:
         """
         try:
             # 验证至少有一个更新参数
-            if reason is None and is_active is None and manual_limit is None:
-                raise RepositoryError("必须提供至少一个更新参数（reason、is_active 或 manual_limit）")
+            if reason is None and is_active is None and manual_limit is None and brief_intro is None:
+                raise RepositoryError("必须提供至少一个更新参数（reason、is_active、manual_limit 或 brief_intro）")
 
             # 查询记录
             stmt = select(ScraperFollowOrm).where(
@@ -216,6 +218,8 @@ class ScraperConfigRepository:
                 orm_follow.is_active = is_active
             if manual_limit is not None:
                 orm_follow.manual_limit = None if manual_limit == 0 else manual_limit
+            if brief_intro is not None:
+                orm_follow.brief_intro = brief_intro or None
 
             await self._session.flush()
 
@@ -407,6 +411,66 @@ class ScraperConfigRepository:
         except Exception as e:
             logger.error("按 platform_user_id 查询失败: %s", e)
             raise RepositoryError(f"按 platform_user_id 查询失败: {e}") from e
+
+    async def get_pending_backfill_users(self) -> list[ScraperFollowDomain]:
+        """获取待回溯的活跃抓取账号。
+
+        Returns:
+            list[ScraperFollowDomain]: backfill_status="pending" 且 is_active=True 的账号
+        """
+        try:
+            stmt = (
+                select(ScraperFollowOrm)
+                .where(
+                    ScraperFollowOrm.is_active == True,  # noqa: E712
+                    ScraperFollowOrm.backfill_status == "pending",
+                )
+                .order_by(ScraperFollowOrm.added_at.asc())
+            )
+            result = await self._session.execute(stmt)
+            orm_follows = result.scalars().all()
+            return [ScraperFollowDomain.from_orm(f) for f in orm_follows]
+
+        except Exception as e:
+            logger.error("获取待回溯用户列表失败: %s", e)
+            raise RepositoryError(f"获取待回溯用户列表失败: {e}") from e
+
+    async def update_backfill_status(
+        self,
+        username: str,
+        status: str,
+        completed_at: datetime | None = None,
+    ) -> None:
+        """更新回溯状态。
+
+        Args:
+            username: Twitter 用户名
+            status: 新状态 (pending/running/completed/skipped)
+            completed_at: 完成时间（仅 completed 状态时传入）
+        """
+        try:
+            stmt = select(ScraperFollowOrm).where(
+                ScraperFollowOrm.username == username,
+            )
+            result = await self._session.execute(stmt)
+            orm_follow = result.scalar_one_or_none()
+
+            if orm_follow is None:
+                raise NotFoundError(f"抓取账号不存在: {username}")
+
+            orm_follow.backfill_status = status
+            if completed_at is not None:
+                orm_follow.backfill_completed_at = completed_at
+            await self._session.flush()
+
+            logger.debug("更新回溯状态: username=%s, status=%s", username, status)
+
+        except NotFoundError:
+            raise
+        except Exception as e:
+            await self._session.rollback()
+            logger.error("更新回溯状态失败: %s", e)
+            raise RepositoryError(f"更新回溯状态失败: {e}") from e
 
     async def is_username_in_follows(
         self,

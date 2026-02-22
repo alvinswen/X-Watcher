@@ -77,6 +77,7 @@ class ScraperConfigService:
         reason: str | None = None,
         is_active: bool | None = None,
         manual_limit: int | None = None,
+        brief_intro: str | None = None,
     ) -> ScraperFollow:
         """更新抓取账号。
 
@@ -85,6 +86,7 @@ class ScraperConfigService:
             reason: 新的添加理由（可选）
             is_active: 是否启用（可选）
             manual_limit: 手动推文数量限制（0 清除，正整数设置，None 不修改）
+            brief_intro: 极简介绍（None 不修改，空字符串清空）
 
         Returns:
             ScraperFollow: 更新后的抓取账号
@@ -98,6 +100,7 @@ class ScraperConfigService:
             reason=reason,
             is_active=is_active,
             manual_limit=manual_limit,
+            brief_intro=brief_intro,
         )
 
     async def deactivate_follow(
