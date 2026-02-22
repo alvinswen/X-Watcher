@@ -97,6 +97,14 @@ const routes: RouteRecordRaw[] = [
       title: "推文搜索",
     },
   },
+  {
+    path: "/clustering",
+    name: "clustering",
+    component: () => import("@/views/ClusteringView.vue"),
+    meta: {
+      title: "发文聚类",
+    },
+  },
 ]
 
 /** 创建路由实例 */

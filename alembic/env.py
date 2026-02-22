@@ -21,6 +21,7 @@ import src.scraper.infrastructure.fetch_stats_models  # noqa: F401 导入 FetchS
 import src.scraper.infrastructure.scheduler_log_models  # noqa: F401 导入 SchedulerExecutionLogOrm
 import src.summarization.infrastructure.models  # noqa: F401 导入 SummaryOrm
 import src.database.x_user_profile_model  # noqa: F401 导入 XUserProfileOrm
+import src.analytics.infrastructure.models  # noqa: F401 导入 ClusteringRunOrm, ClusterAssignmentOrm
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

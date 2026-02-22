@@ -73,6 +73,10 @@ python-jose[cryptography]  # JWT 令牌（HS256）
 # 监控
 prometheus_client   # Prometheus 指标采集
 
+# 数据分析
+scipy               # 层次聚类（linkage, fcluster, jensenshannon）
+numpy               # 数值计算
+
 # 工具库
 python-dotenv       # 环境变量
 # logging — 使用标准库 logging + 自定义 logging_config.py（JSON/文本双格式 + trace_id + 文件轮转）
