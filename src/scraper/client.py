@@ -298,6 +298,93 @@ class TwitterClient:
             params=params,
         )
 
+    async def fetch_user_info_by_ids(
+        self,
+        user_ids: list[str],
+    ) -> Result[list[dict[str, Any]], TwitterClientError]:
+        """根据 user_id 批量获取用户信息。
+
+        调用 TwitterAPI.io 的 /user/batch_info_by_ids 端点，
+        用于检测用户改名（通过永久 user_id 反查最新 username）。
+
+        Args:
+            user_ids: 用户 ID 列表
+
+        Returns:
+            Result[list[dict], TwitterClientError]: 用户信息列表或错误
+        """
+        if not user_ids:
+            return Failure(TwitterClientError("user_ids 不能为空"))
+
+        self._ensure_client()
+        assert self._client is not None
+
+        params = {"userIds": ",".join(user_ids)}
+
+        retry_count = 0
+        current_delay = self._base_delay
+
+        while True:
+            try:
+                response = await self._client.get(
+                    "/user/batch_info_by_ids",
+                    params=params,
+                )
+                status_code = response.status_code
+
+                if status_code == 200:
+                    response_data = response.json()
+                    if not isinstance(response_data, dict):
+                        return Failure(
+                            TwitterClientError(f"响应格式错误: 期望 dict，实际 {type(response_data)}")
+                        )
+
+                    users = response_data.get("users", [])
+                    return Success(users)
+
+                if status_code in self.NON_RETRYABLE_STATUS_CODES:
+                    error_msg = self._get_error_message(status_code)
+                    return Failure(
+                        TwitterClientError(
+                            f"API 错误 {status_code}: {error_msg}",
+                            status_code=status_code,
+                        )
+                    )
+
+                if retry_count >= self._max_retries:
+                    return Failure(
+                        TwitterClientError(
+                            f"API 错误 {status_code}: 已达到最大重试次数",
+                            status_code=status_code,
+                        )
+                    )
+
+                logger.warning(
+                    "batch_info_by_ids 请求失败 (状态码: %s), %.1f秒后重试 (%d/%d)",
+                    status_code, current_delay, retry_count + 1, self._max_retries,
+                )
+                await asyncio.sleep(current_delay)
+                current_delay = min(current_delay * 2, self._max_delay)
+                retry_count += 1
+
+            except httpx.TimeoutException as e:
+                if retry_count >= self._max_retries:
+                    return Failure(TwitterClientError(f"请求超时: {e}"))
+                await asyncio.sleep(current_delay)
+                current_delay = min(current_delay * 2, self._max_delay)
+                retry_count += 1
+
+            except httpx.NetworkError as e:
+                if retry_count >= self._max_retries:
+                    return Failure(TwitterClientError(f"网络错误: {e}"))
+                await asyncio.sleep(current_delay)
+                current_delay = min(current_delay * 2, self._max_delay)
+                retry_count += 1
+
+            except Exception as e:
+                logger.exception("batch_info_by_ids 未预期的错误: %s", e)
+                return Failure(TwitterClientError(f"未预期的错误: {e}"))
+
     async def _fetch_with_retry(
         self,
         endpoint: str,
@@ -451,6 +538,7 @@ class TwitterClient:
                                         users_map[author_id_val] = {
                                             "username": author_obj.get("userName"),
                                             "name": author_obj.get("name"),
+                                            "numeric_id": str(author_obj.get("id")) if author_obj.get("id") else None,
                                         }
 
                                 tweets_data.append(standard_tweet)

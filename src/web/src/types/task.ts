@@ -79,6 +79,8 @@ export interface ScrapingFollow {
   id: number
   /** 用户名 */
   username: string
+  /** X 平台永久 user_id（系统自动获取） */
+  platform_user_id: string | null
   /** 添加时间 */
   added_at: string
   /** 添加理由 */

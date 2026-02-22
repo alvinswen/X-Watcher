@@ -37,6 +37,9 @@ class TweetOrm(Base):
     author_display_name: Mapped[str | None] = mapped_column(
         String(255), comment="作者显示名称"
     )
+    author_user_id: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, comment="作者平台 user_id（数值型，永久不变）"
+    )
     referenced_tweet_id: Mapped[str | None] = mapped_column(
         String(255), comment="引用的推文 ID（外部引用，不设 FK 约束）"
     )
@@ -106,6 +109,7 @@ class TweetOrm(Base):
             created_at=created_at,
             author_username=self.author_username,
             author_display_name=self.author_display_name,
+            author_user_id=self.author_user_id,
             referenced_tweet_id=self.referenced_tweet_id,
             reference_type=reference_type_enum,
             media=media_list,
@@ -141,6 +145,7 @@ class TweetOrm(Base):
             created_at=tweet.created_at,
             author_username=tweet.author_username,
             author_display_name=tweet.author_display_name,
+            author_user_id=tweet.author_user_id,
             referenced_tweet_id=tweet.referenced_tweet_id,
             reference_type=tweet.reference_type.value if tweet.reference_type else None,
             media=media_dict,

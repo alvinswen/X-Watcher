@@ -164,11 +164,15 @@ class ScraperFollow(Base):
     manual_limit: Mapped[int | None] = mapped_column(
         Integer, nullable=True, default=None
     )
+    platform_user_id: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, unique=True, comment="X 平台永久 user_id"
+    )
 
     # 索引
     __table_args__ = (
         Index("idx_scraper_follows_username", "username"),
         Index("idx_scraper_follows_active", "is_active"),
+        Index("idx_scraper_follows_platform_user_id", "platform_user_id"),
     )
 
 

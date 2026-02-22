@@ -89,6 +89,7 @@ class ScraperFollowResponse(UTCDatetimeModel):
 
     id: int = Field(..., description="抓取账号 ID")
     username: str = Field(..., description="Twitter 用户名")
+    platform_user_id: str | None = Field(None, description="X 平台永久 user_id（系统自动获取）")
     added_at: datetime = Field(..., description="添加时间")
     reason: str = Field(..., description="添加理由")
     added_by: str = Field(..., description="添加人")

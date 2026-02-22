@@ -300,6 +300,114 @@ class ScraperConfigRepository:
         logger.debug(f"重新激活抓取账号: username={username}, added_by={added_by}")
         return ScraperFollowDomain.from_orm(orm_follow)
 
+    async def update_platform_user_id(
+        self,
+        username: str,
+        platform_user_id: str,
+    ) -> None:
+        """回填 platform_user_id（仅在当前值为空时写入）。
+
+        Args:
+            username: Twitter 用户名
+            platform_user_id: X 平台永久 user_id
+        """
+        try:
+            stmt = select(ScraperFollowOrm).where(
+                ScraperFollowOrm.username == username,
+            )
+            result = await self._session.execute(stmt)
+            orm_follow = result.scalar_one_or_none()
+
+            if orm_follow and not orm_follow.platform_user_id:
+                orm_follow.platform_user_id = platform_user_id
+                await self._session.flush()
+                logger.debug(
+                    "回填 platform_user_id: username=%s, user_id=%s",
+                    username, platform_user_id,
+                )
+
+        except IntegrityError:
+            await self._session.rollback()
+            logger.warning(
+                "platform_user_id 已被其他账号占用: %s", platform_user_id
+            )
+
+        except Exception as e:
+            logger.error("回填 platform_user_id 失败: %s", e)
+            raise RepositoryError(f"回填 platform_user_id 失败: {e}") from e
+
+    async def update_username(
+        self,
+        old_username: str,
+        new_username: str,
+    ) -> None:
+        """更新用户名（改名修复）。
+
+        Args:
+            old_username: 旧 Twitter 用户名
+            new_username: 新 Twitter 用户名
+
+        Raises:
+            NotFoundError: 如果账号不存在
+            DuplicateError: 如果新用户名已被占用
+        """
+        try:
+            stmt = select(ScraperFollowOrm).where(
+                ScraperFollowOrm.username == old_username,
+            )
+            result = await self._session.execute(stmt)
+            orm_follow = result.scalar_one_or_none()
+
+            if orm_follow is None:
+                raise NotFoundError(f"抓取账号不存在: {old_username}")
+
+            orm_follow.username = new_username
+            await self._session.flush()
+
+            logger.info("用户名已更新: %s -> %s", old_username, new_username)
+
+        except (NotFoundError, DuplicateError):
+            raise
+
+        except IntegrityError as e:
+            await self._session.rollback()
+            raise DuplicateError(
+                f"新用户名已被占用: {new_username}"
+            ) from e
+
+        except Exception as e:
+            await self._session.rollback()
+            logger.error("更新用户名失败: %s", e)
+            raise RepositoryError(f"更新用户名失败: {e}") from e
+
+    async def get_follow_by_platform_user_id(
+        self,
+        platform_user_id: str,
+    ) -> ScraperFollowDomain | None:
+        """根据 platform_user_id 查询抓取账号。
+
+        Args:
+            platform_user_id: X 平台永久 user_id
+
+        Returns:
+            ScraperFollowDomain 或 None
+        """
+        try:
+            stmt = select(ScraperFollowOrm).where(
+                ScraperFollowOrm.platform_user_id == platform_user_id,
+            )
+            result = await self._session.execute(stmt)
+            orm_follow = result.scalar_one_or_none()
+
+            if orm_follow is None:
+                return None
+
+            return ScraperFollowDomain.from_orm(orm_follow)
+
+        except Exception as e:
+            logger.error("按 platform_user_id 查询失败: %s", e)
+            raise RepositoryError(f"按 platform_user_id 查询失败: {e}") from e
+
     async def is_username_in_follows(
         self,
         username: str,

@@ -13,6 +13,14 @@
     <!-- 账号列表 -->
     <el-table v-else :data="follows" stripe border style="width: 100%">
       <el-table-column prop="username" label="用户名" width="150" />
+      <el-table-column prop="platform_user_id" label="User ID" width="160">
+        <template #default="{ row }">
+          <span v-if="row.platform_user_id" class="user-id-text">
+            {{ row.platform_user_id }}
+          </span>
+          <el-tag v-else type="warning" size="small">待补全</el-tag>
+        </template>
+      </el-table-column>
       <el-table-column prop="reason" label="添加理由" min-width="200" />
       <el-table-column prop="added_by" label="添加人" width="120" />
       <el-table-column prop="added_at" label="添加时间" width="180">
@@ -285,5 +293,11 @@ onMounted(() => {
   margin: 0;
   font-size: 1.5rem;
   color: #333;
+}
+
+.user-id-text {
+  font-family: monospace;
+  font-size: 0.85em;
+  color: #666;
 }
 </style>

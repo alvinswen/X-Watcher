@@ -46,6 +46,7 @@ class Tweet(BaseModel):
     created_at: datetime = Field(..., description="推文创建时间")
     author_username: str = Field(..., description="作者用户名")
     author_display_name: str | None = Field(None, description="作者显示名称")
+    author_user_id: str | None = Field(None, description="作者平台 user_id（永久不变）")
     referenced_tweet_id: str | None = Field(None, description="引用的推文 ID")
     reference_type: ReferenceType | None = Field(None, description="引用类型")
     media: list[Media] | None = Field(None, description="媒体附件列表")

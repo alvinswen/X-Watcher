@@ -157,6 +157,7 @@ class TweetParser:
             created_at=created_at,
             author_username=author_username,
             author_display_name=author_info.get("name"),
+            author_user_id=author_info.get("numeric_id"),
             referenced_tweet_id=referenced_tweet_id,
             reference_type=reference_type,
             media=media if media else None,

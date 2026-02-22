@@ -189,6 +189,7 @@ class ScrapingService:
         limit: int = 100,
         since_id: str | None = None,
         manual_limit: int | None = None,
+        _retry_count: int = 0,
     ) -> dict[str, Any]:
         """抓取单个用户的推文。
 
@@ -249,6 +250,26 @@ class ScrapingService:
 
             if isinstance(api_result, Failure):
                 error = api_result.failure()
+
+                # 检测改名：404 + 有 platform_user_id + 未重试过
+                if (
+                    getattr(error, "status_code", None) == 404
+                    and _retry_count == 0
+                ):
+                    new_username = await self._detect_and_fix_rename(username)
+                    if new_username:
+                        logger.info(
+                            "检测到改名: %s -> %s，使用新用户名重试",
+                            username, new_username,
+                        )
+                        return await self.scrape_single_user(
+                            new_username,
+                            limit=limit,
+                            since_id=since_id,
+                            manual_limit=manual_limit,
+                            _retry_count=1,
+                        )
+
                 result["success"] = False
                 result["errors"] = 1
                 result["error_message"] = error.message
@@ -270,18 +291,32 @@ class ScrapingService:
                 if needs_author_info:
                     logger.debug(f"为用户 {username} 的推文添加作者信息")
 
-                    # 为每条推文添加 author_id
+                    # 仅在 author_id 缺失时用 username 填充（保留 API 返回的真实 ID）
                     for tweet in raw_data["data"]:
-                        tweet["author_id"] = username  # 使用 username 作为临时 ID
+                        if tweet.get("author_id") is None:
+                            tweet["author_id"] = username
 
-                    # 添加 includes.users，使 parser 能够找到用户信息
-                    raw_data.setdefault("includes", {})["users"] = [
-                        {
-                            "id": username,  # 使用 username 作为 ID
-                            "username": username,
-                            "name": username,  # TwitterAPI.io 不返回 display name
-                        }
-                    ]
+                    # 收集所有 author_id 值，确保 includes.users 中有对应映射
+                    existing_users = {}
+                    for u in raw_data.get("includes", {}).get("users", []):
+                        existing_users[u.get("id")] = u
+
+                    author_ids_in_tweets = {
+                        t["author_id"] for t in raw_data["data"] if t.get("author_id")
+                    }
+
+                    new_users = []
+                    for aid in author_ids_in_tweets:
+                        if aid not in existing_users:
+                            new_users.append({
+                                "id": aid,
+                                "username": username,
+                                "name": username,
+                            })
+
+                    if new_users:
+                        includes = raw_data.setdefault("includes", {})
+                        includes.setdefault("users", []).extend(new_users)
 
             # 3. 解析推文
             tweets = self._parser.parse_tweet_response(raw_data)
@@ -313,9 +348,15 @@ class ScrapingService:
                     result["skipped"] = save_result.skipped_count
                     result["errors"] = save_result.error_count
 
+                    # 5. 自动补全 platform_user_id
+                    if cleaned_tweets and cleaned_tweets[0].author_user_id:
+                        await self._backfill_platform_user_id(
+                            username, cleaned_tweets[0].author_user_id
+                        )
+
             result["success"] = True
 
-            # 5. 更新抓取统计（用于下次动态 limit 计算）
+            # 6. 更新抓取统计（用于下次动态 limit 计算）
             await self._update_fetch_stats(
                 username=username,
                 old_stats=fetch_stats,
@@ -527,6 +568,105 @@ class ScrapingService:
         except Exception as e:
             # 摘要触发失败不影响抓取结果
             logger.warning(f"触发摘要任务失败（不影响抓取结果）: {e}")
+
+    async def _backfill_platform_user_id(
+        self, username: str, user_id: str
+    ) -> None:
+        """将 API 返回的 user_id 回填到 scraper_follows 表。
+
+        仅在 platform_user_id 为空时执行写入，已有值时跳过。
+        失败时仅记录警告日志，不影响抓取结果。
+        """
+        try:
+            from src.database.async_session import get_async_session_maker
+            from src.preference.infrastructure.scraper_config_repository import (
+                ScraperConfigRepository,
+            )
+
+            session_maker = get_async_session_maker()
+            async with session_maker() as session:
+                repo = ScraperConfigRepository(session)
+                await repo.update_platform_user_id(username, user_id)
+                await session.commit()
+                logger.info(
+                    "已回填 platform_user_id: %s -> %s", username, user_id
+                )
+        except Exception as e:
+            logger.warning("回填 platform_user_id 失败（不影响抓取结果）: %s", e)
+
+    async def _detect_and_fix_rename(self, old_username: str) -> str | None:
+        """检测用户改名并自动修复数据库记录。
+
+        当抓取某个 username 返回 404 时调用此方法。
+        如果数据库中有该用户的 platform_user_id，则通过
+        batch_info_by_ids API 查询最新 username。
+
+        Returns:
+            str | None: 新的 username，或 None（无法检测/修复）
+        """
+        try:
+            from src.database.async_session import get_async_session_maker
+            from src.preference.infrastructure.scraper_config_repository import (
+                ScraperConfigRepository,
+            )
+
+            session_maker = get_async_session_maker()
+            async with session_maker() as session:
+                repo = ScraperConfigRepository(session)
+                follow = await repo.get_follow_by_username(old_username)
+
+                if not follow or not follow.platform_user_id:
+                    logger.warning(
+                        "用户 %s 不存在或无 platform_user_id，无法检测改名",
+                        old_username,
+                    )
+                    return None
+
+                # 调用 batch_info_by_ids 查询最新用户信息
+                user_info_result = await self._client.fetch_user_info_by_ids(
+                    [follow.platform_user_id]
+                )
+
+                if isinstance(user_info_result, Failure):
+                    logger.error(
+                        "查询用户信息失败: %s",
+                        user_info_result.failure().message,
+                    )
+                    return None
+
+                users = user_info_result.unwrap()
+                if not users:
+                    logger.warning(
+                        "platform_user_id %s 查询无结果（账号可能已被删除）",
+                        follow.platform_user_id,
+                    )
+                    return None
+
+                new_username = users[0].get("userName") or users[0].get("username")
+                if not new_username:
+                    return None
+
+                new_username = new_username.lower()
+
+                if new_username == old_username.lower():
+                    logger.info(
+                        "用户名未变化，404 非改名导致: %s", old_username
+                    )
+                    return None
+
+                # 更新数据库中的 username
+                await repo.update_username(old_username, new_username)
+                await session.commit()
+
+                logger.info(
+                    "用户改名已修复: %s -> %s (user_id=%s)",
+                    old_username, new_username, follow.platform_user_id,
+                )
+                return new_username
+
+        except Exception as e:
+            logger.error("改名检测失败: %s", e)
+            return None
 
     def _summarize_results(
         self,

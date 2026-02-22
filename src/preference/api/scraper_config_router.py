@@ -108,6 +108,7 @@ async def add_scraper_follow(
         return ScraperFollowResponse(
             id=result.id,
             username=result.username,
+            platform_user_id=result.platform_user_id,
             added_at=result.added_at,
             reason=result.reason,
             added_by=result.added_by,
@@ -162,6 +163,7 @@ async def get_scraper_follows(
             ScraperFollowResponse(
                 id=f.id,
                 username=f.username,
+                platform_user_id=f.platform_user_id,
                 added_at=f.added_at,
                 reason=f.reason,
                 added_by=f.added_by,
@@ -410,6 +412,7 @@ async def update_scraper_follow(
         return ScraperFollowResponse(
             id=result.id,
             username=result.username,
+            platform_user_id=result.platform_user_id,
             added_at=result.added_at,
             reason=result.reason,
             added_by=result.added_by,
@@ -739,6 +742,7 @@ async def get_scraper_follows_public(
             ScraperFollowResponse(
                 id=f.id,
                 username=f.username,
+                platform_user_id=f.platform_user_id,
                 added_at=f.added_at,
                 reason=f.reason,
                 added_by=f.added_by,
