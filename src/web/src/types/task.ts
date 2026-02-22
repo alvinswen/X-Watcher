@@ -127,6 +127,52 @@ export interface TaskHistoryItem {
   metadata: Record<string, unknown> | null
 }
 
+/** X 平台用户档案信息。 */
+export interface XUserProfile {
+  /** X 平台永久 user_id */
+  platform_user_id: string
+  /** 当前用户名 */
+  username: string
+  /** 显示名称 */
+  display_name: string | null
+  /** 蓝标认证 */
+  is_blue_verified: boolean
+  /** 认证类型 */
+  verified_type: string | null
+  /** 头像 URL */
+  profile_picture: string | null
+  /** 封面图 URL */
+  cover_picture: string | null
+  /** 个人简介 */
+  description: string | null
+  /** 位置 */
+  location: string | null
+  /** 粉丝数 */
+  followers_count: number | null
+  /** 关注数 */
+  following_count: number | null
+  /** 推文总数 */
+  statuses_count: number | null
+  /** 点赞数 */
+  favourites_count: number | null
+  /** 媒体推文数 */
+  media_count: number | null
+  /** 账号创建日期 */
+  account_created_at: string | null
+  /** 是否自动化账号 */
+  is_automated: boolean
+  /** 可能敏感 */
+  possibly_sensitive: boolean
+  /** 置顶推文 ID */
+  pinned_tweet_ids: string[] | null
+  /** 账号不可用 */
+  unavailable: boolean
+  /** 不可用原因 */
+  unavailable_reason: string | null
+  /** 数据获取时间 */
+  fetched_at: string
+}
+
 /** 更新抓取账号请求。 */
 export interface UpdateScrapingFollowRequest {
   /** 用户名 */

@@ -386,3 +386,177 @@ class TestDeleteScrapingTaskEndpoint:
         response = client.delete(f"/api/admin/scrape/{task_id}")
 
         assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+class TestGetTaskHistoryEndpoint:
+    """测试 GET /api/admin/tasks/history 端点。
+
+    该端点内部直接调用 get_async_session_maker()（非 DI），
+    需要 patch 返回测试 session factory。
+    """
+
+    @pytest.fixture
+    async def _seed_task_logs(self, async_session):
+        """向异步测试数据库插入任务执行记录。"""
+        import json
+
+        from src.database.models import TaskExecutionLog
+
+        logs = [
+            TaskExecutionLog(
+                task_id="task-001",
+                task_name="抓取 2 个用户",
+                status="completed",
+                created_at=datetime(2026, 2, 20, 10, 0, 0),
+                started_at=datetime(2026, 2, 20, 10, 0, 1),
+                completed_at=datetime(2026, 2, 20, 10, 1, 0),
+                duration_seconds=59.0,
+                result_json=json.dumps({"new_tweets": 5}),
+                error=None,
+                metadata_json=json.dumps({"usernames": "user1,user2"}),
+            ),
+            TaskExecutionLog(
+                task_id="task-002",
+                task_name="抓取 1 个用户",
+                status="failed",
+                created_at=datetime(2026, 2, 21, 8, 0, 0),
+                started_at=datetime(2026, 2, 21, 8, 0, 1),
+                completed_at=None,
+                duration_seconds=None,
+                result_json=None,
+                error="API 超时",
+                metadata_json=None,
+            ),
+            TaskExecutionLog(
+                task_id="task-003",
+                task_name="抓取 3 个用户",
+                status="completed",
+                created_at=datetime(2026, 2, 22, 12, 0, 0),
+                started_at=datetime(2026, 2, 22, 12, 0, 1),
+                completed_at=datetime(2026, 2, 22, 12, 2, 0),
+                duration_seconds=119.0,
+                result_json=json.dumps({"new_tweets": 15}),
+                error=None,
+                metadata_json=json.dumps({"usernames": "a,b,c"}),
+            ),
+        ]
+        for log in logs:
+            async_session.add(log)
+        await async_session.commit()
+
+    async def test_get_task_history_default(
+        self, async_client, _seed_task_logs, test_session_factory,
+    ):
+        """测试默认参数返回所有记录（按 created_at DESC）。"""
+        with patch(
+            "src.database.async_session.get_async_session_maker",
+            return_value=test_session_factory,
+        ):
+            response = await async_client.get("/api/admin/tasks/history")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 3
+        assert data[0]["task_id"] == "task-003"
+        assert data[1]["task_id"] == "task-002"
+        assert data[2]["task_id"] == "task-001"
+
+    async def test_get_task_history_filter_by_status(
+        self, async_client, _seed_task_logs, test_session_factory,
+    ):
+        """测试按状态过滤。"""
+        with patch(
+            "src.database.async_session.get_async_session_maker",
+            return_value=test_session_factory,
+        ):
+            response = await async_client.get(
+                "/api/admin/tasks/history?status=failed"
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["task_id"] == "task-002"
+        assert data[0]["error"] == "API 超时"
+
+    async def test_get_task_history_filter_by_since(
+        self, async_client, _seed_task_logs, test_session_factory,
+    ):
+        """测试按时间过滤。"""
+        with patch(
+            "src.database.async_session.get_async_session_maker",
+            return_value=test_session_factory,
+        ):
+            response = await async_client.get(
+                "/api/admin/tasks/history?since=2026-02-21T00:00:00"
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 2
+        task_ids = {d["task_id"] for d in data}
+        assert task_ids == {"task-002", "task-003"}
+
+    async def test_get_task_history_limit(
+        self, async_client, _seed_task_logs, test_session_factory,
+    ):
+        """测试 limit 参数。"""
+        with patch(
+            "src.database.async_session.get_async_session_maker",
+            return_value=test_session_factory,
+        ):
+            response = await async_client.get(
+                "/api/admin/tasks/history?limit=1"
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["task_id"] == "task-003"
+
+    async def test_get_task_history_invalid_since(
+        self, async_client, test_session_factory,
+    ):
+        """测试无效时间格式返回 400。"""
+        with patch(
+            "src.database.async_session.get_async_session_maker",
+            return_value=test_session_factory,
+        ):
+            response = await async_client.get(
+                "/api/admin/tasks/history?since=not-a-date"
+            )
+
+        assert response.status_code == 400
+        assert "无效的时间格式" in response.json()["detail"]
+
+    async def test_get_task_history_empty(
+        self, async_client, test_session_factory,
+    ):
+        """测试无记录时返回空列表。"""
+        with patch(
+            "src.database.async_session.get_async_session_maker",
+            return_value=test_session_factory,
+        ):
+            response = await async_client.get("/api/admin/tasks/history")
+
+        assert response.status_code == 200
+        assert response.json() == []
+
+    async def test_get_task_history_result_and_metadata_parsed(
+        self, async_client, _seed_task_logs, test_session_factory,
+    ):
+        """测试 result_json 和 metadata_json 被正确解析为字典。"""
+        with patch(
+            "src.database.async_session.get_async_session_maker",
+            return_value=test_session_factory,
+        ):
+            response = await async_client.get(
+                "/api/admin/tasks/history?status=completed&limit=1"
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["result"] == {"new_tweets": 15}
+        assert data[0]["metadata"] == {"usernames": "a,b,c"}

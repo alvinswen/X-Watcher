@@ -20,6 +20,7 @@ import src.scraper.infrastructure.models  # noqa: F401 导入 TweetOrm
 import src.scraper.infrastructure.fetch_stats_models  # noqa: F401 导入 FetchStatsOrm
 import src.scraper.infrastructure.scheduler_log_models  # noqa: F401 导入 SchedulerExecutionLogOrm
 import src.summarization.infrastructure.models  # noqa: F401 导入 SummaryOrm
+import src.database.x_user_profile_model  # noqa: F401 导入 XUserProfileOrm
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

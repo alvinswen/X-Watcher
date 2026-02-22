@@ -27,6 +27,8 @@ from src.preference.api.schemas import (
     FollowStatsResponse,
     PeriodStats,
     TweetTimeRangeResponse,
+    XUserProfileResponse,
+    SyncProfilesResponse,
 )
 from src.preference.infrastructure.scraper_config_repository import (
     ScraperConfigRepository,
@@ -367,6 +369,212 @@ async def get_follows_tweet_time_range(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="获取推文时间范围失败",
+        ) from e
+
+
+# ==================== 用户档案端点 ====================
+
+
+@router.get(
+    "/follows/profiles",
+    response_model=list[XUserProfileResponse],
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {"model": ErrorResponse},
+        status.HTTP_403_FORBIDDEN: {"model": ErrorResponse},
+    },
+)
+async def get_user_profiles(
+    session: AsyncSession = Depends(get_async_session),
+    admin: UserDomain = Depends(get_current_admin_user),
+) -> list[XUserProfileResponse]:
+    """获取所有已缓存的用户档案信息。
+
+    返回从 TwitterAPI.io 获取并缓存的 X 平台用户档案列表。
+    """
+    from src.preference.infrastructure.x_user_profile_repository import (
+        XUserProfileRepository,
+    )
+
+    try:
+        repo = XUserProfileRepository(session)
+        profiles = await repo.get_all_profiles()
+        return [
+            XUserProfileResponse(
+                platform_user_id=p.platform_user_id,
+                username=p.username,
+                display_name=p.display_name,
+                is_blue_verified=p.is_blue_verified,
+                verified_type=p.verified_type,
+                profile_picture=p.profile_picture,
+                cover_picture=p.cover_picture,
+                description=p.description,
+                location=p.location,
+                followers_count=p.followers_count,
+                following_count=p.following_count,
+                statuses_count=p.statuses_count,
+                favourites_count=p.favourites_count,
+                media_count=p.media_count,
+                account_created_at=p.account_created_at,
+                is_automated=p.is_automated,
+                possibly_sensitive=p.possibly_sensitive,
+                pinned_tweet_ids=p.pinned_tweet_ids,
+                unavailable=p.unavailable,
+                unavailable_reason=p.unavailable_reason,
+                fetched_at=p.fetched_at,
+            )
+            for p in profiles
+        ]
+    except Exception as e:
+        logger.error(f"获取用户档案列表失败: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="获取用户档案列表失败",
+        ) from e
+
+
+@router.post(
+    "/follows/sync-profiles",
+    response_model=SyncProfilesResponse,
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {"model": ErrorResponse},
+        status.HTTP_403_FORBIDDEN: {"model": ErrorResponse},
+    },
+)
+async def sync_user_profiles(
+    session: AsyncSession = Depends(get_async_session),
+    admin: UserDomain = Depends(get_current_admin_user),
+) -> SyncProfilesResponse:
+    """手动触发用户档案同步。
+
+    查询所有有 platform_user_id 的活跃关注账号，
+    批量调用 TwitterAPI.io 获取最新档案信息并更新缓存。
+    """
+    from src.preference.infrastructure.x_user_profile_repository import (
+        XUserProfileRepository,
+    )
+    from src.preference.domain.models import XUserProfile
+    from src.scraper.client import TwitterClient
+
+    try:
+        # 获取所有有 platform_user_id 的活跃 follows
+        config_repo = ScraperConfigRepository(session)
+        follows = await config_repo.get_all_follows(include_inactive=False)
+        user_ids = [
+            f.platform_user_id
+            for f in follows
+            if f.platform_user_id
+        ]
+
+        if not user_ids:
+            return SyncProfilesResponse(
+                synced=0,
+                message="没有可同步的账号（无 platform_user_id）",
+            )
+
+        # 调用 API 获取用户信息
+        client = TwitterClient()
+        result = await client.fetch_user_info_by_ids(user_ids)
+        await client.close()
+
+        from returns.result import Failure
+
+        if isinstance(result, Failure):
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"TwitterAPI.io 调用失败: {result.failure().message}",
+            )
+
+        users_data = result.unwrap()
+        if not users_data:
+            return SyncProfilesResponse(synced=0, message="API 返回空结果")
+
+        # 转换并持久化
+        now = datetime.now(timezone.utc)
+        profiles = []
+        raw_data_map: dict[str, dict] = {}
+        for u in users_data:
+            profile = XUserProfile.from_api_response(u, fetched_at=now)
+            if profile.platform_user_id:
+                profiles.append(profile)
+                raw_data_map[profile.platform_user_id] = u
+
+        profile_repo = XUserProfileRepository(session)
+        count = await profile_repo.upsert_profiles(profiles, raw_data_map=raw_data_map)
+
+        return SyncProfilesResponse(
+            synced=count,
+            message=f"成功同步 {count} 个用户档案",
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"手动档案同步失败: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="档案同步失败",
+        ) from e
+
+
+@router.get(
+    "/follows/{username}/profile",
+    response_model=XUserProfileResponse,
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {"model": ErrorResponse},
+        status.HTTP_403_FORBIDDEN: {"model": ErrorResponse},
+        status.HTTP_404_NOT_FOUND: {"model": ErrorResponse},
+    },
+)
+async def get_user_profile(
+    username: str,
+    session: AsyncSession = Depends(get_async_session),
+    admin: UserDomain = Depends(get_current_admin_user),
+) -> XUserProfileResponse:
+    """获取指定用户的档案信息。"""
+    from src.preference.infrastructure.x_user_profile_repository import (
+        XUserProfileRepository,
+    )
+
+    try:
+        repo = XUserProfileRepository(session)
+        profile = await repo.get_profile_by_username(username.lower())
+
+        if profile is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"用户 {username} 的档案不存在（可能尚未同步）",
+            )
+
+        return XUserProfileResponse(
+            platform_user_id=profile.platform_user_id,
+            username=profile.username,
+            display_name=profile.display_name,
+            is_blue_verified=profile.is_blue_verified,
+            verified_type=profile.verified_type,
+            profile_picture=profile.profile_picture,
+            cover_picture=profile.cover_picture,
+            description=profile.description,
+            location=profile.location,
+            followers_count=profile.followers_count,
+            following_count=profile.following_count,
+            statuses_count=profile.statuses_count,
+            favourites_count=profile.favourites_count,
+            media_count=profile.media_count,
+            account_created_at=profile.account_created_at,
+            is_automated=profile.is_automated,
+            possibly_sensitive=profile.possibly_sensitive,
+            pinned_tweet_ids=profile.pinned_tweet_ids,
+            unavailable=profile.unavailable,
+            unavailable_reason=profile.unavailable_reason,
+            fetched_at=profile.fetched_at,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取用户档案失败: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="获取用户档案失败",
         ) from e
 
 
@@ -756,4 +964,60 @@ async def get_scraper_follows_public(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="获取抓取账号列表失败"
+        ) from e
+
+
+@public_router.get(
+    "/follows/profiles",
+    response_model=list[XUserProfileResponse],
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {"model": ErrorResponse},
+    },
+)
+async def get_user_profiles_public(
+    session: AsyncSession = Depends(get_async_session),
+    current_user: UserDomain = Depends(get_current_user),
+) -> list[XUserProfileResponse]:
+    """获取用户档案列表（只读）。
+
+    普通用户可访问此端点查看已缓存的用户档案信息。
+    """
+    from src.preference.infrastructure.x_user_profile_repository import (
+        XUserProfileRepository,
+    )
+
+    try:
+        repo = XUserProfileRepository(session)
+        profiles = await repo.get_all_profiles()
+        return [
+            XUserProfileResponse(
+                platform_user_id=p.platform_user_id,
+                username=p.username,
+                display_name=p.display_name,
+                is_blue_verified=p.is_blue_verified,
+                verified_type=p.verified_type,
+                profile_picture=p.profile_picture,
+                cover_picture=p.cover_picture,
+                description=p.description,
+                location=p.location,
+                followers_count=p.followers_count,
+                following_count=p.following_count,
+                statuses_count=p.statuses_count,
+                favourites_count=p.favourites_count,
+                media_count=p.media_count,
+                account_created_at=p.account_created_at,
+                is_automated=p.is_automated,
+                possibly_sensitive=p.possibly_sensitive,
+                pinned_tweet_ids=p.pinned_tweet_ids,
+                unavailable=p.unavailable,
+                unavailable_reason=p.unavailable_reason,
+                fetched_at=p.fetched_at,
+            )
+            for p in profiles
+        ]
+    except Exception as e:
+        logger.error(f"获取用户档案列表失败（公共）: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="获取用户档案列表失败",
         ) from e

@@ -7,7 +7,7 @@
 import asyncio
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from returns.result import Failure, Success
@@ -126,6 +126,9 @@ class ScrapingService:
 
             # 并发执行所有任务
             results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            # 同步用户档案（不影响抓取结果）
+            await self._sync_user_profiles(usernames)
 
             # 汇总结果
             summary = self._summarize_results(usernames, results)
@@ -667,6 +670,76 @@ class ScrapingService:
         except Exception as e:
             logger.error("改名检测失败: %s", e)
             return None
+
+    async def _sync_user_profiles(self, usernames: list[str]) -> None:
+        """同步用户档案信息。
+
+        从数据库查询指定用户名对应的 platform_user_id，
+        然后批量调用 TwitterAPI.io 获取完整档案信息并持久化。
+
+        Args:
+            usernames: 刚完成抓取的用户名列表
+        """
+        try:
+            from src.database.async_session import get_async_session_maker
+            from src.preference.infrastructure.scraper_config_repository import (
+                ScraperConfigRepository,
+            )
+            from src.preference.infrastructure.x_user_profile_repository import (
+                XUserProfileRepository,
+            )
+            from src.preference.domain.models import XUserProfile
+
+            session_maker = get_async_session_maker()
+            async with session_maker() as session:
+                config_repo = ScraperConfigRepository(session)
+
+                # 查询这些用户名对应的 platform_user_id
+                user_ids: list[str] = []
+                for username in usernames:
+                    follow = await config_repo.get_follow_by_username(username)
+                    if follow and follow.platform_user_id:
+                        user_ids.append(follow.platform_user_id)
+
+                if not user_ids:
+                    logger.debug("档案同步: 无可用 platform_user_id，跳过")
+                    return
+
+                # 批量获取用户信息
+                result = await self._client.fetch_user_info_by_ids(user_ids)
+
+                if isinstance(result, Failure):
+                    logger.warning(
+                        "档案同步: API 调用失败: %s",
+                        result.failure().message,
+                    )
+                    return
+
+                users_data = result.unwrap()
+                if not users_data:
+                    logger.debug("档案同步: API 返回空结果")
+                    return
+
+                # 转换为领域模型
+                now = datetime.now(timezone.utc)
+                profiles = []
+                raw_data_map: dict[str, dict] = {}
+                for u in users_data:
+                    profile = XUserProfile.from_api_response(u, fetched_at=now)
+                    if profile.platform_user_id:
+                        profiles.append(profile)
+                        raw_data_map[profile.platform_user_id] = u
+
+                # 持久化
+                profile_repo = XUserProfileRepository(session)
+                count = await profile_repo.upsert_profiles(
+                    profiles, raw_data_map=raw_data_map
+                )
+                await session.commit()
+                logger.info("档案同步完成: %d 个用户档案已更新", count)
+
+        except Exception as e:
+            logger.warning("档案同步失败（不影响抓取结果）: %s", e)
 
     def _summarize_results(
         self,

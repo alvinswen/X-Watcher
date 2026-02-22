@@ -198,6 +198,45 @@ class TweetTimeRangeResponse(BaseModel):
     tweet_count: int = Field(0, description="系统中的推文总数")
 
 
+# ==================== 用户档案 API 模型 ====================
+
+
+class XUserProfileResponse(UTCDatetimeModel):
+    """X 平台用户档案响应模型。
+
+    返回从 TwitterAPI.io 缓存的用户档案信息。
+    """
+
+    platform_user_id: str = Field(..., description="X 平台永久 user_id")
+    username: str = Field(..., description="当前用户名")
+    display_name: str | None = Field(None, description="显示名称")
+    is_blue_verified: bool = Field(False, description="蓝标认证")
+    verified_type: str | None = Field(None, description="认证类型")
+    profile_picture: str | None = Field(None, description="头像 URL")
+    cover_picture: str | None = Field(None, description="封面图 URL")
+    description: str | None = Field(None, description="个人简介")
+    location: str | None = Field(None, description="位置")
+    followers_count: int | None = Field(None, description="粉丝数")
+    following_count: int | None = Field(None, description="关注数")
+    statuses_count: int | None = Field(None, description="推文总数")
+    favourites_count: int | None = Field(None, description="点赞数")
+    media_count: int | None = Field(None, description="媒体推文数")
+    account_created_at: str | None = Field(None, description="账号创建日期")
+    is_automated: bool = Field(False, description="是否自动化账号")
+    possibly_sensitive: bool = Field(False, description="可能敏感")
+    pinned_tweet_ids: list[str] | None = Field(None, description="置顶推文 ID")
+    unavailable: bool = Field(False, description="账号不可用")
+    unavailable_reason: str | None = Field(None, description="不可用原因")
+    fetched_at: datetime = Field(..., description="数据获取时间")
+
+
+class SyncProfilesResponse(BaseModel):
+    """档案同步响应模型。"""
+
+    synced: int = Field(..., description="同步的档案数量")
+    message: str = Field(..., description="操作结果信息")
+
+
 # ==================== 通用响应模型 ====================
 
 

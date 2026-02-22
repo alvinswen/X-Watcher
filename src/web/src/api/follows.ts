@@ -5,6 +5,7 @@ import type {
   ScrapingFollow,
   AddScrapingFollowRequest,
   UpdateScrapingFollowRequest,
+  XUserProfile,
 } from "@/types"
 
 /** 抓取账号 API 路径前缀 */
@@ -50,5 +51,29 @@ export const followsApi = {
     isActive: boolean,
   ): Promise<ScrapingFollow> {
     return this.update(username, { is_active: isActive })
+  },
+
+  /** 获取所有用户档案 */
+  async listProfiles(): Promise<XUserProfile[]> {
+    const response = await client.get<XUserProfile[]>(
+      `${FOLLOWS_PREFIX}/profiles`,
+    )
+    return response.data
+  },
+
+  /** 获取单个用户档案 */
+  async getProfile(username: string): Promise<XUserProfile> {
+    const response = await client.get<XUserProfile>(
+      `${FOLLOWS_PREFIX}/${username}/profile`,
+    )
+    return response.data
+  },
+
+  /** 手动同步用户档案 */
+  async syncProfiles(): Promise<{ synced: number; message: string }> {
+    const response = await client.post<{ synced: number; message: string }>(
+      `${FOLLOWS_PREFIX}/sync-profiles`,
+    )
+    return response.data
   },
 }

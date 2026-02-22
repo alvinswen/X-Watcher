@@ -76,7 +76,8 @@ src/
 │   │   └── validators.py    # 验证逻辑
 │   ├── infrastructure/
 │   │   ├── scraper_config_repository.py
-│   │   └── schedule_repository.py   # 调度配置仓库（singleton 单行模式）
+│   │   ├── schedule_repository.py   # 调度配置仓库（singleton 单行模式）
+│   │   └── x_user_profile_repository.py  # X 用户档案仓库（upsert/查询，按 platform_user_id 主键）
 │   ├── services/
 │   │   ├── scraper_config_service.py
 │   │   └── schedule_service.py      # 调度配置业务服务（含启用/暂停、惰性 job 创建、独立 session 重试）
@@ -84,7 +85,7 @@ src/
 │       ├── routes.py        # 路由导出
 │       ├── auth.py          # API Key 认证
 │       ├── schemas.py       # 请求/响应模型
-│       └── scraper_config_router.py  # 管理员抓取配置 + 调度管理（含 enable/disable）+ 账号运行时统计（follows/stats）+ 公共只读 API
+│       └── scraper_config_router.py  # 管理员抓取配置 + 调度管理（含 enable/disable）+ 账号运行时统计（follows/stats）+ 用户档案管理（profiles CRUD + 手动同步）+ 公共只读 API
 ├── user/                    # 用户管理与认证模块
 │   ├── api/
 │   │   ├── auth.py          # JWT + API Key 统一认证依赖
@@ -137,6 +138,7 @@ src/
 │   └── schemas.py           # UTCDatetimeModel 公共基类（SQLite naive datetime → UTC 序列化）
 ├── database/                # 数据库层
 │   ├── models.py            # SQLAlchemy 基础模型（User, ScraperScheduleConfig, TaskExecutionLog 等）
+│   ├── x_user_profile_model.py  # X 用户档案 ORM 模型（x_user_profiles 表，缓存 TwitterAPI.io 用户信息）
 │   └── async_session.py     # 异步会话管理（WAL 模式 + busy_timeout）
 ├── web/                     # 前端 SPA（Vue 3 + Element Plus）
 ├── scheduler_accessor.py    # 调度器全局引用管理（解耦 Service 与 APScheduler）

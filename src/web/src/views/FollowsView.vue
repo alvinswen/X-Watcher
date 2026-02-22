@@ -2,9 +2,18 @@
   <div class="follows-view">
     <div class="page-header">
       <h1>抓取账号管理</h1>
-      <el-button type="primary" :icon="Plus" @click="handleAdd">
-        添加账号
-      </el-button>
+      <div class="header-actions">
+        <el-button
+          :icon="Refresh"
+          @click="handleSyncProfiles"
+          :loading="syncing"
+        >
+          同步档案
+        </el-button>
+        <el-button type="primary" :icon="Plus" @click="handleAdd">
+          添加账号
+        </el-button>
+      </div>
     </div>
 
     <!-- 加载状态 -->
@@ -12,7 +21,27 @@
 
     <!-- 账号列表 -->
     <el-table v-else :data="follows" stripe border style="width: 100%">
-      <el-table-column prop="username" label="用户名" width="150" />
+      <el-table-column label="用户名" width="200">
+        <template #default="{ row }">
+          <div class="username-cell">
+            <el-avatar
+              v-if="getProfile(row.username)?.profile_picture"
+              :src="getProfile(row.username)?.profile_picture!"
+              :size="28"
+              class="user-avatar"
+            />
+            <el-avatar v-else :size="28" class="user-avatar">
+              {{ row.username.charAt(0).toUpperCase() }}
+            </el-avatar>
+            <span
+              class="username-link"
+              @click="handleShowProfile(row)"
+            >
+              @{{ row.username }}
+            </span>
+          </div>
+        </template>
+      </el-table-column>
       <el-table-column prop="platform_user_id" label="User ID" width="160">
         <template #default="{ row }">
           <span v-if="row.platform_user_id" class="user-id-text">
@@ -35,8 +64,17 @@
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="180" fixed="right">
+      <el-table-column label="操作" width="220" fixed="right">
         <template #default="{ row }">
+          <el-button
+            link
+            type="primary"
+            size="small"
+            @click="handleShowProfile(row)"
+            :disabled="!getProfile(row.username)"
+          >
+            档案
+          </el-button>
           <el-button
             link
             type="primary"
@@ -103,25 +141,131 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <!-- 用户档案抽屉 -->
+    <el-drawer
+      v-model="profileDrawerVisible"
+      :title="selectedProfile ? `@${selectedProfile.username}` : '用户档案'"
+      size="420px"
+    >
+      <div v-if="selectedProfile" class="profile-detail">
+        <!-- 封面图 -->
+        <div
+          v-if="selectedProfile.cover_picture"
+          class="profile-cover"
+          :style="{ backgroundImage: `url(${selectedProfile.cover_picture})` }"
+        />
+
+        <!-- 头像和基本信息 -->
+        <div class="profile-header">
+          <el-avatar
+            v-if="selectedProfile.profile_picture"
+            :src="selectedProfile.profile_picture"
+            :size="64"
+          />
+          <el-avatar v-else :size="64">
+            {{ selectedProfile.username.charAt(0).toUpperCase() }}
+          </el-avatar>
+          <div class="profile-names">
+            <div class="display-name">
+              {{ selectedProfile.display_name || selectedProfile.username }}
+              <el-tag
+                v-if="selectedProfile.is_blue_verified"
+                type="primary"
+                size="small"
+                class="verified-tag"
+              >
+                {{ selectedProfile.verified_type || "Blue" }}
+              </el-tag>
+            </div>
+            <div class="handle">@{{ selectedProfile.username }}</div>
+          </div>
+        </div>
+
+        <!-- 简介 -->
+        <div v-if="selectedProfile.description" class="profile-bio">
+          {{ selectedProfile.description }}
+        </div>
+
+        <!-- 位置 -->
+        <div v-if="selectedProfile.location" class="profile-location">
+          {{ selectedProfile.location }}
+        </div>
+
+        <!-- 统计数据 -->
+        <div class="profile-stats">
+          <div class="stat-item">
+            <span class="stat-value">{{ formatNumber(selectedProfile.followers_count) }}</span>
+            <span class="stat-label">粉丝</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-value">{{ formatNumber(selectedProfile.following_count) }}</span>
+            <span class="stat-label">关注</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-value">{{ formatNumber(selectedProfile.statuses_count) }}</span>
+            <span class="stat-label">推文</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-value">{{ formatNumber(selectedProfile.media_count) }}</span>
+            <span class="stat-label">媒体</span>
+          </div>
+        </div>
+
+        <!-- 详细信息 -->
+        <el-descriptions :column="1" border size="small" class="profile-details">
+          <el-descriptions-item label="User ID">
+            <span class="user-id-text">{{ selectedProfile.platform_user_id }}</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="账号创建">
+            {{ selectedProfile.account_created_at || "-" }}
+          </el-descriptions-item>
+          <el-descriptions-item label="点赞数">
+            {{ formatNumber(selectedProfile.favourites_count) }}
+          </el-descriptions-item>
+          <el-descriptions-item label="自动化账号">
+            {{ selectedProfile.is_automated ? "是" : "否" }}
+          </el-descriptions-item>
+          <el-descriptions-item label="敏感标记">
+            {{ selectedProfile.possibly_sensitive ? "是" : "否" }}
+          </el-descriptions-item>
+          <el-descriptions-item v-if="selectedProfile.unavailable" label="账号状态">
+            <el-tag type="danger" size="small">
+              不可用{{ selectedProfile.unavailable_reason ? `：${selectedProfile.unavailable_reason}` : "" }}
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="数据更新">
+            {{ formatLocalizedDateTime(selectedProfile.fetched_at) }}
+          </el-descriptions-item>
+        </el-descriptions>
+      </div>
+      <el-empty v-else description="暂无档案数据" />
+    </el-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, reactive } from "vue"
-import { Plus } from "@element-plus/icons-vue"
+import { ref, onMounted, reactive, computed } from "vue"
+import { Plus, Refresh } from "@element-plus/icons-vue"
 import { ElMessageBox, ElMessage, type FormInstance, type FormRules } from "element-plus"
 import { followsApi } from "@/api"
 import { formatLocalizedDateTime } from "@/utils/format"
-import type { ScrapingFollow } from "@/types"
+import type { ScrapingFollow, XUserProfile } from "@/types"
 
 /** 抓取账号列表 */
 const follows = ref<ScrapingFollow[]>([])
+
+/** 用户档案列表 */
+const profiles = ref<XUserProfile[]>([])
 
 /** 加载状态 */
 const loading = ref(false)
 
 /** 提交状态 */
 const submitting = ref(false)
+
+/** 同步状态 */
+const syncing = ref(false)
 
 /** 对话框显示状态 */
 const dialogVisible = ref(false)
@@ -132,6 +276,12 @@ const isEditMode = ref(false)
 /** 当前编辑的账号 */
 const currentFollow = ref<ScrapingFollow | null>(null)
 
+/** 档案抽屉显示状态 */
+const profileDrawerVisible = ref(false)
+
+/** 选中的档案 */
+const selectedProfile = ref<XUserProfile | null>(null)
+
 /** 表单引用 */
 const formRef = ref<FormInstance>()
 
@@ -140,6 +290,28 @@ const formData = reactive({
   username: "",
   reason: "",
 })
+
+/** 档案 Map（username -> profile） */
+const profilesMap = computed(() => {
+  const map = new Map<string, XUserProfile>()
+  for (const p of profiles.value) {
+    map.set(p.username.toLowerCase(), p)
+  }
+  return map
+})
+
+/** 根据用户名获取档案 */
+function getProfile(username: string): XUserProfile | undefined {
+  return profilesMap.value.get(username.toLowerCase())
+}
+
+/** 格式化数字 */
+function formatNumber(value: number | null | undefined): string {
+  if (value == null) return "-"
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`
+  return value.toString()
+}
 
 /** 表单验证规则 */
 const formRules: FormRules = {
@@ -161,7 +333,12 @@ const formRules: FormRules = {
 async function loadFollows() {
   loading.value = true
   try {
-    follows.value = await followsApi.list()
+    const [followsData, profilesData] = await Promise.all([
+      followsApi.list(),
+      followsApi.listProfiles().catch(() => [] as XUserProfile[]),
+    ])
+    follows.value = followsData
+    profiles.value = profilesData
   } catch (error) {
     console.error("加载抓取账号列表失败:", error)
   } finally {
@@ -185,6 +362,30 @@ function handleEdit(follow: ScrapingFollow) {
   formData.username = follow.username
   formData.reason = follow.reason
   dialogVisible.value = true
+}
+
+/** 显示用户档案 */
+function handleShowProfile(follow: ScrapingFollow) {
+  const profile = getProfile(follow.username)
+  if (profile) {
+    selectedProfile.value = profile
+    profileDrawerVisible.value = true
+  }
+}
+
+/** 同步档案 */
+async function handleSyncProfiles() {
+  syncing.value = true
+  try {
+    const result = await followsApi.syncProfiles()
+    ElMessage.success(result.message)
+    // 重新加载档案数据
+    profiles.value = await followsApi.listProfiles().catch(() => [])
+  } catch (error) {
+    console.error("同步档案失败:", error)
+  } finally {
+    syncing.value = false
+  }
 }
 
 /** 提交表单 */
@@ -295,9 +496,120 @@ onMounted(() => {
   color: #333;
 }
 
+.header-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
 .user-id-text {
   font-family: monospace;
   font-size: 0.85em;
   color: #666;
+}
+
+.username-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.user-avatar {
+  flex-shrink: 0;
+}
+
+.username-link {
+  cursor: pointer;
+  color: #409eff;
+  font-weight: 500;
+}
+
+.username-link:hover {
+  text-decoration: underline;
+}
+
+/* 档案抽屉样式 */
+.profile-detail {
+  padding: 0;
+}
+
+.profile-cover {
+  width: 100%;
+  height: 120px;
+  background-size: cover;
+  background-position: center;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+}
+
+.profile-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 1rem;
+}
+
+.profile-names {
+  flex: 1;
+}
+
+.display-name {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #333;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.verified-tag {
+  font-size: 0.75rem;
+}
+
+.handle {
+  color: #999;
+  font-size: 0.9rem;
+}
+
+.profile-bio {
+  color: #555;
+  line-height: 1.5;
+  margin-bottom: 0.75rem;
+  white-space: pre-wrap;
+}
+
+.profile-location {
+  color: #888;
+  font-size: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.profile-stats {
+  display: flex;
+  gap: 1.5rem;
+  padding: 0.75rem 0;
+  margin-bottom: 1rem;
+  border-top: 1px solid #eee;
+  border-bottom: 1px solid #eee;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.stat-value {
+  font-weight: 600;
+  font-size: 1rem;
+  color: #333;
+}
+
+.stat-label {
+  font-size: 0.75rem;
+  color: #999;
+}
+
+.profile-details {
+  margin-top: 0.5rem;
 }
 </style>
