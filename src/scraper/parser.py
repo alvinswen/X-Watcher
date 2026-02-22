@@ -38,6 +38,7 @@ class TweetParser:
             users_map[user["id"]] = {
                 "username": user.get("username"),
                 "name": user.get("name"),
+                "numeric_id": user.get("numeric_id"),
             }
 
         # 构建媒体 key 到媒体信息的映射

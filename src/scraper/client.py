@@ -548,7 +548,7 @@ class TwitterClient:
                             includes: dict[str, Any] = {}
                             if users_map:
                                 includes["users"] = [
-                                    {"id": uid, "username": info["username"], "name": info["name"]}
+                                    {"id": uid, "username": info["username"], "name": info["name"], "numeric_id": info.get("numeric_id")}
                                     for uid, info in users_map.items()
                                 ]
                             if all_media:
