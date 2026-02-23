@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import JSONResponse
 from sqlalchemy import select
 
 from src.scraper import ScrapingService, TaskRegistry, TaskStatus
@@ -207,6 +208,18 @@ async def _run_scraping_task_async(task_id: str, usernames: list[str], limit: in
     service = get_scraping_service()
     registry = get_task_registry()
 
+    # 读取 DB 中的 manual_limit 配置（与 scheduled_job.py 一致）
+    from src.scraper.scheduled_job import get_active_follows_from_db
+
+    follows_data = get_active_follows_from_db()
+    manual_limits = {
+        f["username"]: f["manual_limit"]
+        for f in follows_data
+        if f["manual_limit"] and f["username"] in usernames
+    }
+    if manual_limits:
+        logger.info(f"Admin 抓取任务使用 manual_limits: {manual_limits}")
+
     start_time = time.time()
     logger.info(
         f"抓取任务开始: {len(usernames)} 个用户, limit={limit}",
@@ -218,6 +231,7 @@ async def _run_scraping_task_async(task_id: str, usernames: list[str], limit: in
             usernames=usernames,
             limit=limit,
             task_id=task_id,
+            manual_limits=manual_limits or None,
         )
         elapsed = time.time() - start_time
         logger.info(
@@ -229,6 +243,78 @@ async def _run_scraping_task_async(task_id: str, usernames: list[str], limit: in
         logger.exception(
             f"后台抓取任务执行失败: {e}",
             extra={"task_id": task_id, "event": "scrape_task_failed", "error_type": type(e).__name__},
+        )
+        registry.update_task_status(task_id, TaskStatus.FAILED, error=str(e))
+
+
+async def _run_backfill_all_async(task_id: str, max_tweets: int) -> None:
+    """后台执行批量 Article 回溯。
+
+    逐账号顺序调用 backfill_articles_for_user，避免 API rate limit。
+    通过 TaskRegistry 更新进度和最终结果。
+
+    Args:
+        task_id: 任务 ID
+        max_tweets: 每个账号扫描的推文数量上限
+    """
+    import time
+
+    from src.scraper.scheduled_job import get_active_follows_from_db
+
+    service = get_scraping_service()
+    registry = get_task_registry()
+
+    start_time = time.time()
+    logger.info(
+        f"Article 批量回溯开始: max_tweets={max_tweets}",
+        extra={"task_id": task_id, "event": "backfill_all_start"},
+    )
+
+    try:
+        follows = get_active_follows_from_db()
+        total = len(follows)
+        details: list[dict] = []
+        summary = {"total_checked": 0, "total_found": 0, "total_skipped": 0, "total_errors": 0}
+
+        for i, follow in enumerate(follows):
+            username = follow["username"]
+            registry.update_progress(task_id, i, total)
+
+            try:
+                result = await service.backfill_articles_for_user(
+                    username, max_tweets=max_tweets,
+                )
+            except Exception as e:
+                logger.warning(f"Article 批量回溯跳过 {username}: {e}")
+                result = {"checked": 0, "found": 0, "skipped": 0, "errors": 1}
+
+            details.append({
+                "username": username,
+                "checked": result.get("checked", 0),
+                "found": result.get("found", 0),
+                "skipped": result.get("skipped", 0),
+                "errors": result.get("errors", 0),
+            })
+            summary["total_checked"] += result.get("checked", 0)
+            summary["total_found"] += result.get("found", 0)
+            summary["total_skipped"] += result.get("skipped", 0)
+            summary["total_errors"] += result.get("errors", 0)
+
+        registry.update_progress(task_id, total, total)
+        elapsed = time.time() - start_time
+        logger.info(
+            f"Article 批量回溯完成: {total} 个账号, found={summary['total_found']}, "
+            f"耗时 {elapsed:.1f}s",
+            extra={"task_id": task_id, "event": "backfill_all_done"},
+        )
+        registry.update_task_status(
+            task_id, TaskStatus.COMPLETED,
+            result={"total_users": total, "summary": summary, "details": details},
+        )
+    except Exception as e:
+        logger.exception(
+            f"Article 批量回溯失败: {e}",
+            extra={"task_id": task_id, "event": "backfill_all_failed"},
         )
         registry.update_task_status(task_id, TaskStatus.FAILED, error=str(e))
 
@@ -434,30 +520,19 @@ async def delete_scraping_task(
     )
 
 
-@router.post("/articles/backfill")
+@router.post("/articles/backfill", response_model=None)
 async def backfill_articles(
     request: dict,
     _admin: UserDomain = Depends(get_current_admin_user),
-) -> dict:
+):
     """回溯 X Articles。
 
     支持两种模式：
-    1. 单用户模式：{"username": "xxx", "max_tweets": 200}
-    2. 批量模式：{"all": true, "max_tweets": 200}（遍历所有活跃关注账号）
-
-    扫描已保存的推文，逐个调用 /article API 尝试获取 Article 全文。
-    404 = 非 Article（跳过），200 = 保存到 articles 表。
+    1. 单用户模式：{"username": "xxx", "max_tweets": 200} → 同步返回 200
+    2. 批量模式：{"all": true, "max_tweets": 200} → 异步后台任务，返回 202 + task_id
+       通过 GET /api/admin/scrape/{task_id} 查询进度和结果。
 
     注意：每次 API 调用消耗 100 credits，请合理设置 max_tweets。
-
-    Args:
-        request: 请求体
-
-    Returns:
-        dict: 单用户模式返回 {username, result}；批量模式返回 {total_users, summary, details}
-
-    Raises:
-        HTTPException: 400 参数无效
     """
     backfill_all = request.get("all", False)
     max_tweets = request.get("max_tweets", 200)
@@ -470,46 +545,25 @@ async def backfill_articles(
 
     service = get_scraping_service()
 
-    # ── 批量模式：遍历所有活跃关注账号 ──
+    # ── 批量模式：后台任务 + 立即返回 task_id ──
     if backfill_all:
-        from src.scraper.scheduled_job import get_active_follows_from_db
-
-        follows = get_active_follows_from_db()
-        details: list[dict] = []
-        summary = {"total_checked": 0, "total_found": 0, "total_skipped": 0, "total_errors": 0}
-
-        for follow in follows:
-            username = follow["username"]
-            try:
-                result = await service.backfill_articles_for_user(
-                    username, max_tweets=max_tweets,
-                )
-            except Exception as e:
-                logger.warning(f"Article 批量回溯跳过 {username}: {e}")
-                result = {"checked": 0, "found": 0, "skipped": 0, "errors": 1}
-
-            details.append({
-                "username": username,
-                "checked": result.get("checked", 0),
-                "found": result.get("found", 0),
-                "skipped": result.get("skipped", 0),
-                "errors": result.get("errors", 0),
-            })
-            summary["total_checked"] += result.get("checked", 0)
-            summary["total_found"] += result.get("found", 0)
-            summary["total_skipped"] += result.get("skipped", 0)
-            summary["total_errors"] += result.get("errors", 0)
-
-        logger.info(
-            f"Article 批量回溯完成: {len(follows)} 个账号, "
-            f"found={summary['total_found']}, errors={summary['total_errors']}",
+        registry = get_task_registry()
+        task_id = registry.create_task(
+            task_name="Article 批量回溯",
+            metadata={"mode": "backfill_all", "max_tweets": max_tweets},
         )
 
-        return {
-            "total_users": len(follows),
-            "summary": summary,
-            "details": details,
-        }
+        asyncio.create_task(
+            _run_backfill_all_async(task_id, max_tweets),
+            name=f"backfill-all-{task_id}",
+        )
+
+        logger.info(f"创建 Article 批量回溯任务: {task_id}")
+
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content={"task_id": task_id, "status": "pending"},
+        )
 
     # ── 单用户模式 ──
     username = request.get("username", "").strip()

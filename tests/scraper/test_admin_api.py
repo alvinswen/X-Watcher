@@ -504,71 +504,31 @@ class TestBackfillArticlesEndpoint:
         assert response.status_code == 500
         assert "回溯失败" in response.json()["detail"]
 
-    async def test_backfill_all_accounts(self, async_client, mock_service):
-        """测试批量回溯所有活跃关注账号。"""
-        # Mock get_active_follows_from_db 返回 2 个用户
-        mock_follows = [
-            {"username": "user_a", "manual_limit": None},
-            {"username": "user_b", "manual_limit": 50},
-        ]
-
-        # 为每个用户返回不同的结果
-        mock_service.backfill_articles_for_user.side_effect = [
-            {"checked": 80, "found": 3, "skipped": 75, "errors": 2},
-            {"checked": 60, "found": 1, "skipped": 58, "errors": 1},
-        ]
-
-        with (
-            patch(
-                "src.api.routes.admin.get_scraping_service",
-                return_value=mock_service,
-            ),
-            patch(
-                "src.scraper.scheduled_job.get_active_follows_from_db",
-                return_value=mock_follows,
-            ),
-        ):
+    async def test_backfill_all_accounts_returns_202(self, async_client, mock_service):
+        """测试批量模式立即返回 202 + task_id（后台执行）。"""
+        with patch("src.api.routes.admin.asyncio.create_task"):
             response = await async_client.post(
                 "/api/admin/articles/backfill",
                 json={"all": True, "max_tweets": 100},
             )
 
-        assert response.status_code == 200
+        assert response.status_code == 202
         data = response.json()
-        assert data["total_users"] == 2
-        assert data["summary"]["total_checked"] == 140
-        assert data["summary"]["total_found"] == 4
-        assert data["summary"]["total_skipped"] == 133
-        assert data["summary"]["total_errors"] == 3
-        assert len(data["details"]) == 2
-        assert data["details"][0]["username"] == "user_a"
-        assert data["details"][0]["found"] == 3
-        assert data["details"][1]["username"] == "user_b"
-        assert data["details"][1]["found"] == 1
+        assert "task_id" in data
+        assert data["status"] == "pending"
 
-    async def test_backfill_all_accounts_empty_follows(self, async_client, mock_service):
-        """测试无活跃关注时返回空结果。"""
-        with (
-            patch(
-                "src.api.routes.admin.get_scraping_service",
-                return_value=mock_service,
-            ),
-            patch(
-                "src.scraper.scheduled_job.get_active_follows_from_db",
-                return_value=[],
-            ),
-        ):
+    async def test_backfill_all_accounts_empty_follows_returns_202(self, async_client, mock_service):
+        """测试无活跃关注时也返回 202（后台任务会处理空列表）。"""
+        with patch("src.api.routes.admin.asyncio.create_task"):
             response = await async_client.post(
                 "/api/admin/articles/backfill",
                 json={"all": True},
             )
 
-        assert response.status_code == 200
+        assert response.status_code == 202
         data = response.json()
-        assert data["total_users"] == 0
-        assert data["summary"]["total_found"] == 0
-        assert data["details"] == []
-        mock_service.backfill_articles_for_user.assert_not_called()
+        assert "task_id" in data
+        assert data["status"] == "pending"
 
 
 @pytest.mark.asyncio

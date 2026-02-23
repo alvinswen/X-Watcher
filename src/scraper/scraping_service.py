@@ -229,6 +229,7 @@ class ScrapingService:
 
         try:
             # 0. 计算 limit：手动优先，否则动态计算
+            fetch_stats = await self._get_fetch_stats(username)
             if manual_limit is not None and manual_limit > 0:
                 actual_limit = manual_limit
                 logger.info(
@@ -236,7 +237,6 @@ class ScrapingService:
                     username, actual_limit,
                 )
             else:
-                fetch_stats = await self._get_fetch_stats(username)
                 dynamic_limit = self._limit_calculator.calculate_next_limit(fetch_stats)
                 actual_limit = min(dynamic_limit, limit)  # 不超过传入的上限
                 logger.info(
@@ -728,6 +728,12 @@ class ScrapingService:
 
                     if isinstance(api_result, Success):
                         data = api_result.unwrap()
+
+                        # API 返回 200 但 article=null / status=failed → 非 Article，跳过
+                        if data.get("status") == "failed" or data.get("article") is None:
+                            logger.info("Article API 返回空: tweet_id=%s, 跳过", tweet.tweet_id)
+                            continue
+
                         article_data = data.get("article", data.get("data", data))
 
                         # 拼接 contents 为纯文本
@@ -861,6 +867,12 @@ class ScrapingService:
                         continue
 
                     data = api_result.unwrap()
+
+                    # API 返回 200 但 article=null / status=failed → 非 Article，跳过
+                    if data.get("status") == "failed" or data.get("article") is None:
+                        result["skipped"] += 1
+                        continue
+
                     article_data = data.get("article", data.get("data", data))
 
                     # 拼接 contents 为纯文本
