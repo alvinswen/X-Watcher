@@ -3,6 +3,8 @@
 import pytest
 from datetime import datetime, timezone
 
+from fastapi import HTTPException, status
+
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -192,3 +194,72 @@ class TestClusteringApi:
         )
         assert response.status_code == 400
         assert "有效账号不足" in response.json()["detail"]
+
+
+class TestClusteringApiPermissions:
+    """测试聚类分析 API 端点的权限控制。
+
+    验证 admin analytics 端点拒绝非管理员用户（403）。
+    """
+
+    @pytest.fixture
+    async def non_admin_client(self, async_session):
+        """非管理员客户端 fixture：覆盖 get_current_admin_user 抛出 403。"""
+        from httpx import ASGITransport, AsyncClient
+
+        from src.database.async_session import get_db_session
+        from src.main import app
+        from src.user.api.auth import get_current_admin_user, get_current_user
+        from src.user.domain.models import UserDomain
+
+        non_admin = UserDomain(
+            id=1, name="normal_user", email="user@test.com",
+            is_admin=False, created_at=datetime.now(timezone.utc),
+        )
+
+        async def override_get_db_session():
+            yield async_session
+
+        async def override_get_current_user():
+            return non_admin
+
+        async def override_get_current_admin_user():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="需要管理员权限",
+            )
+
+        original_overrides = app.dependency_overrides.copy()
+        app.dependency_overrides[get_db_session] = override_get_db_session
+        app.dependency_overrides[get_current_user] = override_get_current_user
+        app.dependency_overrides[get_current_admin_user] = override_get_current_admin_user
+
+        try:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as ac:
+                yield ac
+        finally:
+            app.dependency_overrides = original_overrides
+
+    async def test_non_admin_cannot_get_distributions(self, non_admin_client):
+        """非管理员访问 GET /distributions 应返回 403。"""
+        resp = await non_admin_client.get("/api/admin/analytics/distributions")
+        assert resp.status_code == 403
+
+    async def test_non_admin_cannot_run_clustering(self, non_admin_client):
+        """非管理员访问 POST /clustering 应返回 403。"""
+        resp = await non_admin_client.post(
+            "/api/admin/analytics/clustering", json={}
+        )
+        assert resp.status_code == 403
+
+    async def test_non_admin_cannot_list_runs(self, non_admin_client):
+        """非管理员访问 GET /clustering 应返回 403。"""
+        resp = await non_admin_client.get("/api/admin/analytics/clustering")
+        assert resp.status_code == 403
+
+    async def test_non_admin_cannot_delete_run(self, non_admin_client):
+        """非管理员访问 DELETE /clustering/{id} 应返回 403。"""
+        resp = await non_admin_client.delete("/api/admin/analytics/clustering/1")
+        assert resp.status_code == 403

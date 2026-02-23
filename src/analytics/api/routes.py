@@ -27,7 +27,7 @@ from src.analytics.services.analytics_service import AnalyticsService
 from src.analytics.services.clustering_service import ClusteringService
 from src.database.async_session import get_db_session
 from src.topic.infrastructure.models import TopicOrm
-from src.user.api.auth import get_current_user
+from src.user.api.auth import get_current_admin_user, get_current_user
 from src.user.domain.models import UserDomain
 
 logger = logging.getLogger(__name__)
@@ -97,7 +97,7 @@ def _run_to_summary(run) -> ClusteringRunSummaryResponse:
 async def get_distributions(
     min_tweets: int = 20,
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserDomain = Depends(get_current_user),  # noqa: ARG001
+    current_user: UserDomain = Depends(get_current_admin_user),  # noqa: ARG001
 ):
     """预览所有账号的 24 维分布向量。"""
     distributions, excluded = await _clustering_service.get_distributions(
@@ -120,7 +120,7 @@ async def get_distributions(
 async def run_clustering(
     request: RunClusteringRequest | None = None,
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserDomain = Depends(get_current_user),  # noqa: ARG001
+    current_user: UserDomain = Depends(get_current_admin_user),  # noqa: ARG001
 ):
     """触发一次聚类分析。"""
     params = request or RunClusteringRequest()
@@ -140,7 +140,7 @@ async def run_clustering(
 @router.get("/clustering", response_model=list[ClusteringRunSummaryResponse])
 async def list_clustering_runs(
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserDomain = Depends(get_current_user),  # noqa: ARG001
+    current_user: UserDomain = Depends(get_current_admin_user),  # noqa: ARG001
 ):
     """列出所有聚类运行记录。"""
     runs = await _clustering_service.list_runs(session)
@@ -150,7 +150,7 @@ async def list_clustering_runs(
 @router.get("/clustering/latest", response_model=ClusteringRunDetailResponse)
 async def get_latest_clustering(
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserDomain = Depends(get_current_user),  # noqa: ARG001
+    current_user: UserDomain = Depends(get_current_admin_user),  # noqa: ARG001
 ):
     """获取最近一次完成的聚类运行。"""
     run = await _clustering_service.get_latest_completed(session)
@@ -163,7 +163,7 @@ async def get_latest_clustering(
 async def get_clustering_run(
     run_id: int,
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserDomain = Depends(get_current_user),  # noqa: ARG001
+    current_user: UserDomain = Depends(get_current_admin_user),  # noqa: ARG001
 ):
     """获取指定运行的完整详情。"""
     run = await _clustering_service.get_run(session, run_id)
@@ -177,7 +177,7 @@ async def recut_clustering(
     run_id: int,
     request: ReCutRequest,
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserDomain = Depends(get_current_user),  # noqa: ARG001
+    current_user: UserDomain = Depends(get_current_admin_user),  # noqa: ARG001
 ):
     """重切割树状图。"""
     try:
@@ -204,7 +204,7 @@ async def move_account(
     username: str,
     request: MoveAccountRequest,
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserDomain = Depends(get_current_user),  # noqa: ARG001
+    current_user: UserDomain = Depends(get_current_admin_user),  # noqa: ARG001
 ):
     """手动移动账号到其他聚类组。"""
     try:
@@ -230,7 +230,7 @@ async def move_account(
 async def delete_clustering_run(
     run_id: int,
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserDomain = Depends(get_current_user),  # noqa: ARG001
+    current_user: UserDomain = Depends(get_current_admin_user),  # noqa: ARG001
 ):
     """删除一次聚类运行。"""
     result = await _clustering_service.delete_run(session, run_id)

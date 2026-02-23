@@ -9,9 +9,11 @@ import os
 import time
 
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from src.summarization.llm.config import LLMProviderConfig
+from src.user.api.auth import get_current_admin_user
+from src.user.domain.models import UserDomain
 from src.summarization.services.summarization_service import _build_providers_from_config
 
 logger = logging.getLogger(__name__)
@@ -20,7 +22,9 @@ router = APIRouter(prefix="/api/admin/config", tags=["config"])
 
 
 @router.get("/validate")
-async def validate_config() -> dict:
+async def validate_config(
+    _admin: UserDomain = Depends(get_current_admin_user),
+) -> dict:
     """验证当前配置的服务连通性。
 
     返回各服务的健康状态：
