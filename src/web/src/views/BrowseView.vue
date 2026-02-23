@@ -92,6 +92,15 @@
                 <span class="inline-author-name">{{ tweet.author_display_name || tweet.author_username }}</span>
                 <span class="inline-author-handle">@{{ tweet.author_username }}</span>
               </div>
+              <el-button
+                text
+                size="small"
+                class="share-btn"
+                title="复制为 Markdown"
+                @click="handleShareTweet(tweet)"
+              >
+                <el-icon :size="14"><CopyDocument /></el-icon>
+              </el-button>
             </div>
 
             <!-- 摘要 -->
@@ -162,10 +171,11 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, inject, onMounted, onUnmounted, type Ref } from "vue"
-import { CloseBold } from "@element-plus/icons-vue"
-import { browseApi } from "@/api"
-import { formatFullDateTime } from "@/utils/format"
-import type { AuthorInfo, BrowseTweetItem } from "@/types"
+import { CloseBold, CopyDocument } from "@element-plus/icons-vue"
+import { ElMessage } from "element-plus"
+import { browseApi, followsApi } from "@/api"
+import { formatFullDateTime, formatChineseDateTime } from "@/utils/format"
+import type { AuthorInfo, BrowseTweetItem, XUserProfile } from "@/types"
 
 /** 全屏模式 */
 const isFullscreen = inject<Ref<boolean>>("isFullscreen", ref(false))
@@ -258,6 +268,99 @@ function getReferenceLabel(type: string | null): string {
       return "回复"
     default:
       return "引用"
+  }
+}
+
+/** 根据用户名查找作者介绍 */
+function findAuthorReason(username: string): string | null {
+  const author = authors.value.find((a) => a.author_username === username)
+  return author?.reason || null
+}
+
+/** 构建人物介绍段落 */
+function buildProfileIntro(
+  tweet: BrowseTweetItem,
+  profile: XUserProfile | null,
+  reason: string | null,
+): string {
+  const displayName = profile?.display_name || tweet.author_display_name || tweet.author_username
+  const username = tweet.author_username
+  const parts: string[] = []
+
+  parts.push(`## ${displayName}（@${username}）`)
+
+  if (reason) {
+    parts.push(reason)
+  }
+
+  if (profile?.description) {
+    const statsItems: string[] = []
+    if (profile.followers_count != null) statsItems.push(`粉丝 ${profile.followers_count.toLocaleString()}`)
+    if (profile.following_count != null) statsItems.push(`关注 ${profile.following_count.toLocaleString()}`)
+    if (profile.statuses_count != null) statsItems.push(`推文 ${profile.statuses_count.toLocaleString()}`)
+
+    let quote = `> ${profile.description}`
+    if (statsItems.length > 0) {
+      quote += `\n>\n> ${statsItems.join(" · ")}`
+    }
+    parts.push(quote)
+  }
+
+  return parts.join("\n\n")
+}
+
+/** 生成推文分享 Markdown 内容 */
+function buildShareMarkdown(
+  tweet: BrowseTweetItem,
+  profile: XUserProfile | null,
+  reason: string | null,
+): string {
+  const sections: string[] = []
+
+  // 1. 人物介绍
+  sections.push(buildProfileIntro(tweet, profile, reason))
+
+  // 分隔线
+  sections.push("---")
+
+  // 2. 发布时间
+  const timeStr = formatChineseDateTime(tweet.created_at)
+  sections.push(`**发布时间**：${timeStr}`)
+
+  // 3. 翻译
+  if (tweet.translation_text) {
+    sections.push(`### 翻译\n\n${tweet.translation_text}`)
+  }
+
+  // 4. 原文
+  sections.push(`### 原文\n\n${tweet.text}`)
+
+  // 5. 摘要
+  if (tweet.summary_text) {
+    sections.push(`### 摘要\n\n${tweet.summary_text}`)
+  }
+
+  return sections.join("\n\n")
+}
+
+/** 分享推文：生成 Markdown 并复制到剪贴板 */
+async function handleShareTweet(tweet: BrowseTweetItem) {
+  const reason = findAuthorReason(tweet.author_username)
+
+  // 尝试获取完整档案，失败时降级
+  let profile: XUserProfile | null = null
+  try {
+    profile = await followsApi.getProfile(tweet.author_username)
+  } catch {
+    // 档案获取失败，使用已有数据降级
+  }
+
+  try {
+    const markdown = buildShareMarkdown(tweet, profile, reason)
+    await navigator.clipboard.writeText(markdown)
+    ElMessage.success("已复制到剪贴板")
+  } catch {
+    ElMessage.error("复制失败，请手动复制")
   }
 }
 
@@ -707,5 +810,17 @@ onUnmounted(() => {
   justify-content: center;
   padding: 16px 0;
   margin-top: auto;
+}
+
+/* 分享按钮 */
+.share-btn {
+  padding: 2px 4px;
+  margin-left: auto;
+  color: #c0c4cc;
+  transition: color 0.2s;
+}
+
+.share-btn:hover {
+  color: #409eff;
 }
 </style>
