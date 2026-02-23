@@ -35,6 +35,32 @@ def _run_async(coro):
             loop.close()
 
 
+def get_pending_backfill_users_from_db() -> list[str]:
+    """从数据库获取待回溯的用户名列表。
+
+    Returns:
+        list[str]: backfill_status="pending" 且 is_active=True 的用户名
+    """
+    try:
+        from sqlalchemy import select
+        from sqlalchemy.orm import Session as SyncSession
+
+        from src.database.models import ScraperFollow, get_engine
+
+        engine = get_engine()
+        with SyncSession(engine) as session:
+            result = session.execute(
+                select(ScraperFollow.username).where(
+                    ScraperFollow.is_active == True,  # noqa: E712
+                    ScraperFollow.backfill_status == "pending",
+                )
+            )
+            return [row[0] for row in result]
+    except Exception as e:
+        logger.warning(f"获取待回溯用户列表失败: {e}")
+        return []
+
+
 def get_active_follows_from_db() -> list[dict]:
     """从数据库获取活跃关注账号列表，包含手动 limit 配置。
 
@@ -119,6 +145,24 @@ def scheduled_scrape_job():
         if task["status"] == TaskStatus.RUNNING:
             logger.info(f"已有任务正在运行: {task['task_id']}，跳过本次执行")
             return
+
+    # 0. 执行待回溯用户的全量抓取（常规抓取之前）
+    backfill_usernames = get_pending_backfill_users_from_db()
+    if backfill_usernames:
+        logger.info(f"发现 {len(backfill_usernames)} 个待回溯用户: {backfill_usernames}")
+        backfill_service = ScrapingService()
+        for bf_username in backfill_usernames:
+            try:
+                bf_result = _run_async(
+                    backfill_service.backfill_user(bf_username)
+                )
+                logger.info(
+                    f"回溯完成: {bf_username}, "
+                    f"pages={bf_result['pages']}, new={bf_result['new']}"
+                )
+            except Exception as e:
+                logger.exception(f"回溯用户 {bf_username} 失败: {e}")
+        _run_async(backfill_service.close())
 
     # 创建并执行抓取任务
     try:

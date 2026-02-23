@@ -23,7 +23,7 @@
 src/
 ├── api/                     # FastAPI 路由和端点
 │   └── routes/
-│       ├── admin.py         # 管理功能 API（抓取任务、任务历史查询）
+│       ├── admin.py         # 管理功能 API（抓取任务、任务历史查询、Article 回溯）
 │       ├── config_routes.py # 配置验证 API（GET /api/admin/config/validate）
 │       ├── scheduler.py     # 调度器执行历史 API（GET /api/admin/scheduler/history）
 │       ├── status.py        # 系统状态概览 API（GET /api/status/overview）
@@ -37,7 +37,7 @@ src/
 │   ├── scheduler_listener.py # APScheduler 事件监听器（EXECUTED/ERROR/MISSED → DB + Prometheus）
 │   ├── task_registry.py     # 异步任务注册表（含任务历史持久化到 TaskExecutionLog）
 │   ├── domain/
-│   │   ├── models.py        # 领域模型（Tweet, Media, SaveResult）
+│   │   ├── models.py        # 领域模型（Tweet, Media, ArticlePreview, Article, SaveResult）
 │   │   ├── fetch_stats.py   # 抓取统计领域模型（FetchStats）
 │   │   └── scheduler_log.py # 调度器执行日志领域模型（SchedulerEventType, SchedulerExecutionLog）
 │   ├── infrastructure/
@@ -130,7 +130,7 @@ src/
 │   │   └── schemas.py       # SearchTweetItem, SearchResponse
 │   └── services/
 │       └── search_service.py  # 多字段搜索（正文、摘要、翻译、引用推文）
-├── analytics/               # 聚类分析模块（发推时段聚类）
+├── analytics/               # 分析模块（聚类分析 + 发文频次统计）
 │   ├── domain/
 │   │   └── models.py        # 领域模型（ClusteringRunDomain, ClusterAssignmentDomain, AccountDistribution）
 │   ├── infrastructure/
@@ -138,9 +138,10 @@ src/
 │   │   └── repository.py    # ClusteringRepository
 │   ├── services/
 │   │   ├── feature_engineering.py  # 24 维小时分布向量构建
-│   │   └── clustering_service.py   # 层次聚类（JSD + average linkage）
+│   │   ├── clustering_service.py   # 层次聚类（JSD + average linkage）
+│   │   └── analytics_service.py    # 主题发文频次分布查询（30分钟时段聚合）
 │   └── api/
-│       ├── routes.py        # /api/admin/analytics/* 端点（分布预览、聚类运行、重切割、手动调整）
+│       ├── routes.py        # /api/admin/analytics/* 端点（分布预览、聚类运行、重切割、手动调整、发文频次）
 │       └── schemas.py       # 请求/响应模型
 ├── monitoring/              # Prometheus 监控
 │   ├── metrics.py           # 指标定义
@@ -172,7 +173,7 @@ tests/
 ├── user/               # 用户认证测试
 ├── feed/               # Feed API 测试
 ├── search/             # 搜索 API 测试
-├── analytics/          # 聚类分析模块测试
+├── analytics/          # 分析模块测试（聚类 + 统计）
 ├── api/                # API 端点测试
 ├── integration/        # 集成测试
 ├── performance/        # 性能测试

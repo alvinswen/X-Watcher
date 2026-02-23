@@ -151,6 +151,10 @@ class Settings(BaseSettings):
         default=5, ge=0, le=50,
         description="连续已存在推文阈值，达到后提前终止（0 禁用）"
     )
+    scraper_max_extra_pages: int = Field(
+        default=3, ge=0, le=20,
+        description="增量抓取满页时自动翻页的最大额外页数（0 禁用）"
+    )
 
     # 调度器日志配置
     scheduler_log_retention_days: int = Field(

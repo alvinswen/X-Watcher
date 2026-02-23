@@ -687,3 +687,331 @@ class TestExtractFullText:
         assert tweet["referenced_tweet_text"] == (
             "This is truncated but full_text has the complete version of the original tweet"
         )
+
+
+class TestCursorPagination:
+    """cursor 分页功能测试。"""
+
+    @pytest.fixture
+    def mock_httpx_client(self):
+        """Mock httpx 异步客户端。"""
+        client = AsyncMock()
+        client.get = AsyncMock()
+        return client
+
+    @pytest.fixture
+    def client(self, test_settings):
+        """创建 TwitterClient 实例。"""
+        return TwitterClient()
+
+    def _make_twitterapi_response(self, tweets, next_cursor=None):
+        """构造带 next_cursor 的 TwitterAPI.io 格式 mock 响应。"""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        response_data = {"tweets": tweets}
+        if next_cursor:
+            response_data["next_cursor"] = next_cursor
+        mock_response.json.return_value = response_data
+        return mock_response
+
+    @pytest.mark.asyncio
+    async def test_cursor_param_passed_to_api(self, client, mock_httpx_client):
+        """测试 cursor 参数被正确传递到 API 请求。"""
+        mock_response = self._make_twitterapi_response([
+            {
+                "id": "100",
+                "text": "Page 2 tweet",
+                "createdAt": "Fri Feb 07 09:00:00 +0000 2026",
+                "author": {"userName": "testuser", "name": "Test"},
+            }
+        ])
+        mock_httpx_client.get.return_value = mock_response
+
+        with patch("httpx.AsyncClient", return_value=mock_httpx_client):
+            result = await client.fetch_user_tweets(
+                "testuser", cursor="abc123cursor",
+            )
+
+        assert isinstance(result, Success)
+        # 验证 cursor 参数被传递
+        call_args = mock_httpx_client.get.call_args
+        params = call_args[1]["params"]
+        assert params["cursor"] == "abc123cursor"
+
+    @pytest.mark.asyncio
+    async def test_next_cursor_preserved_in_response(self, client, mock_httpx_client):
+        """测试 API 响应中的 next_cursor 被保留在返回结果中。"""
+        mock_response = self._make_twitterapi_response(
+            tweets=[
+                {
+                    "id": "100",
+                    "text": "A tweet",
+                    "createdAt": "Fri Feb 07 09:00:00 +0000 2026",
+                    "author": {"userName": "testuser", "name": "Test"},
+                }
+            ],
+            next_cursor="next_page_cursor_xyz",
+        )
+        mock_httpx_client.get.return_value = mock_response
+
+        with patch("httpx.AsyncClient", return_value=mock_httpx_client):
+            result = await client.fetch_user_tweets("testuser")
+
+        assert isinstance(result, Success)
+        data = result.unwrap()
+        assert data.get("next_cursor") == "next_page_cursor_xyz"
+
+    @pytest.mark.asyncio
+    async def test_no_next_cursor_when_absent(self, client, mock_httpx_client):
+        """测试无 next_cursor 时返回结果不含该字段。"""
+        mock_response = self._make_twitterapi_response(
+            tweets=[
+                {
+                    "id": "100",
+                    "text": "Last page tweet",
+                    "createdAt": "Fri Feb 07 09:00:00 +0000 2026",
+                    "author": {"userName": "testuser", "name": "Test"},
+                }
+            ],
+        )
+        mock_httpx_client.get.return_value = mock_response
+
+        with patch("httpx.AsyncClient", return_value=mock_httpx_client):
+            result = await client.fetch_user_tweets("testuser")
+
+        assert isinstance(result, Success)
+        data = result.unwrap()
+        assert "next_cursor" not in data
+
+    @pytest.mark.asyncio
+    async def test_paginated_iterates_pages(self, client, mock_httpx_client):
+        """测试 fetch_user_tweets_paginated 逐页迭代。"""
+        page1 = self._make_twitterapi_response(
+            tweets=[{"id": "1", "text": "P1", "createdAt": "Fri Feb 07 09:00:00 +0000 2026",
+                     "author": {"userName": "u", "name": "U"}}],
+            next_cursor="cursor_2",
+        )
+        page2 = self._make_twitterapi_response(
+            tweets=[{"id": "2", "text": "P2", "createdAt": "Fri Feb 07 08:00:00 +0000 2026",
+                     "author": {"userName": "u", "name": "U"}}],
+        )
+        mock_httpx_client.get.side_effect = [page1, page2]
+
+        pages = []
+        with patch("httpx.AsyncClient", return_value=mock_httpx_client), \
+             patch("src.scraper.client.asyncio.sleep", new_callable=AsyncMock):
+            async for page_data in client.fetch_user_tweets_paginated(
+                "u", max_pages=5, page_delay=0,
+            ):
+                pages.append(page_data)
+
+        assert len(pages) == 2
+        assert pages[0]["data"][0]["id"] == "1"
+        assert pages[1]["data"][0]["id"] == "2"
+
+    @pytest.mark.asyncio
+    async def test_paginated_stops_at_max_pages(self, client, mock_httpx_client):
+        """测试 fetch_user_tweets_paginated 达到 max_pages 时停止。"""
+        # 每页都返回 next_cursor（无限页）
+        def make_page(call_count=[0]):
+            call_count[0] += 1
+            return self._make_twitterapi_response(
+                tweets=[{"id": str(call_count[0]), "text": f"T{call_count[0]}",
+                         "createdAt": "Fri Feb 07 09:00:00 +0000 2026",
+                         "author": {"userName": "u", "name": "U"}}],
+                next_cursor=f"cursor_{call_count[0] + 1}",
+            )
+
+        mock_httpx_client.get.side_effect = [make_page() for _ in range(5)]
+
+        pages = []
+        with patch("httpx.AsyncClient", return_value=mock_httpx_client), \
+             patch("src.scraper.client.asyncio.sleep", new_callable=AsyncMock):
+            async for page_data in client.fetch_user_tweets_paginated(
+                "u", max_pages=3, page_delay=0,
+            ):
+                pages.append(page_data)
+
+        assert len(pages) == 3
+
+    @pytest.mark.asyncio
+    async def test_paginated_stops_on_api_error(self, client, mock_httpx_client):
+        """测试 fetch_user_tweets_paginated 在 API 错误时停止。"""
+        page1 = self._make_twitterapi_response(
+            tweets=[{"id": "1", "text": "P1", "createdAt": "Fri Feb 07 09:00:00 +0000 2026",
+                     "author": {"userName": "u", "name": "U"}}],
+            next_cursor="cursor_2",
+        )
+        error_response = Mock()
+        error_response.status_code = 500
+        mock_httpx_client.get.side_effect = [page1, error_response]
+
+        pages = []
+        with patch("httpx.AsyncClient", return_value=mock_httpx_client), \
+             patch("src.scraper.client.asyncio.sleep", new_callable=AsyncMock):
+            async for page_data in client.fetch_user_tweets_paginated(
+                "u", max_pages=5, page_delay=0,
+            ):
+                pages.append(page_data)
+
+        # 只有第一页成功
+        assert len(pages) == 1
+
+
+class TestFetchArticle:
+    """fetch_article 测试。"""
+
+    @pytest.fixture
+    def mock_httpx_client(self):
+        """Mock httpx 异步客户端。"""
+        client = AsyncMock()
+        client.get = AsyncMock()
+        return client
+
+    @pytest.fixture
+    def client(self, test_settings):
+        """创建 TwitterClient 实例。"""
+        return TwitterClient()
+
+    @pytest.mark.asyncio
+    async def test_fetch_article_success(self, client, mock_httpx_client):
+        """测试成功获取 Article。"""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "data": {
+                "title": "My Article",
+                "content": "Full article content...",
+                "previewText": "Preview...",
+                "coverImageUrl": "https://example.com/cover.jpg",
+            }
+        }
+        mock_httpx_client.get.return_value = mock_response
+
+        with patch("httpx.AsyncClient", return_value=mock_httpx_client):
+            result = await client.fetch_article("12345")
+
+        assert isinstance(result, Success)
+        data = result.unwrap()
+        assert data["data"]["title"] == "My Article"
+
+        # 验证 API 调用参数（修正后的端点和参数名）
+        call_kwargs = mock_httpx_client.get.call_args
+        assert call_kwargs[0][0] == "/article"
+        assert call_kwargs[1]["params"]["tweet_id"] == "12345"
+
+    @pytest.mark.asyncio
+    async def test_fetch_article_empty_tweet_id(self, client):
+        """测试空 tweet_id 返回 Failure。"""
+        result = await client.fetch_article("")
+
+        assert isinstance(result, Failure)
+        assert "不能为空" in result.failure().message
+
+    @pytest.mark.asyncio
+    async def test_fetch_article_404(self, client, mock_httpx_client):
+        """测试 404 返回 Failure（不可重试）。"""
+        mock_response = Mock()
+        mock_response.status_code = 404
+        mock_httpx_client.get.return_value = mock_response
+
+        with patch("httpx.AsyncClient", return_value=mock_httpx_client):
+            result = await client.fetch_article("99999")
+
+        assert isinstance(result, Failure)
+        assert "404" in result.failure().message
+
+
+class TestArticleFieldNormalization:
+    """测试 TwitterAPI.io 响应中 article 字段的标准化传递。"""
+
+    @pytest.fixture
+    def mock_httpx_client(self):
+        """Mock httpx 异步客户端。"""
+        client = AsyncMock()
+        client.get = AsyncMock()
+        return client
+
+    @pytest.fixture
+    def client(self, test_settings):
+        """创建 TwitterClient 实例。"""
+        return TwitterClient()
+
+    def _make_twitterapi_response(self, tweets):
+        """构造 TwitterAPI.io 格式的 mock 响应。"""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"tweets": tweets}
+        return mock_response
+
+    @pytest.mark.asyncio
+    async def test_normalize_preserves_article_field(self, client, mock_httpx_client):
+        """测试标准化后保留推文的 article 字段。"""
+        mock_response = self._make_twitterapi_response([
+            {
+                "id": "art_001",
+                "text": "https://t.co/abc123",
+                "createdAt": "Thu Feb 20 04:00:00 +0000 2026",
+                "author": {"userName": "author1", "name": "Author One"},
+                "article": {
+                    "title": "My Great Article",
+                    "preview_text": "This is a preview...",
+                    "cover_media_img_url": "https://pbs.twimg.com/cover.jpg",
+                },
+            }
+        ])
+        mock_httpx_client.get.return_value = mock_response
+
+        with patch("httpx.AsyncClient", return_value=mock_httpx_client):
+            result = await client.fetch_user_tweets("author1", limit=10)
+
+        assert isinstance(result, Success)
+        data = result.unwrap()
+        tweet = data["data"][0]
+        assert "article" in tweet
+        assert tweet["article"]["title"] == "My Great Article"
+        assert tweet["article"]["preview_text"] == "This is a preview..."
+        assert tweet["article"]["cover_media_img_url"] == "https://pbs.twimg.com/cover.jpg"
+
+    @pytest.mark.asyncio
+    async def test_normalize_null_article_not_included(self, client, mock_httpx_client):
+        """测试 article 为 null 时不包含在标准化结果中。"""
+        mock_response = self._make_twitterapi_response([
+            {
+                "id": "normal_001",
+                "text": "Just a regular tweet",
+                "createdAt": "Thu Feb 20 05:00:00 +0000 2026",
+                "author": {"userName": "user1", "name": "User One"},
+                "article": None,
+            }
+        ])
+        mock_httpx_client.get.return_value = mock_response
+
+        with patch("httpx.AsyncClient", return_value=mock_httpx_client):
+            result = await client.fetch_user_tweets("user1", limit=10)
+
+        assert isinstance(result, Success)
+        data = result.unwrap()
+        tweet = data["data"][0]
+        assert "article" not in tweet
+
+    @pytest.mark.asyncio
+    async def test_normalize_missing_article_field(self, client, mock_httpx_client):
+        """测试推文对象中完全没有 article 字段时不报错。"""
+        mock_response = self._make_twitterapi_response([
+            {
+                "id": "old_001",
+                "text": "Old tweet without article field",
+                "createdAt": "Thu Feb 20 06:00:00 +0000 2026",
+                "author": {"userName": "user2", "name": "User Two"},
+            }
+        ])
+        mock_httpx_client.get.return_value = mock_response
+
+        with patch("httpx.AsyncClient", return_value=mock_httpx_client):
+            result = await client.fetch_user_tweets("user2", limit=10)
+
+        assert isinstance(result, Success)
+        data = result.unwrap()
+        tweet = data["data"][0]
+        assert "article" not in tweet

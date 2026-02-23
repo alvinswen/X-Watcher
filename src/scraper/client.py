@@ -6,6 +6,7 @@
 import asyncio
 import logging
 from datetime import datetime
+from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
@@ -253,6 +254,7 @@ class TwitterClient:
         *,
         limit: int = 100,
         since_id: str | None = None,
+        cursor: str | None = None,
     ) -> Result[dict[str, Any], TwitterClientError]:
         """获取指定用户的推文列表。
 
@@ -260,10 +262,11 @@ class TwitterClient:
             username: Twitter 用户名（不带 @ 符号）
             limit: 返回推文数量限制（1-1000）
             since_id: 只返回此 ID 之后的推文（TwitterAPI.io 暂不支持）
+            cursor: 分页游标（用于获取下一页，首页传 None）
 
         Returns:
             Result[dict, TwitterClientError]:
-                Success: 包含推文数据的字典
+                Success: 包含推文数据的字典，可能含 next_cursor 字段
                 Failure: TwitterClientError 错误信息
         """
         # 验证输入
@@ -284,6 +287,9 @@ class TwitterClient:
             "includeReplies": True,  # 包含回复
         }
 
+        if cursor:
+            params["cursor"] = cursor
+
         if since_id:
             # TwitterAPI.io 可能不支持 since_id，记录警告
             logger.warning("since_id 参数在 TwitterAPI.io 中可能不被支持")
@@ -297,6 +303,142 @@ class TwitterClient:
             "/user/last_tweets",
             params=params,
         )
+
+    async def fetch_user_tweets_paginated(
+        self,
+        username: str,
+        *,
+        max_pages: int = 10,
+        page_delay: float = 1.0,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """逐页迭代获取用户推文。
+
+        使用 cursor 分页机制，每次 yield 一页的标准化响应数据。
+        页间自动插入延迟以避免触发 API 限流。
+
+        Args:
+            username: Twitter 用户名
+            max_pages: 最大页数（安全上限，防止无限循环）
+            page_delay: 页间延迟秒数
+
+        Yields:
+            dict: 每页的标准化响应数据（包含 data, includes, 可能含 next_cursor）
+        """
+        cursor = None
+        for page in range(max_pages):
+            result = await self.fetch_user_tweets(
+                username, cursor=cursor,
+            )
+            if isinstance(result, Failure):
+                logger.error(
+                    "分页获取失败 (page=%d): %s",
+                    page, result.failure().message,
+                )
+                return
+
+            page_data = result.unwrap()
+            yield page_data
+
+            # 检查是否有下一页
+            next_cursor = page_data.get("next_cursor")
+            if not next_cursor:
+                logger.info("用户 %s 分页完成，共 %d 页", username, page + 1)
+                return
+            cursor = next_cursor
+
+            # 页间延迟
+            if page < max_pages - 1:
+                await asyncio.sleep(page_delay)
+
+        logger.warning(
+            "用户 %s 达到最大页数限制 %d，停止分页", username, max_pages,
+        )
+
+    async def fetch_article(
+        self,
+        tweet_id: str,
+    ) -> Result[dict[str, Any], TwitterClientError]:
+        """获取推文关联的 X Article 内容。
+
+        调用 TwitterAPI.io 的 /article 端点。
+
+        Args:
+            tweet_id: 推文 ID
+
+        Returns:
+            Result[dict, TwitterClientError]: 文章数据或错误
+        """
+        if not tweet_id:
+            return Failure(TwitterClientError("tweet_id 不能为空"))
+
+        self._ensure_client()
+        assert self._client is not None
+
+        params = {"tweet_id": tweet_id}
+
+        retry_count = 0
+        current_delay = self._base_delay
+
+        while True:
+            try:
+                response = await self._client.get(
+                    "/article",
+                    params=params,
+                )
+                status_code = response.status_code
+
+                if status_code == 200:
+                    response_data = response.json()
+                    if not isinstance(response_data, dict):
+                        return Failure(
+                            TwitterClientError(
+                                f"响应格式错误: 期望 dict，实际 {type(response_data)}"
+                            )
+                        )
+                    return Success(response_data)
+
+                if status_code in self.NON_RETRYABLE_STATUS_CODES:
+                    error_msg = self._get_error_message(status_code)
+                    return Failure(
+                        TwitterClientError(
+                            f"API 错误 {status_code}: {error_msg}",
+                            status_code=status_code,
+                        )
+                    )
+
+                if retry_count >= self._max_retries:
+                    return Failure(
+                        TwitterClientError(
+                            f"API 错误 {status_code}: 已达到最大重试次数",
+                            status_code=status_code,
+                        )
+                    )
+
+                logger.warning(
+                    "fetch_article 请求失败 (状态码: %s), %.1f秒后重试 (%d/%d)",
+                    status_code, current_delay, retry_count + 1, self._max_retries,
+                )
+                await asyncio.sleep(current_delay)
+                current_delay = min(current_delay * 2, self._max_delay)
+                retry_count += 1
+
+            except httpx.TimeoutException as e:
+                if retry_count >= self._max_retries:
+                    return Failure(TwitterClientError(f"请求超时: {e}"))
+                await asyncio.sleep(current_delay)
+                current_delay = min(current_delay * 2, self._max_delay)
+                retry_count += 1
+
+            except httpx.NetworkError as e:
+                if retry_count >= self._max_retries:
+                    return Failure(TwitterClientError(f"网络错误: {e}"))
+                await asyncio.sleep(current_delay)
+                current_delay = min(current_delay * 2, self._max_delay)
+                retry_count += 1
+
+            except Exception as e:
+                logger.exception("fetch_article 未预期的错误: %s", e)
+                return Failure(TwitterClientError(f"未预期的错误: {e}"))
 
     async def fetch_user_info_by_ids(
         self,
@@ -439,6 +581,13 @@ class TwitterClient:
                             tweets_array = response_data.get("tweets", [])
                             logger.info("检测到 TwitterAPI.io 直接响应格式 (tweets)")
 
+                        # 提取分页游标（在转换之前，从原始响应中获取）
+                        raw_next_cursor = None
+                        if "data" in response_data and isinstance(response_data.get("data"), dict):
+                            raw_next_cursor = response_data["data"].get("next_cursor")
+                        if raw_next_cursor is None:
+                            raw_next_cursor = response_data.get("next_cursor")
+
                         if tweets_array is not None:
                             # 转换 TwitterAPI.io 格式为标准 Twitter API v2 格式
                             tweets_data = []
@@ -541,6 +690,11 @@ class TwitterClient:
                                             "numeric_id": str(author_obj.get("id")) if author_obj.get("id") else None,
                                         }
 
+                                # 保留 article 字段（用于零成本 Article 检测）
+                                article_obj = tweet.get("article")
+                                if article_obj and isinstance(article_obj, dict):
+                                    standard_tweet["article"] = article_obj
+
                                 tweets_data.append(standard_tweet)
 
                             # 构造标准响应格式
@@ -555,6 +709,10 @@ class TwitterClient:
                                 includes["media"] = all_media
                             if includes:
                                 standard_response["includes"] = includes
+
+                            # 保留分页游标到标准响应中
+                            if raw_next_cursor:
+                                standard_response["next_cursor"] = raw_next_cursor
 
                             logger.info(f"转换完成：{len(tweets_data)} 条推文")
                             logger.debug(f"第一条推文: {str(tweets_data[0]) if tweets_data else 'N/A'}")

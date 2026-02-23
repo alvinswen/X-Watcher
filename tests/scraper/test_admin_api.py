@@ -389,6 +389,189 @@ class TestDeleteScrapingTaskEndpoint:
 
 
 @pytest.mark.asyncio
+class TestBackfillArticlesEndpoint:
+    """测试 POST /api/admin/articles/backfill 端点。
+
+    使用 async_client (httpx.AsyncClient) 避免 TestClient lifespan 挂起问题。
+    """
+
+    @pytest.fixture
+    def mock_service(self):
+        """Mock ScrapingService。"""
+        service = AsyncMock()
+        service.backfill_articles_for_user = AsyncMock()
+        return service
+
+    async def test_backfill_articles_success(self, async_client, mock_service):
+        """测试成功回溯 Articles。"""
+        mock_service.backfill_articles_for_user.return_value = {
+            "checked": 50, "found": 3, "skipped": 45, "errors": 2,
+        }
+
+        with patch(
+            "src.api.routes.admin.get_scraping_service",
+            return_value=mock_service,
+        ):
+            response = await async_client.post(
+                "/api/admin/articles/backfill",
+                json={"username": "testuser", "max_tweets": 100},
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["username"] == "testuser"
+        assert data["result"]["checked"] == 50
+        assert data["result"]["found"] == 3
+        assert data["result"]["skipped"] == 45
+        assert data["result"]["errors"] == 2
+        mock_service.backfill_articles_for_user.assert_called_once_with(
+            "testuser", max_tweets=100,
+        )
+
+    async def test_backfill_articles_default_max_tweets(self, async_client, mock_service):
+        """测试使用默认 max_tweets。"""
+        mock_service.backfill_articles_for_user.return_value = {
+            "checked": 0, "found": 0, "skipped": 0, "errors": 0,
+        }
+
+        with patch(
+            "src.api.routes.admin.get_scraping_service",
+            return_value=mock_service,
+        ):
+            response = await async_client.post(
+                "/api/admin/articles/backfill",
+                json={"username": "testuser"},
+            )
+
+        assert response.status_code == 200
+        mock_service.backfill_articles_for_user.assert_called_once_with(
+            "testuser", max_tweets=200,
+        )
+
+    async def test_backfill_articles_empty_username(self, async_client):
+        """测试空用户名返回 400。"""
+        response = await async_client.post(
+            "/api/admin/articles/backfill",
+            json={"username": ""},
+        )
+
+        assert response.status_code == 400
+        assert "不能为空" in response.json()["detail"]
+
+    async def test_backfill_articles_invalid_username(self, async_client):
+        """测试无效用户名返回 400。"""
+        response = await async_client.post(
+            "/api/admin/articles/backfill",
+            json={"username": "user@invalid"},
+        )
+
+        assert response.status_code == 400
+        assert "只能包含字母" in response.json()["detail"]
+
+    async def test_backfill_articles_username_too_long(self, async_client):
+        """测试用户名过长返回 400。"""
+        response = await async_client.post(
+            "/api/admin/articles/backfill",
+            json={"username": "a" * 16},
+        )
+
+        assert response.status_code == 400
+        assert "长度必须在 1-15" in response.json()["detail"]
+
+    async def test_backfill_articles_invalid_max_tweets(self, async_client):
+        """测试无效 max_tweets 返回 400。"""
+        response = await async_client.post(
+            "/api/admin/articles/backfill",
+            json={"username": "testuser", "max_tweets": 2000},
+        )
+
+        assert response.status_code == 400
+        assert "max_tweets" in response.json()["detail"]
+
+    async def test_backfill_articles_service_error(self, async_client, mock_service):
+        """测试服务异常返回 500。"""
+        mock_service.backfill_articles_for_user.side_effect = RuntimeError("DB 连接失败")
+
+        with patch(
+            "src.api.routes.admin.get_scraping_service",
+            return_value=mock_service,
+        ):
+            response = await async_client.post(
+                "/api/admin/articles/backfill",
+                json={"username": "testuser"},
+            )
+
+        assert response.status_code == 500
+        assert "回溯失败" in response.json()["detail"]
+
+    async def test_backfill_all_accounts(self, async_client, mock_service):
+        """测试批量回溯所有活跃关注账号。"""
+        # Mock get_active_follows_from_db 返回 2 个用户
+        mock_follows = [
+            {"username": "user_a", "manual_limit": None},
+            {"username": "user_b", "manual_limit": 50},
+        ]
+
+        # 为每个用户返回不同的结果
+        mock_service.backfill_articles_for_user.side_effect = [
+            {"checked": 80, "found": 3, "skipped": 75, "errors": 2},
+            {"checked": 60, "found": 1, "skipped": 58, "errors": 1},
+        ]
+
+        with (
+            patch(
+                "src.api.routes.admin.get_scraping_service",
+                return_value=mock_service,
+            ),
+            patch(
+                "src.scraper.scheduled_job.get_active_follows_from_db",
+                return_value=mock_follows,
+            ),
+        ):
+            response = await async_client.post(
+                "/api/admin/articles/backfill",
+                json={"all": True, "max_tweets": 100},
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total_users"] == 2
+        assert data["summary"]["total_checked"] == 140
+        assert data["summary"]["total_found"] == 4
+        assert data["summary"]["total_skipped"] == 133
+        assert data["summary"]["total_errors"] == 3
+        assert len(data["details"]) == 2
+        assert data["details"][0]["username"] == "user_a"
+        assert data["details"][0]["found"] == 3
+        assert data["details"][1]["username"] == "user_b"
+        assert data["details"][1]["found"] == 1
+
+    async def test_backfill_all_accounts_empty_follows(self, async_client, mock_service):
+        """测试无活跃关注时返回空结果。"""
+        with (
+            patch(
+                "src.api.routes.admin.get_scraping_service",
+                return_value=mock_service,
+            ),
+            patch(
+                "src.scraper.scheduled_job.get_active_follows_from_db",
+                return_value=[],
+            ),
+        ):
+            response = await async_client.post(
+                "/api/admin/articles/backfill",
+                json={"all": True},
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total_users"] == 0
+        assert data["summary"]["total_found"] == 0
+        assert data["details"] == []
+        mock_service.backfill_articles_for_user.assert_not_called()
+
+
+@pytest.mark.asyncio
 class TestGetTaskHistoryEndpoint:
     """测试 GET /api/admin/tasks/history 端点。
 

@@ -357,6 +357,34 @@ class ScrapingService:
                             username, cleaned_tweets[0].author_user_id
                         )
 
+                    # 5a. 检测并获取 X Articles
+                    await self._fetch_and_save_articles(cleaned_tweets)
+
+            # 5b. 满页检测：第一页全是新推文且接近 limit → 自动翻页
+            settings = get_settings()
+            max_extra_pages = settings.scraper_max_extra_pages
+            next_cursor = raw_data.get("next_cursor")
+
+            if (
+                max_extra_pages > 0
+                and next_cursor
+                and result["new"] > 0
+                and result["fetched"] > 0
+                and result["new"] >= result["fetched"] * 0.8
+            ):
+                logger.info(
+                    "用户 %s 满页检测触发: new=%d, fetched=%d, 开始翻页（最多 %d 页）",
+                    username, result["new"], result["fetched"], max_extra_pages,
+                )
+                extra = await self._scrape_additional_pages(
+                    username=username,
+                    next_cursor=next_cursor,
+                    max_extra_pages=max_extra_pages,
+                )
+                result["new"] += extra["new"]
+                result["skipped"] += extra["skipped"]
+                result["fetched"] += extra["fetched"]
+
             result["success"] = True
 
             # 6. 更新抓取统计（用于下次动态 limit 计算）
@@ -386,6 +414,132 @@ class ScrapingService:
             logger.exception(f"用户 {username} 未预期的错误")
 
         return result
+
+    async def backfill_user(
+        self,
+        username: str,
+        *,
+        max_pages: int = 20,
+    ) -> dict[str, Any]:
+        """全量回溯单个用户的历史推文。
+
+        利用分页迭代器逐页抓取，每页保存后检查 skip 率，
+        大量已存在推文时提前停止。完成后更新 backfill_status。
+
+        Args:
+            username: 用户名
+            max_pages: 最大抓取页数
+
+        Returns:
+            dict: 回溯结果 {username, success, fetched, new, skipped, pages}
+        """
+        result = {
+            "username": username,
+            "success": False,
+            "fetched": 0,
+            "new": 0,
+            "skipped": 0,
+            "pages": 0,
+        }
+
+        try:
+            # 标记回溯开始
+            await self._update_backfill_status(username, "running")
+
+            logger.info("开始全量回溯: username=%s, max_pages=%d", username, max_pages)
+
+            async for page_data in self._client.fetch_user_tweets_paginated(
+                username, max_pages=max_pages,
+            ):
+                result["pages"] += 1
+
+                # 解析
+                tweets = self._parser.parse_tweet_response(page_data)
+                result["fetched"] += len(tweets)
+
+                if not tweets:
+                    logger.info(
+                        "回溯 %s 第 %d 页返回空结果，停止",
+                        username, result["pages"],
+                    )
+                    break
+
+                # 验证
+                validation_results = self._validator.validate_and_clean_batch(tweets)
+                cleaned_tweets = []
+                for vr in validation_results:
+                    match vr:
+                        case Success(tweet):
+                            cleaned_tweets.append(tweet)
+                        case Failure(_):
+                            pass
+
+                if cleaned_tweets:
+                    save_result = await self._save_tweets(cleaned_tweets)
+                    result["new"] += save_result.success_count
+                    result["skipped"] += save_result.skipped_count
+
+                    # 获取本页推文关联的 Articles
+                    await self._fetch_and_save_articles(cleaned_tweets)
+
+                    # 停止条件：本页大部分推文已存在
+                    total_processed = save_result.success_count + save_result.skipped_count
+                    if total_processed > 0 and save_result.skipped_count / total_processed > 0.8:
+                        logger.info(
+                            "回溯 %s 第 %d 页跳过率 %.0f%%，停止回溯",
+                            username, result["pages"],
+                            save_result.skipped_count / total_processed * 100,
+                        )
+                        break
+
+                logger.info(
+                    "回溯 %s 第 %d/%d 页: 获取 %d, 新增 %d",
+                    username, result["pages"], max_pages,
+                    len(tweets), save_result.success_count if cleaned_tweets else 0,
+                )
+
+            # 标记回溯完成
+            await self._update_backfill_status(
+                username, "completed",
+                completed_at=datetime.now(timezone.utc),
+            )
+            result["success"] = True
+
+            logger.info(
+                "全量回溯完成: username=%s, pages=%d, fetched=%d, new=%d, skipped=%d",
+                username, result["pages"], result["fetched"],
+                result["new"], result["skipped"],
+            )
+
+        except Exception as e:
+            logger.exception("全量回溯失败: username=%s, error=%s", username, e)
+            # 失败时重置为 pending，下次定时任务可重试
+            await self._update_backfill_status(username, "pending")
+
+        return result
+
+    async def _update_backfill_status(
+        self,
+        username: str,
+        status: str,
+        completed_at: datetime | None = None,
+    ) -> None:
+        """更新用户的回溯状态。"""
+        try:
+            from src.database.async_session import get_async_session_maker
+            from src.preference.infrastructure.scraper_config_repository import (
+                ScraperConfigRepository,
+            )
+
+            session_maker = get_async_session_maker()
+            async with session_maker() as session:
+                repo = ScraperConfigRepository(session)
+                await repo.update_backfill_status(
+                    username, status, completed_at=completed_at,
+                )
+                await session.commit()
+        except Exception as e:
+            logger.warning("更新回溯状态失败: username=%s, status=%s, error=%s", username, status, e)
 
     async def _get_fetch_stats(self, username: str):
         """查询用户的历史抓取统计。
@@ -451,6 +605,310 @@ class ScrapingService:
         except Exception as e:
             # 统计更新失败不影响抓取结果
             logger.warning("更新抓取统计失败（不影响抓取结果）: %s", e)
+
+    async def _scrape_additional_pages(
+        self,
+        username: str,
+        next_cursor: str,
+        max_extra_pages: int = 3,
+    ) -> dict[str, int]:
+        """抓取后续页面的推文（满页翻页机制）。
+
+        当第一页几乎全是新推文时，继续翻页获取更多推文，
+        直到遇到大量已存在推文（skip 率 >80%）或达到页数上限。
+
+        Args:
+            username: 用户名
+            next_cursor: 下一页的分页游标
+            max_extra_pages: 最多翻几页
+
+        Returns:
+            dict: 额外页面的抓取统计 {fetched, new, skipped}
+        """
+        totals = {"fetched": 0, "new": 0, "skipped": 0}
+        cursor = next_cursor
+
+        for page_num in range(1, max_extra_pages + 1):
+            logger.info(
+                "用户 %s 翻页 %d/%d (cursor=%s...)",
+                username, page_num, max_extra_pages, cursor[:20] if cursor else "",
+            )
+
+            api_result = await self._client.fetch_user_tweets(
+                username, cursor=cursor,
+            )
+
+            if isinstance(api_result, Failure):
+                logger.warning(
+                    "用户 %s 翻页 %d 失败: %s",
+                    username, page_num, api_result.failure().message,
+                )
+                break
+
+            page_data = api_result.unwrap()
+
+            # 解析
+            tweets = self._parser.parse_tweet_response(page_data)
+            totals["fetched"] += len(tweets)
+
+            if not tweets:
+                logger.info("用户 %s 翻页 %d 返回空结果，停止翻页", username, page_num)
+                break
+
+            # 验证
+            validation_results = self._validator.validate_and_clean_batch(tweets)
+            cleaned_tweets = []
+            for vr in validation_results:
+                match vr:
+                    case Success(tweet):
+                        cleaned_tweets.append(tweet)
+                    case Failure(error):
+                        logger.warning(f"翻页验证失败: {error.message}")
+
+            if cleaned_tweets:
+                save_result = await self._save_tweets(cleaned_tweets)
+                totals["new"] += save_result.success_count
+                totals["skipped"] += save_result.skipped_count
+
+                # 停止条件：本页大部分推文已存在
+                total_processed = save_result.success_count + save_result.skipped_count
+                if total_processed > 0 and save_result.skipped_count / total_processed > 0.8:
+                    logger.info(
+                        "用户 %s 翻页 %d 跳过率 %.0f%%，停止翻页",
+                        username, page_num,
+                        save_result.skipped_count / total_processed * 100,
+                    )
+                    break
+
+            # 检查下一页游标
+            cursor = page_data.get("next_cursor")
+            if not cursor:
+                logger.info("用户 %s 翻页 %d 无更多页面", username, page_num)
+                break
+
+            # 页间延迟
+            await asyncio.sleep(1.0)
+
+        logger.info(
+            "用户 %s 翻页完成: 额外获取 %d 条, 新增 %d 条, 跳过 %d 条",
+            username, totals["fetched"], totals["new"], totals["skipped"],
+        )
+        return totals
+
+    async def _fetch_and_save_articles(self, tweets: list[Tweet]) -> None:
+        """检测并保存推文关联的 X Article。
+
+        使用推文自带的 article 预览字段（has_article）进行零成本检测，
+        然后调用 /article API 获取全文。API 失败时 fallback 到预览信息。
+        """
+        article_tweets = [t for t in tweets if t.has_article]
+
+        if not article_tweets:
+            return
+
+        logger.info("检测到 %d 条推文含 Article（via article 字段），开始获取", len(article_tweets))
+
+        try:
+            from src.database.async_session import get_async_session_maker
+            from src.scraper.domain.models import Article
+            from src.scraper.infrastructure.article_repository import ArticleRepository
+
+            session_maker = get_async_session_maker()
+
+            for tweet in article_tweets:
+                try:
+                    # 检查是否已存在
+                    async with session_maker() as session:
+                        repo = ArticleRepository(session)
+                        if await repo.article_exists(tweet.tweet_id):
+                            continue
+
+                    # 调用 /article API 获取全文
+                    api_result = await self._client.fetch_article(tweet.tweet_id)
+
+                    if isinstance(api_result, Success):
+                        data = api_result.unwrap()
+                        article_data = data.get("article", data.get("data", data))
+
+                        # 拼接 contents 为纯文本
+                        contents = article_data.get("contents", [])
+                        content_text = "\n\n".join(
+                            c.get("text", "") for c in contents
+                            if isinstance(c, dict) and c.get("text")
+                        ) if contents else None
+
+                        article = Article(
+                            tweet_id=tweet.tweet_id,
+                            title=article_data.get("title") or (tweet.article_preview.title if tweet.article_preview else None),
+                            preview_text=article_data.get("preview_text") or (tweet.article_preview.preview_text if tweet.article_preview else None),
+                            cover_image_url=article_data.get("cover_media_img_url") or (tweet.article_preview.cover_media_img_url if tweet.article_preview else None),
+                            content=content_text,
+                            content_html=article_data.get("contentHtml") or article_data.get("content_html"),
+                            author_username=tweet.author_username,
+                            fetched_at=datetime.now(timezone.utc),
+                        )
+                    else:
+                        # API 失败时 fallback 到预览信息
+                        logger.warning(
+                            "获取 Article 全文失败，使用预览信息: tweet_id=%s, error=%s",
+                            tweet.tweet_id, api_result.failure().message,
+                        )
+                        article = Article(
+                            tweet_id=tweet.tweet_id,
+                            title=tweet.article_preview.title if tweet.article_preview else None,
+                            preview_text=tweet.article_preview.preview_text if tweet.article_preview else None,
+                            cover_image_url=tweet.article_preview.cover_media_img_url if tweet.article_preview else None,
+                            content=None,
+                            content_html=None,
+                            author_username=tweet.author_username,
+                            fetched_at=datetime.now(timezone.utc),
+                        )
+
+                    async with session_maker() as session:
+                        repo = ArticleRepository(session)
+                        saved = await repo.save_article(article)
+                        await session.commit()
+
+                    if saved:
+                        logger.info(
+                            "Article 已保存: tweet_id=%s, title=%s",
+                            tweet.tweet_id, article.title,
+                        )
+
+                    # API 调用间延迟
+                    await asyncio.sleep(0.5)
+
+                except Exception as e:
+                    logger.warning(
+                        "处理 Article 失败: tweet_id=%s, error=%s",
+                        tweet.tweet_id, e,
+                    )
+
+        except Exception as e:
+            logger.warning("Article 批量获取失败（不影响抓取结果）: %s", e)
+
+    async def backfill_articles_for_user(
+        self,
+        username: str,
+        *,
+        max_tweets: int = 200,
+    ) -> dict[str, Any]:
+        """回溯指定用户已有推文的 Article 信息。
+
+        扫描该用户在 DB 中的推文，对尚无 article 记录的推文
+        逐个调用 /article API 尝试获取。404 = 非 Article，200 = 保存。
+
+        注意：每次 API 调用消耗 100 credits。
+
+        Args:
+            username: 用户名
+            max_tweets: 最多检查的推文数量
+
+        Returns:
+            dict: {checked, found, skipped, errors}
+        """
+        result: dict[str, Any] = {"checked": 0, "found": 0, "skipped": 0, "errors": 0}
+
+        try:
+            from src.database.async_session import get_async_session_maker
+            from src.scraper.domain.models import Article
+            from src.scraper.infrastructure.article_repository import ArticleRepository
+
+            session_maker = get_async_session_maker()
+
+            # 1. 查询该用户尚无 article 记录的推文 ID
+            async with session_maker() as session:
+                from sqlalchemy import select
+                from src.scraper.infrastructure.models import TweetOrm
+                from src.scraper.infrastructure.article_models import ArticleOrm
+
+                stmt = (
+                    select(TweetOrm.tweet_id)
+                    .outerjoin(ArticleOrm, TweetOrm.tweet_id == ArticleOrm.tweet_id)
+                    .where(
+                        TweetOrm.author_username == username,
+                        ArticleOrm.tweet_id.is_(None),
+                    )
+                    .order_by(TweetOrm.created_at.desc())
+                    .limit(max_tweets)
+                )
+                rows = await session.execute(stmt)
+                tweet_ids = [row[0] for row in rows]
+
+            if not tweet_ids:
+                logger.info("用户 %s 无需回溯的推文", username)
+                return result
+
+            logger.info("开始回溯用户 %s 的 Articles: %d 条推文待检查", username, len(tweet_ids))
+
+            # 2. 逐个调用 /article API
+            for tweet_id in tweet_ids:
+                result["checked"] += 1
+
+                try:
+                    api_result = await self._client.fetch_article(tweet_id)
+
+                    if isinstance(api_result, Failure):
+                        err = api_result.failure()
+                        if getattr(err, "status_code", None) == 404:
+                            result["skipped"] += 1
+                        else:
+                            result["errors"] += 1
+                            logger.warning(
+                                "Article API 错误: tweet_id=%s, error=%s",
+                                tweet_id, err.message,
+                            )
+                        continue
+
+                    data = api_result.unwrap()
+                    article_data = data.get("article", data.get("data", data))
+
+                    # 拼接 contents 为纯文本
+                    contents = article_data.get("contents", [])
+                    content_text = "\n\n".join(
+                        c.get("text", "") for c in contents
+                        if isinstance(c, dict) and c.get("text")
+                    ) if contents else None
+
+                    article = Article(
+                        tweet_id=tweet_id,
+                        title=article_data.get("title"),
+                        preview_text=article_data.get("preview_text"),
+                        cover_image_url=article_data.get("cover_media_img_url"),
+                        content=content_text,
+                        content_html=article_data.get("contentHtml") or article_data.get("content_html"),
+                        author_username=username,
+                        fetched_at=datetime.now(timezone.utc),
+                    )
+
+                    async with session_maker() as session:
+                        repo = ArticleRepository(session)
+                        saved = await repo.save_article(article)
+                        await session.commit()
+
+                    if saved:
+                        result["found"] += 1
+                        logger.info(
+                            "Article 回溯成功: tweet_id=%s, title=%s",
+                            tweet_id, article.title,
+                        )
+
+                    await asyncio.sleep(0.5)
+
+                except Exception as e:
+                    result["errors"] += 1
+                    logger.warning("Article 回溯异常: tweet_id=%s, error=%s", tweet_id, e)
+
+            logger.info(
+                "用户 %s Article 回溯完成: checked=%d, found=%d, skipped=%d, errors=%d",
+                username, result["checked"], result["found"],
+                result["skipped"], result["errors"],
+            )
+
+        except Exception as e:
+            logger.exception("Article 回溯失败: username=%s, error=%s", username, e)
+
+        return result
 
     async def _save_tweets(self, tweets: list[Tweet]) -> SaveResult:
         """保存推文到数据库。

@@ -105,6 +105,14 @@ const routes: RouteRecordRaw[] = [
       title: "发文聚类",
     },
   },
+  {
+    path: "/analytics",
+    name: "analytics",
+    component: () => import("@/views/AnalyticsView.vue"),
+    meta: {
+      title: "发文分析",
+    },
+  },
 ]
 
 /** 创建路由实例 */

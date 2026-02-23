@@ -35,6 +35,18 @@ class Media(BaseModel):
     alt_text: str | None = Field(None, description="媒体替代文本")
 
 
+class ArticlePreview(BaseModel):
+    """推文自带的 Article 预览信息。
+
+    来自 TwitterAPI.io /user/last_tweets 响应中的 article 字段，
+    仅包含标题、预览文本和封面图，不含全文内容。
+    """
+
+    title: str | None = Field(None, description="文章标题")
+    preview_text: str | None = Field(None, description="预览文本")
+    cover_media_img_url: str | None = Field(None, description="封面图片 URL")
+
+
 class Tweet(BaseModel):
     """推文模型。
 
@@ -53,11 +65,39 @@ class Tweet(BaseModel):
     referenced_tweet_text: str | None = Field(None, description="被引用/转发推文的完整文本")
     referenced_tweet_media: list[Media] | None = Field(None, description="被引用/转发推文的媒体附件")
     referenced_tweet_author_username: str | None = Field(None, description="被引用/转发推文的原作者用户名")
+    article_preview: ArticlePreview | None = Field(None, description="Article 预览信息（来自推文 API 内嵌字段）")
+
+    @property
+    def has_article(self) -> bool:
+        """判断该推文是否关联了 X Article。"""
+        return self.article_preview is not None
 
     model_config = ConfigDict(
         json_encoders={
             datetime: lambda v: v.isoformat(),
             ReferenceType: lambda v: v.value,
+        },
+    )
+
+
+class Article(BaseModel):
+    """X Articles 领域模型。
+
+    表示 X 平台长文章的完整内容。
+    """
+
+    tweet_id: str = Field(..., description="关联的推文 ID（主键）")
+    title: str | None = Field(None, description="文章标题")
+    preview_text: str | None = Field(None, description="预览文本")
+    cover_image_url: str | None = Field(None, description="封面图片 URL")
+    content: str | None = Field(None, description="文章正文（纯文本）")
+    content_html: str | None = Field(None, description="文章正文（HTML）")
+    author_username: str | None = Field(None, description="作者用户名")
+    fetched_at: datetime | None = Field(None, description="数据获取时间")
+
+    model_config = ConfigDict(
+        json_encoders={
+            datetime: lambda v: v.isoformat(),
         },
     )
 

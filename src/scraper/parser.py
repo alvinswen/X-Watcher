@@ -6,7 +6,7 @@
 import logging
 from datetime import timezone
 
-from src.scraper.domain.models import Media, ReferenceType, Tweet
+from src.scraper.domain.models import ArticlePreview, Media, ReferenceType, Tweet
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +152,16 @@ class TweetParser:
             logger.warning(f"Tweet {tweet_data.get('id')} missing created_at")
             return None
 
+        # 解析 Article 预览信息
+        article_preview = None
+        article_data = tweet_data.get("article")
+        if article_data and isinstance(article_data, dict):
+            article_preview = ArticlePreview(
+                title=article_data.get("title"),
+                preview_text=article_data.get("preview_text"),
+                cover_media_img_url=article_data.get("cover_media_img_url"),
+            )
+
         return Tweet(
             tweet_id=tweet_data["id"],
             text=tweet_data.get("text", ""),
@@ -165,6 +175,7 @@ class TweetParser:
             referenced_tweet_text=referenced_tweet_text,
             referenced_tweet_media=referenced_tweet_media,
             referenced_tweet_author_username=referenced_tweet_author_username,
+            article_preview=article_preview,
         )
 
     def _parse_media(

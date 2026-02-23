@@ -434,6 +434,123 @@ async def delete_scraping_task(
     )
 
 
+@router.post("/articles/backfill")
+async def backfill_articles(
+    request: dict,
+    _admin: UserDomain = Depends(get_current_admin_user),
+) -> dict:
+    """回溯 X Articles。
+
+    支持两种模式：
+    1. 单用户模式：{"username": "xxx", "max_tweets": 200}
+    2. 批量模式：{"all": true, "max_tweets": 200}（遍历所有活跃关注账号）
+
+    扫描已保存的推文，逐个调用 /article API 尝试获取 Article 全文。
+    404 = 非 Article（跳过），200 = 保存到 articles 表。
+
+    注意：每次 API 调用消耗 100 credits，请合理设置 max_tweets。
+
+    Args:
+        request: 请求体
+
+    Returns:
+        dict: 单用户模式返回 {username, result}；批量模式返回 {total_users, summary, details}
+
+    Raises:
+        HTTPException: 400 参数无效
+    """
+    backfill_all = request.get("all", False)
+    max_tweets = request.get("max_tweets", 200)
+
+    if not isinstance(max_tweets, int) or not (1 <= max_tweets <= 1000):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="max_tweets 必须在 1-1000 之间",
+        )
+
+    service = get_scraping_service()
+
+    # ── 批量模式：遍历所有活跃关注账号 ──
+    if backfill_all:
+        from src.scraper.scheduled_job import get_active_follows_from_db
+
+        follows = get_active_follows_from_db()
+        details: list[dict] = []
+        summary = {"total_checked": 0, "total_found": 0, "total_skipped": 0, "total_errors": 0}
+
+        for follow in follows:
+            username = follow["username"]
+            try:
+                result = await service.backfill_articles_for_user(
+                    username, max_tweets=max_tweets,
+                )
+            except Exception as e:
+                logger.warning(f"Article 批量回溯跳过 {username}: {e}")
+                result = {"checked": 0, "found": 0, "skipped": 0, "errors": 1}
+
+            details.append({
+                "username": username,
+                "checked": result.get("checked", 0),
+                "found": result.get("found", 0),
+                "skipped": result.get("skipped", 0),
+                "errors": result.get("errors", 0),
+            })
+            summary["total_checked"] += result.get("checked", 0)
+            summary["total_found"] += result.get("found", 0)
+            summary["total_skipped"] += result.get("skipped", 0)
+            summary["total_errors"] += result.get("errors", 0)
+
+        logger.info(
+            f"Article 批量回溯完成: {len(follows)} 个账号, "
+            f"found={summary['total_found']}, errors={summary['total_errors']}",
+        )
+
+        return {
+            "total_users": len(follows),
+            "summary": summary,
+            "details": details,
+        }
+
+    # ── 单用户模式 ──
+    username = request.get("username", "").strip()
+
+    if not username:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="username 不能为空",
+        )
+
+    if not (1 <= len(username) <= 15):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"用户名 '{username}' 长度必须在 1-15 字符之间",
+        )
+
+    if not username.replace("_", "").isalnum():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"用户名 '{username}' 只能包含字母、数字和下划线",
+        )
+
+    try:
+        result = await service.backfill_articles_for_user(
+            username, max_tweets=max_tweets,
+        )
+    except Exception as e:
+        logger.exception(f"Article 回溯异常: username={username}, error={e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Article 回溯失败: {e}",
+        )
+
+    logger.info(f"Article 回溯完成: username={username}, result={result}")
+
+    return {
+        "username": username,
+        "result": result,
+    }
+
+
 @router.get("/tasks/history")
 async def get_task_history(
     limit: int = Query(default=50, ge=1, le=200, description="返回记录数量"),

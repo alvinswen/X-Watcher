@@ -91,6 +91,8 @@ export interface ScrapingFollow {
   is_active: boolean
   /** 手动推文数量限制（null 表示自动计算） */
   manual_limit: number | null
+  /** 极简介绍（≤10汉字） */
+  brief_intro: string | null
 }
 
 /** 添加抓取账号请求。 */

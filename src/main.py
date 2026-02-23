@@ -372,10 +372,10 @@ from src.api.routes.config_routes import router as config_router
 
 app.include_router(config_router)
 
-# 注册聚类分析 API 路由
-from src.analytics.api.routes import router as analytics_clustering_router
+# 注册分析模块 API 路由（聚类分析 + 发文统计）
+from src.analytics.api.routes import router as analytics_router
 
-app.include_router(analytics_clustering_router)
+app.include_router(analytics_router)
 
 # 配置前端静态资源服务（如果存在）
 import os

@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from src.scraper.domain.models import Media, ReferenceType, Tweet
+from src.scraper.domain.models import ArticlePreview, Media, ReferenceType, Tweet
 from src.scraper.parser import TweetParser
 
 
@@ -387,3 +387,73 @@ class TestTweetParser:
         assert len(tweets) == 1
         assert tweets[0].author_username == "testuser"
         assert tweets[0].author_display_name is None
+
+    def test_parse_tweet_with_article_preview(self):
+        """测试解析含 Article 预览信息的推文。"""
+        parser = TweetParser()
+
+        raw_data = {
+            "data": [
+                {
+                    "id": "art_tweet_001",
+                    "text": "https://t.co/abc123",
+                    "created_at": "2026-02-20T04:00:00.000Z",
+                    "author_id": "user_art",
+                    "article": {
+                        "title": "Five AI Skills",
+                        "preview_text": "The 56% Wage Premium...",
+                        "cover_media_img_url": "https://pbs.twimg.com/cover.jpg",
+                    },
+                }
+            ],
+            "includes": {
+                "users": [
+                    {
+                        "id": "user_art",
+                        "username": "articleauthor",
+                        "name": "Article Author",
+                    }
+                ]
+            },
+        }
+
+        tweets = parser.parse_tweet_response(raw_data)
+
+        assert len(tweets) == 1
+        tweet = tweets[0]
+        assert tweet.has_article is True
+        assert tweet.article_preview is not None
+        assert tweet.article_preview.title == "Five AI Skills"
+        assert tweet.article_preview.preview_text == "The 56% Wage Premium..."
+        assert tweet.article_preview.cover_media_img_url == "https://pbs.twimg.com/cover.jpg"
+
+    def test_parse_tweet_without_article(self):
+        """测试解析不含 Article 的普通推文。"""
+        parser = TweetParser()
+
+        raw_data = {
+            "data": [
+                {
+                    "id": "normal_tweet_001",
+                    "text": "Just a regular tweet",
+                    "created_at": "2026-02-20T05:00:00.000Z",
+                    "author_id": "user_normal",
+                }
+            ],
+            "includes": {
+                "users": [
+                    {
+                        "id": "user_normal",
+                        "username": "normaluser",
+                        "name": "Normal User",
+                    }
+                ]
+            },
+        }
+
+        tweets = parser.parse_tweet_response(raw_data)
+
+        assert len(tweets) == 1
+        tweet = tweets[0]
+        assert tweet.has_article is False
+        assert tweet.article_preview is None
