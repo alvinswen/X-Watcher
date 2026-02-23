@@ -3,6 +3,22 @@
     <!-- 全屏模式下的工具条 -->
     <div v-if="isFullscreen" class="fullscreen-toolbar">
       <span class="fullscreen-title">推文浏览</span>
+      <span class="fullscreen-spacer"></span>
+      <el-switch
+        v-model="longTweetFilterEnabled"
+        active-text="长推"
+        size="small"
+        style="margin-right: 8px;"
+      />
+      <el-input-number
+        v-if="longTweetFilterEnabled"
+        v-model="longTweetMinLength"
+        :min="1"
+        :step="50"
+        size="small"
+        style="width: 130px; margin-right: 12px;"
+        controls-position="right"
+      />
       <el-button text :icon="CloseBold" @click="exitFullscreen">退出全屏</el-button>
     </div>
 
@@ -154,6 +170,14 @@ import type { AuthorInfo, BrowseTweetItem } from "@/types"
 /** 全屏模式 */
 const isFullscreen = inject<Ref<boolean>>("isFullscreen", ref(false))
 
+/** 长推文过滤 */
+const longTweetFilterEnabled = inject<Ref<boolean>>("longTweetFilterEnabled", ref(false))
+const longTweetMinLength = inject<Ref<number>>("longTweetMinLength", ref(280))
+
+const effectiveMinTextLength = computed(() => {
+  return longTweetFilterEnabled.value ? longTweetMinLength.value : undefined
+})
+
 function exitFullscreen() {
   isFullscreen.value = false
 }
@@ -241,7 +265,7 @@ function getReferenceLabel(type: string | null): string {
 async function loadDailyStats() {
   const d = selectedDate.value
   try {
-    const resp = await browseApi.getDailyStats(d.getFullYear(), d.getMonth() + 1)
+    const resp = await browseApi.getDailyStats(d.getFullYear(), d.getMonth() + 1, effectiveMinTextLength.value)
     const map: Record<string, number> = {}
     for (const item of resp.days) {
       map[item.date] = item.count
@@ -256,7 +280,7 @@ async function loadDailyStats() {
 async function loadAuthors() {
   authorsLoading.value = true
   try {
-    const resp = await browseApi.getAuthors({ date: selectedDateStr.value })
+    const resp = await browseApi.getAuthors({ date: selectedDateStr.value, min_text_length: effectiveMinTextLength.value })
     authors.value = resp.authors
   } catch (error) {
     console.error("加载作者列表失败:", error)
@@ -275,6 +299,7 @@ async function loadTweets() {
       author: selectedAuthor.value || undefined,
       page: page.value,
       page_size: pageSize,
+      min_text_length: effectiveMinTextLength.value,
     })
     tweets.value = resp.items
     total.value = resp.total
@@ -299,6 +324,15 @@ function handlePageChange(newPage: number) {
   page.value = newPage
   loadTweets()
 }
+
+/** 监听长推文过滤变化 */
+watch(effectiveMinTextLength, () => {
+  selectedAuthor.value = null
+  page.value = 1
+  loadDailyStats()
+  loadAuthors()
+  loadTweets()
+})
 
 /** 监听月份切换 */
 watch(currentYearMonth, () => {
@@ -345,10 +379,13 @@ onUnmounted(() => {
 .fullscreen-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   padding: 8px 16px;
   background: #fff;
   border-bottom: 1px solid #e4e7ed;
+}
+
+.fullscreen-spacer {
+  flex: 1;
 }
 
 .fullscreen-title {

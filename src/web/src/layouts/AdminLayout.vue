@@ -31,6 +31,12 @@ const isCollapsed = ref(false)
 const isFullscreen = ref(false)
 provide("isFullscreen", isFullscreen)
 
+/** 长推文过滤 */
+const longTweetFilterEnabled = ref(false)
+const longTweetMinLength = ref(280)
+provide("longTweetFilterEnabled", longTweetFilterEnabled)
+provide("longTweetMinLength", longTweetMinLength)
+
 function toggleFullscreen() {
   isFullscreen.value = !isFullscreen.value
 }
@@ -136,6 +142,26 @@ function clearApiKey() {
       <el-header v-show="!isFullscreen" class="admin-header" height="50px">
         <span class="header-title">{{ route.meta.title }}</span>
         <span class="header-spacer"></span>
+        <template v-if="route.path === '/browse'">
+          <el-switch
+            v-model="longTweetFilterEnabled"
+            active-text="长推"
+            size="small"
+            style="margin-right: 8px;"
+          />
+          <el-input-number
+            v-if="longTweetFilterEnabled"
+            v-model="longTweetMinLength"
+            :min="1"
+            :step="50"
+            size="small"
+            style="width: 130px; margin-right: 12px;"
+            :prefix-icon="undefined"
+            controls-position="right"
+          >
+            <template #prefix>≥</template>
+          </el-input-number>
+        </template>
         <el-button
           v-if="route.path === '/browse'"
           text

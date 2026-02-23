@@ -39,13 +39,14 @@ async def get_daily_stats(
     year: int = Query(..., description="年份"),
     month: int = Query(..., ge=1, le=12, description="月份（1-12）"),
     tz_offset: int = Query(0, ge=-720, le=840, description="时区偏移（分钟），来自 JS getTimezoneOffset()"),
+    min_text_length: int | None = Query(None, ge=1, description="最小推文长度（字符数）"),
     _admin: UserDomain = Depends(get_current_admin_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> DailyStatsResponse:
     """按年月查询该月内每天的推文数量（按用户本地时区分组）。"""
     try:
         service = BrowseService(session)
-        days = await service.get_daily_stats(year, month, tz_offset)
+        days = await service.get_daily_stats(year, month, tz_offset, min_text_length)
         return DailyStatsResponse(
             year=year,
             month=month,
@@ -69,6 +70,7 @@ async def get_daily_stats(
 async def get_authors(
     date: str = Query(..., description="日期，YYYY-MM-DD 格式"),
     tz_offset: int = Query(0, ge=-720, le=840, description="时区偏移（分钟），来自 JS getTimezoneOffset()"),
+    min_text_length: int | None = Query(None, ge=1, description="最小推文长度（字符数）"),
     _admin: UserDomain = Depends(get_current_admin_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> AuthorListResponse:
@@ -81,7 +83,7 @@ async def get_authors(
 
     try:
         service = BrowseService(session)
-        authors = await service.get_authors(date, tz_offset)
+        authors = await service.get_authors(date, tz_offset, min_text_length)
         return AuthorListResponse(
             authors=[AuthorInfo(**a) for a in authors],
             total=len(authors),
@@ -107,6 +109,7 @@ async def get_tweets(
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=100, description="每页条数"),
     tz_offset: int = Query(0, ge=-720, le=840, description="时区偏移（分钟），来自 JS getTimezoneOffset()"),
+    min_text_length: int | None = Query(None, ge=1, description="最小推文长度（字符数）"),
     _admin: UserDomain = Depends(get_current_admin_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> BrowseTweetListResponse:
@@ -119,7 +122,7 @@ async def get_tweets(
 
     try:
         service = BrowseService(session)
-        items, total = await service.get_tweets(date, author, page, page_size, tz_offset)
+        items, total = await service.get_tweets(date, author, page, page_size, tz_offset, min_text_length)
         total_pages = math.ceil(total / page_size) if total > 0 else 0
 
         return BrowseTweetListResponse(

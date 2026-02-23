@@ -60,4 +60,5 @@ export interface BrowseTweetListParams {
   author?: string
   page?: number
   page_size?: number
+  min_text_length?: number
 }

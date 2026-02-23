@@ -23,6 +23,13 @@ class BrowseService:
         self._session = session
 
     @staticmethod
+    def _text_length_condition(min_text_length: int | None):
+        """返回推文文本长度过滤条件，None 表示不过滤。"""
+        if min_text_length is not None:
+            return func.length(TweetOrm.text) >= min_text_length
+        return None
+
+    @staticmethod
     def _local_date_to_utc_range(
         date_str: str, tz_offset: int
     ) -> tuple[datetime, datetime]:
@@ -44,7 +51,7 @@ class BrowseService:
         return utc_start, utc_end
 
     async def get_daily_stats(
-        self, year: int, month: int, tz_offset: int = 0
+        self, year: int, month: int, tz_offset: int = 0, min_text_length: int | None = None
     ) -> list[dict]:
         """按月查询每日推文数量（按用户本地时区分组）。
 
@@ -75,15 +82,20 @@ class BrowseService:
         offset_modifier = f"{-tz_offset} minutes"
         local_date_expr = func.date(TweetOrm.created_at, offset_modifier)
 
+        conditions = [
+            TweetOrm.created_at >= utc_start,
+            TweetOrm.created_at < utc_end,
+        ]
+        text_cond = self._text_length_condition(min_text_length)
+        if text_cond is not None:
+            conditions.append(text_cond)
+
         stmt = (
             select(
                 local_date_expr.label("date"),
                 func.count().label("count"),
             )
-            .where(
-                TweetOrm.created_at >= utc_start,
-                TweetOrm.created_at < utc_end,
-            )
+            .where(*conditions)
             .group_by(local_date_expr)
             .order_by(local_date_expr)
         )
@@ -93,7 +105,7 @@ class BrowseService:
 
         return [{"date": row.date, "count": row.count} for row in rows]
 
-    async def get_authors(self, date: str, tz_offset: int = 0) -> list[dict]:
+    async def get_authors(self, date: str, tz_offset: int = 0, min_text_length: int | None = None) -> list[dict]:
         """查询指定日期有推文的作者列表。
 
         按最后活跃时间降序排序。通过单独查询获取每个作者最新推文的 display_name。
@@ -108,16 +120,21 @@ class BrowseService:
         day_start, day_end = self._local_date_to_utc_range(date, tz_offset)
 
         # 主查询：按 author_username 分组
+        conditions = [
+            TweetOrm.created_at >= day_start,
+            TweetOrm.created_at < day_end,
+        ]
+        text_cond = self._text_length_condition(min_text_length)
+        if text_cond is not None:
+            conditions.append(text_cond)
+
         stmt = (
             select(
                 TweetOrm.author_username,
                 func.count().label("tweet_count"),
                 func.max(TweetOrm.created_at).label("last_tweet_at"),
             )
-            .where(
-                TweetOrm.created_at >= day_start,
-                TweetOrm.created_at < day_end,
-            )
+            .where(*conditions)
             .group_by(TweetOrm.author_username)
             .order_by(func.max(TweetOrm.created_at).desc())
         )
@@ -175,6 +192,7 @@ class BrowseService:
         page: int,
         page_size: int,
         tz_offset: int = 0,
+        min_text_length: int | None = None,
     ) -> tuple[list[dict], int]:
         """查询指定日期（可选作者）的推文列表，含摘要和翻译。
 
@@ -196,6 +214,9 @@ class BrowseService:
         ]
         if author:
             conditions.append(func.lower(TweetOrm.author_username) == author.lower())
+        text_cond = self._text_length_condition(min_text_length)
+        if text_cond is not None:
+            conditions.append(text_cond)
 
         # COUNT 查询
         count_stmt = (
