@@ -6,7 +6,7 @@
 import logging
 import os
 import tempfile
-from logging.handlers import RotatingFileHandler
+from logging.handlers import QueueHandler
 from pathlib import Path
 from unittest.mock import patch
 
@@ -16,21 +16,20 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from src.config import clear_settings_cache, get_settings
+from src.logging_config import shutdown_logging
 from src.database.models import Base, reset_engine
 from src.database.async_session import reset_async_engine
 from src.main import app
 
 
 # ── 测试环境日志隔离 ──────────────────────────────────────────
-# src.main 在 import 时调用 setup_logging()，会创建指向 logs/x-watcher.log 的
-# RotatingFileHandler。在 Windows 上多个测试线程并发写同一个文件会导致
-# doRollover() 时 os.rename() 抛出 PermissionError（WinError 32），
-# 产生大量日志噪音。移除文件 handler 消除此问题。
+# src.main 在 import 时调用 setup_logging()，会创建 QueueHandler + QueueListener
+# 写入 logs/x-watcher.log。在测试中不需要文件写入，停止 listener 并移除 handler。
 def _remove_file_handlers() -> None:
+    shutdown_logging()  # 停止 QueueListener，关闭底层 RotatingFileHandler
     root = logging.getLogger()
     for handler in root.handlers[:]:
-        if isinstance(handler, RotatingFileHandler):
-            handler.close()
+        if isinstance(handler, QueueHandler):
             root.removeHandler(handler)
 
 

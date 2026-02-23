@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import tempfile
+from logging.handlers import QueueHandler
 from unittest.mock import patch
 
 import pytest
@@ -15,7 +16,9 @@ from src.logging_config import (
     EnhancedTextFormatter,
     JSONFormatter,
     TraceIdFilter,
+    _queue_listener,
     setup_logging,
+    shutdown_logging,
     trace_id_var,
 )
 
@@ -24,7 +27,9 @@ from src.logging_config import (
 def reset_logging():
     """每个测试后重置 logging 配置。"""
     yield
-    # 关闭所有 handler（释放文件锁），然后清理
+    # 停止 QueueListener（如果有），关闭底层文件 handler
+    shutdown_logging()
+    # 关闭所有剩余 handler（控制台等），然后清理
     root = logging.getLogger()
     for handler in root.handlers[:]:
         handler.close()
@@ -199,8 +204,10 @@ class TestSetupLogging:
         assert len(root.handlers) == 1
         assert isinstance(root.handlers[0], logging.StreamHandler)
 
-    def test_file_handler_created(self):
-        """测试文件 handler 被创建。"""
+    def test_file_handler_uses_queue(self):
+        """测试文件 handler 通过 QueueHandler + QueueListener 异步写入。"""
+        import src.logging_config as lc
+
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = os.path.join(tmpdir, "test.log")
             setup_logging(level="INFO", log_file=log_path)
@@ -208,11 +215,20 @@ class TestSetupLogging:
             root = logging.getLogger()
             assert len(root.handlers) == 2
 
-            # 验证文件 handler 使用 JSON 格式
-            file_handler = root.handlers[1]
-            assert isinstance(file_handler.formatter, JSONFormatter)
+            # 第二个 handler 应为 QueueHandler（不再是直接的 RotatingFileHandler）
+            queue_handler = root.handlers[1]
+            assert isinstance(queue_handler, QueueHandler)
 
-            # Windows: 必须在 TemporaryDirectory 退出前关闭文件 handler
+            # QueueListener 应该在运行
+            assert lc._queue_listener is not None
+
+            # QueueListener 的底层 handler 应使用 JSONFormatter
+            listener_handlers = lc._queue_listener.handlers
+            assert len(listener_handlers) == 1
+            assert isinstance(listener_handlers[0].formatter, JSONFormatter)
+
+            # 清理
+            shutdown_logging()
             for h in root.handlers[:]:
                 h.close()
                 root.removeHandler(h)
@@ -240,7 +256,7 @@ class TestSetupLogging:
         assert len(trace_filters) == 1
 
     def test_file_output_is_json(self):
-        """测试文件输出为有效 JSON 格式。"""
+        """测试文件输出为有效 JSON 格式（通过 QueueListener 异步写入）。"""
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = os.path.join(tmpdir, "test.log")
             setup_logging(level="INFO", log_file=log_path)
@@ -249,6 +265,9 @@ class TestSetupLogging:
             test_logger = logging.getLogger("test.json_output")
             trace_id_var.set("integration-test")
             test_logger.info("测试消息", extra={"tweet_id": "tw_001"})
+
+            # 停止 listener 以刷新队列到文件（异步写入需要 flush）
+            shutdown_logging()
 
             # 读取文件并验证 JSON
             with open(log_path, encoding="utf-8") as f:
@@ -259,7 +278,7 @@ class TestSetupLogging:
             assert data["trace_id"] == "integration-test"
             assert data["extra"]["tweet_id"] == "tw_001"
 
-            # Windows: 必须在 TemporaryDirectory 退出前关闭文件 handler
+            # 清理残余 handler
             root = logging.getLogger()
             for h in root.handlers[:]:
                 h.close()
@@ -273,7 +292,8 @@ class TestSetupLogging:
 
             assert os.path.exists(os.path.dirname(log_path))
 
-            # Windows: 必须在 TemporaryDirectory 退出前关闭文件 handler
+            # 清理
+            shutdown_logging()
             root = logging.getLogger()
             for h in root.handlers[:]:
                 h.close()
@@ -292,3 +312,75 @@ class TestSetupLogging:
 
         root = logging.getLogger()
         assert root.level == logging.DEBUG
+
+
+class TestShutdownLogging:
+    """测试 shutdown_logging 函数。"""
+
+    def test_shutdown_stops_listener(self):
+        """测试 shutdown_logging 停止 QueueListener。"""
+        import src.logging_config as lc
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = os.path.join(tmpdir, "test.log")
+            setup_logging(level="INFO", log_file=log_path)
+
+            assert lc._queue_listener is not None
+
+            shutdown_logging()
+
+            assert lc._queue_listener is None
+
+            # 清理残余 handler
+            root = logging.getLogger()
+            for h in root.handlers[:]:
+                h.close()
+                root.removeHandler(h)
+
+    def test_shutdown_is_idempotent(self):
+        """测试 shutdown_logging 可以多次调用。"""
+        import src.logging_config as lc
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = os.path.join(tmpdir, "test.log")
+            setup_logging(level="INFO", log_file=log_path)
+
+            shutdown_logging()
+            shutdown_logging()  # 第二次调用不应报错
+            shutdown_logging()  # 第三次同样安全
+
+            assert lc._queue_listener is None
+
+            # 清理残余 handler
+            root = logging.getLogger()
+            for h in root.handlers[:]:
+                h.close()
+                root.removeHandler(h)
+
+    def test_shutdown_without_setup(self):
+        """测试未 setup 时调用 shutdown_logging 不报错。"""
+        shutdown_logging()  # 不应报错
+
+    def test_repeated_setup_stops_old_listener(self):
+        """测试重复调用 setup_logging 会停止旧的 QueueListener。"""
+        import src.logging_config as lc
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path1 = os.path.join(tmpdir, "test1.log")
+            log_path2 = os.path.join(tmpdir, "test2.log")
+
+            setup_logging(level="INFO", log_file=log_path1)
+            first_listener = lc._queue_listener
+            assert first_listener is not None
+
+            setup_logging(level="INFO", log_file=log_path2)
+            second_listener = lc._queue_listener
+            assert second_listener is not None
+            assert second_listener is not first_listener
+
+            # 清理
+            shutdown_logging()
+            root = logging.getLogger()
+            for h in root.handlers[:]:
+                h.close()
+                root.removeHandler(h)

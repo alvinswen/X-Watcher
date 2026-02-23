@@ -255,7 +255,7 @@ mypy src/
 - **extra 字段可见**：`basicConfig` 格式完全丢弃 `extra={}` 结构化字段，SummaryLogger 精心构建的上下文（tweet_id, provider, tokens, cost）不可见
 - **双输出策略**：控制台用人类可读文本（开发友好），文件强制 JSON 格式（机器可解析，支持 grep/jq）
 - **trace_id 链路追踪**：基于 `contextvars.ContextVar`，在管道入口（抓取任务/摘要队列 worker）设置，通过 `TraceIdFilter` 自动注入所有日志
-- **文件轮转**：`RotatingFileHandler`，50MB/文件，5 个备份，避免磁盘爆满
+- **文件轮转**：`QueueHandler` + `QueueListener` + `RotatingFileHandler`，50MB/文件，5 个备份，通过队列化写入避免 Windows 文件锁冲突（WinError 32）
 - **增强文本格式**：在消息后追加关键 extra 字段（`| provider=xxx tweet_id=xxx`），开发时也能看到结构化上下文
 
 ### 为什么使用统一 OpenAI 兼容 Provider 架构？

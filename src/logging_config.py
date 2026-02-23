@@ -5,14 +5,19 @@
 双输出策略：
 - 控制台：增强文本格式（包含 trace_id 和关键 extra 字段）
 - 文件：JSON 格式（机器可解析，支持 grep/jq 查询）
+
+文件写入通过 QueueHandler + QueueListener 异步串行化，
+避免 Windows 上 RotatingFileHandler.doRollover() 的文件锁冲突（WinError 32）。
 """
 
+import atexit
 import contextvars
 import json
 import logging
 import os
+import queue
 from datetime import datetime, timezone
-from logging.handlers import RotatingFileHandler
+from logging.handlers import QueueHandler, QueueListener, RotatingFileHandler
 from typing import Any
 
 # ── trace_id 上下文变量 ─────────────────────────────────────────
@@ -20,6 +25,9 @@ from typing import Any
 trace_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "trace_id", default=None
 )
+
+# ── 全局 QueueListener 引用（用于 shutdown 清理） ──────────────────
+_queue_listener: QueueListener | None = None
 
 # ── 预定义的有意义 extra 键 ──────────────────────────────────────
 # 在增强文本格式中只输出这些键，避免打印 Python 内部属性
@@ -150,6 +158,24 @@ class EnhancedTextFormatter(logging.Formatter):
         return base
 
 
+# ── shutdown_logging ─────────────────────────────────────────────
+
+def shutdown_logging() -> None:
+    """停止 QueueListener 并刷新所有日志。
+
+    由 atexit 自动调用，也可手动调用。
+    幂等：多次调用安全。
+    """
+    global _queue_listener
+    if _queue_listener is not None:
+        _queue_listener.stop()
+        # QueueListener.stop() 不关闭底层 handler，需要显式关闭
+        # 以释放文件锁（Windows 上必要，否则临时文件无法删除）
+        for handler in _queue_listener.handlers:
+            handler.close()
+        _queue_listener = None
+
+
 # ── setup_logging ───────────────────────────────────────────────
 
 def setup_logging(
@@ -169,8 +195,17 @@ def setup_logging(
         log_file_max_bytes: 单个日志文件最大字节数
         log_file_backup_count: 日志文件备份数量
     """
+    global _queue_listener
+
     root = logging.getLogger()
     root.setLevel(getattr(logging, level.upper(), logging.INFO))
+
+    # 停止旧的 QueueListener（如果存在，避免重复调用泄漏线程）
+    if _queue_listener is not None:
+        _queue_listener.stop()
+        for handler in _queue_listener.handlers:
+            handler.close()
+        _queue_listener = None
 
     # 清除已有 handler（避免重复配置）
     root.handlers.clear()
@@ -182,6 +217,7 @@ def setup_logging(
     # ── 控制台 handler ──
     console_handler = logging.StreamHandler()
     console_handler.setLevel(root.level)
+    console_handler.addFilter(trace_filter)
 
     if log_format == "json":
         console_handler.setFormatter(JSONFormatter())
@@ -192,7 +228,7 @@ def setup_logging(
 
     root.addHandler(console_handler)
 
-    # ── 文件 handler（始终 JSON 格式） ──
+    # ── 文件 handler（始终 JSON 格式，通过 QueueHandler + QueueListener 异步写入） ──
     if log_file:
         log_dir = os.path.dirname(log_file)
         if log_dir:
@@ -206,5 +242,19 @@ def setup_logging(
         )
         file_handler.setLevel(root.level)
         file_handler.setFormatter(JSONFormatter())
-        file_handler.addFilter(trace_filter)
-        root.addHandler(file_handler)
+        # 注意：不需要给 file_handler 加 TraceIdFilter，
+        # 因为 root logger 的 TraceIdFilter 在 QueueHandler.emit() 之前已运行，
+        # record.trace_id 已被填充。
+
+        log_queue: queue.Queue[logging.LogRecord] = queue.Queue(-1)
+        queue_handler = QueueHandler(log_queue)
+        queue_handler.setLevel(root.level)
+        queue_handler.addFilter(trace_filter)
+        root.addHandler(queue_handler)
+
+        _queue_listener = QueueListener(
+            log_queue, file_handler, respect_handler_level=True
+        )
+        _queue_listener.start()
+
+        atexit.register(shutdown_logging)
