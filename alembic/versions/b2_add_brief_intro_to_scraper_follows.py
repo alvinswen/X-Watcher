@@ -4,7 +4,7 @@
 支持 LLM 自动生成 + 人工编辑，在主题摘要中使用。
 
 Revision ID: b2_add_brief_intro_to_scraper_follows
-Revises: u2_add_x_user_profiles_table
+Revises: b1_add_backfill_fields
 Create Date: 2026-02-23
 
 """
@@ -16,7 +16,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "b2_add_brief_intro_to_scraper_follows"
-down_revision: Union[str, None] = "u2_add_x_user_profiles_table"
+down_revision: Union[str, None] = "b1_add_backfill_fields"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

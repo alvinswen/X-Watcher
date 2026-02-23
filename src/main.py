@@ -159,6 +159,10 @@ async def lifespan(app: FastAPI):  # noqa: ARG001 - app 参数是 FastAPI 要求
 
     settings = get_settings()
 
+    # 确保所有 ORM 模型在 create_all 前已注册到 Base.metadata
+    # （分散在各子模块的模型需显式导入，否则 create_all 不会建表）
+    from src.scraper.infrastructure.article_models import ArticleOrm  # noqa: F401
+
     # 启动时创建数据库表
     Base.metadata.create_all(engine())
 
@@ -373,8 +377,9 @@ from src.api.routes.config_routes import router as config_router
 app.include_router(config_router)
 
 # 注册分析模块 API 路由（聚类分析 + 发文统计）
-from src.analytics.api.routes import router as analytics_router
+from src.analytics.api.routes import analytics_router, router as analytics_admin_router
 
+app.include_router(analytics_admin_router)
 app.include_router(analytics_router)
 
 # 配置前端静态资源服务（如果存在）
