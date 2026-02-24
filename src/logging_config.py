@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import queue
+import time
 from datetime import datetime, timezone
 from logging.handlers import QueueHandler, QueueListener, RotatingFileHandler
 from typing import Any
@@ -158,6 +159,78 @@ class EnhancedTextFormatter(logging.Formatter):
         return base
 
 
+# ── Windows 安全轮转 Handler ─────────────────────────────────────
+
+class WindowsSafeRotatingFileHandler(RotatingFileHandler):
+    """Windows 安全的日志轮转 Handler。
+
+    覆写 doRollover()，将 os.rename/os.remove 包装为
+    带重试 + copy-truncate 兜底的 Windows 安全版本。
+    """
+
+    def _safe_remove(self, path):
+        """带重试的文件删除。"""
+        for attempt in range(3):
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+                return
+            except PermissionError:
+                if attempt < 2:
+                    time.sleep(0.1)
+        # 静默失败——旧备份文件删不掉不影响日志写入
+
+    def _safe_rename(self, src, dst):
+        """带重试的文件重命名，失败返回 False。"""
+        for attempt in range(3):
+            try:
+                os.rename(src, dst)
+                return True
+            except PermissionError:
+                if attempt < 2:
+                    time.sleep(0.1)
+        return False
+
+    def doRollover(self):
+        if self.stream:
+            self.stream.close()
+            self.stream = None
+
+        if self.backupCount > 0:
+            # 备份链轮转
+            for i in range(self.backupCount - 1, 0, -1):
+                sfn = self.rotation_filename(
+                    "%s.%d" % (self.baseFilename, i))
+                dfn = self.rotation_filename(
+                    "%s.%d" % (self.baseFilename, i + 1))
+                if os.path.exists(sfn):
+                    self._safe_remove(dfn)
+                    self._safe_rename(sfn, dfn)
+
+            # 主文件轮转
+            dfn = self.rotation_filename(self.baseFilename + ".1")
+            self._safe_remove(dfn)
+            if not self._safe_rename(self.baseFilename, dfn):
+                # 兜底：copy + truncate
+                self._copy_truncate(self.baseFilename, dfn)
+
+        if not self.delay:
+            self.stream = self._open()
+
+    def _copy_truncate(self, source, dest):
+        """拷贝文件内容到目标，然后截断源文件。"""
+        import shutil
+        try:
+            shutil.copy2(source, dest)
+        except Exception:
+            pass  # 拷贝失败也不阻塞
+        try:
+            with open(source, "w", encoding=self.encoding):
+                pass  # 截断
+        except Exception:
+            pass
+
+
 # ── shutdown_logging ─────────────────────────────────────────────
 
 def shutdown_logging() -> None:
@@ -234,7 +307,7 @@ def setup_logging(
         if log_dir:
             os.makedirs(log_dir, exist_ok=True)
 
-        file_handler = RotatingFileHandler(
+        file_handler = WindowsSafeRotatingFileHandler(
             log_file,
             maxBytes=log_file_max_bytes,
             backupCount=log_file_backup_count,
