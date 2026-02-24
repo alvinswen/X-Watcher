@@ -25,6 +25,7 @@ dependencies = [
     # Web 框架
     "fastapi>=0.104.0",
     "uvicorn[standard]>=0.24.0",
+    "python-multipart>=0.0.5",
 
     # 数据验证
     "pydantic>=2.5.0",

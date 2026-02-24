@@ -608,6 +608,36 @@ class TestSummarizationService:
         assert translation == "测试翻译"
 
     @pytest.mark.asyncio
+    async def test_parse_llm_response_null_string_summary(self):
+        """测试 LLM 返回 summary 为字符串 "null" 时的处理。"""
+        provider = MockLLMProvider("openrouter")
+        service = SummarizationService(
+            session_factory=create_mock_session_factory(),
+            providers=[provider],
+        )
+
+        json_content = '{"summary": "null", "translation": "这是翻译内容"}'
+        summary, translation = service._parse_llm_response(json_content)
+
+        assert summary == "[SHORT]"
+        assert translation == "这是翻译内容"
+
+    @pytest.mark.asyncio
+    async def test_parse_llm_response_json_null_summary(self):
+        """测试 LLM 返回 summary 为 JSON null 时的处理。"""
+        provider = MockLLMProvider("openrouter")
+        service = SummarizationService(
+            session_factory=create_mock_session_factory(),
+            providers=[provider],
+        )
+
+        json_content = '{"summary": null, "translation": "这是翻译内容"}'
+        summary, translation = service._parse_llm_response(json_content)
+
+        assert summary == "[SHORT]"
+        assert translation == "这是翻译内容"
+
+    @pytest.mark.asyncio
     async def test_parse_llm_response_non_json_fallback(self):
         """测试非 JSON 格式的 LLM 响应回退处理。
 
@@ -740,6 +770,75 @@ class TestSummarizationService:
         record = result.unwrap()
         assert record.tweet_id == "orphan_tweet"
         assert record.content_hash.startswith("")  # 非空哈希
+
+    @pytest.mark.asyncio
+    async def test_retweet_reuses_original_summary(
+        self,
+        mock_repository,
+        mock_llm_response,
+    ):
+        """测试转推复用原推摘要，不重复调用 LLM。"""
+        provider = MockLLMProvider("openrouter", responses=[mock_llm_response])
+        service = SummarizationService(
+            session_factory=create_mock_session_factory(),
+            providers=[provider],
+        )
+
+        # Mock _load_tweets: 转推引用了原推
+        service._load_tweets = AsyncMock(
+            return_value={
+                "rt_tweet_456": {
+                    "text": "RT @original_user: A long original tweet with enough text to trigger summarization",
+                    "reference_type": "retweeted",
+                    "referenced_tweet_id": "original_tweet_123",
+                    "referenced_tweet_text": "A long original tweet with enough text to trigger summarization",
+                    "author_username": "retweeter",
+                    "referenced_tweet_author_username": "original_user",
+                }
+            }
+        )
+
+        # Mock repository: 原推已有摘要
+        original_summary = SummaryRecord(
+            summary_id="original-summary-id",
+            tweet_id="original_tweet_123",
+            summary_text="这是原推的摘要内容，足够长度以通过验证。" * 2,
+            translation_text="This is the original translation.",
+            model_provider="openrouter",
+            model_name="test-model",
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+            cost_usd=0.001,
+            cached=False,
+            is_generated_summary=True,
+            content_hash="original-hash",
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+
+        # Patch repository.get_summary_by_tweet to return the original summary
+        with patch.object(
+            SummarizationRepository,
+            "get_summary_by_tweet",
+            new_callable=AsyncMock,
+            return_value=original_summary,
+        ), patch.object(
+            SummarizationRepository,
+            "save_summary_record",
+            new_callable=AsyncMock,
+            side_effect=lambda r: r,
+        ):
+            result = await service.summarize_tweets(
+                tweet_ids=["rt_tweet_456"],
+            )
+
+        assert isinstance(result, Success)
+        summary_result = result.unwrap()
+        assert summary_result.total_tweets == 1
+        assert summary_result.total_tweets_succeeded == 1
+        # LLM 应该没被调用（复用了原推摘要）
+        assert provider._call_count == 0
 
 
 class TestCreateSummarizationService:

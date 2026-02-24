@@ -123,6 +123,7 @@ def get_async_engine():
             cursor.execute("PRAGMA journal_mode=WAL")
             cursor.execute("PRAGMA busy_timeout=30000")  # 30 秒
             cursor.execute("PRAGMA synchronous=NORMAL")  # WAL 模式下推荐
+            cursor.execute("PRAGMA foreign_keys=ON")
             cursor.close()
 
         # 启动指标收集

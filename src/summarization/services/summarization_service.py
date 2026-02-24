@@ -239,6 +239,7 @@ class SummarizationService:
                 tweet.tweet_id: {
                     "text": tweet.text,
                     "reference_type": tweet.reference_type,
+                    "referenced_tweet_id": tweet.referenced_tweet_id,
                     "referenced_tweet_text": tweet.referenced_tweet_text,
                     "author_username": tweet.author_username,
                     "referenced_tweet_author_username": tweet.referenced_tweet_author_username,
@@ -402,11 +403,51 @@ class SummarizationService:
             tweet_data = tweets_map.get(tweet_id, {})
             tweet_text = tweet_data.get("text") or ""
             reference_type = tweet_data.get("reference_type")
+            referenced_tweet_id = tweet_data.get("referenced_tweet_id")
             referenced_tweet_text = tweet_data.get("referenced_tweet_text")
             author_username = tweet_data.get("author_username")
 
             # 判断推文类型
             tweet_type = self._determine_tweet_type(reference_type)
+
+            # 转推复用原推摘要：如果原推已有摘要，直接复用，避免重复调用 LLM
+            if (
+                tweet_type == TweetType.retweeted
+                and referenced_tweet_id
+                and not force_refresh
+            ):
+                async with self._session_factory() as session:
+                    repository = SummarizationRepository(session)
+                    original_summary = await repository.get_summary_by_tweet(
+                        referenced_tweet_id
+                    )
+                    if original_summary:
+                        logger.info(
+                            f"转推复用原推摘要: tweet={tweet_id[:12]}..., "
+                            f"original={referenced_tweet_id[:12]}..."
+                        )
+                        # 创建此转推自己的摘要记录（复用原推文本）
+                        record = SummaryRecord(
+                            summary_id=str(uuid.uuid4()),
+                            tweet_id=tweet_id,
+                            summary_text=original_summary.summary_text,
+                            translation_text=original_summary.translation_text,
+                            model_provider=original_summary.model_provider,
+                            model_name=original_summary.model_name,
+                            prompt_tokens=0,
+                            completion_tokens=0,
+                            total_tokens=0,
+                            cost_usd=0.0,
+                            cached=True,
+                            is_generated_summary=original_summary.is_generated_summary,
+                            content_hash=content_hash,
+                            created_at=datetime.now(timezone.utc),
+                            updated_at=datetime.now(timezone.utc),
+                        )
+                        # 保存到数据库
+                        await repository.save_summary_record(record)
+                        await session.commit()
+                        return record
 
             # 提取原作者：优先使用数据库存储的原作者，fallback 到正则提取
             original_author = (
@@ -790,7 +831,7 @@ class SummarizationService:
         if data is not None and isinstance(data, dict):
             summary = data.get("summary")
             translation = data.get("translation")
-            if summary is None:
+            if summary is None or summary == "null":
                 summary = "[SHORT]"
             return summary, translation if translation else None
 
