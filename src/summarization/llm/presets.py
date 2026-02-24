@@ -62,7 +62,7 @@ OPENROUTER = _register(
         slug="openrouter",
         display_name="OpenRouter",
         base_url="https://openrouter.ai/api/v1",
-        default_model="anthropic/claude-sonnet-4.5",
+        default_model="anthropic/claude-sonnet-4.6",
         cost_info=CostInfo(input_cost_per_1k=0.003, output_cost_per_1k=0.015),
     )
 )
@@ -87,7 +87,7 @@ ZHIPU = _register(
         slug="zhipu",
         display_name="Zhipu AI",
         base_url="https://open.bigmodel.cn/api/paas/v4",
-        default_model="glm-4-flash",
+        default_model="glm-5",
         cost_info=CostInfo(
             input_cost_per_1k=0.001,
             output_cost_per_1k=0.001,
@@ -102,7 +102,7 @@ MOONSHOT = _register(
         slug="moonshot",
         display_name="Moonshot (Kimi)",
         base_url="https://api.moonshot.cn/v1",
-        default_model="moonshot-v1-8k",
+        default_model="kimi-k2.5",
         cost_info=CostInfo(
             input_cost_per_1k=0.012,
             output_cost_per_1k=0.012,

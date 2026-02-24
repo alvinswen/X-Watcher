@@ -28,11 +28,11 @@ x-watcher serve                 # 启动服务
 
 | Provider | Slug | Default Model | 备注 |
 |----------|------|---------------|------|
-| OpenRouter | `openrouter` | `anthropic/claude-sonnet-4.5` | 高质量，支持多模型 |
-| MiniMax | `minimax` | `abab6.5s-chat` | 国内低成本 |
+| OpenRouter | `openrouter` | `anthropic/claude-sonnet-4.6` | 高质量，支持多模型 |
+| MiniMax | `minimax` | `MiniMax-M2.5` | 国内低成本 |
 | DeepSeek | `deepseek` | `deepseek-chat` | 国内高性价比 |
-| 智谱 AI | `zhipu` | `glm-4-flash` | 国内免费额度 |
-| Moonshot (Kimi) | `moonshot` | `moonshot-v1-8k` | 国内 |
+| 智谱 AI | `zhipu` | `glm-5` | 国内免费额度 |
+| Moonshot (Kimi) | `moonshot` | `kimi-k2.5` | 国内 |
 | Custom | `custom` | (用户提供) | 任何 OpenAI 兼容 API |
 
 ## 环境配置
@@ -50,7 +50,7 @@ TWITTER_BEARER_TOKEN=placeholder
 
 可选覆盖默认值：
 ```bash
-LLM_OPENROUTER_MODEL=anthropic/claude-sonnet-4.5
+LLM_OPENROUTER_MODEL=anthropic/claude-sonnet-4.6
 LLM_DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
 ```
 

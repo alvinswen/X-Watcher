@@ -40,7 +40,7 @@ def get_provider_instances_from_env() -> list[ProviderInstanceConfig]:
     环境变量格式：
         LLM_PROVIDERS=openrouter,deepseek
         LLM_OPENROUTER_API_KEY=sk-xxx
-        LLM_OPENROUTER_MODEL=anthropic/claude-sonnet-4.5  # 可选覆盖
+        LLM_OPENROUTER_MODEL=anthropic/claude-sonnet-4.6  # 可选覆盖
         LLM_DEEPSEEK_API_KEY=sk-yyy
 
     Returns:
@@ -95,7 +95,7 @@ class OpenRouterConfig(BaseModel):
         default="https://openrouter.ai/api/v1", description="API 基础 URL"
     )
     model: str = Field(
-        default="anthropic/claude-sonnet-4.5", description="模型名称"
+        default="anthropic/claude-sonnet-4.6", description="模型名称"
     )
     timeout_seconds: int = Field(default=30, ge=1, description="请求超时时间（秒）")
     max_retries: int = Field(default=1, ge=0, description="最大重试次数")
@@ -114,7 +114,7 @@ class OpenRouterConfig(BaseModel):
         return cls(
             api_key=api_key,
             base_url=os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
-            model=os.getenv("OPENROUTER_MODEL", "anthropic/claude-sonnet-4.5"),
+            model=os.getenv("OPENROUTER_MODEL", "anthropic/claude-sonnet-4.6"),
             timeout_seconds=int(os.getenv("OPENROUTER_TIMEOUT_SECONDS", "30")),
             max_retries=int(os.getenv("OPENROUTER_MAX_RETRIES", "1")),
         )

@@ -55,7 +55,7 @@ async def call_llm(prompt: str) -> str:
         timeout=30,
     )
     response = await client.chat.completions.create(
-        model="anthropic/claude-sonnet-4.5",
+        model="anthropic/claude-sonnet-4.6",
         messages=[{"role": "user", "content": prompt}],
         max_tokens=500,
         temperature=0.7,

@@ -73,7 +73,7 @@ class TestBuiltinPresets:
     def test_openrouter_preset(self):
         assert OPENROUTER.slug == "openrouter"
         assert "openrouter" in OPENROUTER.base_url
-        assert OPENROUTER.default_model == "anthropic/claude-sonnet-4.5"
+        assert OPENROUTER.default_model == "anthropic/claude-sonnet-4.6"
 
     def test_minimax_preset(self):
         assert MINIMAX.slug == "minimax"
@@ -83,7 +83,7 @@ class TestBuiltinPresets:
     def test_zhipu_preset(self):
         assert ZHIPU.slug == "zhipu"
         assert "bigmodel" in ZHIPU.base_url
-        assert ZHIPU.default_model == "glm-4-flash"
+        assert ZHIPU.default_model == "glm-5"
 
     def test_moonshot_preset(self):
         assert MOONSHOT.slug == "moonshot"

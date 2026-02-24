@@ -20,30 +20,11 @@ class Settings(BaseSettings):
     """
 
     # LLM 提供商配置（新格式）
+    # 注意：LLM_*_API_KEY / LLM_*_MODEL 等变量由 LLMProviderConfig.from_env() 独立处理，
+    # 不经过 Settings 类。旧格式（OPENROUTER_API_KEY 等）由各 provider Config.from_env() 读取。
     llm_providers: str = Field(
         default="",
         description="LLM 提供商优先级列表（逗号分隔，如 openrouter,deepseek）"
-    )
-
-    # MiniMax API 配置（旧格式，向后兼容）
-    minimax_api_key: str | None = Field(
-        default=None, description="MiniMax API 密钥（旧格式，建议改用 LLM_PROVIDERS）"
-    )
-    minimax_base_url: str = Field(
-        default="https://api.minimaxi.com/v1",
-        description="MiniMax API 地址"
-    )
-
-    # OpenRouter API 配置（可选）
-    openrouter_api_key: str | None = Field(
-        default=None, description="OpenRouter API 密钥"
-    )
-    openrouter_base_url: str = Field(
-        default="https://openrouter.ai/api/v1",
-        description="OpenRouter API 地址"
-    )
-    openrouter_model: str | None = Field(
-        default=None, description="OpenRouter 模型名称"
     )
 
     # X 平台 API 配置
@@ -174,6 +155,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        extra="ignore",  # .env 中的 LLM_*_API_KEY 等变量由 LLM 配置模块独立处理
     )
 
     @field_validator("log_level", mode="before")

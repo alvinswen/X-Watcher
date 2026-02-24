@@ -30,11 +30,11 @@ Service 层 (业务编排)
 
 | 功能 | 提供商 | 模型 | 成本估算 |
 |------|--------|------|----------|
-| 摘要/翻译 | OpenRouter | Claude Sonnet 4.5 | $0.003-0.015/千 tokens |
-| 摘要/翻译 | MiniMax | M2.1 (abab6.5s-chat) | ¥0.015/千 tokens |
+| 摘要/翻译 | OpenRouter | Claude Sonnet 4.6 | $0.003-0.015/千 tokens |
+| 摘要/翻译 | MiniMax | M2.5 (MiniMax-M2.5) | ¥0.015/千 tokens |
 | 摘要/翻译 | DeepSeek | deepseek-chat | ¥0.001-0.002/千 tokens |
-| 摘要/翻译 | 智谱 AI | glm-4-flash | ¥0.001/千 tokens |
-| 摘要/翻译 | Moonshot | moonshot-v1-8k | ¥0.012/千 tokens |
+| 摘要/翻译 | 智谱 AI | glm-5 | ¥0.001/千 tokens |
+| 摘要/翻译 | Moonshot | kimi-k2.5 | ¥0.012/千 tokens |
 **LLM 架构**：统一 `OpenAICompatibleProvider` + 预设（presets.py），所有提供商通过 OpenAI 兼容协议调用。新增提供商只需添加预设配置，无需编写新代码。
 
 ## X 平台数据获取

@@ -1,9 +1,6 @@
 """测试配置模块。"""
 
-import os
-
 import pytest
-from pydantic import ValidationError
 
 
 def test_config_loads_from_env(monkeypatch):
@@ -13,19 +10,15 @@ def test_config_loads_from_env(monkeypatch):
     clear_settings_cache()
 
     # 设置环境变量
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-key-123")
-    monkeypatch.setenv("MINIMAX_BASE_URL", "https://api.test.com")
     monkeypatch.setenv("TWITTER_API_KEY", "twitter-key")
     monkeypatch.setenv("TWITTER_BEARER_TOKEN", "test-bearer-token")
     monkeypatch.setenv("DATABASE_URL", "sqlite:///./test.db")
 
     # 导入配置（在设置环境变量之后）
-    from src.config import Settings, get_settings
+    from src.config import get_settings
 
     settings = get_settings()
 
-    assert settings.minimax_api_key == "test-key-123"
-    assert settings.minimax_base_url == "https://api.test.com"
     assert settings.twitter_api_key == "twitter-key"
     assert settings.twitter_bearer_token == "test-bearer-token"
     assert settings.database_url == "sqlite:///./test.db"
@@ -37,8 +30,6 @@ def test_config_validation_error_when_invalid_log_level(monkeypatch):
     from src.config import clear_settings_cache
     clear_settings_cache()
 
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
-    monkeypatch.setenv("MINIMAX_BASE_URL", "https://api.test.com")
     monkeypatch.setenv("TWITTER_API_KEY", "twitter-key")
     monkeypatch.setenv("TWITTER_BEARER_TOKEN", "test-bearer-token")
     monkeypatch.setenv("DATABASE_URL", "sqlite:///./test.db")
@@ -90,8 +81,6 @@ def test_config_log_level_custom(monkeypatch):
     from src.config import clear_settings_cache
     clear_settings_cache()
 
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
-    monkeypatch.setenv("MINIMAX_BASE_URL", "https://api.test.com")
     monkeypatch.setenv("TWITTER_API_KEY", "twitter-key")
     monkeypatch.setenv("TWITTER_BEARER_TOKEN", "test-bearer-token")
     monkeypatch.setenv("DATABASE_URL", "sqlite:///./test.db")
@@ -108,8 +97,6 @@ def test_config_log_level_case_insensitive(monkeypatch):
     from src.config import clear_settings_cache, get_settings
     clear_settings_cache()
 
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
-    monkeypatch.setenv("MINIMAX_BASE_URL", "https://api.test.com")
     monkeypatch.setenv("TWITTER_API_KEY", "twitter-key")
     monkeypatch.setenv("TWITTER_BEARER_TOKEN", "test-bearer-token")
     monkeypatch.setenv("DATABASE_URL", "sqlite:///./test.db")
@@ -125,8 +112,6 @@ def test_config_singleton(monkeypatch):
     from src.config import clear_settings_cache
     clear_settings_cache()
 
-    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
-    monkeypatch.setenv("MINIMAX_BASE_URL", "https://api.test.com")
     monkeypatch.setenv("TWITTER_API_KEY", "twitter-key")
     monkeypatch.setenv("TWITTER_BEARER_TOKEN", "test-bearer-token")
     monkeypatch.setenv("DATABASE_URL", "sqlite:///./test.db")
