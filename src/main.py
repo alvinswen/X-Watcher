@@ -382,6 +382,11 @@ from src.analytics.api.routes import analytics_router, router as analytics_admin
 app.include_router(analytics_admin_router)
 app.include_router(analytics_router)
 
+# 注册数据同步 API 路由
+from src.api.routes.sync_routes import router as sync_router
+
+app.include_router(sync_router)
+
 # 配置前端静态资源服务（如果存在）
 import os
 from fastapi.staticfiles import StaticFiles

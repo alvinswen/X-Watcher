@@ -1,11 +1,12 @@
 """X-watcher CLI 入口。
 
-提供 init / validate / serve 子命令。
+提供 init / validate / serve / export / import-data 子命令。
 """
 
 import click
 
 from src.cli.init_command import init
+from src.cli.sync_command import export, import_data
 from src.cli.validate_command import validate
 
 
@@ -18,6 +19,8 @@ def cli() -> None:
 
 cli.add_command(init)
 cli.add_command(validate)
+cli.add_command(export)
+cli.add_command(import_data)
 
 
 @cli.command()

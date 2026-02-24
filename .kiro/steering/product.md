@@ -18,7 +18,8 @@ X-watcher 是一个**面向 Agent 的 X 平台智能信息监控服务**，通�
 - **发文聚类分析** - 基于 24 小时发推分布的层次聚类，将监控账号自动分组，支持重切割和手动调整，优化抓取调度和摘要时机
 - **系统状态概览** - 一站式获取推文、关注、摘要、主题、调度器和系统维度的关键指标，便于 Agent 了解数据时效性和系统健康状况
 - **多 LLM 提供商** - 统一 OpenAI 兼容协议，支持 OpenRouter、MiniMax、DeepSeek、智谱、Moonshot 等 6+ 提供商，一键切换
-- **CLI 工具** - `x-watcher init / validate / serve` 命令，Agent 或人类开发者一键完成安装配置
+- **数据同步** - JSON 文件导出/导入机制，支持跨服务器同步配置、推文、摘要和主题数据，含冲突策略（skip/overwrite/merge）和 dry-run 预览
+- **CLI 工具** - `x-watcher init / validate / serve / export / import-data` 命令，Agent 或人类开发者一键完成安装配置和数据同步
 - **配置验证** - 运行时验证 LLM 提供商、Twitter API、数据库的健康状态
 - **结构化输出** - 所有数据通过 RESTful API 以 JSON 格式输出，便于 Agent 消费
 

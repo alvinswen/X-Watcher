@@ -17,6 +17,7 @@ import {
   Search,
   TrendCharts,
   Histogram,
+  Refresh,
 } from "@element-plus/icons-vue"
 import { useAuthStore } from "@/stores/auth"
 import { ElMessage } from "element-plus"
@@ -63,6 +64,7 @@ const menuItems = [
   { index: "/scraping", title: "抓取管理", icon: Timer },
   { index: "/tasks", title: "任务监控", icon: Monitor },
   { index: "/users", title: "用户管理", icon: UserFilled },
+  { index: "/sync", title: "数据同步", icon: Refresh },
 ]
 
 /** 打开 API Key 设置对话框 */

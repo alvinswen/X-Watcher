@@ -27,6 +27,7 @@ src/
 │       ├── config_routes.py # 配置验证 API（GET /api/admin/config/validate）
 │       ├── scheduler.py     # 调度器执行历史 API（GET /api/admin/scheduler/history）
 │       ├── status.py        # 系统状态概览 API（GET /api/status/overview）
+│       ├── sync_routes.py   # 数据同步 API（导出下载/导入预览/导入执行）
 │       └── tweets.py        # 推文列表/详情 API
 ├── scraper/                 # 推文抓取模块
 │   ├── client.py            # TwitterAPI.io 客户端（含引用推文预处理）
@@ -51,9 +52,10 @@ src/
 │       └── limit_calculator.py  # 动态抓取数量计算（EMA 算法）
 ├── cli/                     # CLI 命令模块
 │   ├── __init__.py
-│   ├── main.py              # click Group 入口（init/validate/serve）
+│   ├── main.py              # click Group 入口（init/validate/serve/export/import-data）
 │   ├── init_command.py      # x-watcher init 实现
-│   └── validate_command.py  # x-watcher validate 实现
+│   ├── validate_command.py  # x-watcher validate 实现
+│   └── sync_command.py      # x-watcher export / import-data 实现
 ├── summarization/           # AI 摘要模块
 │   ├── domain/models.py     # 领域模型
 │   ├── infrastructure/
@@ -143,6 +145,18 @@ src/
 │   └── api/
 │       ├── routes.py        # /api/admin/analytics/* 端点（分布预览、聚类运行、重切割、手动调整、发文频次）
 │       └── schemas.py       # 请求/响应模型
+├── sync/                    # 数据同步模块（跨服务器 JSON 导出/导入）
+│   ├── domain/
+│   │   └── models.py        # 领域模型（SyncCategory, ConflictStrategy, ExportPackage, ImportResult）
+│   ├── services/
+│   │   ├── export_service.py  # 导出编排（repository → serializer → ExportPackage）
+│   │   └── import_service.py  # 导入编排（验证 → 冲突策略 → per-category 事务写入）
+│   ├── infrastructure/
+│   │   ├── serializers.py     # ORM ↔ dict 转换（每张表一对 to_dict / from_dict）
+│   │   ├── export_repository.py  # 同步读取各表数据（支持 since/until/authors 过滤）
+│   │   └── import_repository.py  # 批量写入 + 冲突检测 + Topics 嵌套 ID 重映射
+│   └── format/
+│       └── json_format.py   # JSON 文件读写 + schema 版本校验
 ├── monitoring/              # Prometheus 监控
 │   ├── metrics.py           # 指标定义
 │   ├── middleware.py         # 中间件
@@ -174,6 +188,7 @@ tests/
 ├── feed/               # Feed API 测试
 ├── search/             # 搜索 API 测试
 ├── analytics/          # 分析模块测试（聚类 + 统计）
+├── sync/               # 数据同步模块测试（导出/导入 + CLI 端到端）
 ├── api/                # API 端点测试
 ├── integration/        # 集成测试
 ├── performance/        # 性能测试
@@ -254,7 +269,7 @@ External (数据库, TwitterAPI.io, MiniMax LLM)
 - FastAPI 路由直接调用 Service 层
 - Service 层编排业务逻辑（抓取、摘要、主题管理）
 - 统一 LLM Provider 架构：通用 OpenAI 兼容协议，支持 6+ 提供商
-- CLI 工具（click）：init / validate / serve 命令
+- CLI 工具（click）：init / validate / serve / export / import-data 命令
 
 ### 未来扩展方向
 - MCP 协议集成：提供 Model Context Protocol 接口

@@ -113,6 +113,14 @@ const routes: RouteRecordRaw[] = [
       title: "发文分析",
     },
   },
+  {
+    path: "/sync",
+    name: "sync",
+    component: () => import("@/views/SyncView.vue"),
+    meta: {
+      title: "数据同步",
+    },
+  },
 ]
 
 /** 创建路由实例 */

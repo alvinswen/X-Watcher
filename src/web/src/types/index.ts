@@ -10,6 +10,7 @@ export * from "./topic"
 export * from "./status"
 export * from "./search"
 export * from "./analytics"
+export * from "./sync"
 
 /** API 错误响应。 */
 export interface ApiError {
