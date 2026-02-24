@@ -129,6 +129,7 @@ def init(
         _write_env(env_path, env_content)
 
     # ---- 3. 数据库初始化 ----
+    raw_api_key = None
     if not skip_db:
         click.echo("\n初始化数据库...")
         try:
@@ -142,7 +143,7 @@ def init(
         # 创建管理员
         click.echo("\n创建管理员账户...")
         try:
-            _create_admin(admin_email, admin_password)
+            raw_api_key = _create_admin(admin_email, admin_password)
             click.echo(f"  管理员账户已创建: {admin_email}")
         except Exception as e:
             click.echo(f"  创建管理员失败: {e}", err=True)
@@ -170,9 +171,14 @@ def init(
     click.echo(f"  管理员邮箱: {admin_email}")
     if generated_password:
         click.echo(f"  管理员密码: {admin_password}  (自动生成，请妥善保管)")
+    if raw_api_key:
+        click.echo(f"  管理员 API Key: {raw_api_key}")
+        click.echo("  (此 Key 仅显示一次，请妥善保管！前端界面需要此 Key 认证)")
     click.echo()
     click.echo("下一步：")
     click.echo("  启动服务:  x-watcher serve")
+    if raw_api_key:
+        click.echo("  前端配置:  打开前端 -> 侧边栏底部 -> 设置 API Key")
     click.echo("  验证配置:  x-watcher validate")
     click.echo("  API 文档:  http://localhost:8000/docs")
 
@@ -249,11 +255,16 @@ def _init_database() -> None:
     Base.metadata.create_all(engine)
 
 
-def _create_admin(email: str, password: str) -> None:
-    """创建管理员用户。"""
+def _create_admin(email: str, password: str) -> str | None:
+    """创建管理员用户并生成默认 API Key。
+
+    Returns:
+        raw API Key（用户已存在时返回 None）。
+    """
     from scripts.seed_admin import _hash_password
 
-    from src.database.models import User, get_engine
+    from src.database.models import ApiKey, User, get_engine
+    from src.user.services.auth_service import AuthService
 
     from sqlalchemy.orm import Session
 
@@ -266,7 +277,7 @@ def _create_admin(email: str, password: str) -> None:
                 existing.is_admin = True
                 session.commit()
                 click.echo("  已将现有账户设置为管理员")
-            return
+            return None
 
         admin_user = User(
             name="System Administrator",
@@ -275,4 +286,16 @@ def _create_admin(email: str, password: str) -> None:
             password_hash=_hash_password(password),
         )
         session.add(admin_user)
+        session.flush()  # 获取 admin_user.id
+
+        # 生成默认 API Key
+        auth_svc = AuthService()
+        raw_key, key_hash, key_prefix = auth_svc.generate_api_key()
+        session.add(ApiKey(
+            user_id=admin_user.id,
+            key_hash=key_hash,
+            key_prefix=key_prefix,
+            name="default",
+        ))
         session.commit()
+        return raw_key

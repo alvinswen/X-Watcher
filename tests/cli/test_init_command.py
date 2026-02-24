@@ -1,7 +1,5 @@
 """CLI init 命令测试。"""
 
-import os
-
 from click.testing import CliRunner
 
 from src.cli.main import cli
@@ -75,6 +73,45 @@ class TestInitCommand:
         assert result.exit_code == 0
         # 原始 .env 应该保留
         assert "EXISTING=true" in (tmp_path / ".env").read_text(encoding="utf-8")
+
+    def test_init_creates_api_key_for_admin(self, tmp_path, monkeypatch):
+        """init 创建管理员时应同时生成 API Key 并在输出中显示。"""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("TWITTER_API_KEY", "test-key")
+        monkeypatch.setenv("TWITTER_BEARER_TOKEN", "test-token")
+
+        from src.config import clear_settings_cache
+        clear_settings_cache()
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "init",
+                "--no-input",
+                "--twitter-api-key=test-twitter-key",
+                "--llm-provider=deepseek",
+                "--llm-api-key=sk-test-123",
+                "--skip-validate",
+            ],
+        )
+
+        assert result.exit_code == 0, f"init failed: {result.output}"
+        assert "sna_" in result.output  # API Key 格式
+        assert "仅显示一次" in result.output
+
+        # conftest 的 autouse fixture 将 get_engine() patch 为 :memory: 引擎，
+        # 所以通过 get_engine() 获取同一个引擎来验证数据
+        from sqlalchemy import text
+        from src.database.models import get_engine
+        engine = get_engine()
+        with engine.connect() as conn:
+            row = conn.execute(text("SELECT key_prefix, name FROM api_keys LIMIT 1")).fetchone()
+            assert row is not None
+            assert row[0].startswith("sna_")
+            assert row[1] == "default"
+
+        clear_settings_cache()
 
     def test_init_generates_jwt_secret(self, tmp_path, monkeypatch):
         """自动生成 JWT 密钥。"""

@@ -28,7 +28,7 @@ class TestOpenAICompatibleProviderInit:
             "openrouter", api_key="sk-test"
         )
         assert provider.get_provider_name() == "openrouter"
-        assert provider.get_model_name() == "anthropic/claude-sonnet-4.5"
+        assert provider.get_model_name() == "anthropic/claude-sonnet-4.6"
 
     def test_from_preset_deepseek(self):
         """从 DeepSeek 预设创建。"""

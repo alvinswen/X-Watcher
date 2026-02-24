@@ -13,16 +13,18 @@ x-watcher init --no-input \
 x-watcher serve
 ```
 
-服务启动后访问 `http://localhost:8000/docs` 查看 API 文档。
+init 完成后会显示管理员 API Key（`sna_` 前缀），用于 API 认证。服务启动后访问 `http://localhost:8000/docs` 查看 API 文档。
 
 ## Quick Start (人类开发者)
 
 ```bash
 git clone <repository-url> && cd x-watcher
 pip install -e ".[dev]"
-x-watcher init                  # 交互式引导配置
+x-watcher init                  # 交互式引导（完成后会显示 API Key）
 x-watcher serve                 # 启动服务
 ```
+
+init 完成后请记录输出中的 **API Key**（仅显示一次）。使用前端时在侧边栏底部点击"未配置 API Key"输入此 Key。
 
 ## 支持的 LLM 提供商
 
@@ -37,10 +39,8 @@ x-watcher serve                 # 启动服务
 
 ## 环境配置
 
-### 新格式（推荐）
-
 ```bash
-# .env
+# .env（由 x-watcher init 自动生成）
 LLM_PROVIDERS=openrouter,deepseek        # 提供商优先级
 LLM_OPENROUTER_API_KEY=sk-or-xxx         # 各提供商 API Key
 LLM_DEEPSEEK_API_KEY=sk-xxx
@@ -54,11 +54,13 @@ LLM_OPENROUTER_MODEL=anthropic/claude-sonnet-4.6
 LLM_DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
 ```
 
-### 旧格式（向后兼容）
+### 自定义后端端口
 
 ```bash
-MINIMAX_API_KEY=your_key
-OPENROUTER_API_KEY=your_key
+x-watcher serve --port 8001              # 后端使用 8001
+
+# 前端开发时同步修改代理端口（在 src/web/ 目录下）
+VITE_BACKEND_PORT=8001 npm run dev
 ```
 
 ### 完整环境变量参考
@@ -78,7 +80,7 @@ OPENROUTER_API_KEY=your_key
 | `AUTO_SUMMARIZATION_ENABLED` | 否 | `true` | 抓取后自动摘要 |
 | `LOG_LEVEL` | 否 | `INFO` | 日志级别 |
 
-*新格式和旧格式二选一，至少配置一个 LLM 提供商
+*至少配置一个 LLM 提供商
 
 ## CLI 命令
 
