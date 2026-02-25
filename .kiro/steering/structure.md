@@ -52,10 +52,25 @@ src/
 │       └── limit_calculator.py  # 动态抓取数量计算（EMA 算法）
 ├── cli/                     # CLI 命令模块
 │   ├── __init__.py
-│   ├── main.py              # click Group 入口（init/validate/serve/export/import-data）
+│   ├── main.py              # click Group 入口（init/validate/serve/mcp/export/import-data）
 │   ├── init_command.py      # x-watcher init 实现
 │   ├── validate_command.py  # x-watcher validate 实现
 │   └── sync_command.py      # x-watcher export / import-data 实现
+├── mcp/                     # MCP (Model Context Protocol) 服务模块
+│   ├── __init__.py
+│   ├── server.py            # FastMCP 实例创建、工具/资源注册、run_mcp_server() 入口
+│   ├── lifespan.py          # 轻量级 DB 初始化 + MCP 日志配置（不启动调度器和摘要队列）
+│   ├── auth.py              # MCP 认证上下文（stdio=admin，SSE=API Key 验证）
+│   ├── helpers.py           # 结构化 JSON 响应工具（success_response / error_response）
+│   ├── tools/               # MCP 工具（18 个）
+│   │   ├── feed_tools.py    # get_feed, search_tweets
+│   │   ├── browse_tools.py  # get_daily_stats, get_authors_for_date, browse_tweets
+│   │   ├── status_tools.py  # get_system_status
+│   │   ├── topic_tools.py   # list_topics, get_topic, manage_topic, manage_topic_accounts, get_topic_summary
+│   │   ├── analytics_tools.py  # get_posting_frequency
+│   │   └── admin_tools.py   # manage_follows, trigger_scrape, get_task_status, manage_scheduler, batch_summarize, get_follow_accounts_info
+│   └── resources/           # MCP 动态资源（4 个）
+│       └── providers.py     # xwatcher://status, xwatcher://follows, xwatcher://topics, xwatcher://config
 ├── summarization/           # AI 摘要模块
 │   ├── domain/models.py     # 领域模型
 │   ├── infrastructure/
@@ -188,6 +203,7 @@ tests/
 ├── feed/               # Feed API 测试
 ├── search/             # 搜索 API 测试
 ├── analytics/          # 分析模块测试（聚类 + 统计）
+├── mcp/                # MCP 工具单元测试
 ├── sync/               # 数据同步模块测试（导出/导入 + CLI 端到端）
 ├── api/                # API 端点测试
 ├── integration/        # 集成测试
@@ -265,14 +281,14 @@ External (数据库, TwitterAPI.io, MiniMax LLM)
 
 ## 演进策略
 
-### 当前阶段：API + Service 层直接驱动
-- FastAPI 路由直接调用 Service 层
+### 当前阶段：API + Service + MCP 三层驱动
+- FastAPI 路由直接调用 Service 层（RESTful API）
+- MCP Server 直接调用 Service 层（Model Context Protocol，18 工具 + 4 资源）
 - Service 层编排业务逻辑（抓取、摘要、主题管理）
 - 统一 LLM Provider 架构：通用 OpenAI 兼容协议，支持 6+ 提供商
-- CLI 工具（click）：init / validate / serve / export / import-data 命令
+- CLI 工具（click）：init / validate / serve / mcp / export / import-data 命令
 
 ### 未来扩展方向
-- MCP 协议集成：提供 Model Context Protocol 接口
 - Webhook 推送：主动通知下游消费者
 - 多数据源：扩展到 Newsletter、RSS 等
 

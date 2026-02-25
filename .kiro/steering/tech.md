@@ -2,17 +2,18 @@
 
 ## 架构
 
-采用 **API + Service 层** 的架构模式：
-- **FastAPI**：Web 服务，提供 API 端点和定时任务调度
-- **Service 层**：独立的业务编排（抓取、摘要、主题管理）
+采用 **API + Service 层 + MCP** 的架构模式：
+- **FastAPI**：Web 服务，提供 RESTful API 端点和定时任务调度
+- **MCP Server**：Model Context Protocol 服务，供 AI 助手（Claude Code / Claude Desktop）直接调用
+- **Service 层**：独立的业务编排（抓取、摘要、主题管理），FastAPI 和 MCP 共用
 
 ```
-用户请求 (Web / API)
-    ↓
-API 层 (FastAPI 路由)
-    ↓
-Service 层 (业务编排)
-    ↓
+用户请求 (Web / API)          AI 助手 (Claude Code / Desktop)
+    ↓                              ↓
+API 层 (FastAPI 路由)        MCP 层 (FastMCP 工具 + 资源)
+    ↓                              ↓
+         Service 层 (业务编排)
+              ↓
 数据层 (SQLite/PostgreSQL) + LLM API (MiniMax / OpenRouter)
 ```
 
@@ -76,6 +77,9 @@ prometheus_client   # Prometheus 指标采集
 # 数据分析
 scipy               # 层次聚类（linkage, fcluster, jensenshannon）
 numpy               # 数值计算
+
+# MCP (Model Context Protocol)
+mcp[cli]            # MCP Python SDK（FastMCP 高层 API，支持 stdio/SSE 双传输）
 
 # 工具库
 python-dotenv       # 环境变量

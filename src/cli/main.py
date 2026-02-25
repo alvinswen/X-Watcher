@@ -39,5 +39,31 @@ def serve(host: str, port: int, reload: bool) -> None:
     )
 
 
+@cli.command()
+@click.option(
+    "--transport",
+    type=click.Choice(["stdio", "sse"]),
+    default="stdio",
+    help="传输模式：stdio（本地 AI 助手）或 sse（内网远程访问）",
+)
+@click.option("--host", default="0.0.0.0", help="SSE 模式监听地址")
+@click.option("--port", default=8001, type=int, help="SSE 模式监听端口")
+@click.option("--api-key", default=None, help="SSE 模式 API Key（用于权限验证）")
+def mcp(transport: str, host: str, port: int, api_key: str | None) -> None:
+    """启动 MCP Server，供 AI 助手集成使用。
+
+    stdio 模式（默认）：通过标准输入输出通信，适用于 Claude Code / Claude Desktop 等本地 AI 助手。
+    sse 模式：通过 SSE 协议通信，适用于内网其他机器的 Agent 远程访问。
+    """
+    from src.mcp.server import run_mcp_server
+
+    run_mcp_server(
+        transport=transport,
+        host=host,
+        port=port,
+        api_key=api_key,
+    )
+
+
 if __name__ == "__main__":
     cli()

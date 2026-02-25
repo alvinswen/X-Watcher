@@ -1,0 +1,417 @@
+"""MCP 工具单元测试。
+
+测试所有 Phase 1 MCP 工具的参数解析、服务调用和返回格式。
+"""
+
+import json
+from datetime import datetime, timezone
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+
+# ── 辅助：创建工具函数引用 ────────────────────────────────────────
+
+
+def _get_tool_funcs():
+    """通过 FastMCP 实例获取注册的工具函数。"""
+    from src.mcp.server import create_mcp_server
+
+    mcp = create_mcp_server()
+    tools = mcp._tool_manager._tools
+    return {name: tool.fn for name, tool in tools.items()}
+
+
+@pytest.fixture
+def tool_funcs():
+    return _get_tool_funcs()
+
+
+def _mock_session_maker(mock_session):
+    """创建 mock session_maker，使 async with session_maker() as session 工作。"""
+    sm = MagicMock()
+    sm.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+    sm.return_value.__aexit__ = AsyncMock(return_value=False)
+    return sm
+
+
+# ── get_feed 测试 ─────────────────────────────────────────────────
+
+
+class TestGetFeed:
+    @pytest.mark.asyncio
+    async def test_get_feed_success(self, tool_funcs):
+        """测试正常查询 feed。"""
+        mock_result = MagicMock()
+        mock_result.items = [
+            {
+                "tweet_id": "123",
+                "text": "Hello world",
+                "author_username": "testuser",
+                "created_at": datetime(2026, 2, 24, tzinfo=timezone.utc),
+            }
+        ]
+        mock_result.count = 1
+        mock_result.total = 1
+        mock_result.has_more = False
+
+        mock_session = AsyncMock()
+        mock_sm = _mock_session_maker(mock_session)
+
+        with (
+            patch(
+                "src.database.async_session.get_async_session_maker",
+                return_value=mock_sm,
+            ),
+            patch(
+                "src.feed.services.feed_service.FeedService.get_feed",
+                new_callable=AsyncMock,
+                return_value=mock_result,
+            ),
+        ):
+            result = await tool_funcs["get_feed"](
+                since="2026-02-24T00:00:00Z",
+                until="2026-02-25T00:00:00Z",
+            )
+
+        data = json.loads(result)
+        assert data["success"] is True
+        assert data["data"]["count"] == 1
+        assert data["data"]["total"] == 1
+        assert data["data"]["has_more"] is False
+
+    @pytest.mark.asyncio
+    async def test_get_feed_invalid_date(self, tool_funcs):
+        """测试无效日期参数。"""
+        result = await tool_funcs["get_feed"](since="not-a-date")
+        data = json.loads(result)
+        assert data["success"] is False
+        assert data["error_type"] == "validation"
+
+    @pytest.mark.asyncio
+    async def test_get_feed_default_until(self, tool_funcs):
+        """测试 until 默认为当前时间。"""
+        mock_result = MagicMock()
+        mock_result.items = []
+        mock_result.count = 0
+        mock_result.total = 0
+        mock_result.has_more = False
+
+        mock_session = AsyncMock()
+        mock_sm = _mock_session_maker(mock_session)
+
+        with (
+            patch(
+                "src.database.async_session.get_async_session_maker",
+                return_value=mock_sm,
+            ),
+            patch(
+                "src.feed.services.feed_service.FeedService.get_feed",
+                new_callable=AsyncMock,
+                return_value=mock_result,
+            ),
+        ):
+            result = await tool_funcs["get_feed"](
+                since="2026-02-24T00:00:00Z",
+            )
+
+        data = json.loads(result)
+        assert data["success"] is True
+
+
+# ── search_tweets 测试 ────────────────────────────────────────────
+
+
+class TestSearchTweets:
+    @pytest.mark.asyncio
+    async def test_search_success(self, tool_funcs):
+        """测试正常搜索。"""
+        mock_result = MagicMock()
+        mock_result.items = [{"tweet_id": "456", "text": "test tweet"}]
+        mock_result.total = 1
+
+        mock_session = AsyncMock()
+        mock_sm = _mock_session_maker(mock_session)
+
+        with (
+            patch(
+                "src.database.async_session.get_async_session_maker",
+                return_value=mock_sm,
+            ),
+            patch(
+                "src.search.services.search_service.SearchService.search_tweets",
+                new_callable=AsyncMock,
+                return_value=mock_result,
+            ),
+        ):
+            result = await tool_funcs["search_tweets"](q="test")
+
+        data = json.loads(result)
+        assert data["success"] is True
+        assert data["data"]["total"] == 1
+        assert data["data"]["q"] == "test"
+
+    @pytest.mark.asyncio
+    async def test_search_empty_query(self, tool_funcs):
+        """测试空搜索关键词。"""
+        result = await tool_funcs["search_tweets"](q="")
+        data = json.loads(result)
+        assert data["success"] is False
+        assert data["error_type"] == "validation"
+
+    @pytest.mark.asyncio
+    async def test_search_whitespace_query(self, tool_funcs):
+        """测试纯空格搜索关键词。"""
+        result = await tool_funcs["search_tweets"](q="   ")
+        data = json.loads(result)
+        assert data["success"] is False
+        assert data["error_type"] == "validation"
+
+
+# ── get_daily_stats 测试 ──────────────────────────────────────────
+
+
+class TestGetDailyStats:
+    @pytest.mark.asyncio
+    async def test_success(self, tool_funcs):
+        """测试正常获取每日统计。"""
+        mock_stats = [
+            {"date": "2026-02-24", "count": 10},
+            {"date": "2026-02-25", "count": 5},
+        ]
+
+        mock_session = AsyncMock()
+        mock_sm = _mock_session_maker(mock_session)
+
+        with (
+            patch(
+                "src.database.async_session.get_async_session_maker",
+                return_value=mock_sm,
+            ),
+            patch(
+                "src.browse.services.browse_service.BrowseService.get_daily_stats",
+                new_callable=AsyncMock,
+                return_value=mock_stats,
+            ),
+        ):
+            result = await tool_funcs["get_daily_stats"](year=2026, month=2)
+
+        data = json.loads(result)
+        assert data["success"] is True
+        assert len(data["data"]["daily_stats"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_invalid_month(self, tool_funcs):
+        """测试无效月份。"""
+        result = await tool_funcs["get_daily_stats"](year=2026, month=13)
+        data = json.loads(result)
+        assert data["success"] is False
+        assert data["error_type"] == "validation"
+
+
+# ── get_authors_for_date 测试 ─────────────────────────────────────
+
+
+class TestGetAuthorsForDate:
+    @pytest.mark.asyncio
+    async def test_success(self, tool_funcs):
+        """测试正常获取作者列表。"""
+        mock_authors = [
+            {
+                "author_username": "user1",
+                "author_display_name": "User One",
+                "tweet_count": 5,
+                "last_tweet_at": datetime(2026, 2, 24, 12, 0, tzinfo=timezone.utc),
+                "reason": "KOL",
+            }
+        ]
+
+        mock_session = AsyncMock()
+        mock_sm = _mock_session_maker(mock_session)
+
+        with (
+            patch(
+                "src.database.async_session.get_async_session_maker",
+                return_value=mock_sm,
+            ),
+            patch(
+                "src.browse.services.browse_service.BrowseService.get_authors",
+                new_callable=AsyncMock,
+                return_value=mock_authors,
+            ),
+        ):
+            result = await tool_funcs["get_authors_for_date"](date="2026-02-24")
+
+        data = json.loads(result)
+        assert data["success"] is True
+        assert data["data"]["count"] == 1
+
+
+# ── browse_tweets 测试 ────────────────────────────────────────────
+
+
+class TestBrowseTweets:
+    @pytest.mark.asyncio
+    async def test_success(self, tool_funcs):
+        """测试正常浏览推文。"""
+        mock_items = [{"tweet_id": "789", "text": "Hello"}]
+        mock_total = 1
+
+        mock_session = AsyncMock()
+        mock_sm = _mock_session_maker(mock_session)
+
+        with (
+            patch(
+                "src.database.async_session.get_async_session_maker",
+                return_value=mock_sm,
+            ),
+            patch(
+                "src.browse.services.browse_service.BrowseService.get_tweets",
+                new_callable=AsyncMock,
+                return_value=(mock_items, mock_total),
+            ),
+        ):
+            result = await tool_funcs["browse_tweets"](date="2026-02-24")
+
+        data = json.loads(result)
+        assert data["success"] is True
+        assert data["data"]["total"] == 1
+
+    @pytest.mark.asyncio
+    async def test_invalid_page(self, tool_funcs):
+        """测试无效页码。"""
+        result = await tool_funcs["browse_tweets"](date="2026-02-24", page=0)
+        data = json.loads(result)
+        assert data["success"] is False
+        assert data["error_type"] == "validation"
+
+
+# ── get_system_status 测试 ────────────────────────────────────────
+
+
+class TestGetSystemStatus:
+    @pytest.mark.asyncio
+    async def test_success(self, tool_funcs):
+        """测试正常获取系统状态。"""
+        mock_session = AsyncMock()
+
+        # Mock execute 返回不同的 scalar/first 值
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            result.scalar.return_value = 100
+            result.first.return_value = None
+            return result
+
+        mock_session.execute = mock_execute
+        mock_sm = _mock_session_maker(mock_session)
+
+        with (
+            patch(
+                "src.database.async_session.get_async_session_maker",
+                return_value=mock_sm,
+            ),
+            patch(
+                "src.config.get_settings",
+            ) as mock_settings,
+        ):
+            mock_settings.return_value.database_url = "sqlite:///./test.db"
+            result = await tool_funcs["get_system_status"]()
+
+        data = json.loads(result)
+        assert data["success"] is True
+        assert "tweets" in data["data"]
+        assert "follows" in data["data"]
+        assert "summaries" in data["data"]
+        assert "topics" in data["data"]
+        assert "scheduler" in data["data"]
+        assert "system" in data["data"]
+
+
+# ── helpers 测试 ──────────────────────────────────────────────────
+
+
+class TestHelpers:
+    def test_success_response(self):
+        from src.mcp.helpers import success_response
+
+        result = json.loads(success_response({"key": "value"}))
+        assert result["success"] is True
+        assert result["data"]["key"] == "value"
+
+    def test_error_response(self):
+        from src.mcp.helpers import error_response
+
+        result = json.loads(error_response("test error", "validation"))
+        assert result["success"] is False
+        assert result["error"] == "test error"
+        assert result["error_type"] == "validation"
+
+    def test_datetime_serialization(self):
+        from src.mcp.helpers import success_response
+
+        dt = datetime(2026, 2, 24, 12, 0, tzinfo=timezone.utc)
+        result = json.loads(success_response({"time": dt}))
+        assert result["data"]["time"] == "2026-02-24T12:00:00+00:00"
+
+
+# ── auth 测试 ─────────────────────────────────────────────────────
+
+
+class TestMCPAuth:
+    def test_stdio_default_admin(self):
+        from src.mcp.auth import MCPAuthContext
+
+        ctx = MCPAuthContext()
+        ctx.configure(transport="stdio")
+        assert ctx.is_admin is True
+        assert ctx.transport == "stdio"
+
+    def test_sse_no_key_not_admin(self):
+        from src.mcp.auth import MCPAuthContext
+
+        ctx = MCPAuthContext()
+        ctx.configure(transport="sse")
+        assert ctx.is_admin is False
+        assert ctx.transport == "sse"
+
+    def test_sse_admin_api_key(self):
+        from src.mcp.auth import MCPAuthContext
+
+        ctx = MCPAuthContext()
+        with patch("src.config.get_settings") as mock_settings:
+            mock_settings.return_value.admin_api_key = "test-key-123"
+            ctx.configure(transport="sse", api_key="test-key-123")
+        assert ctx.is_admin is True
+
+    def test_require_admin_pass(self):
+        from src.mcp.auth import auth_context, require_admin
+
+        auth_context.configure(transport="stdio")
+        assert require_admin() is None
+
+    def test_require_admin_fail(self):
+        from src.mcp.auth import auth_context, require_admin
+
+        auth_context.configure(transport="sse")
+        result = require_admin()
+        assert result is not None
+        data = json.loads(result)
+        assert data["success"] is False
+        assert data["error_type"] == "permission"
+
+
+# ── server 测试 ───────────────────────────────────────────────────
+
+
+class TestMCPServer:
+    def test_create_server(self):
+        from src.mcp.server import create_mcp_server
+
+        mcp = create_mcp_server()
+        assert mcp.name == "x-watcher"
+
+    # 注：工具/资源注册完整性测试在 test_mcp_integration.py::TestToolRegistration 中
