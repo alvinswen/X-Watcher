@@ -83,7 +83,7 @@ class ScraperConfigRepository:
 
             orm_follow = ScraperFollowOrm(
                 username=username,
-                added_at=datetime.now(timezone.utc),
+                added_at=datetime.now(timezone.utc).replace(tzinfo=None),
                 reason=reason,
                 added_by=added_by,
                 is_active=True,
@@ -297,7 +297,7 @@ class ScraperConfigRepository:
         orm_follow.is_active = True
         orm_follow.reason = reason
         orm_follow.added_by = added_by
-        orm_follow.added_at = datetime.now(timezone.utc)
+        orm_follow.added_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
         await self._session.flush()
 

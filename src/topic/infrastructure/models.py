@@ -18,7 +18,7 @@ from src.topic.domain.models import (
 
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class TopicOrm(Base):

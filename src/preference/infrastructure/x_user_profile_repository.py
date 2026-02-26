@@ -44,7 +44,7 @@ class XUserProfileRepository:
         """
         try:
             count = 0
-            now = datetime.now(timezone.utc)
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
 
             for profile in profiles:
                 if not profile.platform_user_id:

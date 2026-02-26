@@ -149,6 +149,6 @@ class UserRepository:
         await self._session.execute(
             update(ApiKeyOrm)
             .where(ApiKeyOrm.id == key_id)
-            .values(last_used_at=datetime.now(timezone.utc))
+            .values(last_used_at=datetime.now(timezone.utc).replace(tzinfo=None))
         )
         await self._session.flush()

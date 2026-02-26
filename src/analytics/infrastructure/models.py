@@ -10,7 +10,7 @@ from src.analytics.domain.models import ClusterAssignmentDomain, ClusteringRunDo
 
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class ClusteringRunOrm(Base):

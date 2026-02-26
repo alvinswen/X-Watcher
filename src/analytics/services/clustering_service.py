@@ -107,7 +107,7 @@ class ClusteringService:
             run.num_excluded = len(excluded)
             run.linkage_matrix_json = json.dumps(Z.tolist())
             run.account_labels_json = json.dumps([d.username for d in distributions])
-            run.completed_at = datetime.now(timezone.utc)
+            run.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
             # 创建分配记录
             for i, dist in enumerate(distributions):
@@ -131,7 +131,7 @@ class ClusteringService:
         except Exception as e:
             run.status = ClusteringRunStatus.failed.value
             run.error_message = str(e)
-            run.completed_at = datetime.now(timezone.utc)
+            run.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
             await self._repo.update_run(session, run)
             await session.commit()
             raise

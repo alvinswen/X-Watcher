@@ -29,6 +29,14 @@ def _iso_to_dt(s: str | None) -> datetime | None:
     return dt
 
 
+def _iso_to_naive_dt(s: str | None) -> datetime | None:
+    """ISO 8601 字符串 → naive UTC datetime（用于 TIMESTAMP WITHOUT TIME ZONE 列）。"""
+    dt = _iso_to_dt(s)
+    if dt is not None and dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
 # ── ScraperFollow ─────────────────────────────────────────────
 
 def follow_to_dict(orm) -> dict[str, Any]:
@@ -50,7 +58,7 @@ def dict_to_follow(d: dict[str, Any]) -> dict[str, Any]:
     """dict → ScraperFollow 构造参数。"""
     return {
         "username": d["username"],
-        "added_at": _iso_to_dt(d.get("added_at")) or datetime.now(timezone.utc),
+        "added_at": _iso_to_naive_dt(d.get("added_at")) or datetime.now(timezone.utc).replace(tzinfo=None),
         "reason": d.get("reason", ""),
         "added_by": d.get("added_by", "import"),
         "is_active": d.get("is_active", True),
@@ -58,7 +66,7 @@ def dict_to_follow(d: dict[str, Any]) -> dict[str, Any]:
         "platform_user_id": d.get("platform_user_id"),
         "brief_intro": d.get("brief_intro"),
         "backfill_status": d.get("backfill_status", "pending"),
-        "backfill_completed_at": _iso_to_dt(d.get("backfill_completed_at")),
+        "backfill_completed_at": _iso_to_naive_dt(d.get("backfill_completed_at")),
     }
 
 
@@ -77,9 +85,9 @@ def schedule_config_to_dict(orm) -> dict[str, Any]:
 def dict_to_schedule_config(d: dict[str, Any]) -> dict[str, Any]:
     return {
         "interval_seconds": d.get("interval_seconds", 43200),
-        "next_run_time": _iso_to_dt(d.get("next_run_time")),
+        "next_run_time": _iso_to_naive_dt(d.get("next_run_time")),
         "is_enabled": d.get("is_enabled", True),
-        "updated_at": _iso_to_dt(d.get("updated_at")) or datetime.now(timezone.utc),
+        "updated_at": _iso_to_naive_dt(d.get("updated_at")) or datetime.now(timezone.utc).replace(tzinfo=None),
         "updated_by": d.get("updated_by", "import"),
     }
 

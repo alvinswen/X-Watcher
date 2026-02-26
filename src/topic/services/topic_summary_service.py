@@ -132,6 +132,10 @@ class TopicSummaryService:
         if not accounts:
             raise ValueError("该主题没有关联任何账号，无法创建摘要任务")
 
+        # 规范化 deadline 为 naive UTC（asyncpg + Python 3.14 不接受 aware datetime 给 TIMESTAMP WITHOUT TIME ZONE 列）
+        if deadline.tzinfo is not None:
+            deadline = deadline.astimezone(timezone.utc).replace(tzinfo=None)
+
         # 创建任务记录
         task_orm = TopicSummaryTaskOrm(
             topic_id=topic_id,
@@ -168,7 +172,7 @@ class TopicSummaryService:
 
                 # 更新状态为 running
                 task.status = TopicSummaryTaskStatus.running.value
-                task.started_at = datetime.now(timezone.utc)
+                task.started_at = datetime.now(timezone.utc).replace(tzinfo=None)
                 await self._task_repo.update_task(session, task)
                 await session.commit()
 
@@ -225,7 +229,7 @@ class TopicSummaryService:
                     )
                     await self._task_repo.create_summary(session, summary_orm)
                     task.status = TopicSummaryTaskStatus.completed.value
-                    task.completed_at = datetime.now(timezone.utc)
+                    task.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
                     await self._task_repo.update_task(session, task)
                     await session.commit()
                     return
@@ -244,7 +248,7 @@ class TopicSummaryService:
                     # 全部 provider 失败
                     task.status = TopicSummaryTaskStatus.failed.value
                     task.error_message = "所有 LLM 提供商均不可用"
-                    task.completed_at = datetime.now(timezone.utc)
+                    task.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
                     await self._task_repo.update_task(session, task)
                     await session.commit()
                     return
@@ -264,7 +268,7 @@ class TopicSummaryService:
                 )
                 await self._task_repo.create_summary(session, summary_orm)
                 task.status = TopicSummaryTaskStatus.completed.value
-                task.completed_at = datetime.now(timezone.utc)
+                task.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
                 await self._task_repo.update_task(session, task)
                 await session.commit()
 
@@ -278,7 +282,7 @@ class TopicSummaryService:
                     if task:
                         task.status = TopicSummaryTaskStatus.failed.value
                         task.error_message = str(e)
-                        task.completed_at = datetime.now(timezone.utc)
+                        task.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
                         await self._task_repo.update_task(err_session, task)
                         await err_session.commit()
             except Exception as inner_e:

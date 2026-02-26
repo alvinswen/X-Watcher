@@ -97,7 +97,7 @@ class User(Base):
     password_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
     is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+        DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), nullable=False
     )
 
     # 关系
@@ -123,7 +123,7 @@ class ApiKey(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False, default="default")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+        DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), nullable=False
     )
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
@@ -149,7 +149,7 @@ class NewsItem(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     source: Mapped[str] = mapped_column(String(100), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+        DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), nullable=False
     )
 
     # 关系
@@ -167,7 +167,7 @@ class ScraperFollow(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     username: Mapped[str] = mapped_column(String(15), nullable=False, unique=True)
     added_at: Mapped[datetime] = mapped_column(
-        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+        DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), nullable=False
     )
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     added_by: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -219,7 +219,7 @@ class ScraperScheduleConfig(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False,
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
     )
     updated_by: Mapped[str] = mapped_column(String(100), nullable=False)
 

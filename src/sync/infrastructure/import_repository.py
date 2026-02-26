@@ -16,6 +16,7 @@ from src.summarization.infrastructure.models import SummaryOrm
 from src.sync.domain.models import ConflictStrategy, ImportStats
 from src.sync.infrastructure.serializers import (
     _iso_to_dt,
+    _iso_to_naive_dt,
     dict_to_article,
     dict_to_follow,
     dict_to_schedule_config,
@@ -63,7 +64,7 @@ class ImportRepository:
                 stats.updated += 1
             elif strategy == ConflictStrategy.merge:
                 # merge: 取较新的 added_at
-                import_added_at = _iso_to_dt(item.get("added_at"))
+                import_added_at = _iso_to_naive_dt(item.get("added_at"))
                 if import_added_at and existing.added_at and import_added_at > existing.added_at:
                     params = dict_to_follow(item)
                     for key, val in params.items():
@@ -266,14 +267,14 @@ class ImportRepository:
         task = TopicSummaryTaskOrm(
             topic_id=topic_id,
             time_span_hours=task_data["time_span_hours"],
-            deadline=_iso_to_dt(task_data["deadline"]),
+            deadline=_iso_to_naive_dt(task_data["deadline"]),
             custom_prompt=task_data.get("custom_prompt"),
             tz_offset=task_data.get("tz_offset", 0),
             status=task_data.get("status", "pending"),
             error_message=task_data.get("error_message"),
-            created_at=_iso_to_dt(task_data.get("created_at")) or datetime.now(timezone.utc),
-            started_at=_iso_to_dt(task_data.get("started_at")),
-            completed_at=_iso_to_dt(task_data.get("completed_at")),
+            created_at=_iso_to_naive_dt(task_data.get("created_at")) or datetime.now(timezone.utc).replace(tzinfo=None),
+            started_at=_iso_to_naive_dt(task_data.get("started_at")),
+            completed_at=_iso_to_naive_dt(task_data.get("completed_at")),
         )
         self._session.add(task)
         self._session.flush()
@@ -292,6 +293,6 @@ class ImportRepository:
                     cost_usd=summary_data.get("cost_usd", 0.0),
                     tweet_count=summary_data.get("tweet_count", 0),
                     account_count=summary_data.get("account_count", 0),
-                    created_at=_iso_to_dt(summary_data.get("created_at")) or datetime.now(timezone.utc),
+                    created_at=_iso_to_naive_dt(summary_data.get("created_at")) or datetime.now(timezone.utc).replace(tzinfo=None),
                 )
             )

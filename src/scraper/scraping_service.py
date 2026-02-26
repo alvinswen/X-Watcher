@@ -501,7 +501,7 @@ class ScrapingService:
             # 标记回溯完成
             await self._update_backfill_status(
                 username, "completed",
-                completed_at=datetime.now(timezone.utc),
+                completed_at=datetime.now(timezone.utc).replace(tzinfo=None),
             )
             result["success"] = True
 
@@ -1191,7 +1191,7 @@ class ScrapingService:
                     return
 
                 # 转换为领域模型
-                now = datetime.now(timezone.utc)
+                now = datetime.now(timezone.utc).replace(tzinfo=None)
                 profiles = []
                 raw_data_map: dict[str, dict] = {}
                 for u in users_data:

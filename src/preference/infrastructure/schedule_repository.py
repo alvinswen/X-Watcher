@@ -51,7 +51,7 @@ class ScraperScheduleRepository:
         result = await self._session.execute(stmt)
         orm_obj = result.scalar_one_or_none()
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
 
         if orm_obj is None:
             # 创建新记录
