@@ -31,6 +31,9 @@ env/
 .env.local
 .env.*.local
 
+# 本地 MCP 配置（含绝对路径，不提交）
+.mcp.json
+
 # 数据库
 *.db
 *.db-journal
