@@ -77,10 +77,12 @@ class BrowseService:
             tzinfo=timezone.utc
         )
 
-        # SQLite date() 支持修饰符：date(col, '+480 minutes') 将 UTC 时间偏移到用户本地时区后取日期
         # getTimezoneOffset() 返回 UTC-local，取反得到 local = UTC + (-tz_offset) minutes
-        offset_modifier = f"{-tz_offset} minutes"
-        local_date_expr = func.date(TweetOrm.created_at, offset_modifier)
+        from src.database.dialect import sql_date_with_offset
+
+        local_date_expr = sql_date_with_offset(
+            TweetOrm.created_at, -tz_offset, bind=self._session
+        )
 
         conditions = [
             TweetOrm.created_at >= utc_start,
@@ -103,7 +105,7 @@ class BrowseService:
         result = await self._session.execute(stmt)
         rows = result.fetchall()
 
-        return [{"date": row.date, "count": row.count} for row in rows]
+        return [{"date": str(row.date), "count": row.count} for row in rows]
 
     async def get_authors(self, date: str, tz_offset: int = 0, min_text_length: int | None = None) -> list[dict]:
         """查询指定日期有推文的作者列表。

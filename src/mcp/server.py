@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 
 from mcp.server.fastmcp import FastMCP
 
-from src.mcp.auth import auth_context
+from src.mcp.auth import configure_transport, get_transport, is_admin
 from src.mcp.lifespan import init_database, init_mcp_logging
 
 logger = logging.getLogger(__name__)
@@ -23,8 +23,8 @@ async def mcp_lifespan(server: FastMCP):
     """
     logger.info(
         "MCP Server 启动: transport=%s, admin=%s",
-        auth_context.transport,
-        auth_context.is_admin,
+        get_transport(),
+        is_admin(),
     )
     init_database()
     logger.info("MCP Server 就绪")
@@ -35,25 +35,44 @@ async def mcp_lifespan(server: FastMCP):
 def create_mcp_server(
     host: str = "0.0.0.0",
     port: int = 8001,
+    *,
+    use_auth: bool = False,
 ) -> FastMCP:
     """创建并配置 FastMCP 实例。
 
     Args:
-        host: SSE 模式监听地址
-        port: SSE 模式监听端口
+        host: HTTP 模式监听地址
+        port: HTTP 模式监听端口
+        use_auth: 是否启用 per-request 认证（HTTP 模式）
     """
-    mcp = FastMCP(
-        "x-watcher",
-        instructions=(
+    kwargs: dict = {
+        "name": "x-watcher",
+        "instructions": (
             "X-watcher 是面向 AI Agent 的 X(Twitter) 平台智能信息监控服务。"
             "你可以通过这些工具查询推文 feed、搜索推文、浏览每日统计、"
             "管理监控主题、查看系统状态等。"
             "时间参数使用 ISO 8601 格式（如 2026-02-24T00:00:00Z）。"
         ),
-        lifespan=mcp_lifespan,
-        host=host,
-        port=port,
-    )
+        "lifespan": mcp_lifespan,
+        "host": host,
+        "port": port,
+    }
+
+    if use_auth:
+        from mcp.server.auth.settings import AuthSettings
+        from pydantic import AnyHttpUrl
+
+        from src.mcp.token_verifier import XWatcherTokenVerifier
+
+        auth_settings = AuthSettings(
+            issuer_url=AnyHttpUrl(f"http://{host}:{port}"),
+            resource_server_url=AnyHttpUrl(f"http://{host}:{port}"),
+        )
+        kwargs["auth"] = auth_settings
+        kwargs["token_verifier"] = XWatcherTokenVerifier()
+        logger.info("MCP per-request 认证已启用")
+
+    mcp = FastMCP(**kwargs)
 
     # 注册 Phase 1 工具（User 级只读：Feed、Browse、Status）
     from src.mcp.tools import browse_tools, feed_tools, status_tools
@@ -91,18 +110,27 @@ def run_mcp_server(
 
     Args:
         transport: 传输模式（"stdio" 或 "sse"）
-        host: SSE 模式监听地址
-        port: SSE 模式监听端口
-        api_key: SSE 模式下的 API Key（用于权限验证）
+        host: HTTP 模式监听地址
+        port: HTTP 模式监听端口
+        api_key: 已弃用，保留参数兼容性。HTTP 模式使用 per-request 认证。
     """
+    if api_key:
+        logger.warning(
+            "api_key 参数已弃用，HTTP 模式现在使用 per-request Bearer token 认证。"
+            "请通过 ADMIN_API_KEY 环境变量或数据库 API Key 配置访问权限。"
+        )
+
     # 1. 初始化日志（必须在创建 FastMCP 之前）
     init_mcp_logging(stderr_only=(transport == "stdio"))
 
-    # 2. 配置认证上下文
-    auth_context.configure(transport=transport, api_key=api_key)
+    # 2. 配置传输模式
+    configure_transport(transport)
 
-    # 3. 创建 MCP Server（host/port 传给构造函数供 SSE 使用）
-    mcp = create_mcp_server(host=host, port=port)
+    # 3. 创建 MCP Server
+    #    stdio 模式：不启用 auth（本地使用，默认 admin）
+    #    HTTP 模式：启用 per-request auth
+    use_auth = transport != "stdio"
+    mcp = create_mcp_server(host=host, port=port, use_auth=use_auth)
 
     # 4. 启动服务
     if transport == "stdio":

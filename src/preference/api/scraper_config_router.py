@@ -244,16 +244,13 @@ async def get_follows_stats(
             # SQLite 不支持 FLOOR 对 interval，用秒数计算
             interval_secs = int(interval.total_seconds())
 
-            # 使用原始 SQL 表达式计算 period bucket
-            from sqlalchemy import literal_column, cast, Integer
+            from sqlalchemy import cast, Integer
 
-            # SQLite: CAST((julianday('now') - julianday(created_at)) * 86400 / interval_secs AS INTEGER)
-            # 但 julianday 在 SQLite 中基于 UTC，与我们的 now 一致
-            # 更简单的方案：直接用 (strftime('%s', 'now') - strftime('%s', created_at)) / interval_secs
+            from src.database.dialect import sql_epoch
+
+            now_epoch = int(now.timestamp())
             bucket_expr = cast(
-                (func.strftime("%s", literal_column(f"'{now.strftime('%Y-%m-%d %H:%M:%S')}'"))
-                 - func.strftime("%s", TweetOrm.created_at))
-                / interval_secs,
+                (now_epoch - sql_epoch(TweetOrm.created_at, bind=session)) / interval_secs,
                 Integer,
             )
 

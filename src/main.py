@@ -67,41 +67,83 @@ async def _get_schedule_config_from_db() -> tuple[int | None, datetime | None, b
 
 
 def _migrate_schedule_config_table():
-    """为 scraper_schedule_config 表添加 is_enabled 列（如果不存在）。"""
+    """为 scraper_schedule_config 表添加 is_enabled 列（如果不存在）。
+
+    遗留内联迁移，已被 Alembic 覆盖。检查列是否存在后跳过。
+    """
+    from sqlalchemy import inspect as sa_inspect
+
+    eng = engine()
+    inspector = sa_inspect(eng)
+
+    try:
+        columns = [c["name"] for c in inspector.get_columns("scraper_schedule_config")]
+    except Exception:
+        return  # 表不存在
+
+    if "is_enabled" in columns:
+        return
+
     try:
         from sqlalchemy import text
-        eng = engine()
         with eng.connect() as conn:
             conn.execute(
-                text("ALTER TABLE scraper_schedule_config ADD COLUMN is_enabled BOOLEAN NOT NULL DEFAULT 1")
+                text(
+                    "ALTER TABLE scraper_schedule_config "
+                    "ADD COLUMN is_enabled BOOLEAN NOT NULL DEFAULT TRUE"
+                )
             )
             conn.commit()
             logger.info("数据库迁移：已添加 scraper_schedule_config.is_enabled 列")
     except Exception:
-        # 列已存在或表不存在时忽略
         pass
 
 
 def _migrate_scheduler_execution_log_table():
-    """创建 scheduler_execution_log 表（如果不存在）。"""
+    """确保 scheduler_execution_log 表存在。
+
+    遗留内联迁移，已被 Alembic 覆盖。检查表是否存在后跳过。
+    """
+    from sqlalchemy import inspect as sa_inspect
+
+    eng = engine()
+    inspector = sa_inspect(eng)
+
+    if "scheduler_execution_log" in inspector.get_table_names():
+        return
+
+    # 使用 ORM 创建表（如果 ORM 模型已注册）
+    from src.database.models import Base
+    table = Base.metadata.tables.get("scheduler_execution_log")
+    if table is not None:
+        table.create(eng, checkfirst=True)
+        logger.info("数据库迁移：已创建 scheduler_execution_log 表")
+        return
+
+    # 兜底：用方言兼容的原生 SQL
     try:
         from sqlalchemy import text
+        from src.database.dialect import is_sqlite
 
-        eng = engine()
+        if is_sqlite():
+            pk_clause = "id INTEGER PRIMARY KEY AUTOINCREMENT"
+        else:
+            pk_clause = "id SERIAL PRIMARY KEY"
+
         with eng.connect() as conn:
             conn.execute(
                 text(
-                    "CREATE TABLE IF NOT EXISTS scheduler_execution_log ("
-                    "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-                    "job_id VARCHAR(100) NOT NULL,"
-                    "event_type VARCHAR(20) NOT NULL,"
-                    "executed_at DATETIME NOT NULL,"
-                    "duration_seconds FLOAT,"
-                    "error_type VARCHAR(200),"
-                    "error_message TEXT,"
-                    "next_run_time DATETIME,"
-                    "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"
-                    ")"
+                    f"CREATE TABLE IF NOT EXISTS scheduler_execution_log ("
+                    f"{pk_clause},"
+                    f"job_id VARCHAR(100) NOT NULL,"
+                    f"event_type VARCHAR(20) NOT NULL,"
+                    f"executed_at TIMESTAMP NOT NULL,"
+                    f"duration_seconds FLOAT,"
+                    f"error_type VARCHAR(200),"
+                    f"error_message TEXT,"
+                    f"next_run_time TIMESTAMP,"
+                    f"created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP"
+                    f")"
                 )
             )
             conn.execute(

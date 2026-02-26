@@ -10,6 +10,22 @@ from src.logging_config import setup_logging
 
 logger = logging.getLogger(__name__)
 
+# 是否处于 stdio 模式（需要保护 stdout 不被污染）
+_stdio_mode = False
+
+
+def _redirect_all_handlers_to_stderr() -> None:
+    """将所有 logger 的 StreamHandler 重定向到 stderr。
+
+    SQLAlchemy 的 echo=True 会为引擎实例 logger 添加指向 stdout 的 handler，
+    这会破坏 MCP stdio 协议。此函数遍历所有已注册 logger 并统一重定向。
+    """
+    for name in list(logging.Logger.manager.loggerDict):
+        lg = logging.getLogger(name)
+        for handler in getattr(lg, "handlers", []):
+            if isinstance(handler, logging.StreamHandler) and handler.stream is not sys.stderr:
+                handler.stream = sys.stderr
+
 
 def init_mcp_logging(*, stderr_only: bool = True) -> None:
     """为 MCP 模式配置日志。
@@ -21,18 +37,16 @@ def init_mcp_logging(*, stderr_only: bool = True) -> None:
 
     settings = get_settings()
 
+    global _stdio_mode
     if stderr_only:
+        _stdio_mode = True
         # stdio 模式：禁用文件日志，仅 stderr 输出
         setup_logging(
             level=settings.log_level,
             log_format="text",
             log_file=None,
         )
-        # 确保 root logger 的所有 StreamHandler 都指向 stderr
-        root = logging.getLogger()
-        for handler in root.handlers:
-            if isinstance(handler, logging.StreamHandler):
-                handler.stream = sys.stderr
+        _redirect_all_handlers_to_stderr()
     else:
         # SSE 模式：正常日志配置
         setup_logging(
@@ -67,62 +81,89 @@ def init_database() -> None:
 
     eng = get_engine()
 
+    # 引擎创建时 echo=True 会添加指向 stdout 的 handler，立即重定向
+    if _stdio_mode:
+        _redirect_all_handlers_to_stderr()
+
     # 创建所有表
     Base.metadata.create_all(eng)
     logger.info("数据库表已创建/验证")
 
     # 迁移：确保 is_enabled 列存在
+    from sqlalchemy import inspect as sa_inspect
+
+    inspector = sa_inspect(eng)
+
     try:
-        with eng.connect() as conn:
-            conn.execute(
-                text(
-                    "ALTER TABLE scraper_schedule_config "
-                    "ADD COLUMN is_enabled BOOLEAN NOT NULL DEFAULT 1"
+        columns = [c["name"] for c in inspector.get_columns("scraper_schedule_config")]
+        if "is_enabled" not in columns:
+            with eng.connect() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE scraper_schedule_config "
+                        "ADD COLUMN is_enabled BOOLEAN NOT NULL DEFAULT TRUE"
+                    )
                 )
-            )
-            conn.commit()
-            logger.info("数据库迁移：已添加 scraper_schedule_config.is_enabled 列")
+                conn.commit()
+                logger.info("数据库迁移：已添加 scraper_schedule_config.is_enabled 列")
     except Exception:
-        pass  # 列已存在
+        pass  # 表不存在
 
     # 迁移：确保 scheduler_execution_log 表存在
-    try:
-        with eng.connect() as conn:
-            conn.execute(
-                text(
-                    "CREATE TABLE IF NOT EXISTS scheduler_execution_log ("
-                    "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-                    "job_id VARCHAR(100) NOT NULL,"
-                    "event_type VARCHAR(20) NOT NULL,"
-                    "executed_at DATETIME NOT NULL,"
-                    "duration_seconds FLOAT,"
-                    "error_type VARCHAR(200),"
-                    "error_message TEXT,"
-                    "next_run_time DATETIME,"
-                    "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"
-                    ")"
-                )
-            )
-            conn.execute(
-                text(
-                    "CREATE INDEX IF NOT EXISTS idx_scheduler_log_job_id "
-                    "ON scheduler_execution_log(job_id)"
-                )
-            )
-            conn.execute(
-                text(
-                    "CREATE INDEX IF NOT EXISTS idx_scheduler_log_event_type "
-                    "ON scheduler_execution_log(event_type)"
-                )
-            )
-            conn.execute(
-                text(
-                    "CREATE INDEX IF NOT EXISTS idx_scheduler_log_executed_at "
-                    "ON scheduler_execution_log(executed_at)"
-                )
-            )
-            conn.commit()
-    except Exception:
-        pass
+    if "scheduler_execution_log" not in inspector.get_table_names():
+        table = Base.metadata.tables.get("scheduler_execution_log")
+        if table is not None:
+            table.create(eng, checkfirst=True)
+            logger.info("数据库迁移：已创建 scheduler_execution_log 表")
+        else:
+            from src.database.dialect import is_sqlite
+
+            if is_sqlite():
+                pk_clause = "id INTEGER PRIMARY KEY AUTOINCREMENT"
+            else:
+                pk_clause = "id SERIAL PRIMARY KEY"
+
+            try:
+                with eng.connect() as conn:
+                    conn.execute(
+                        text(
+                            f"CREATE TABLE IF NOT EXISTS scheduler_execution_log ("
+                            f"{pk_clause},"
+                            f"job_id VARCHAR(100) NOT NULL,"
+                            f"event_type VARCHAR(20) NOT NULL,"
+                            f"executed_at TIMESTAMP NOT NULL,"
+                            f"duration_seconds FLOAT,"
+                            f"error_type VARCHAR(200),"
+                            f"error_message TEXT,"
+                            f"next_run_time TIMESTAMP,"
+                            f"created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP"
+                            f")"
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_scheduler_log_job_id "
+                            "ON scheduler_execution_log(job_id)"
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_scheduler_log_event_type "
+                            "ON scheduler_execution_log(event_type)"
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_scheduler_log_executed_at "
+                            "ON scheduler_execution_log(executed_at)"
+                        )
+                    )
+                    conn.commit()
+            except Exception:
+                pass
+
+    # 引擎创建后，SQLAlchemy echo=True 可能新增了 stdout handler，需再次重定向
+    if _stdio_mode:
+        _redirect_all_handlers_to_stderr()
 
     logger.info("MCP 数据库初始化完成")

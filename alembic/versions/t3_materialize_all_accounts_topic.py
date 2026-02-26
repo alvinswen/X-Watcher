@@ -44,11 +44,11 @@ def upgrade() -> None:
     if existing:
         topic_id = existing[0]
     else:
-        # 插入"全部账号"主题
+        # 插入"全部账号"主题（CURRENT_TIMESTAMP 是 SQL 标准，SQLite/PostgreSQL 通用）
         conn.execute(
             sa.text(
                 "INSERT INTO topics (name, description, created_at, updated_at) "
-                "VALUES (:name, :desc, datetime('now'), datetime('now'))"
+                "VALUES (:name, :desc, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
             ),
             {"name": TOPIC_NAME, "desc": TOPIC_DESC},
         )
@@ -60,14 +60,21 @@ def upgrade() -> None:
         topic_id = row[0]
 
     # 2. 将所有活跃 scraper_follows 关联到该主题（跳过已关联的）
-    conn.execute(
-        sa.text(
+    dialect_name = conn.dialect.name
+    if dialect_name == "sqlite":
+        insert_sql = (
             "INSERT OR IGNORE INTO topic_accounts (topic_id, username, added_at) "
-            "SELECT :topic_id, username, datetime('now') "
+            "SELECT :topic_id, username, CURRENT_TIMESTAMP "
             "FROM scraper_follows WHERE is_active = 1"
-        ),
-        {"topic_id": topic_id},
-    )
+        )
+    else:
+        insert_sql = (
+            "INSERT INTO topic_accounts (topic_id, username, added_at) "
+            "SELECT :topic_id, username, CURRENT_TIMESTAMP "
+            "FROM scraper_follows WHERE is_active = 1 "
+            "ON CONFLICT DO NOTHING"
+        )
+    conn.execute(sa.text(insert_sql), {"topic_id": topic_id})
 
     # 3. 将 topic_id IS NULL 的摘要任务迁移到新主题
     conn.execute(

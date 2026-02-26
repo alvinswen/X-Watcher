@@ -106,25 +106,34 @@ def get_async_engine():
     global _async_engine
     if _async_engine is None:
         from src.config import get_settings
+        from src.database.dialect import is_sqlite
 
         settings = get_settings()
+
+        engine_kwargs: dict = {
+            "echo": settings.log_level == "DEBUG",
+            "pool_pre_ping": True,
+        }
+
+        if is_sqlite():
+            engine_kwargs["connect_args"] = {"timeout": 30}
+        else:
+            engine_kwargs["pool_size"] = 10
+            engine_kwargs["max_overflow"] = 20
+
         _async_engine = create_async_engine(
-            _get_async_database_url(),
-            echo=settings.log_level == "DEBUG",
-            pool_pre_ping=True,
-            connect_args={"timeout": 30},  # aiosqlite 连接级 timeout
+            _get_async_database_url(), **engine_kwargs
         )
 
-        # SQLite 并发优化：WAL 模式 + busy_timeout
-        # WAL 允许读写并发，busy_timeout 让写操作等待锁释放而非立即失败
-        @event.listens_for(_async_engine.sync_engine, "connect")
-        def _set_sqlite_pragma(dbapi_conn, connection_record):
-            cursor = dbapi_conn.cursor()
-            cursor.execute("PRAGMA journal_mode=WAL")
-            cursor.execute("PRAGMA busy_timeout=30000")  # 30 秒
-            cursor.execute("PRAGMA synchronous=NORMAL")  # WAL 模式下推荐
-            cursor.execute("PRAGMA foreign_keys=ON")
-            cursor.close()
+        if is_sqlite():
+            @event.listens_for(_async_engine.sync_engine, "connect")
+            def _set_sqlite_pragma(dbapi_conn, connection_record):
+                cursor = dbapi_conn.cursor()
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute("PRAGMA busy_timeout=30000")
+                cursor.execute("PRAGMA synchronous=NORMAL")
+                cursor.execute("PRAGMA foreign_keys=ON")
+                cursor.close()
 
         # 启动指标收集
         _start_metrics_collection()

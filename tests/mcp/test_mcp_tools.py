@@ -363,40 +363,52 @@ class TestHelpers:
 
 class TestMCPAuth:
     def test_stdio_default_admin(self):
-        from src.mcp.auth import MCPAuthContext
+        from src.mcp.auth import configure_transport, get_transport, is_admin
 
-        ctx = MCPAuthContext()
-        ctx.configure(transport="stdio")
-        assert ctx.is_admin is True
-        assert ctx.transport == "stdio"
+        configure_transport("stdio")
+        assert is_admin() is True
+        assert get_transport() == "stdio"
 
-    def test_sse_no_key_not_admin(self):
-        from src.mcp.auth import MCPAuthContext
+    def test_sse_no_token_not_admin(self):
+        from src.mcp.auth import configure_transport, get_transport, is_admin
 
-        ctx = MCPAuthContext()
-        ctx.configure(transport="sse")
-        assert ctx.is_admin is False
-        assert ctx.transport == "sse"
+        configure_transport("sse")
+        # HTTP 模式下无 ContextVar token → 非 admin
+        assert is_admin() is False
+        assert get_transport() == "sse"
 
-    def test_sse_admin_api_key(self):
-        from src.mcp.auth import MCPAuthContext
+    def test_sse_admin_token_in_context(self):
+        from mcp.server.auth.middleware.auth_context import auth_context_var
+        from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
+        from mcp.server.auth.provider import AccessToken
 
-        ctx = MCPAuthContext()
-        with patch("src.config.get_settings") as mock_settings:
-            mock_settings.return_value.admin_api_key = "test-key-123"
-            ctx.configure(transport="sse", api_key="test-key-123")
-        assert ctx.is_admin is True
+        from src.mcp.auth import configure_transport, is_admin
+
+        configure_transport("sse")
+
+        # 模拟 per-request ContextVar 中有 admin token
+        token = AccessToken(
+            token="test-admin-key",
+            client_id="admin",
+            scopes=["admin", "user"],
+        )
+        auth_user = AuthenticatedUser(token)
+        ctx_token = auth_context_var.set(auth_user)
+        try:
+            assert is_admin() is True
+        finally:
+            auth_context_var.reset(ctx_token)
 
     def test_require_admin_pass(self):
-        from src.mcp.auth import auth_context, require_admin
+        from src.mcp.auth import configure_transport, require_admin
 
-        auth_context.configure(transport="stdio")
+        configure_transport("stdio")
         assert require_admin() is None
 
     def test_require_admin_fail(self):
-        from src.mcp.auth import auth_context, require_admin
+        from src.mcp.auth import configure_transport, require_admin
 
-        auth_context.configure(transport="sse")
+        configure_transport("sse")
         result = require_admin()
         assert result is not None
         data = json.loads(result)

@@ -92,11 +92,13 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
+        # SQLite 需要 batch 模式来修改表结构，PostgreSQL 不需要
+        use_batch = sync_url.startswith("sqlite")
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
             compare_type=True,
-            render_as_batch=True,  # SQLite 需要 batch 模式来修改表结构
+            render_as_batch=use_batch,
         )
 
         with context.begin_transaction():

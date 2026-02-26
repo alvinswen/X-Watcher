@@ -403,10 +403,15 @@ class TestAdminToolsIntegration:
     @pytest.mark.asyncio
     async def test_admin_tools_require_permission(self, tool_funcs):
         """测试 admin 工具在无权限时拒绝访问。"""
-        with patch("src.mcp.auth.auth_context") as mock_ctx:
-            mock_ctx.is_admin = False
-            mock_ctx.transport = "sse"
+        import src.mcp.auth as auth_mod
+
+        original_transport = auth_mod._transport
+        try:
+            auth_mod._transport = "sse"
+            # HTTP 模式下无 ContextVar token → is_admin() 返回 False
             result = await tool_funcs["manage_follows"](action="list")
+        finally:
+            auth_mod._transport = original_transport
 
         data = json.loads(result)
         assert data["success"] is False

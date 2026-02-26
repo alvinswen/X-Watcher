@@ -5,7 +5,6 @@
 
 import asyncio
 import logging
-import os
 from datetime import datetime, timezone
 
 from mcp.server.fastmcp import FastMCP
@@ -27,7 +26,6 @@ def register(mcp: FastMCP) -> None:
         try:
             from sqlalchemy import func, select
 
-            from src.config import get_settings
             from src.database.async_session import get_async_session_maker
             from src.database.models import ScraperFollow
             from src.scraper.infrastructure.models import TweetOrm
@@ -158,19 +156,9 @@ def register(mcp: FastMCP) -> None:
                 pass
 
             # 系统信息
-            settings = get_settings()
-            db_url = settings.database_url
-            database_size_mb = None
-            if db_url.startswith("sqlite:///"):
-                db_path = db_url.replace("sqlite:///", "")
-                if db_path.startswith("./"):
-                    db_path = db_path[2:]
-                try:
-                    database_size_mb = round(
-                        os.path.getsize(db_path) / (1024 * 1024), 2
-                    )
-                except OSError:
-                    pass
+            from src.database.dialect import get_database_size_mb
+
+            database_size_mb = get_database_size_mb()
 
             return success_response({
                 "tweets": tweets,

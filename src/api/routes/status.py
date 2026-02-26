@@ -5,7 +5,6 @@
 
 import asyncio
 import logging
-import os
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
@@ -236,22 +235,10 @@ def _get_scheduler_stats() -> SchedulerStats:
 
 def _get_system_stats() -> SystemStats:
     """系统统计。"""
-    server_start_time = get_server_start_time()
+    from src.database.dialect import get_database_size_mb
 
-    # 数据库大小（仅 SQLite）
-    database_size_mb = None
-    settings = get_settings()
-    db_url = settings.database_url
-    if db_url.startswith("sqlite:///"):
-        db_path = db_url.replace("sqlite:///", "")
-        # 处理相对路径的 ./
-        if db_path.startswith("./"):
-            db_path = db_path[2:]
-        try:
-            size_bytes = os.path.getsize(db_path)
-            database_size_mb = round(size_bytes / (1024 * 1024), 2)
-        except OSError:
-            database_size_mb = None
+    server_start_time = get_server_start_time()
+    database_size_mb = get_database_size_mb()
 
     return SystemStats(
         server_start_time=server_start_time,

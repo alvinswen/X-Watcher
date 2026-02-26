@@ -85,3 +85,4 @@ openapi*.json
 
 # Debug reports
 debug_reports/
+*.db.bak*

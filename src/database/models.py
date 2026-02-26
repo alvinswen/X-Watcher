@@ -35,27 +35,37 @@ def get_engine():
     """获取数据库引擎。
 
     用于同步数据库操作。引擎在首次调用时创建。
+    SQLite 使用 WAL 模式 + busy_timeout；PostgreSQL 使用连接池。
     """
     global _engine
     if _engine is None:
         from src.config import get_settings
+        from src.database.dialect import is_sqlite
 
         settings = get_settings()
-        _engine = create_engine(
-            settings.database_url,
-            echo=settings.log_level == "DEBUG",
-            connect_args={"timeout": 30},
-        )
 
-        # SQLite 并发优化：WAL 模式 + busy_timeout
-        @event.listens_for(_engine, "connect")
-        def _set_sqlite_pragma(dbapi_conn, connection_record):
-            cursor = dbapi_conn.cursor()
-            cursor.execute("PRAGMA journal_mode=WAL")
-            cursor.execute("PRAGMA busy_timeout=30000")  # 30 秒
-            cursor.execute("PRAGMA synchronous=NORMAL")  # WAL 模式下推荐
-            cursor.execute("PRAGMA foreign_keys=ON")
-            cursor.close()
+        engine_kwargs: dict = {
+            "echo": settings.log_level == "DEBUG",
+        }
+
+        if is_sqlite():
+            engine_kwargs["connect_args"] = {"timeout": 30}
+        else:
+            engine_kwargs["pool_size"] = 10
+            engine_kwargs["max_overflow"] = 20
+            engine_kwargs["pool_pre_ping"] = True
+
+        _engine = create_engine(settings.database_url, **engine_kwargs)
+
+        if is_sqlite():
+            @event.listens_for(_engine, "connect")
+            def _set_sqlite_pragma(dbapi_conn, connection_record):
+                cursor = dbapi_conn.cursor()
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute("PRAGMA busy_timeout=30000")
+                cursor.execute("PRAGMA synchronous=NORMAL")
+                cursor.execute("PRAGMA foreign_keys=ON")
+                cursor.close()
     return _engine
 
 

@@ -30,8 +30,9 @@ async def build_hourly_distributions(
     excluded: list[str] = []
 
     for username in usernames:
-        # 用 strftime 提取小时（SQLite），func.lower 做大小写不敏感匹配
-        hour_expr = cast(func.strftime("%H", TweetOrm.created_at), Integer)
+        from src.database.dialect import sql_extract_hour
+
+        hour_expr = sql_extract_hour(TweetOrm.created_at, bind=session)
         stmt = (
             select(hour_expr.label("hour"), func.count().label("count"))
             .where(func.lower(TweetOrm.author_username) == username.lower())

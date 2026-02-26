@@ -57,14 +57,13 @@ class AnalyticsService:
         # 3. 构建 30 分钟分组的 SQL 聚合
         # tz_offset 来自 JS getTimezoneOffset()，含义为 UTC - local
         # local = UTC + (-tz_offset) minutes
-        offset_modifier = f"{-tz_offset} minutes"
+        from src.database.dialect import sql_epoch_to_formatted, sql_epoch_with_offset
 
-        # strftime('%s', ...) → Unix 时间戳(字符串)
-        # cast 为整数 → 整除 1800（截断为整数）再乘回 → slot 起始时间戳
-        local_ts = func.strftime("%s", TweetOrm.created_at, offset_modifier)
-        # 显式 cast 除法结果为 Integer 以确保截断（SQLAlchemy 的 / 会生成浮点除法）
-        slot_ts = cast(cast(local_ts, Integer) / 1800, Integer) * 1800
-        slot_label = func.strftime("%Y-%m-%d %H:%M", slot_ts, "unixepoch")
+        local_epoch = sql_epoch_with_offset(
+            TweetOrm.created_at, -tz_offset, bind=self._session
+        )
+        slot_ts = cast(local_epoch / 1800, Integer) * 1800
+        slot_label = sql_epoch_to_formatted(slot_ts, bind=self._session)
 
         stmt = (
             select(

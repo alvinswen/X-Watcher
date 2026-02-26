@@ -26,7 +26,7 @@ async def upgrade(session: AsyncSession) -> None:
         completion_tokens INTEGER NOT NULL,
         total_tokens INTEGER NOT NULL,
         cost_usd REAL NOT NULL,
-        cached BOOLEAN NOT NULL DEFAULT 0,
+        cached BOOLEAN NOT NULL DEFAULT FALSE,
         content_hash VARCHAR(64) NOT NULL,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -35,9 +35,8 @@ async def upgrade(session: AsyncSession) -> None:
     await session.execute(text(create_table_sql))
 
     # 添加 tweets 表扩展字段（如果不存在）
-    # SQLite 需要分别检查并添加列
     try:
-        await session.execute(text("ALTER TABLE tweets ADD COLUMN summary_cached BOOLEAN DEFAULT 0"))
+        await session.execute(text("ALTER TABLE tweets ADD COLUMN summary_cached BOOLEAN DEFAULT FALSE"))
     except Exception:
         pass  # 列已存在
 
