@@ -52,6 +52,10 @@ def create_mcp_server(
             "你可以通过这些工具查询推文 feed、搜索推文、浏览每日统计、"
             "管理监控主题、查看系统状态等。"
             "时间参数使用 ISO 8601 格式（如 2026-02-24T00:00:00Z）。"
+            "\n\n"
+            "## 工作流配方\n"
+            "对于复杂场景（如生成每日摘要），请读取 xwatcher://recipes/ 下的资源获取分步指南。"
+            "可用配方：xwatcher://recipes/daily-summary（每日摘要生成）。"
         ),
         "lifespan": mcp_lifespan,
         "host": host,
@@ -93,9 +97,10 @@ def create_mcp_server(
     admin_tools.register(mcp)
 
     # 注册资源
-    from src.mcp.resources import providers
+    from src.mcp.resources import providers, recipes
 
     providers.register(mcp)
+    recipes.register(mcp)
 
     return mcp
 

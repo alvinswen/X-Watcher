@@ -478,8 +478,8 @@ class TestToolRegistration:
         }
         assert expected == tool_names, f"缺少工具: {expected - tool_names}"
 
-    def test_all_4_resources_registered(self):
-        """验证全部 4 个资源已注册。"""
+    def test_all_5_resources_registered(self):
+        """验证全部 5 个资源已注册。"""
         from src.mcp.server import create_mcp_server
 
         mcp = create_mcp_server()
@@ -489,5 +489,6 @@ class TestToolRegistration:
             "xwatcher://follows",
             "xwatcher://topics",
             "xwatcher://config",
+            "xwatcher://recipes/daily-summary",
         }
         assert expected == resource_uris

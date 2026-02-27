@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 
 from mcp.server.fastmcp import FastMCP
 
-from src.mcp.helpers import error_response, success_response
+from src.mcp.helpers import error_response, parse_datetime_optional, success_response
 
 logger = logging.getLogger(__name__)
 
@@ -231,6 +231,7 @@ def register(mcp: FastMCP) -> None:
         topic_id: int,
         action: str = "latest",
         time_span_hours: int = 24,
+        deadline: str | None = None,
         tz_offset: int = -480,
     ) -> str:
         """获取或创建主题的 AI 聚合摘要。
@@ -242,6 +243,9 @@ def register(mcp: FastMCP) -> None:
                     "create" - 创建新的摘要任务
                     "list" - 列出该主题的所有摘要任务
             time_span_hours: 创建摘要时的时间跨度（小时），默认 24
+            deadline: 摘要覆盖时段的截止时间，ISO 8601 格式。
+                      默认为当前时间。配合 time_span_hours 确定覆盖区间
+                      [deadline - time_span_hours, deadline]
             tz_offset: 时区偏移（分钟），UTC+8 为 -480。默认 -480
         """
         if action not in ("latest", "create", "list"):
@@ -270,13 +274,15 @@ def register(mcp: FastMCP) -> None:
                     return success_response(task.model_dump())
 
                 elif action == "create":
-                    deadline = datetime.now(timezone.utc)
+                    deadline_dt = parse_datetime_optional(deadline)
+                    if deadline_dt is None:
+                        deadline_dt = datetime.now(timezone.utc)
                     task = await summary_service.create_and_execute_task(
                         session=session,
                         session_factory=session_maker,
                         topic_id=topic_id,
                         time_span_hours=time_span_hours,
-                        deadline=deadline,
+                        deadline=deadline_dt,
                         tz_offset=tz_offset,
                     )
                     return success_response({

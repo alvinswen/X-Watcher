@@ -247,6 +247,29 @@ def register(mcp: FastMCP) -> None:
 
             if action == "status":
                 config = await service.get_schedule_config()
+
+                # 查询最近执行记录
+                last_execution = None
+                try:
+                    from src.database.async_session import get_async_session_maker
+                    from src.scraper.infrastructure.scheduler_log_repository import (
+                        SchedulerExecutionLogRepository,
+                    )
+
+                    session_maker = get_async_session_maker()
+                    async with session_maker() as session:
+                        repo = SchedulerExecutionLogRepository(session)
+                        logs = await repo.get_recent_logs(limit=1)
+                        if logs:
+                            log = logs[0]
+                            last_execution = {
+                                "executed_at": log.executed_at,
+                                "event_type": log.event_type.value,
+                                "duration_seconds": log.duration_seconds,
+                            }
+                except Exception:
+                    pass
+
                 return success_response({
                     "action": "status",
                     "config": {
@@ -256,6 +279,7 @@ def register(mcp: FastMCP) -> None:
                         "updated_at": config.updated_at,
                         "updated_by": config.updated_by,
                     },
+                    "last_execution": last_execution,
                     "note": "调度器在 FastAPI 服务中运行，MCP 仅显示/修改配置",
                 })
 
@@ -357,10 +381,12 @@ def register(mcp: FastMCP) -> None:
             elif action == "backfill":
                 # 启动后台 backfill 任务
                 from src.summarization.services.summarization_queue import (
+                    SummarizationPriority,
                     SummarizationQueue,
                 )
 
                 queue = SummarizationQueue.get_instance()
+                await queue.start()  # 幂等：已启动则立即返回
 
                 # 查询待摘要推文 ID
                 async with session_maker() as session:
@@ -383,15 +409,17 @@ def register(mcp: FastMCP) -> None:
                     })
 
                 # 入队（队列在 FastAPI 进程中运行，MCP 需要自行启动）
-                enqueued = await queue.enqueue_batch(
-                    tweet_ids, priority=5, source="mcp_backfill"
+                task_id = await queue.enqueue(
+                    tweet_ids,
+                    source="mcp_backfill",
+                    priority=SummarizationPriority.HIGH,
                 )
 
                 return success_response({
                     "action": "backfill",
-                    "enqueued": enqueued,
-                    "total_pending": len(tweet_ids),
-                    "note": "摘要任务已入队，需要摘要队列正在运行才能处理",
+                    "task_id": task_id,
+                    "tweet_count": len(tweet_ids),
+                    "note": "摘要任务已入队，worker 正在处理",
                 })
 
             elif action == "reset":

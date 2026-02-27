@@ -69,8 +69,9 @@ src/
 │   │   ├── topic_tools.py   # list_topics, get_topic, manage_topic, manage_topic_accounts, get_topic_summary
 │   │   ├── analytics_tools.py  # get_posting_frequency
 │   │   └── admin_tools.py   # manage_follows, trigger_scrape, get_task_status, manage_scheduler, batch_summarize, get_follow_accounts_info
-│   └── resources/           # MCP 动态资源（4 个）
-│       └── providers.py     # xwatcher://status, xwatcher://follows, xwatcher://topics, xwatcher://config
+│   └── resources/           # MCP 动态资源（5 个）
+│       ├── providers.py     # xwatcher://status, xwatcher://follows, xwatcher://topics, xwatcher://config
+│       └── recipes.py       # xwatcher://recipes/daily-summary（Agent 工作流配方）
 ├── summarization/           # AI 摘要模块
 │   ├── domain/models.py     # 领域模型
 │   ├── infrastructure/
