@@ -27,6 +27,8 @@ async def mcp_lifespan(server: FastMCP):
         is_admin(),
     )
     init_database()
+    from src.mcp.security import log_action_guard_config
+    log_action_guard_config()
     logger.info("MCP Server 就绪")
     yield
     logger.info("MCP Server 关闭")

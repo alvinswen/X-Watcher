@@ -86,6 +86,12 @@ def register(mcp: FastMCP) -> None:
                 "validation",
             )
 
+        from src.mcp.security import audit_log, check_action_guard
+
+        guard_err = check_action_guard("manage_topic", action)
+        if guard_err:
+            return guard_err
+
         try:
             from src.database.async_session import get_async_session_maker
             from src.topic.services.topic_service import TopicService
@@ -102,6 +108,7 @@ def register(mcp: FastMCP) -> None:
                     topic = await service.create_topic(
                         session, name=name, description=description
                     )
+                    audit_log("manage_topic", "create", params={"name": name})
                     return success_response({
                         "action": "created",
                         "topic": topic.model_dump(),
@@ -119,6 +126,7 @@ def register(mcp: FastMCP) -> None:
                         return error_response(
                             f"主题 ID {topic_id} 不存在", "not_found"
                         )
+                    audit_log("manage_topic", "update", params={"topic_id": topic_id})
                     return success_response({
                         "action": "updated",
                         "topic": topic.model_dump(),
@@ -134,6 +142,7 @@ def register(mcp: FastMCP) -> None:
                         return error_response(
                             f"主题 ID {topic_id} 不存在", "not_found"
                         )
+                    audit_log("manage_topic", "delete", params={"topic_id": topic_id})
                     return success_response({
                         "action": "deleted",
                         "topic_id": topic_id,
@@ -142,6 +151,7 @@ def register(mcp: FastMCP) -> None:
         except ValueError as e:
             return error_response(str(e), "validation")
         except Exception as e:
+            audit_log("manage_topic", action, result="failure", error=str(e))
             logger.error("manage_topic 失败: %s", e, exc_info=True)
             return error_response(f"操作失败: {e}")
 
@@ -163,6 +173,12 @@ def register(mcp: FastMCP) -> None:
                 f"无效的 action: {action}，可选值: add, remove, set",
                 "validation",
             )
+
+        from src.mcp.security import audit_log, check_action_guard
+
+        guard_err = check_action_guard("manage_topic_accounts", action)
+        if guard_err:
+            return guard_err
 
         username_list = [u.strip() for u in usernames.split(",") if u.strip()]
         if not username_list:
@@ -187,6 +203,7 @@ def register(mcp: FastMCP) -> None:
                             results.append(account.model_dump())
                         except ValueError as e:
                             errors.append({"username": username, "error": str(e)})
+                    audit_log("manage_topic_accounts", "add", params={"topic_id": topic_id, "usernames": username_list})
                     return success_response({
                         "action": "added",
                         "added": results,
@@ -204,6 +221,7 @@ def register(mcp: FastMCP) -> None:
                             removed.append(username)
                         else:
                             not_found.append(username)
+                    audit_log("manage_topic_accounts", "remove", params={"topic_id": topic_id, "usernames": username_list})
                     return success_response({
                         "action": "removed",
                         "removed": removed,
@@ -214,6 +232,7 @@ def register(mcp: FastMCP) -> None:
                     accounts = await service.set_accounts(
                         session, topic_id, username_list
                     )
+                    audit_log("manage_topic_accounts", "set", params={"topic_id": topic_id, "usernames": username_list})
                     return success_response({
                         "action": "set",
                         "accounts": [a.model_dump() for a in accounts],
@@ -223,6 +242,7 @@ def register(mcp: FastMCP) -> None:
         except ValueError as e:
             return error_response(str(e), "validation")
         except Exception as e:
+            audit_log("manage_topic_accounts", action, result="failure", error=str(e))
             logger.error("manage_topic_accounts 失败: %s", e, exc_info=True)
             return error_response(f"操作失败: {e}")
 
@@ -253,6 +273,12 @@ def register(mcp: FastMCP) -> None:
                 f"无效的 action: {action}，可选值: latest, create, list",
                 "validation",
             )
+
+        from src.mcp.security import audit_log, check_action_guard
+
+        guard_err = check_action_guard("get_topic_summary", action)
+        if guard_err:
+            return guard_err
 
         try:
             from src.database.async_session import get_async_session_maker
@@ -285,6 +311,7 @@ def register(mcp: FastMCP) -> None:
                         deadline=deadline_dt,
                         tz_offset=tz_offset,
                     )
+                    audit_log("get_topic_summary", "create", params={"topic_id": topic_id, "time_span_hours": time_span_hours})
                     return success_response({
                         "message": "摘要任务已创建并开始执行",
                         "task": task.model_dump(),
@@ -302,5 +329,7 @@ def register(mcp: FastMCP) -> None:
         except ValueError as e:
             return error_response(str(e), "validation")
         except Exception as e:
+            if action == "create":
+                audit_log("get_topic_summary", action, result="failure", error=str(e))
             logger.error("get_topic_summary 失败: %s", e, exc_info=True)
             return error_response(f"操作失败: {e}")

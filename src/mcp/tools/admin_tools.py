@@ -55,6 +55,12 @@ def register(mcp: FastMCP) -> None:
                 "validation",
             )
 
+        from src.mcp.security import audit_log, check_action_guard
+
+        guard_err = check_action_guard("manage_follows", action)
+        if guard_err:
+            return guard_err
+
         try:
             from src.database.async_session import get_async_session_maker
             from src.preference.infrastructure.scraper_config_repository import (
@@ -100,6 +106,7 @@ def register(mcp: FastMCP) -> None:
                         username=username, reason=reason, added_by="mcp_admin"
                     )
                     await session.commit()
+                    audit_log("manage_follows", "add", params={"username": username})
                     return success_response({
                         "action": "added",
                         "username": follow.username,
@@ -116,6 +123,7 @@ def register(mcp: FastMCP) -> None:
                         brief_intro=brief_intro,
                     )
                     await session.commit()
+                    audit_log("manage_follows", "update", params={"username": username})
                     return success_response({
                         "action": "updated",
                         "username": follow.username,
@@ -126,12 +134,14 @@ def register(mcp: FastMCP) -> None:
                         return error_response("停用时 username 必填", "validation")
                     await service.deactivate_follow(username=username)
                     await session.commit()
+                    audit_log("manage_follows", "deactivate", params={"username": username})
                     return success_response({
                         "action": "deactivated",
                         "username": username,
                     })
 
         except Exception as e:
+            audit_log("manage_follows", action, result="failure", error=str(e))
             logger.error("manage_follows 失败: %s", e, exc_info=True)
             return error_response(f"操作失败: {e}")
 
@@ -149,6 +159,12 @@ def register(mcp: FastMCP) -> None:
         perm_err = require_admin()
         if perm_err:
             return perm_err
+
+        from src.mcp.security import audit_log, check_scrape_guard
+
+        guard_err = check_scrape_guard()
+        if guard_err:
+            return guard_err
 
         try:
             from src.scraper import ScrapingService, TaskRegistry
@@ -179,6 +195,7 @@ def register(mcp: FastMCP) -> None:
                 limit=limit,
             )
 
+            audit_log("trigger_scrape", "scrape", params={"usernames": user_list, "limit": limit})
             return success_response({
                 "task_id": task_id,
                 "usernames": user_list,
@@ -186,6 +203,7 @@ def register(mcp: FastMCP) -> None:
                 "message": "抓取任务已启动",
             })
         except Exception as e:
+            audit_log("trigger_scrape", "scrape", result="failure", error=str(e))
             logger.error("trigger_scrape 失败: %s", e, exc_info=True)
             return error_response(f"触发抓取失败: {e}")
 
@@ -237,6 +255,12 @@ def register(mcp: FastMCP) -> None:
                 f"无效的 action: {action}，可选值: status, update_interval, enable, disable",
                 "validation",
             )
+
+        from src.mcp.security import audit_log, check_action_guard
+
+        guard_err = check_action_guard("manage_scheduler", action)
+        if guard_err:
+            return guard_err
 
         try:
             from src.preference.services.schedule_service import (
@@ -291,6 +315,7 @@ def register(mcp: FastMCP) -> None:
                 config = await service.update_interval(
                     interval_seconds=interval_seconds, updated_by="mcp_admin"
                 )
+                audit_log("manage_scheduler", "update_interval", params={"interval_seconds": interval_seconds})
                 return success_response({
                     "action": "interval_updated",
                     "interval_seconds": config.interval_seconds,
@@ -298,6 +323,7 @@ def register(mcp: FastMCP) -> None:
 
             elif action == "enable":
                 config = await service.enable_schedule(updated_by="mcp_admin")
+                audit_log("manage_scheduler", "enable")
                 return success_response({
                     "action": "enabled",
                     "is_enabled": config.is_enabled,
@@ -305,12 +331,15 @@ def register(mcp: FastMCP) -> None:
 
             elif action == "disable":
                 config = await service.disable_schedule(updated_by="mcp_admin")
+                audit_log("manage_scheduler", "disable")
                 return success_response({
                     "action": "disabled",
                     "is_enabled": config.is_enabled,
                 })
 
         except Exception as e:
+            if action != "status":
+                audit_log("manage_scheduler", action, result="failure", error=str(e))
             logger.error("manage_scheduler 失败: %s", e, exc_info=True)
             return error_response(f"操作失败: {e}")
 
@@ -341,6 +370,12 @@ def register(mcp: FastMCP) -> None:
                 f"无效的 action: {action}，可选值: preview, backfill, reset",
                 "validation",
             )
+
+        from src.mcp.security import audit_log, check_action_guard
+
+        guard_err = check_action_guard("batch_summarize", action)
+        if guard_err:
+            return guard_err
 
         try:
             from sqlalchemy import func, select
@@ -415,6 +450,7 @@ def register(mcp: FastMCP) -> None:
                     priority=SummarizationPriority.HIGH,
                 )
 
+                audit_log("batch_summarize", "backfill", params={"tweet_count": len(tweet_ids)})
                 return success_response({
                     "action": "backfill",
                     "task_id": task_id,
@@ -440,6 +476,7 @@ def register(mcp: FastMCP) -> None:
                     )
                     tweet_count = result.scalar() or 0
 
+                audit_log("batch_summarize", "reset", params={"since": since, "until": until, "tweet_count": tweet_count})
                 return success_response({
                     "action": "reset_preview",
                     "since": since,
@@ -451,6 +488,7 @@ def register(mcp: FastMCP) -> None:
         except (ValueError, TypeError) as e:
             return error_response(f"参数解析失败: {e}", "validation")
         except Exception as e:
+            audit_log("batch_summarize", action, result="failure", error=str(e))
             logger.error("batch_summarize 失败: %s", e, exc_info=True)
             return error_response(f"操作失败: {e}")
 
