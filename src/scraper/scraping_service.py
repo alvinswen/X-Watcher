@@ -420,6 +420,7 @@ class ScrapingService:
         username: str,
         *,
         max_pages: int = 20,
+        min_pages: int = 0,
     ) -> dict[str, Any]:
         """全量回溯单个用户的历史推文。
 
@@ -429,6 +430,7 @@ class ScrapingService:
         Args:
             username: 用户名
             max_pages: 最大抓取页数
+            min_pages: 最少抓取页数（在此之前不检查跳过率，用于穿透已有推文填补空缺）
 
         Returns:
             dict: 回溯结果 {username, success, fetched, new, skipped, pages}
@@ -482,9 +484,9 @@ class ScrapingService:
                     # 获取本页推文关联的 Articles
                     await self._fetch_and_save_articles(cleaned_tweets)
 
-                    # 停止条件：本页大部分推文已存在
+                    # 停止条件：本页大部分推文已存在（min_pages 之前跳过检查）
                     total_processed = save_result.success_count + save_result.skipped_count
-                    if total_processed > 0 and save_result.skipped_count / total_processed > 0.8:
+                    if result["pages"] > min_pages and total_processed > 0 and save_result.skipped_count / total_processed > 0.8:
                         logger.info(
                             "回溯 %s 第 %d 页跳过率 %.0f%%，停止回溯",
                             username, result["pages"],

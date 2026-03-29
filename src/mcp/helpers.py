@@ -66,3 +66,20 @@ def error_response(message: str, error_type: str = "internal") -> str:
         {"success": False, "error": message, "error_type": error_type},
         ensure_ascii=False,
     )
+
+
+async def resolve_user_list(usernames: str | None) -> list[str]:
+    """解析逗号分隔的用户名，或获取所有活跃关注账号。"""
+    if usernames:
+        return [u.strip() for u in usernames.split(",") if u.strip()]
+
+    from src.database.async_session import get_async_session_maker
+    from src.preference.infrastructure.scraper_config_repository import (
+        ScraperConfigRepository,
+    )
+
+    session_maker = get_async_session_maker()
+    async with session_maker() as session:
+        repo = ScraperConfigRepository(session)
+        follows = await repo.get_active_follows()
+        return [f.username for f in follows]

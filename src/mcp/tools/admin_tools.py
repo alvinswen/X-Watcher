@@ -15,6 +15,7 @@ from src.mcp.helpers import (
     error_response,
     parse_datetime,
     parse_datetime_optional,
+    resolve_user_list,
     success_response,
 )
 
@@ -171,21 +172,7 @@ def register(mcp: FastMCP) -> None:
 
             service = ScrapingService()
 
-            if usernames:
-                user_list = [u.strip() for u in usernames.split(",") if u.strip()]
-            else:
-                # 获取所有活跃账号
-                from src.database.async_session import get_async_session_maker
-                from src.preference.infrastructure.scraper_config_repository import (
-                    ScraperConfigRepository,
-                )
-
-                session_maker = get_async_session_maker()
-                async with session_maker() as session:
-                    repo = ScraperConfigRepository(session)
-                    follows = await repo.get_active_follows()
-                    user_list = [f.username for f in follows]
-
+            user_list = await resolve_user_list(usernames)
             if not user_list:
                 return error_response("没有可抓取的账号", "validation")
 
@@ -206,6 +193,68 @@ def register(mcp: FastMCP) -> None:
             audit_log("trigger_scrape", "scrape", result="failure", error=str(e))
             logger.error("trigger_scrape 失败: %s", e, exc_info=True)
             return error_response(f"触发抓取失败: {e}")
+
+    @mcp.tool()
+    async def trigger_backfill(
+        usernames: str | None = None,
+        max_pages: int = 20,
+        min_pages: int = 0,
+    ) -> str:
+        """回溯抓取历史推文，绕过早停机制填补时间线空缺。需要管理员权限。
+
+        与 trigger_scrape 不同，backfill 使用分页迭代逐页抓取，
+        仅在单页跳过率 >80% 时停止，适合补齐中间缺失的推文。
+
+        Args:
+            usernames: 要回溯的 X 用户名，逗号分隔。留空则回溯所有活跃账号
+            max_pages: 每个用户最大抓取页数，默认 20
+            min_pages: 最少抓取页数，在此之前不检查跳过率（用于穿透已有推文填补空缺）
+        """
+        perm_err = require_admin()
+        if perm_err:
+            return perm_err
+
+        from src.mcp.security import audit_log, check_scrape_guard
+
+        guard_err = check_scrape_guard()
+        if guard_err:
+            return guard_err
+
+        try:
+            from src.scraper import ScrapingService
+
+            service = ScrapingService()
+
+            user_list = await resolve_user_list(usernames)
+            if not user_list:
+                return error_response("没有可回溯的账号", "validation")
+
+            results = []
+            total_new = 0
+            total_fetched = 0
+            for username in user_list:
+                r = await service.backfill_user(username, max_pages=max_pages, min_pages=min_pages)
+                results.append(r)
+                total_new += r["new"]
+                total_fetched += r["fetched"]
+
+            audit_log(
+                "trigger_backfill", "scrape",
+                params={"usernames": user_list, "max_pages": max_pages, "min_pages": min_pages},
+            )
+            return success_response({
+                "usernames": user_list,
+                "count": len(user_list),
+                "max_pages": max_pages,
+                "total_fetched": total_fetched,
+                "total_new": total_new,
+                "results": results,
+                "message": f"回溯完成：{len(user_list)} 个账号，新增 {total_new} 条推文",
+            })
+        except Exception as e:
+            audit_log("trigger_backfill", "scrape", result="failure", error=str(e))
+            logger.error("trigger_backfill 失败: %s", e, exc_info=True)
+            return error_response(f"触发回溯失败: {e}")
 
     @mcp.tool()
     async def get_task_status(task_id: str) -> str:

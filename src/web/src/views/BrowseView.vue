@@ -31,12 +31,7 @@
             <template #date-cell="{ data }">
               <div class="calendar-cell" :class="{ 'has-tweets': getDayCount(data.day) > 0 }">
                 <span class="calendar-day">{{ data.day.split('-').slice(2).join('') }}</span>
-                <el-badge
-                  v-if="getDayCount(data.day) > 0"
-                  :value="getDayCount(data.day)"
-                  :max="99"
-                  class="tweet-badge"
-                />
+                <span v-if="getDayCount(data.day) > 0" class="tweet-count">{{ getDayCount(data.day) }}</span>
               </div>
             </template>
           </el-calendar>
@@ -53,7 +48,7 @@
               @click="selectAuthor(null)"
             >
               <span class="author-name-text">全部作者</span>
-              <el-badge :value="totalTweets" :max="999" type="info" />
+              <span class="tweet-count">{{ totalTweets }}</span>
             </div>
             <div
               v-for="author in authors"
@@ -63,21 +58,23 @@
               @click="selectAuthor(author.author_username)"
             >
               <div class="author-info-block">
-                <span class="author-display-name">{{ author.author_display_name || author.author_username }}</span>
+                <div class="author-name-row">
+                  <span class="author-display-name">{{ author.author_display_name || author.author_username }}</span>
+                  <el-button
+                    text
+                    size="small"
+                    class="timeline-btn"
+                    title="查看历史推文"
+                    @click.stop="enterTimelineMode(author.author_username)"
+                  >
+                    <el-icon :size="12"><User /></el-icon>
+                  </el-button>
+                </div>
                 <span class="author-handle">@{{ author.author_username }}</span>
                 <span v-if="author.reason" class="author-reason" :title="author.reason">{{ author.reason }}</span>
               </div>
               <div class="author-item-actions">
-                <el-button
-                  text
-                  size="small"
-                  class="timeline-btn"
-                  title="查看时间线"
-                  @click.stop="enterTimelineMode(author.author_username)"
-                >
-                  <el-icon :size="14"><Clock /></el-icon>
-                </el-button>
-                <el-badge :value="author.tweet_count" :max="99" />
+                <span class="tweet-count">{{ author.tweet_count }}</span>
               </div>
             </div>
           </div>
@@ -127,12 +124,19 @@
 
       <!-- 推文展示面板 -->
       <div class="tweet-panel">
-        <!-- 日期模式：选中作者时显示作者信息 -->
+        <!-- 日期模式：选中作者时显示作者信息，全部作者时显示日期+总数 -->
         <div v-if="mode === 'date' && selectedAuthorInfo" class="selected-author-header">
           <span class="selected-author-name">{{ selectedAuthorInfo.author_display_name || selectedAuthorInfo.author_username }}</span>
           <span class="selected-author-handle">@{{ selectedAuthorInfo.author_username }}</span>
           <span v-if="selectedAuthorInfo.reason" class="selected-author-reason">{{ selectedAuthorInfo.reason }}</span>
           <el-tag size="small" type="info">{{ selectedAuthorInfo.tweet_count }} 条推文</el-tag>
+          <el-button text size="small" @click="enterTimelineMode(selectedAuthorInfo.author_username)">
+            <el-icon :size="14"><User /></el-icon> 全部推文
+          </el-button>
+        </div>
+        <div v-else-if="mode === 'date' && !selectedAuthor" class="selected-author-header">
+          <span class="selected-author-name">全部作者</span>
+          <el-tag size="small" type="info">{{ totalTweets }} 条推文</el-tag>
         </div>
 
         <el-skeleton v-if="activeTweetsLoading" :rows="8" animated />
@@ -227,7 +231,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, inject, onMounted, onUnmounted, type Ref } from "vue"
 import { useRoute, useRouter } from "vue-router"
-import { ArrowLeft, Clock, CloseBold, CopyDocument } from "@element-plus/icons-vue"
+import { ArrowLeft, User, CloseBold, CopyDocument } from "@element-plus/icons-vue"
 import { ElMessage } from "element-plus"
 import { browseApi, followsApi } from "@/api"
 import { formatFullDateTime, formatChineseDateTime } from "@/utils/format"
@@ -314,10 +318,11 @@ const timelineTotal = ref(0)
 const timelinePage = ref(1)
 const timelineLoading = ref(false)
 
-const timelinePresets = [
+const timelinePresets: { label: string; days: number | null }[] = [
   { label: "1周", days: 7 },
   { label: "2周", days: 14 },
   { label: "1月", days: 30 },
+  { label: "全部", days: null },
 ]
 
 /** 代理 computed：统一两种模式的数据源 */
@@ -602,9 +607,9 @@ async function loadTimelineTweets() {
 }
 
 /** 应用预设时间范围 */
-function applyPreset(days: number) {
+function applyPreset(days: number | null) {
   const now = new Date()
-  const start = new Date(now.getTime() - days * 86400000)
+  const start = days === null ? new Date(2006, 2, 21) : new Date(now.getTime() - days * 86400000)
   timelineDateRange.value = [start, now]
   timelinePage.value = 1
   syncTimelineToUrl()
@@ -612,11 +617,12 @@ function applyPreset(days: number) {
 }
 
 /** 检测当前是否匹配某个预设 */
-function isPresetActive(days: number): boolean {
+function isPresetActive(days: number | null): boolean {
   if (!timelineDateRange.value) return false
   const [since, until] = timelineDateRange.value
   const diff = Math.round((until.getTime() - since.getTime()) / 86400000)
   const isUntilToday = formatDateStr(until) === formatDateStr(new Date())
+  if (days === null) return since.getFullYear() <= 2006 && isUntilToday
   return diff === days && isUntilToday
 }
 
@@ -773,17 +779,17 @@ onUnmounted(() => {
   font-size: 13px;
 }
 
-.tweet-badge {
-  position: absolute;
-  top: -2px;
-  right: -2px;
+.tweet-count {
+  font-size: 11px;
+  font-weight: 500;
+  color: #1a56db;
+  white-space: nowrap;
 }
 
-.tweet-badge :deep(.el-badge__content) {
-  font-size: 10px;
-  height: 16px;
-  line-height: 16px;
-  padding: 0 4px;
+.calendar-cell .tweet-count {
+  position: absolute;
+  top: 0;
+  right: 2px;
 }
 
 /* 作者面板 */
@@ -837,6 +843,12 @@ onUnmounted(() => {
   min-width: 0;
   flex: 1;
   margin-right: 8px;
+}
+
+.author-name-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .author-display-name {
@@ -919,8 +931,8 @@ onUnmounted(() => {
 
 .tweet-time-row {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
   margin-bottom: 12px;
   padding-bottom: 8px;
   border-bottom: 1px solid #f0f0f0;
@@ -935,6 +947,7 @@ onUnmounted(() => {
   display: flex;
   align-items: baseline;
   gap: 6px;
+  flex: 1;
 }
 
 .inline-author-name {
@@ -946,6 +959,10 @@ onUnmounted(() => {
 .inline-author-handle {
   font-size: 12px;
   color: #909399;
+}
+
+.share-btn {
+  margin-left: auto;
 }
 
 .tweet-section {
