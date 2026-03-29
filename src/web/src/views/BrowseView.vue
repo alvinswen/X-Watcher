@@ -562,6 +562,11 @@ function exitTimelineMode() {
   timelineAuthor.value = null
   timelineAuthorInfo.value = null
   router.replace({ query: {} })
+  selectedAuthor.value = null
+  page.value = 1
+  loadDailyStats()
+  loadAuthors()
+  loadTweets()
 }
 
 /** 加载时间线推文 */
