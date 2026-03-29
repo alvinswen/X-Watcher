@@ -62,3 +62,25 @@ export interface BrowseTweetListParams {
   page_size?: number
   min_text_length?: number
 }
+
+/** 作者时间线请求参数 */
+export interface AuthorTimelineParams {
+  author: string
+  since: string
+  until: string
+  page?: number
+  page_size?: number
+  min_text_length?: number
+}
+
+/** 作者时间线响应 */
+export interface AuthorTimelineResponse {
+  author_username: string
+  author_display_name: string | null
+  reason: string | null
+  items: BrowseTweetItem[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
+}

@@ -72,3 +72,16 @@ class BrowseTweetListResponse(BaseModel):
     page: int = Field(..., description="当前页码")
     page_size: int = Field(..., description="每页条数")
     total_pages: int = Field(..., description="总页数")
+
+
+class AuthorTimelineResponse(BaseModel):
+    """作者时间线响应。"""
+
+    author_username: str = Field(..., description="作者用户名")
+    author_display_name: str | None = Field(None, description="作者显示名称")
+    reason: str | None = Field(None, description="关注理由/作者简介")
+    items: list[BrowseTweetItem] = Field(..., description="推文列表")
+    total: int = Field(..., description="推文总数")
+    page: int = Field(..., description="当前页码")
+    page_size: int = Field(..., description="每页条数")
+    total_pages: int = Field(..., description="总页数")

@@ -269,3 +269,102 @@ class BrowseService:
         )
 
         return items, total
+
+    async def get_author_timeline(
+        self,
+        author: str,
+        since_utc: datetime,
+        until_utc: datetime,
+        page: int,
+        page_size: int,
+        min_text_length: int | None = None,
+    ) -> tuple[dict, list[dict], int]:
+        """查询指定作者在时间范围内的推文列表，含摘要和翻译。
+
+        Args:
+            author: 作者用户名
+            since_utc: 起始时间（UTC）
+            until_utc: 截止时间（UTC，不含）
+            page: 页码（从 1 开始）
+            page_size: 每页条数
+            min_text_length: 最小推文长度
+
+        Returns:
+            (作者元数据字典, 推文字典列表, 总数) 元组
+        """
+        conditions = [
+            func.lower(TweetOrm.author_username) == author.lower(),
+            TweetOrm.created_at >= since_utc,
+            TweetOrm.created_at < until_utc,
+        ]
+        text_cond = self._text_length_condition(min_text_length)
+        if text_cond is not None:
+            conditions.append(text_cond)
+
+        # COUNT 查询
+        count_stmt = (
+            select(func.count())
+            .select_from(TweetOrm)
+            .where(*conditions)
+        )
+        count_result = await self._session.execute(count_stmt)
+        total = count_result.scalar() or 0
+
+        # 数据查询：LEFT JOIN summaries，按时间倒序
+        offset = (page - 1) * page_size
+        data_stmt = (
+            select(
+                TweetOrm.tweet_id,
+                TweetOrm.created_at,
+                TweetOrm.author_username,
+                TweetOrm.author_display_name,
+                TweetOrm.text,
+                TweetOrm.reference_type,
+                TweetOrm.referenced_tweet_id,
+                TweetOrm.referenced_tweet_text,
+                TweetOrm.referenced_tweet_author_username,
+                TweetOrm.media,
+                TweetOrm.referenced_tweet_media,
+                SummaryOrm.summary_text,
+                SummaryOrm.translation_text,
+            )
+            .outerjoin(SummaryOrm, TweetOrm.tweet_id == SummaryOrm.tweet_id)
+            .where(*conditions)
+            .order_by(TweetOrm.created_at.desc())
+            .offset(offset)
+            .limit(page_size)
+        )
+
+        result = await self._session.execute(data_stmt)
+        rows = result.fetchall()
+        items = [dict(row._mapping) for row in rows]
+
+        # display_name 从已获取的数据中提取（结果已按 created_at DESC 排序）
+        display_name = items[0]["author_display_name"] if items else None
+
+        # reason 从 ScraperFollow 查询
+        reason_stmt = (
+            select(ScraperFollow.reason)
+            .where(
+                func.lower(ScraperFollow.username) == author.lower(),
+                ScraperFollow.is_active == True,  # noqa: E712
+            )
+        )
+        reason_result = await self._session.execute(reason_stmt)
+        reason = reason_result.scalar()
+
+        author_meta = {
+            "author_username": author,
+            "author_display_name": display_name,
+            "reason": reason,
+        }
+
+        logger.info(
+            "Author timeline 查询完成: author=%s, page=%d, total=%d, count=%d",
+            author,
+            page,
+            total,
+            len(items),
+        )
+
+        return author_meta, items, total

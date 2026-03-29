@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.browse.api.schemas import (
     AuthorInfo,
     AuthorListResponse,
+    AuthorTimelineResponse,
     BrowseTweetItem,
     BrowseTweetListResponse,
     DailyCount,
@@ -136,6 +137,61 @@ async def get_tweets(
         raise
     except Exception as e:
         logger.error("推文浏览查询失败: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="服务器内部错误",
+        ) from e
+
+
+@router.get(
+    "/author-timeline",
+    response_model=AuthorTimelineResponse,
+    summary="获取作者时间线",
+)
+async def get_author_timeline(
+    author: str = Query(..., description="作者用户名"),
+    since: str = Query(..., description="起始日期，YYYY-MM-DD 格式（用户本地时区）"),
+    until: str = Query(..., description="截止日期，YYYY-MM-DD 格式（用户本地时区，不含当天）"),
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(20, ge=1, le=100, description="每页条数"),
+    tz_offset: int = Query(0, ge=-720, le=840, description="时区偏移（分钟），来自 JS getTimezoneOffset()"),
+    min_text_length: int | None = Query(None, ge=1, description="最小推文长度（字符数）"),
+    _user: UserDomain = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> AuthorTimelineResponse:
+    """查询指定作者在时间范围内的推文列表，含摘要和翻译。"""
+    for date_str, label in [(since, "since"), (until, "until")]:
+        if not DATE_PATTERN.match(date_str):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"无效的 {label} 日期格式，需要 YYYY-MM-DD",
+            )
+
+    # 复用 service 的日期转换，取每个日期对应 UTC 范围的起点
+    since_utc, _ = BrowseService._local_date_to_utc_range(since, tz_offset)
+    until_utc, _ = BrowseService._local_date_to_utc_range(until, tz_offset)
+
+    try:
+        service = BrowseService(session)
+        author_meta, items, total = await service.get_author_timeline(
+            author, since_utc, until_utc, page, page_size, min_text_length
+        )
+        total_pages = math.ceil(total / page_size) if total > 0 else 0
+
+        return AuthorTimelineResponse(
+            author_username=author_meta["author_username"],
+            author_display_name=author_meta["author_display_name"],
+            reason=author_meta["reason"],
+            items=[BrowseTweetItem(**item) for item in items],
+            total=total,
+            page=page,
+            page_size=page_size,
+            total_pages=total_pages,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("作者时间线查询失败: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="服务器内部错误",

@@ -2,7 +2,7 @@
   <div class="browse-view">
     <!-- 全屏模式下的工具条 -->
     <div v-if="isFullscreen" class="fullscreen-toolbar">
-      <span class="fullscreen-title">推文浏览</span>
+      <span class="fullscreen-title">{{ mode === 'timeline' ? `${timelineAuthorInfo?.author_display_name || timelineAuthor} 的时间线` : '推文浏览' }}</span>
       <span class="fullscreen-spacer"></span>
       <el-switch
         v-model="longTweetFilterEnabled"
@@ -23,72 +23,127 @@
     </div>
 
     <div class="browse-layout" :class="{ 'browse-layout--fullscreen': isFullscreen }">
-      <!-- 日历面板 -->
-      <div class="calendar-panel">
-        <el-calendar v-model="selectedDate" class="browse-calendar">
-          <template #date-cell="{ data }">
-            <div class="calendar-cell" :class="{ 'has-tweets': getDayCount(data.day) > 0 }">
-              <span class="calendar-day">{{ data.day.split('-').slice(2).join('') }}</span>
-              <el-badge
-                v-if="getDayCount(data.day) > 0"
-                :value="getDayCount(data.day)"
-                :max="99"
-                class="tweet-badge"
-              />
-            </div>
-          </template>
-        </el-calendar>
-      </div>
+      <!-- ===== 日期浏览模式：日历 + 作者列表 ===== -->
+      <template v-if="mode === 'date'">
+        <!-- 日历面板 -->
+        <div class="calendar-panel">
+          <el-calendar v-model="selectedDate" class="browse-calendar">
+            <template #date-cell="{ data }">
+              <div class="calendar-cell" :class="{ 'has-tweets': getDayCount(data.day) > 0 }">
+                <span class="calendar-day">{{ data.day.split('-').slice(2).join('') }}</span>
+                <el-badge
+                  v-if="getDayCount(data.day) > 0"
+                  :value="getDayCount(data.day)"
+                  :max="99"
+                  class="tweet-badge"
+                />
+              </div>
+            </template>
+          </el-calendar>
+        </div>
 
-      <!-- 作者列表面板 -->
-      <div class="author-panel">
-        <div class="panel-header">作者列表</div>
-        <el-skeleton v-if="authorsLoading" :rows="5" animated />
-        <div v-else class="author-list">
-          <div
-            class="author-item"
-            :class="{ active: selectedAuthor === null }"
-            @click="selectAuthor(null)"
-          >
-            <span class="author-name-text">全部作者</span>
-            <el-badge :value="totalTweets" :max="999" type="info" />
-          </div>
-          <div
-            v-for="author in authors"
-            :key="author.author_username"
-            class="author-item"
-            :class="{ active: selectedAuthor === author.author_username }"
-            @click="selectAuthor(author.author_username)"
-          >
-            <div class="author-info-block">
-              <span class="author-display-name">{{ author.author_display_name || author.author_username }}</span>
-              <span class="author-handle">@{{ author.author_username }}</span>
-              <span v-if="author.reason" class="author-reason" :title="author.reason">{{ author.reason }}</span>
+        <!-- 作者列表面板 -->
+        <div class="author-panel">
+          <div class="panel-header">作者列表</div>
+          <el-skeleton v-if="authorsLoading" :rows="5" animated />
+          <div v-else class="author-list">
+            <div
+              class="author-item"
+              :class="{ active: selectedAuthor === null }"
+              @click="selectAuthor(null)"
+            >
+              <span class="author-name-text">全部作者</span>
+              <el-badge :value="totalTweets" :max="999" type="info" />
             </div>
-            <el-badge :value="author.tweet_count" :max="99" />
+            <div
+              v-for="author in authors"
+              :key="author.author_username"
+              class="author-item"
+              :class="{ active: selectedAuthor === author.author_username }"
+              @click="selectAuthor(author.author_username)"
+            >
+              <div class="author-info-block">
+                <span class="author-display-name">{{ author.author_display_name || author.author_username }}</span>
+                <span class="author-handle">@{{ author.author_username }}</span>
+                <span v-if="author.reason" class="author-reason" :title="author.reason">{{ author.reason }}</span>
+              </div>
+              <div class="author-item-actions">
+                <el-button
+                  text
+                  size="small"
+                  class="timeline-btn"
+                  title="查看时间线"
+                  @click.stop="enterTimelineMode(author.author_username)"
+                >
+                  <el-icon :size="14"><Clock /></el-icon>
+                </el-button>
+                <el-badge :value="author.tweet_count" :max="99" />
+              </div>
+            </div>
           </div>
+        </div>
+      </template>
+
+      <!-- ===== 作者时间线模式：侧边栏 ===== -->
+      <div v-else class="timeline-sidebar">
+        <div class="timeline-back">
+          <el-button text @click="exitTimelineMode">
+            <el-icon><ArrowLeft /></el-icon> 返回日期浏览
+          </el-button>
+        </div>
+
+        <div class="timeline-author-card">
+          <div class="timeline-author-name">{{ timelineAuthorInfo?.author_display_name || timelineAuthor }}</div>
+          <div class="timeline-author-handle">@{{ timelineAuthor }}</div>
+          <div v-if="timelineAuthorInfo?.reason" class="timeline-author-reason">{{ timelineAuthorInfo.reason }}</div>
+        </div>
+
+        <div class="timeline-range-section">
+          <div class="timeline-presets">
+            <el-button
+              v-for="preset in timelinePresets"
+              :key="preset.days"
+              size="small"
+              :type="isPresetActive(preset.days) ? 'primary' : 'default'"
+              @click="applyPreset(preset.days)"
+            >{{ preset.label }}</el-button>
+          </div>
+          <el-date-picker
+            v-model="timelineDateRange"
+            type="daterange"
+            range-separator="至"
+            start-placeholder="开始日期"
+            end-placeholder="结束日期"
+            size="small"
+            style="width: 100%; margin-top: 8px;"
+            @change="handleTimelineRangeChange"
+          />
+        </div>
+
+        <div class="timeline-stats">
+          共 {{ timelineTotal }} 条推文
         </div>
       </div>
 
       <!-- 推文展示面板 -->
       <div class="tweet-panel">
-        <!-- 选中作者时，顶部显示作者信息 -->
-        <div v-if="selectedAuthorInfo" class="selected-author-header">
+        <!-- 日期模式：选中作者时显示作者信息 -->
+        <div v-if="mode === 'date' && selectedAuthorInfo" class="selected-author-header">
           <span class="selected-author-name">{{ selectedAuthorInfo.author_display_name || selectedAuthorInfo.author_username }}</span>
           <span class="selected-author-handle">@{{ selectedAuthorInfo.author_username }}</span>
           <span v-if="selectedAuthorInfo.reason" class="selected-author-reason">{{ selectedAuthorInfo.reason }}</span>
           <el-tag size="small" type="info">{{ selectedAuthorInfo.tweet_count }} 条推文</el-tag>
         </div>
 
-        <el-skeleton v-if="tweetsLoading" :rows="8" animated />
-        <el-empty v-else-if="tweets.length === 0" description="该日期暂无推文" />
+        <el-skeleton v-if="activeTweetsLoading" :rows="8" animated />
+        <el-empty v-else-if="activeTweets.length === 0" :description="mode === 'timeline' ? '该时间段暂无推文' : '该日期暂无推文'" />
         <div v-else class="tweet-list">
-          <div v-for="tweet in tweets" :key="tweet.tweet_id" class="tweet-card">
+          <div v-for="tweet in activeTweets" :key="tweet.tweet_id" class="tweet-card">
             <!-- 发布时刻 -->
             <div class="tweet-time-row">
               <span class="tweet-time">{{ formatFullDateTime(tweet.created_at) }}</span>
-              <!-- 日期模式：显示作者信息 -->
-              <div v-if="!selectedAuthor" class="tweet-author-inline">
+              <!-- 日期模式且未选作者：显示作者信息 -->
+              <div v-if="mode === 'date' && !selectedAuthor" class="tweet-author-inline">
                 <span class="inline-author-name">{{ tweet.author_display_name || tweet.author_username }}</span>
                 <span class="inline-author-handle">@{{ tweet.author_username }}</span>
               </div>
@@ -155,13 +210,13 @@
         </div>
 
         <!-- 分页 -->
-        <div v-if="total > 0" class="pagination-bar">
+        <div v-if="activeTotal > 0" class="pagination-bar">
           <el-pagination
-            v-model:current-page="page"
+            v-model:current-page="activePage"
             :page-size="pageSize"
-            :total="total"
+            :total="activeTotal"
             layout="total, prev, pager, next"
-            @current-change="handlePageChange"
+            @current-change="handleActivePageChange"
           />
         </div>
       </div>
@@ -171,11 +226,15 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, inject, onMounted, onUnmounted, type Ref } from "vue"
-import { CloseBold, CopyDocument } from "@element-plus/icons-vue"
+import { useRoute, useRouter } from "vue-router"
+import { ArrowLeft, Clock, CloseBold, CopyDocument } from "@element-plus/icons-vue"
 import { ElMessage } from "element-plus"
 import { browseApi, followsApi } from "@/api"
 import { formatFullDateTime, formatChineseDateTime } from "@/utils/format"
 import type { AuthorInfo, BrowseTweetItem, XUserProfile } from "@/types"
+
+const route = useRoute()
+const router = useRouter()
 
 /** 全屏模式 */
 const isFullscreen = inject<Ref<boolean>>("isFullscreen", ref(false))
@@ -196,6 +255,20 @@ function handleKeydown(e: KeyboardEvent) {
   if (e.key === "Escape" && isFullscreen.value) {
     exitFullscreen()
   }
+}
+
+/** 日期格式化 YYYY-MM-DD */
+function formatDateStr(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, "0")
+  const day = String(d.getDate()).padStart(2, "0")
+  return `${y}-${m}-${day}`
+}
+
+function addDays(d: Date, n: number): Date {
+  const result = new Date(d)
+  result.setDate(result.getDate() + n)
+  return result
 }
 
 /** 选中日期 */
@@ -226,6 +299,39 @@ const pageSize = 20
 const authorsLoading = ref(false)
 const tweetsLoading = ref(false)
 
+/** ===== 时间线模式状态 ===== */
+type BrowseMode = "date" | "timeline"
+const mode = ref<BrowseMode>("date")
+
+const timelineAuthor = ref<string | null>(null)
+const timelineAuthorInfo = ref<Pick<AuthorInfo, "author_username" | "author_display_name" | "reason"> | null>(null)
+const timelineDateRange = ref<[Date, Date]>([
+  new Date(Date.now() - 7 * 86400000),
+  new Date(),
+])
+const timelineTweets = ref<BrowseTweetItem[]>([])
+const timelineTotal = ref(0)
+const timelinePage = ref(1)
+const timelineLoading = ref(false)
+
+const timelinePresets = [
+  { label: "1周", days: 7 },
+  { label: "2周", days: 14 },
+  { label: "1月", days: 30 },
+]
+
+/** 代理 computed：统一两种模式的数据源 */
+const activeTweets = computed(() => mode.value === "timeline" ? timelineTweets.value : tweets.value)
+const activeTotal = computed(() => mode.value === "timeline" ? timelineTotal.value : total.value)
+const activeTweetsLoading = computed(() => mode.value === "timeline" ? timelineLoading.value : tweetsLoading.value)
+const activePage = computed({
+  get: () => mode.value === "timeline" ? timelinePage.value : page.value,
+  set: (val: number) => {
+    if (mode.value === "timeline") timelinePage.value = val
+    else page.value = val
+  },
+})
+
 /** 推文总数（用于"全部作者"badge） */
 const totalTweets = computed(() => {
   return authors.value.reduce((sum, a) => sum + a.tweet_count, 0)
@@ -238,13 +344,7 @@ const currentYearMonth = computed(() => {
 })
 
 /** 当前选中日期字符串 YYYY-MM-DD */
-const selectedDateStr = computed(() => {
-  const d = selectedDate.value
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, "0")
-  const day = String(d.getDate()).padStart(2, "0")
-  return `${y}-${m}-${day}`
-})
+const selectedDateStr = computed(() => formatDateStr(selectedDate.value))
 
 /** 选中的作者详细信息 */
 const selectedAuthorInfo = computed(() => {
@@ -423,18 +523,135 @@ function selectAuthor(username: string | null) {
 }
 
 /** 翻页 */
-function handlePageChange(newPage: number) {
-  page.value = newPage
-  loadTweets()
+function handleActivePageChange(newPage: number) {
+  if (mode.value === "timeline") {
+    timelinePage.value = newPage
+    syncTimelineToUrl()
+    loadTimelineTweets()
+  } else {
+    page.value = newPage
+    loadTweets()
+  }
+}
+
+/** ===== 时间线模式函数 ===== */
+
+/** 进入时间线模式 */
+function enterTimelineMode(username: string) {
+  const authorInfo = authors.value.find((a) => a.author_username === username)
+  mode.value = "timeline"
+  timelineAuthor.value = username
+  timelineAuthorInfo.value = authorInfo
+    ? {
+        author_username: authorInfo.author_username,
+        author_display_name: authorInfo.author_display_name,
+        reason: authorInfo.reason,
+      }
+    : null
+  const now = new Date()
+  const weekAgo = new Date(now.getTime() - 7 * 86400000)
+  timelineDateRange.value = [weekAgo, now]
+  timelinePage.value = 1
+  syncTimelineToUrl()
+  loadTimelineTweets()
+}
+
+/** 退出时间线模式 */
+function exitTimelineMode() {
+  mode.value = "date"
+  timelineAuthor.value = null
+  timelineAuthorInfo.value = null
+  router.replace({ query: {} })
+}
+
+/** 加载时间线推文 */
+async function loadTimelineTweets() {
+  if (!timelineAuthor.value || !timelineDateRange.value) return
+  timelineLoading.value = true
+  try {
+    const [since, until] = timelineDateRange.value
+    const resp = await browseApi.getAuthorTimeline({
+      author: timelineAuthor.value,
+      since: formatDateStr(since),
+      until: formatDateStr(addDays(until, 1)),
+      page: timelinePage.value,
+      page_size: pageSize,
+      min_text_length: effectiveMinTextLength.value,
+    })
+    timelineTweets.value = resp.items
+    timelineTotal.value = resp.total
+    if (!timelineAuthorInfo.value) {
+      timelineAuthorInfo.value = {
+        author_username: resp.author_username,
+        author_display_name: resp.author_display_name,
+        reason: resp.reason,
+      }
+    }
+  } catch (error) {
+    console.error("加载时间线推文失败:", error)
+    timelineTweets.value = []
+    timelineTotal.value = 0
+  } finally {
+    timelineLoading.value = false
+  }
+}
+
+/** 应用预设时间范围 */
+function applyPreset(days: number) {
+  const now = new Date()
+  const start = new Date(now.getTime() - days * 86400000)
+  timelineDateRange.value = [start, now]
+  timelinePage.value = 1
+  syncTimelineToUrl()
+  loadTimelineTweets()
+}
+
+/** 检测当前是否匹配某个预设 */
+function isPresetActive(days: number): boolean {
+  if (!timelineDateRange.value) return false
+  const [since, until] = timelineDateRange.value
+  const diff = Math.round((until.getTime() - since.getTime()) / 86400000)
+  const isUntilToday = formatDateStr(until) === formatDateStr(new Date())
+  return diff === days && isUntilToday
+}
+
+/** 自定义日期范围变更 */
+function handleTimelineRangeChange() {
+  timelinePage.value = 1
+  syncTimelineToUrl()
+  loadTimelineTweets()
+}
+
+/** 同步时间线状态到 URL */
+function syncTimelineToUrl() {
+  if (mode.value !== "timeline" || !timelineAuthor.value) return
+  const query: Record<string, string> = {
+    author: timelineAuthor.value,
+  }
+  if (timelineDateRange.value) {
+    const diffDays = Math.round(
+      (timelineDateRange.value[1].getTime() - timelineDateRange.value[0].getTime()) / 86400000,
+    )
+    query.days = String(diffDays)
+  }
+  if (timelinePage.value > 1) {
+    query.page = String(timelinePage.value)
+  }
+  router.replace({ query })
 }
 
 /** 监听长推文过滤变化 */
 watch(effectiveMinTextLength, () => {
-  selectedAuthor.value = null
-  page.value = 1
-  loadDailyStats()
-  loadAuthors()
-  loadTweets()
+  if (mode.value === "timeline") {
+    timelinePage.value = 1
+    loadTimelineTweets()
+  } else {
+    selectedAuthor.value = null
+    page.value = 1
+    loadDailyStats()
+    loadAuthors()
+    loadTweets()
+  }
 })
 
 /** 监听月份切换 */
@@ -452,9 +669,22 @@ watch(selectedDateStr, () => {
 
 /** 初始加载 */
 onMounted(() => {
-  loadDailyStats()
-  loadAuthors()
-  loadTweets()
+  const authorParam = route.query.author as string
+  if (authorParam) {
+    mode.value = "timeline"
+    timelineAuthor.value = authorParam
+    const daysParam = parseInt(route.query.days as string) || 7
+    const pageParam = parseInt(route.query.page as string) || 1
+    const now = new Date()
+    const start = new Date(now.getTime() - daysParam * 86400000)
+    timelineDateRange.value = [start, now]
+    timelinePage.value = pageParam
+    loadTimelineTweets()
+  } else {
+    loadDailyStats()
+    loadAuthors()
+    loadTweets()
+  }
   document.addEventListener("keydown", handleKeydown)
 })
 
@@ -822,5 +1052,80 @@ onUnmounted(() => {
 
 .share-btn:hover {
   color: #409eff;
+}
+
+/* 作者列表操作区 */
+.author-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* 时间线按钮 */
+.timeline-btn {
+  padding: 2px 4px;
+  color: #c0c4cc;
+  transition: color 0.2s;
+}
+
+.timeline-btn:hover {
+  color: #409eff;
+}
+
+/* 时间线侧边栏 */
+.timeline-sidebar {
+  width: 320px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 12px;
+  border: 1px solid #e4e7ed;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.timeline-back {
+  margin-bottom: 4px;
+}
+
+.timeline-author-card {
+  padding: 12px;
+  background: #f5f7fa;
+  border-radius: 4px;
+}
+
+.timeline-author-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.timeline-author-handle {
+  font-size: 13px;
+  color: #909399;
+  margin-top: 2px;
+}
+
+.timeline-author-reason {
+  font-size: 13px;
+  color: #303133;
+  margin-top: 8px;
+  line-height: 1.5;
+}
+
+.timeline-range-section {
+  padding: 0;
+}
+
+.timeline-presets {
+  display: flex;
+  gap: 8px;
+}
+
+.timeline-stats {
+  font-size: 13px;
+  color: #909399;
 }
 </style>

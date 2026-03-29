@@ -3,6 +3,8 @@
 import { client } from "./client"
 import type {
   AuthorListResponse,
+  AuthorTimelineParams,
+  AuthorTimelineResponse,
   BrowseTweetListParams,
   BrowseTweetListResponse,
   DailyStatsResponse,
@@ -49,6 +51,17 @@ export const browseApi = {
   ): Promise<BrowseTweetListResponse> {
     const response = await client.get<BrowseTweetListResponse>(
       `${BROWSE_PREFIX}/tweets`,
+      { params: { ...params, tz_offset: getTzOffset() } },
+    )
+    return response.data
+  },
+
+  /** 获取作者时间线 */
+  async getAuthorTimeline(
+    params: AuthorTimelineParams,
+  ): Promise<AuthorTimelineResponse> {
+    const response = await client.get<AuthorTimelineResponse>(
+      `${BROWSE_PREFIX}/author-timeline`,
       { params: { ...params, tz_offset: getTzOffset() } },
     )
     return response.data
