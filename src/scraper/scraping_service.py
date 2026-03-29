@@ -993,6 +993,20 @@ class ScrapingService:
 
             queue = SummarizationQueue.get_instance()
 
+            # 队列未运行时（MCP stdio 模式），直接内联处理摘要
+            if not queue.is_running:
+                logger.info(
+                    f"触发摘要: {len(tweet_ids)} 条推文, 方式=inline（队列未运行）",
+                    extra={
+                        "event": "trigger_summarization",
+                        "total_tweets": len(tweet_ids),
+                        "enqueue_method": "inline",
+                        "source": "scraping",
+                    },
+                )
+                await self._inline_summarize(tweet_ids)
+                return
+
             # 检测当前是否在主事件循环中
             try:
                 running_loop = asyncio.get_running_loop()
@@ -1041,6 +1055,36 @@ class ScrapingService:
         except Exception as e:
             # 摘要触发失败不影响抓取结果
             logger.warning(f"触发摘要任务失败（不影响抓取结果）: {e}")
+
+    async def _inline_summarize(self, tweet_ids: list[str]) -> None:
+        """内联摘要回退：队列未运行时直接调用 SummarizationService。"""
+        from src.database.async_session import get_async_session_maker
+        from src.summarization.domain.models import PromptConfig
+        from src.summarization.llm.config import LLMProviderConfig
+        from src.summarization.services.summarization_service import (
+            create_summarization_service,
+        )
+
+        session_factory = get_async_session_maker()
+        config = LLMProviderConfig.from_env()
+        service = create_summarization_service(
+            session_factory=session_factory,
+            config=config,
+            prompt_config=PromptConfig(),
+        )
+
+        result = await service.summarize_tweets(tweet_ids=tweet_ids)
+
+        from returns.result import Failure
+
+        if isinstance(result, Failure):
+            logger.warning(f"内联摘要失败: {result.failure()}")
+        else:
+            summary = result.unwrap()
+            logger.info(
+                f"内联摘要完成: 成功 {summary.total_tweets_succeeded}/{summary.total_tweets}, "
+                f"缓存命中 {summary.cache_hits}, 耗时 {summary.processing_time_ms}ms"
+            )
 
     async def _backfill_platform_user_id(
         self, username: str, user_id: str

@@ -57,8 +57,7 @@ DAILY_SUMMARY_RECIPE = """\
 
 #### 3c. 触发翻译补全（可选）
 调用 `batch_summarize(action="backfill", since=<deadline-24h>, until=<deadline>)`
-注意：backfill 仅入队，实际处理需要 SummarizationQueue 运行中（FastAPI 进程）
-如果 MCP 在 stdio 模式下独立运行，翻译队列不可用，此步可跳过
+注意：trigger_scrape 已自动处理新抓取推文的摘要生成，此步仅用于补全历史遗漏
 
 ### Step 4：确定目标主题
 

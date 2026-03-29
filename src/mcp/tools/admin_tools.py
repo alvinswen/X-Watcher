@@ -200,7 +200,7 @@ def register(mcp: FastMCP) -> None:
                 "task_id": task_id,
                 "usernames": user_list,
                 "limit": limit,
-                "message": "抓取任务已启动",
+                "message": "抓取任务已完成（含摘要生成）",
             })
         except Exception as e:
             audit_log("trigger_scrape", "scrape", result="failure", error=str(e))
