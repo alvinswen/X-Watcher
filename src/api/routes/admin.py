@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 
+from src.mcp.security import audit_log
 from src.scraper import ScrapingService, TaskRegistry, TaskStatus
 from src.user.api.auth import get_current_admin_user
 from src.user.domain.models import UserDomain
@@ -388,7 +389,6 @@ async def start_scraping(
 
     logger.info(f"创建抓取任务: {task_id} - {scrape_request.parsed_usernames}")
 
-    from src.mcp.security import audit_log
     audit_log(
         "start_scraping", "scrape",
         params={"usernames": scrape_request.parsed_usernames, "limit": scrape_request.limit},
@@ -520,7 +520,6 @@ async def delete_scraping_task(
     if deleted:
         logger.info(f"删除任务: {task_id}")
 
-        from src.mcp.security import audit_log
         audit_log(
             "delete_scraping_task", "delete",
             params={"task_id": task_id},
@@ -575,7 +574,6 @@ async def backfill_articles(
 
         logger.info(f"创建 Article 批量回溯任务: {task_id}")
 
-        from src.mcp.security import audit_log
         audit_log(
             "backfill_articles", "backfill_all",
             params={"max_tweets": max_tweets},
@@ -621,7 +619,6 @@ async def backfill_articles(
 
     logger.info(f"Article 回溯完成: username={username}, result={result}")
 
-    from src.mcp.security import audit_log
     audit_log(
         "backfill_articles", "backfill",
         params={"username": username, "max_tweets": max_tweets},

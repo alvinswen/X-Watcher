@@ -234,7 +234,6 @@ class TwitterClient:
         self._max_delay = max_delay
         self._timeout = timeout
         self._client: httpx.AsyncClient | None = None
-        self._circuit_breaker = _circuit_breaker
 
     async def __aenter__(self) -> "TwitterClient":
         """进入上下文管理器。"""
@@ -559,12 +558,12 @@ class TwitterClient:
         result = await self._fetch_with_retry_inner(endpoint, params)
         # 根据结果更新熔断器状态
         if isinstance(result, Success):
-            self._circuit_breaker.record_success()
+            _circuit_breaker.record_success()
         elif isinstance(result, Failure):
             error = result.failure()
             # 不可重试的客户端错误（401/403/404/422）不计入熔断
             if not (error.status_code and error.status_code in self.NON_RETRYABLE_STATUS_CODES):
-                self._circuit_breaker.record_failure()
+                _circuit_breaker.record_failure()
         return result
 
     async def _fetch_with_retry_inner(
@@ -574,8 +573,8 @@ class TwitterClient:
     ) -> Result[dict[str, Any], TwitterClientError]:
         """实际执行带重试的 HTTP 请求（供 _fetch_with_retry 调用）。"""
         # 熔断器检查：OPEN 状态时快速失败
-        if not self._circuit_breaker.allow_request():
-            status = self._circuit_breaker.get_status()
+        if not _circuit_breaker.allow_request():
+            status = _circuit_breaker.get_status()
             return Failure(
                 TwitterClientError(
                     f"熔断器已触发: 连续 {status['failure_count']} 次失败，"

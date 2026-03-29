@@ -136,14 +136,14 @@ def register(mcp: FastMCP) -> None:
                     min_text_length=min_text_length,
                 )
                 total_pages = (
-                    (total + page_size - 1) // page_size if total > 0 else 0
+                    (total + clamped_page_size - 1) // clamped_page_size if total > 0 else 0
                 )
                 return success_response({
                     "items": items,
                     "total": total,
                     "count": len(items),
                     "page": page,
-                    "page_size": page_size,
+                    "page_size": clamped_page_size,
                     "total_pages": total_pages,
                     "date": date,
                     "author": author,

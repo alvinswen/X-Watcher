@@ -189,15 +189,16 @@ def register(mcp: FastMCP) -> None:
 
         try:
             from src.scraper import ScrapingService, TaskRegistry
+            from src.scraper.task_registry import TaskStatus
 
             # 检查是否有任务正在运行（防止重复触发浪费 API 额度）
             registry = TaskRegistry.get_instance()
-            for task in registry.get_all_tasks():
-                if task["status"].value == "running":
-                    return error_response(
-                        f"已有抓取任务正在运行 (task_id={task['task_id']})，请等待完成后再触发",
-                        "rate_limit",
-                    )
+            running_tasks = registry.get_tasks_by_status(TaskStatus.RUNNING)
+            if running_tasks:
+                return error_response(
+                    f"已有抓取任务正在运行 (task_id={running_tasks[0]['task_id']})，请等待完成后再触发",
+                    "rate_limit",
+                )
 
             service = ScrapingService()
 

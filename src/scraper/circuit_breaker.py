@@ -109,11 +109,17 @@ class CircuitBreaker:
 
     def get_status(self) -> dict:
         """获取熔断器状态摘要（用于健康检查/监控）。"""
-        current_state = self.state  # 触发 OPEN → HALF_OPEN 检查
         with self._lock:
+            if self._state == CircuitState.OPEN:
+                if time.monotonic() - self._last_failure_time >= self.recovery_timeout:
+                    self._state = CircuitState.HALF_OPEN
+                    logger.info(
+                        "熔断器 [%s] 状态变更: OPEN → HALF_OPEN（冷却期已过）",
+                        self.name,
+                    )
             return {
                 "name": self.name,
-                "state": current_state.value,
+                "state": self._state.value,
                 "failure_count": self._failure_count,
                 "failure_threshold": self.failure_threshold,
                 "recovery_timeout": self.recovery_timeout,

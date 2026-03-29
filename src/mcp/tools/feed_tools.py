@@ -146,7 +146,7 @@ def register(mcp: FastMCP) -> None:
                     until=until_dt,
                 )
                 total_pages = (
-                    (result.total + page_size - 1) // page_size
+                    (result.total + clamped_page_size - 1) // clamped_page_size
                     if result.total > 0
                     else 0
                 )
@@ -155,7 +155,7 @@ def register(mcp: FastMCP) -> None:
                     "total": result.total,
                     "count": len(result.items),
                     "page": page,
-                    "page_size": page_size,
+                    "page_size": clamped_page_size,
                     "total_pages": total_pages,
                     "q": q.strip(),
                 })

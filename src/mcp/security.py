@@ -122,8 +122,17 @@ def audit_log(
     else:
         audit_logger.warning(msg)
 
-    # 异步持久化到数据库（fire-and-forget）
-    _persist_audit_log(tool, action, user, params, result, error, source, now)
+    # 在线程池中持久化到数据库（fire-and-forget，不阻塞事件循环）
+    import asyncio
+
+    try:
+        loop = asyncio.get_running_loop()
+        loop.run_in_executor(
+            None, _persist_audit_log, tool, action, user, params, result, error, source, now,
+        )
+    except RuntimeError:
+        # 没有运行中的事件循环（同步调用场景），直接同步写入
+        _persist_audit_log(tool, action, user, params, result, error, source, now)
 
 
 def _persist_audit_log(

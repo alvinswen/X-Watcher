@@ -230,6 +230,10 @@ class TaskRegistry:
                     delta = task_data["completed_at"] - task_data["started_at"]
                     duration = delta.total_seconds()
 
+                result_json = json.dumps(task_data.get("result"), ensure_ascii=False, default=str) if task_data.get("result") else None
+                error_text = task_data.get("error")
+                metadata_json = json.dumps(task_data.get("metadata"), ensure_ascii=False, default=str) if task_data.get("metadata") else None
+
                 # upsert: 查找已有记录（RUNNING → COMPLETED/FAILED 时更新）
                 existing = session.execute(
                     select(TaskExecutionLog).where(
@@ -242,9 +246,9 @@ class TaskRegistry:
                     existing.started_at = task_data.get("started_at")
                     existing.completed_at = task_data.get("completed_at")
                     existing.duration_seconds = duration
-                    existing.result_json = json.dumps(task_data.get("result"), ensure_ascii=False, default=str) if task_data.get("result") else None
-                    existing.error = task_data.get("error")
-                    existing.metadata_json = json.dumps(task_data.get("metadata"), ensure_ascii=False, default=str) if task_data.get("metadata") else None
+                    existing.result_json = result_json
+                    existing.error = error_text
+                    existing.metadata_json = metadata_json
                 else:
                     log_entry = TaskExecutionLog(
                         task_id=task_data["task_id"],
@@ -254,9 +258,9 @@ class TaskRegistry:
                         started_at=task_data.get("started_at"),
                         completed_at=task_data.get("completed_at"),
                         duration_seconds=duration,
-                        result_json=json.dumps(task_data.get("result"), ensure_ascii=False, default=str) if task_data.get("result") else None,
-                        error=task_data.get("error"),
-                        metadata_json=json.dumps(task_data.get("metadata"), ensure_ascii=False, default=str) if task_data.get("metadata") else None,
+                        result_json=result_json,
+                        error=error_text,
+                        metadata_json=metadata_json,
                     )
                     session.add(log_entry)
 
