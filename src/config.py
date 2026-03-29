@@ -143,6 +143,12 @@ class Settings(BaseSettings):
         description="调度器执行日志保留天数"
     )
 
+    # 任务超时配置
+    task_max_running_seconds: int = Field(
+        default=1800, ge=60, le=7200,
+        description="任务最大运行时长（秒），超时后自动标记为失败。默认 30 分钟"
+    )
+
     # Feed API 配置
     feed_max_tweets: int = Field(
         default=200,

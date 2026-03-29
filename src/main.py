@@ -260,6 +260,23 @@ async def lifespan(app: FastAPI):  # noqa: ARG001 - app 参数是 FastAPI 要求
                 f"db_interval={db_interval}, db_is_enabled={db_is_enabled}"
             )
 
+    # 安全检查：JWT 默认密钥警告
+    if settings.jwt_secret_key == "change-me-in-production":
+        logger.warning(
+            "JWT 密钥使用不安全的默认值 'change-me-in-production'。"
+            "请在 .env 中设置 JWT_SECRET_KEY 以保障生产环境安全。"
+        )
+
+    # 恢复僵尸任务（内存 + 数据库残留的 RUNNING 记录）
+    from src.scraper.task_registry import TaskRegistry
+
+    registry = TaskRegistry.get_instance()
+    recovered = registry.recover_stale_tasks(
+        max_running_seconds=settings.task_max_running_seconds,
+    )
+    if recovered > 0:
+        logger.warning(f"启动时恢复了 {recovered} 个僵尸任务")
+
     # 清理过期的调度器执行日志
     await _cleanup_old_scheduler_logs()
 

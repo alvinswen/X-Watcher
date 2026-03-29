@@ -6,6 +6,7 @@
 
 import asyncio
 import logging
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -21,6 +22,10 @@ from src.scraper.task_registry import TaskRegistry, TaskStatus
 from src.scraper.validator import TweetValidator
 
 logger = logging.getLogger(__name__)
+
+# 模块级并发抓取防护：记录当前正在抓取的用户名
+_scraping_usernames: set[str] = set()
+_scraping_lock = threading.Lock()
 
 
 class ScrapingService:
@@ -227,6 +232,36 @@ class ScrapingService:
             "error_message": None,
         }
 
+        # 并发抓取防护：同一用户不允许同时抓取
+        normalized = username.lower()
+        with _scraping_lock:
+            if normalized in _scraping_usernames:
+                logger.info(f"跳过用户 {username}: 另一个抓取任务正在处理该用户")
+                result["error_message"] = "另一个抓取任务正在处理该用户"
+                return result
+            _scraping_usernames.add(normalized)
+
+        try:
+            return await self._scrape_single_user_inner(
+                username, result=result, limit=limit,
+                since_id=since_id, manual_limit=manual_limit,
+                _retry_count=_retry_count,
+            )
+        finally:
+            with _scraping_lock:
+                _scraping_usernames.discard(normalized)
+
+    async def _scrape_single_user_inner(
+        self,
+        username: str,
+        *,
+        result: dict[str, Any],
+        limit: int = 100,
+        since_id: str | None = None,
+        manual_limit: int | None = None,
+        _retry_count: int = 0,
+    ) -> dict[str, Any]:
+        """抓取单个用户的推文（内部实现，由 scrape_single_user 调用）。"""
         try:
             # 0. 计算 limit：手动优先，否则动态计算
             fetch_stats = await self._get_fetch_stats(username)

@@ -119,6 +119,13 @@ def register(mcp: FastMCP) -> None:
                         return error_response(
                             "更新主题时 topic_id 参数必填", "validation"
                         )
+                    # 记录变更前状态
+                    old_topic = await service.get_topic(session, topic_id)
+                    old_values = {
+                        "name": old_topic.name,
+                        "description": old_topic.description,
+                    } if old_topic else None
+
                     topic = await service.update_topic(
                         session, topic_id=topic_id, name=name, description=description
                     )
@@ -126,7 +133,11 @@ def register(mcp: FastMCP) -> None:
                         return error_response(
                             f"主题 ID {topic_id} 不存在", "not_found"
                         )
-                    audit_log("manage_topic", "update", params={"topic_id": topic_id})
+                    audit_log("manage_topic", "update", params={
+                        "topic_id": topic_id,
+                        "old": old_values,
+                        "new": {"name": name, "description": description},
+                    })
                     return success_response({
                         "action": "updated",
                         "topic": topic.model_dump(),
@@ -137,12 +148,22 @@ def register(mcp: FastMCP) -> None:
                         return error_response(
                             "删除主题时 topic_id 参数必填", "validation"
                         )
+                    # 记录删除前状题信息
+                    old_topic = await service.get_topic(session, topic_id)
+                    old_values = {
+                        "name": old_topic.name,
+                        "description": old_topic.description,
+                    } if old_topic else None
+
                     deleted = await service.delete_topic(session, topic_id=topic_id)
                     if not deleted:
                         return error_response(
                             f"主题 ID {topic_id} 不存在", "not_found"
                         )
-                    audit_log("manage_topic", "delete", params={"topic_id": topic_id})
+                    audit_log("manage_topic", "delete", params={
+                        "topic_id": topic_id,
+                        "deleted_topic": old_values,
+                    })
                     return success_response({
                         "action": "deleted",
                         "topic_id": topic_id,

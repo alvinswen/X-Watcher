@@ -224,6 +224,34 @@ class ScraperScheduleConfig(Base):
     updated_by: Mapped[str] = mapped_column(String(100), nullable=False)
 
 
+class AuditLog(Base):
+    """审计日志模型。
+
+    记录所有写操作（MCP 工具和 REST API），支持事后追溯和查询。
+    """
+
+    __tablename__ = "audit_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False,
+        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+    )
+    tool: Mapped[str] = mapped_column(String(100), nullable=False)
+    action: Mapped[str] = mapped_column(String(50), nullable=False)
+    user: Mapped[str] = mapped_column(String(100), nullable=False, default="unknown")
+    params_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    result: Mapped[str] = mapped_column(String(20), nullable=False, default="success")
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default="mcp")
+
+    __table_args__ = (
+        Index("idx_audit_log_timestamp", "timestamp"),
+        Index("idx_audit_log_tool", "tool"),
+        Index("idx_audit_log_user", "user"),
+    )
+
+
 class TaskExecutionLog(Base):
     """任务执行日志模型。
 

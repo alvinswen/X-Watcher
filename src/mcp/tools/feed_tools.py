@@ -55,8 +55,13 @@ def register(mcp: FastMCP) -> None:
             return error_response(f"参数解析失败: {e}", "validation")
 
         try:
+            from src.config import get_settings
             from src.database.async_session import get_async_session_maker
             from src.feed.services.feed_service import FeedService
+
+            # 钳制 limit 到配置上限，防止 OOM
+            max_limit = get_settings().feed_max_tweets
+            clamped_limit = min(max(limit, 1), max_limit)
 
             session_maker = get_async_session_maker()
             async with session_maker() as session:
@@ -64,7 +69,7 @@ def register(mcp: FastMCP) -> None:
                 result = await service.get_feed(
                     since=since_dt,
                     until=until_dt,
-                    limit=limit,
+                    limit=clamped_limit,
                     include_summary=include_summary,
                     author=author,
                     authors=authors_list,
@@ -124,13 +129,16 @@ def register(mcp: FastMCP) -> None:
             from src.database.async_session import get_async_session_maker
             from src.search.services.search_service import SearchService
 
+            # 钳制 page_size 到合理范围
+            clamped_page_size = min(max(page_size, 1), 100)
+
             session_maker = get_async_session_maker()
             async with session_maker() as session:
                 service = SearchService(session)
                 result = await service.search_tweets(
                     q=q.strip(),
                     page=page,
-                    page_size=page_size,
+                    page_size=clamped_page_size,
                     include_summary=include_summary,
                     author=author,
                     authors=authors_list,

@@ -93,7 +93,7 @@ class TweetRepository:
                 success_count += 1
                 saved_tweet_ids.append(tweet.tweet_id)
             except Exception as e:
-                logger.error(f"保存推文 {tweet.tweet_id} 失败: {e}")
+                logger.error(f"保存推文 {tweet.tweet_id} 失败: {e}", exc_info=True)
                 error_count += 1
 
         return SaveResult(

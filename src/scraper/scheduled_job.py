@@ -151,22 +151,24 @@ def scheduled_scrape_job():
     if backfill_usernames:
         logger.info(f"发现 {len(backfill_usernames)} 个待回溯用户: {backfill_usernames}")
         backfill_service = ScrapingService()
-        for bf_username in backfill_usernames:
-            try:
-                bf_result = _run_async(
-                    backfill_service.backfill_user(bf_username)
-                )
-                logger.info(
-                    f"回溯完成: {bf_username}, "
-                    f"pages={bf_result['pages']}, new={bf_result['new']}"
-                )
-            except Exception as e:
-                logger.exception(f"回溯用户 {bf_username} 失败: {e}")
-        _run_async(backfill_service.close())
+        try:
+            for bf_username in backfill_usernames:
+                try:
+                    bf_result = _run_async(
+                        backfill_service.backfill_user(bf_username)
+                    )
+                    logger.info(
+                        f"回溯完成: {bf_username}, "
+                        f"pages={bf_result['pages']}, new={bf_result['new']}"
+                    )
+                except Exception as e:
+                    logger.exception(f"回溯用户 {bf_username} 失败: {e}")
+        finally:
+            _run_async(backfill_service.close())
 
     # 创建并执行抓取任务
+    service = ScrapingService()
     try:
-        service = ScrapingService()
         task_id = _run_async(
             service.scrape_users(
                 usernames=usernames,
@@ -181,3 +183,5 @@ def scheduled_scrape_job():
         )
     except Exception as e:
         logger.exception(f"定时抓取任务失败: {e}")
+    finally:
+        _run_async(service.close())

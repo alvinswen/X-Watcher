@@ -117,6 +117,9 @@ def register(mcp: FastMCP) -> None:
         if page < 1:
             return error_response("页码必须 >= 1", "validation")
 
+        # 钳制 page_size 到合理范围
+        clamped_page_size = min(max(page_size, 1), 100)
+
         try:
             from src.browse.services.browse_service import BrowseService
             from src.database.async_session import get_async_session_maker
@@ -128,7 +131,7 @@ def register(mcp: FastMCP) -> None:
                     date=date,
                     author=author,
                     page=page,
-                    page_size=page_size,
+                    page_size=clamped_page_size,
                     tz_offset=tz_offset,
                     min_text_length=min_text_length,
                 )

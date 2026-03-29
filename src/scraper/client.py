@@ -13,6 +13,7 @@ import httpx
 from returns.result import Failure, Result, Success
 
 from src.config import get_settings
+from src.scraper.circuit_breaker import CircuitBreaker
 
 logger = logging.getLogger(__name__)
 
@@ -182,10 +183,23 @@ class TwitterClientError(Exception):
         super().__init__(message)
 
 
+# 进程级熔断器单例（所有 TwitterClient 实例共享）
+_circuit_breaker = CircuitBreaker(
+    name="TwitterAPI.io",
+    failure_threshold=5,
+    recovery_timeout=60.0,
+)
+
+
+def get_twitter_circuit_breaker() -> CircuitBreaker:
+    """获取 Twitter API 熔断器实例（供外部监控/状态查询使用）。"""
+    return _circuit_breaker
+
+
 class TwitterClient:
     """Twitter API 客户端。
 
-    提供异步 HTTP 调用接口，支持指数退避重试策略。
+    提供异步 HTTP 调用接口，支持指数退避重试策略和熔断保护。
     """
 
     # 默认配置
@@ -220,6 +234,7 @@ class TwitterClient:
         self._max_delay = max_delay
         self._timeout = timeout
         self._client: httpx.AsyncClient | None = None
+        self._circuit_breaker = _circuit_breaker
 
     async def __aenter__(self) -> "TwitterClient":
         """进入上下文管理器。"""
@@ -532,7 +547,7 @@ class TwitterClient:
         endpoint: str,
         params: dict[str, Any],
     ) -> Result[dict[str, Any], TwitterClientError]:
-        """执行带指数退避重试的 HTTP 请求。
+        """执行带指数退避重试和熔断保护的 HTTP 请求。
 
         Args:
             endpoint: API 端点路径
@@ -541,6 +556,33 @@ class TwitterClient:
         Returns:
             Result[dict, TwitterClientError]: API 响应数据或错误
         """
+        result = await self._fetch_with_retry_inner(endpoint, params)
+        # 根据结果更新熔断器状态
+        if isinstance(result, Success):
+            self._circuit_breaker.record_success()
+        elif isinstance(result, Failure):
+            error = result.failure()
+            # 不可重试的客户端错误（401/403/404/422）不计入熔断
+            if not (error.status_code and error.status_code in self.NON_RETRYABLE_STATUS_CODES):
+                self._circuit_breaker.record_failure()
+        return result
+
+    async def _fetch_with_retry_inner(
+        self,
+        endpoint: str,
+        params: dict[str, Any],
+    ) -> Result[dict[str, Any], TwitterClientError]:
+        """实际执行带重试的 HTTP 请求（供 _fetch_with_retry 调用）。"""
+        # 熔断器检查：OPEN 状态时快速失败
+        if not self._circuit_breaker.allow_request():
+            status = self._circuit_breaker.get_status()
+            return Failure(
+                TwitterClientError(
+                    f"熔断器已触发: 连续 {status['failure_count']} 次失败，"
+                    f"冷却 {status['recovery_timeout']:.0f} 秒后自动恢复"
+                )
+            )
+
         retry_count = 0
         current_delay = self._base_delay
 

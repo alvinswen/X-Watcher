@@ -116,6 +116,15 @@ def register(mcp: FastMCP) -> None:
                 elif action == "update":
                     if not username:
                         return error_response("更新时 username 必填", "validation")
+                    # 记录变更前状态
+                    old_follow = await repo.get_follow_by_username(username)
+                    old_values = {
+                        "reason": old_follow.reason,
+                        "is_active": old_follow.is_active,
+                        "manual_limit": old_follow.manual_limit,
+                        "brief_intro": old_follow.brief_intro,
+                    } if old_follow else None
+
                     follow = await service.update_follow(
                         username=username,
                         reason=reason,
@@ -124,7 +133,11 @@ def register(mcp: FastMCP) -> None:
                         brief_intro=brief_intro,
                     )
                     await session.commit()
-                    audit_log("manage_follows", "update", params={"username": username})
+                    audit_log("manage_follows", "update", params={
+                        "username": username,
+                        "old": old_values,
+                        "new": {"reason": reason, "is_active": is_active, "manual_limit": manual_limit, "brief_intro": brief_intro},
+                    })
                     return success_response({
                         "action": "updated",
                         "username": follow.username,
@@ -133,9 +146,16 @@ def register(mcp: FastMCP) -> None:
                 elif action == "deactivate":
                     if not username:
                         return error_response("停用时 username 必填", "validation")
+                    # 记录变更前状态
+                    old_follow = await repo.get_follow_by_username(username)
+                    old_active = old_follow.is_active if old_follow else None
+
                     await service.deactivate_follow(username=username)
                     await session.commit()
-                    audit_log("manage_follows", "deactivate", params={"username": username})
+                    audit_log("manage_follows", "deactivate", params={
+                        "username": username,
+                        "old": {"is_active": old_active},
+                    })
                     return success_response({
                         "action": "deactivated",
                         "username": username,
@@ -169,6 +189,15 @@ def register(mcp: FastMCP) -> None:
 
         try:
             from src.scraper import ScrapingService, TaskRegistry
+
+            # 检查是否有任务正在运行（防止重复触发浪费 API 额度）
+            registry = TaskRegistry.get_instance()
+            for task in registry.get_all_tasks():
+                if task["status"].value == "running":
+                    return error_response(
+                        f"已有抓取任务正在运行 (task_id={task['task_id']})，请等待完成后再触发",
+                        "rate_limit",
+                    )
 
             service = ScrapingService()
 

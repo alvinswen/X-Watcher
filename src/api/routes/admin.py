@@ -388,6 +388,13 @@ async def start_scraping(
 
     logger.info(f"创建抓取任务: {task_id} - {scrape_request.parsed_usernames}")
 
+    from src.mcp.security import audit_log
+    audit_log(
+        "start_scraping", "scrape",
+        params={"usernames": scrape_request.parsed_usernames, "limit": scrape_request.limit},
+        source="api", user=_admin.name,
+    )
+
     return ScrapeResponse(
         task_id=task_id,
         task_status="pending",
@@ -512,6 +519,14 @@ async def delete_scraping_task(
 
     if deleted:
         logger.info(f"删除任务: {task_id}")
+
+        from src.mcp.security import audit_log
+        audit_log(
+            "delete_scraping_task", "delete",
+            params={"task_id": task_id},
+            source="api", user=_admin.name,
+        )
+
         return {"message": f"任务 {task_id} 已删除"}
 
     raise HTTPException(
@@ -560,6 +575,13 @@ async def backfill_articles(
 
         logger.info(f"创建 Article 批量回溯任务: {task_id}")
 
+        from src.mcp.security import audit_log
+        audit_log(
+            "backfill_articles", "backfill_all",
+            params={"max_tweets": max_tweets},
+            source="api", user=_admin.name,
+        )
+
         return JSONResponse(
             status_code=status.HTTP_202_ACCEPTED,
             content={"task_id": task_id, "status": "pending"},
@@ -598,6 +620,13 @@ async def backfill_articles(
         )
 
     logger.info(f"Article 回溯完成: username={username}, result={result}")
+
+    from src.mcp.security import audit_log
+    audit_log(
+        "backfill_articles", "backfill",
+        params={"username": username, "max_tweets": max_tweets},
+        source="api", user=_admin.name,
+    )
 
     return {
         "username": username,

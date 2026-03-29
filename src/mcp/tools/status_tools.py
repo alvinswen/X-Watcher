@@ -160,12 +160,23 @@ def register(mcp: FastMCP) -> None:
 
             database_size_mb = get_database_size_mb()
 
+            # 外部依赖健康状态
+            external_deps = {}
+            try:
+                from src.scraper.client import get_twitter_circuit_breaker
+
+                cb = get_twitter_circuit_breaker()
+                external_deps["twitter_api"] = cb.get_status()
+            except Exception:
+                external_deps["twitter_api"] = {"state": "unknown"}
+
             return success_response({
                 "tweets": tweets,
                 "follows": follows,
                 "summaries": summaries,
                 "topics": topics,
                 "scheduler": scheduler_info,
+                "external_dependencies": external_deps,
                 "system": {
                     "database_size_mb": database_size_mb,
                     "mcp_mode": True,
@@ -174,3 +185,71 @@ def register(mcp: FastMCP) -> None:
         except Exception as e:
             logger.error("get_system_status 失败: %s", e, exc_info=True)
             return error_response(f"获取系统状态失败: {e}")
+
+    @mcp.tool()
+    async def get_audit_log(
+        limit: int = 50,
+        tool: str | None = None,
+        action: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> str:
+        """查询审计日志（只读）。
+
+        Args:
+            limit: 返回条数上限，默认 50，最大 200
+            tool: 按工具名过滤（如 "manage_follows"、"trigger_scrape"）
+            action: 按操作类型过滤（如 "add"、"delete"、"scrape"）
+            since: 起始时间（含），ISO 8601 格式
+            until: 截止时间（不含），ISO 8601 格式
+        """
+        try:
+            import json
+
+            from sqlalchemy import select
+
+            from src.database.async_session import get_async_session_maker
+            from src.database.models import AuditLog
+            from src.mcp.helpers import parse_datetime_optional
+
+            clamped_limit = min(max(limit, 1), 200)
+            since_dt = parse_datetime_optional(since)
+            until_dt = parse_datetime_optional(until)
+
+            session_maker = get_async_session_maker()
+            async with session_maker() as session:
+                query = select(AuditLog).order_by(AuditLog.timestamp.desc())
+
+                if tool:
+                    query = query.where(AuditLog.tool == tool)
+                if action:
+                    query = query.where(AuditLog.action == action)
+                if since_dt:
+                    query = query.where(AuditLog.timestamp >= since_dt)
+                if until_dt:
+                    query = query.where(AuditLog.timestamp < until_dt)
+
+                query = query.limit(clamped_limit)
+                result = await session.execute(query)
+                logs = result.scalars().all()
+
+                return success_response({
+                    "logs": [
+                        {
+                            "id": log.id,
+                            "timestamp": log.timestamp.isoformat() if log.timestamp else None,
+                            "tool": log.tool,
+                            "action": log.action,
+                            "user": log.user,
+                            "params": json.loads(log.params_json) if log.params_json else None,
+                            "result": log.result,
+                            "error": log.error,
+                            "source": log.source,
+                        }
+                        for log in logs
+                    ],
+                    "count": len(logs),
+                })
+        except Exception as e:
+            logger.error("get_audit_log 失败: %s", e, exc_info=True)
+            return error_response(f"查询审计日志失败: {e}")

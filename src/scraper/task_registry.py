@@ -195,8 +195,8 @@ class TaskRegistry:
             # 更新 Prometheus 指标
             _update_task_metrics(status, old_status)
 
-            # 终态时先拷贝快照，在锁外持久化（避免 DB I/O 阻塞锁）
-            if status in (TaskStatus.COMPLETED, TaskStatus.FAILED):
+            # 终态或 RUNNING 时先拷贝快照，在锁外持久化（避免 DB I/O 阻塞锁）
+            if status in (TaskStatus.RUNNING, TaskStatus.COMPLETED, TaskStatus.FAILED):
                 task_snapshot = self._copy_task_data(task)
 
         # 在锁外持久化到数据库，避免 DB 写入期间阻塞其他线程访问 TaskRegistry
@@ -204,8 +204,10 @@ class TaskRegistry:
             self._persist_task(task_snapshot)
 
     def _persist_task(self, task_data: dict) -> None:
-        """将完成/失败的任务持久化到数据库。
+        """将任务状态持久化到数据库（RUNNING/COMPLETED/FAILED）。
 
+        RUNNING 状态也持久化，用于跨重启恢复僵尸任务检测。
+        使用 upsert 语义：同一 task_id 的后续状态更新覆盖前一条记录。
         使用同步 engine，不依赖 event loop。
         静默失败，不影响任务本身的执行。
 
@@ -213,11 +215,14 @@ class TaskRegistry:
             task_data: 任务数据字典
         """
         try:
+            from sqlalchemy import select
             from sqlalchemy.orm import Session as SyncSession
 
             from src.database.models import TaskExecutionLog, get_engine
 
             engine = get_engine()
+            status_value = task_data["status"].value if isinstance(task_data["status"], TaskStatus) else task_data["status"]
+
             with SyncSession(engine) as session:
                 # 计算执行时长
                 duration = None
@@ -225,21 +230,38 @@ class TaskRegistry:
                     delta = task_data["completed_at"] - task_data["started_at"]
                     duration = delta.total_seconds()
 
-                log_entry = TaskExecutionLog(
-                    task_id=task_data["task_id"],
-                    task_name=task_data["task_name"],
-                    status=task_data["status"].value if isinstance(task_data["status"], TaskStatus) else task_data["status"],
-                    created_at=task_data["created_at"],
-                    started_at=task_data.get("started_at"),
-                    completed_at=task_data.get("completed_at"),
-                    duration_seconds=duration,
-                    result_json=json.dumps(task_data.get("result"), ensure_ascii=False, default=str) if task_data.get("result") else None,
-                    error=task_data.get("error"),
-                    metadata_json=json.dumps(task_data.get("metadata"), ensure_ascii=False, default=str) if task_data.get("metadata") else None,
-                )
-                session.add(log_entry)
+                # upsert: 查找已有记录（RUNNING → COMPLETED/FAILED 时更新）
+                existing = session.execute(
+                    select(TaskExecutionLog).where(
+                        TaskExecutionLog.task_id == task_data["task_id"]
+                    )
+                ).scalar_one_or_none()
+
+                if existing:
+                    existing.status = status_value
+                    existing.started_at = task_data.get("started_at")
+                    existing.completed_at = task_data.get("completed_at")
+                    existing.duration_seconds = duration
+                    existing.result_json = json.dumps(task_data.get("result"), ensure_ascii=False, default=str) if task_data.get("result") else None
+                    existing.error = task_data.get("error")
+                    existing.metadata_json = json.dumps(task_data.get("metadata"), ensure_ascii=False, default=str) if task_data.get("metadata") else None
+                else:
+                    log_entry = TaskExecutionLog(
+                        task_id=task_data["task_id"],
+                        task_name=task_data["task_name"],
+                        status=status_value,
+                        created_at=task_data["created_at"],
+                        started_at=task_data.get("started_at"),
+                        completed_at=task_data.get("completed_at"),
+                        duration_seconds=duration,
+                        result_json=json.dumps(task_data.get("result"), ensure_ascii=False, default=str) if task_data.get("result") else None,
+                        error=task_data.get("error"),
+                        metadata_json=json.dumps(task_data.get("metadata"), ensure_ascii=False, default=str) if task_data.get("metadata") else None,
+                    )
+                    session.add(log_entry)
+
                 session.commit()
-                logger.debug(f"任务已持久化: {task_data['task_id']}")
+                logger.debug(f"任务已持久化: {task_data['task_id']} (status={status_value})")
         except Exception as e:
             logger.warning(f"任务历史持久化失败（不影响任务执行）: {e}")
 
@@ -338,6 +360,74 @@ class TaskRegistry:
                 logger.debug(f"删除任务: {task_id}")
                 return True
             return False
+
+    def recover_stale_tasks(self, max_running_seconds: int = 1800) -> int:
+        """恢复僵尸任务：将超时的 RUNNING 任务标记为 FAILED。
+
+        两层检查：
+        1. 内存中的 RUNNING 任务超时 → 标记为 FAILED
+        2. 数据库中残留的 RUNNING 记录（上次进程崩溃遗留）→ 标记为 FAILED
+
+        Args:
+            max_running_seconds: 最大运行时长（秒），超过则视为僵尸任务
+
+        Returns:
+            int: 恢复的僵尸任务数量
+        """
+        now = datetime.now()
+        recovered = 0
+
+        # 1. 检查内存中的 RUNNING 任务
+        stale_ids = []
+        with self._task_lock:
+            for task_id, task in self._tasks.items():
+                if task["status"] != TaskStatus.RUNNING:
+                    continue
+                started_at = task.get("started_at")
+                if started_at and (now - started_at).total_seconds() > max_running_seconds:
+                    stale_ids.append(task_id)
+
+        for task_id in stale_ids:
+            self.update_task_status(
+                task_id,
+                TaskStatus.FAILED,
+                error=f"任务超时: 运行超过 {max_running_seconds} 秒，自动标记为失败",
+            )
+            recovered += 1
+            logger.warning(f"僵尸任务恢复: {task_id} (内存中超时)")
+
+        # 2. 检查数据库中残留的 RUNNING 记录（进程崩溃遗留）
+        try:
+            from sqlalchemy import select, update
+            from sqlalchemy.orm import Session as SyncSession
+
+            from src.database.models import TaskExecutionLog, get_engine
+
+            engine = get_engine()
+            with SyncSession(engine) as session:
+                cutoff = now - timedelta(seconds=max_running_seconds)
+                result = session.execute(
+                    update(TaskExecutionLog)
+                    .where(
+                        TaskExecutionLog.status == "running",
+                        TaskExecutionLog.started_at < cutoff,
+                    )
+                    .values(
+                        status="failed",
+                        completed_at=now,
+                        error=f"进程重启恢复: 任务在上次运行中未正常结束",
+                    )
+                )
+                db_recovered = result.rowcount
+                session.commit()
+
+                if db_recovered > 0:
+                    recovered += db_recovered
+                    logger.warning(f"僵尸任务恢复: {db_recovered} 条数据库残留 RUNNING 记录已标记为 FAILED")
+        except Exception as e:
+            logger.warning(f"数据库僵尸任务恢复失败: {e}")
+
+        return recovered
 
     def cleanup_expired_tasks(self, ttl_hours: int = 24) -> int:
         """清理过期任务。

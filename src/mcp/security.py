@@ -89,15 +89,28 @@ def audit_log(
     params: dict | None = None,
     result: str = "success",
     error: str | None = None,
+    source: str = "mcp",
+    user: str | None = None,
 ) -> None:
-    """记录审计日志。"""
-    user = get_user_name()
-    now = datetime.now(timezone.utc).isoformat()
+    """记录审计日志（文件 + 数据库双写）。
+
+    Args:
+        tool: 工具/端点名称
+        action: 操作类型
+        params: 操作参数
+        result: 操作结果（"success" 或 "failure"）
+        error: 错误信息
+        source: 来源（"mcp" 或 "api"）
+        user: 用户名（None 时自动获取）
+    """
+    if user is None:
+        user = get_user_name()
+    now = datetime.now(timezone.utc)
     params_str = str(params) if params else ""
 
     msg = (
         f"AUDIT | tool={tool} | action={action} | user={user} "
-        f"| result={result} | time={now}"
+        f"| result={result} | time={now.isoformat()}"
     )
     if params_str:
         msg += f" | params=({params_str})"
@@ -108,6 +121,45 @@ def audit_log(
         audit_logger.info(msg)
     else:
         audit_logger.warning(msg)
+
+    # 异步持久化到数据库（fire-and-forget）
+    _persist_audit_log(tool, action, user, params, result, error, source, now)
+
+
+def _persist_audit_log(
+    tool: str,
+    action: str,
+    user: str,
+    params: dict | None,
+    result: str,
+    error: str | None,
+    source: str,
+    timestamp: datetime,
+) -> None:
+    """将审计日志持久化到数据库（静默失败）。"""
+    try:
+        import json
+
+        from sqlalchemy.orm import Session as SyncSession
+
+        from src.database.models import AuditLog, get_engine
+
+        engine = get_engine()
+        with SyncSession(engine) as session:
+            entry = AuditLog(
+                timestamp=timestamp.replace(tzinfo=None),
+                tool=tool,
+                action=action,
+                user=user,
+                params_json=json.dumps(params, ensure_ascii=False, default=str) if params else None,
+                result=result,
+                error=error,
+                source=source,
+            )
+            session.add(entry)
+            session.commit()
+    except Exception as e:
+        audit_logger.debug(f"审计日志 DB 持久化失败（不影响功能）: {e}")
 
 
 def log_action_guard_config() -> None:
