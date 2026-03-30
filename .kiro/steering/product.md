@@ -14,13 +14,16 @@ X-watcher 是一个**面向 Agent 的 X 平台智能信息监控服务**，通�
 - **抓取配置管理** - 管理员可查看账号运行时统计（effective_limit、近期最大新推文数），在线切换计算策略（自动/手动）和编辑单次抓取数量
 - **运行时调度管理** - 管理员可通过 API 动态调整抓取间隔和下次触发时间
 - **推文搜索** - 多字段关键词搜索（正文、摘要、翻译、引用推文），支持多关键词 AND 逻辑、作者筛选和时间范围过滤
-- **推文浏览** - 管理员按日期和作者维度浏览推文，结构化展示摘要、翻译、原文
+- **推文浏览** - 管理员按日期和作者维度浏览推文，结构化展示摘要、翻译、原文；支持作者时间线模式（查看单一作者的历史推文脉络）
 - **发文聚类分析** - 基于 24 小时发推分布的层次聚类，将监控账号自动分组，支持重切割和手动调整，优化抓取调度和摘要时机
 - **系统状态概览** - 一站式获取推文、关注、摘要、主题、调度器和系统维度的关键指标，便于 Agent 了解数据时效性和系统健康状况
 - **多 LLM 提供商** - 统一 OpenAI 兼容协议，支持 OpenRouter、MiniMax、DeepSeek、智谱、Moonshot 等 6+ 提供商，一键切换
 - **数据同步** - JSON 文件导出/导入机制，支持跨服务器同步配置、推文、摘要和主题数据，含冲突策略（skip/overwrite/merge）和 dry-run 预览
-- **MCP Service** - 提供 Model Context Protocol 接口，Claude Code / Claude Desktop 等 AI 助手可直接调用 x-watcher 的 18 个工具和 5 个动态资源，支持 stdio 和 SSE 双传输模式，内置工作流配方（recipes）引导 Agent 自主完成复杂流程
+- **MCP Service** - 提供 Model Context Protocol 接口，Claude Code / Claude Desktop 等 AI 助手可直接调用 x-watcher 的 20 个工具和 5 个动态资源，支持 stdio 和 SSE 双传输模式，内置工作流配方（recipes）引导 Agent 自主完成复杂流程
 - **CLI 工具** - `x-watcher init / validate / serve / mcp / export / import-data` 命令，Agent 或人类开发者一键完成安装配置、MCP 服务启动和数据同步
+- **防御性工程** - 熔断器（Twitter API 连续失败自动熔断，防止级联故障）、僵尸任务恢复（启动时自动检测并恢复超时的运行中任务）、MCP 参数边界校验
+- **审计与安全** - 所有写操作审计日志（MCP + REST API）、Action Guard 操作白名单控制、可查询的审计日志数据库
+- **历史回溯** - 支持 backfill 历史推文补抓，自动触发摘要生成
 - **配置验证** - 运行时验证 LLM 提供商、Twitter API、数据库的健康状态
 - **结构化输出** - 所有数据通过 RESTful API 和 MCP 协议以 JSON 格式输出，便于 Agent 消费
 

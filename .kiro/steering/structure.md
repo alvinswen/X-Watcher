@@ -33,6 +33,7 @@ src/
 │   ├── client.py            # TwitterAPI.io 客户端（含引用推文预处理）
 │   ├── parser.py            # 推文解析器
 │   ├── validator.py         # 数据验证器（MAX_TEXT_LENGTH=25000）
+│   ├── circuit_breaker.py   # 轻量级熔断器（CLOSED→OPEN→HALF_OPEN，5 次失败触发，60s 恢复）
 │   ├── scraping_service.py  # 抓取编排服务（含自动摘要触发）
 │   ├── scheduled_job.py     # 定时抓取任务函数（供 main.py 和 schedule_service 共用）
 │   ├── scheduler_listener.py # APScheduler 事件监听器（EXECUTED/ERROR/MISSED → DB + Prometheus）
@@ -61,14 +62,16 @@ src/
 │   ├── server.py            # FastMCP 实例创建、工具/资源注册、run_mcp_server() 入口
 │   ├── lifespan.py          # 轻量级 DB 初始化 + MCP 日志配置（不启动调度器和摘要队列）
 │   ├── auth.py              # MCP 认证上下文（stdio=admin，SSE=API Key 验证）
+│   ├── token_verifier.py    # MCP Token 验证器（ADMIN_API_KEY + 数据库 API Key 双层验证）
+│   ├── security.py          # 审计日志 + Action Guard 操作白名单（环境变量控制可执行操作）
 │   ├── helpers.py           # 结构化 JSON 响应工具（success_response / error_response）
-│   ├── tools/               # MCP 工具（18 个）
+│   ├── tools/               # MCP 工具（20 个）
 │   │   ├── feed_tools.py    # get_feed, search_tweets
 │   │   ├── browse_tools.py  # get_daily_stats, get_authors_for_date, browse_tweets
-│   │   ├── status_tools.py  # get_system_status
+│   │   ├── status_tools.py  # get_system_status, get_audit_log
 │   │   ├── topic_tools.py   # list_topics, get_topic, manage_topic, manage_topic_accounts, get_topic_summary
 │   │   ├── analytics_tools.py  # get_posting_frequency
-│   │   └── admin_tools.py   # manage_follows, trigger_scrape, get_task_status, manage_scheduler, batch_summarize, get_follow_accounts_info
+│   │   └── admin_tools.py   # manage_follows, trigger_scrape, trigger_backfill, get_task_status, manage_scheduler, batch_summarize, get_follow_accounts_info
 │   └── resources/           # MCP 动态资源（5 个）
 │       ├── providers.py     # xwatcher://status, xwatcher://follows, xwatcher://topics, xwatcher://config
 │       └── recipes.py       # xwatcher://recipes/daily-summary（Agent 工作流配方）
@@ -180,7 +183,7 @@ src/
 ├── shared/                  # 公共基础设施
 │   └── schemas.py           # UTCDatetimeModel 公共基类（SQLite naive datetime → UTC 序列化）
 ├── database/                # 数据库层
-│   ├── models.py            # SQLAlchemy 基础模型（User, ScraperScheduleConfig, TaskExecutionLog 等）
+│   ├── models.py            # SQLAlchemy 基础模型（User, ScraperScheduleConfig, TaskExecutionLog, AuditLog 等）
 │   ├── x_user_profile_model.py  # X 用户档案 ORM 模型（x_user_profiles 表，缓存 TwitterAPI.io 用户信息）
 │   └── async_session.py     # 异步会话管理（WAL 模式 + busy_timeout）
 ├── web/                     # 前端 SPA（Vue 3 + Element Plus）
@@ -284,7 +287,7 @@ External (数据库, TwitterAPI.io, MiniMax LLM)
 
 ### 当前阶段：API + Service + MCP 三层驱动
 - FastAPI 路由直接调用 Service 层（RESTful API）
-- MCP Server 直接调用 Service 层（Model Context Protocol，18 工具 + 4 资源）
+- MCP Server 直接调用 Service 层（Model Context Protocol，20 工具 + 5 资源）
 - Service 层编排业务逻辑（抓取、摘要、主题管理）
 - 统一 LLM Provider 架构：通用 OpenAI 兼容协议，支持 6+ 提供商
 - CLI 工具（click）：init / validate / serve / mcp / export / import-data 命令

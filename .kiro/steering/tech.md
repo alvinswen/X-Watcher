@@ -149,7 +149,16 @@ AUTO_SUMMARIZATION_ENABLED=true     # 抓取后自动摘要
 AUTO_SUMMARIZATION_BATCH_SIZE=10    # 批量摘要大小
 
 # Feed
-FEED_MAX_TWEETS=200                 # Feed 返回最大推文数
+FEED_MAX_TWEETS=200                 # Feed 返回最大推文数（同时限制 MCP 查询上限）
+
+# 僵尸任务恢复
+TASK_MAX_RUNNING_SECONDS=1800       # 任务超时阈值（秒，默认 30 分钟，范围 60-7200）
+
+# MCP Action Guard（操作白名单，逗号分隔，留空=允许所有）
+# MCP_TOPIC_ALLOWED_ACTIONS=create,update,delete
+# MCP_FOLLOWS_ALLOWED_ACTIONS=add,update,deactivate
+# MCP_SCHEDULER_ALLOWED_ACTIONS=enable,disable,update
+# MCP_SCRAPE_ENABLED=true           # 是否允许 MCP 触发抓取
 
 # 抓取调度
 SCRAPER_INTERVAL=43200              # 默认抓取间隔（秒），仅作为 GET /schedule 的回退默认值；启动时不自动创建 job，需管理员通过 API 显式启用
@@ -261,6 +270,26 @@ mypy src/
 - **trace_id 链路追踪**：基于 `contextvars.ContextVar`，在管道入口（抓取任务/摘要队列 worker）设置，通过 `TraceIdFilter` 自动注入所有日志
 - **文件轮转**：`QueueHandler` + `QueueListener` + `RotatingFileHandler`，50MB/文件，5 个备份，通过队列化写入避免 Windows 文件锁冲突（WinError 32）
 - **增强文本格式**：在消息后追加关键 extra 字段（`| provider=xxx tweet_id=xxx`），开发时也能看到结构化上下文
+
+### 为什么引入 Twitter API 熔断器？
+- **级联故障防护**：Twitter API 持续不可用时，继续重试会浪费资源并阻塞其他任务
+- **三状态模型**：CLOSED（正常）→ OPEN（5 次连续失败后熔断）→ HALF_OPEN（60s 后试探恢复）
+- **选择性计数**：非重试类客户端错误（401/403/404/422）不计入失败次数
+- **可观测性**：`get_system_status` 输出熔断器状态，运维可实时监控
+- **轻量实现**：进程级单例 + `threading.Lock`，无外部依赖
+
+### 为什么需要僵尸任务恢复？
+- **进程崩溃场景**：uvicorn 非正常退出后，数据库中的 RUNNING 状态任务永远不会被标记完成
+- **双层检测**：内存中超时的 RUNNING 任务 + 数据库中残留的 RUNNING 记录
+- **启动时自动恢复**：`main.py` 启动时调用 `recover_stale_tasks()`，超时（默认 1800s）的任务标记为 FAILED
+- **可配置超时**：`task_max_running_seconds` 环境变量，范围 60-7200s
+
+### 为什么引入审计日志和 Action Guard？
+- **合规需求**：所有写操作需可追溯（谁、何时、做了什么、参数和结果）
+- **双写策略**：文件日志（audit logger）+ 数据库持久化（AuditLog 表），互为备份
+- **操作白名单**：通过环境变量（`MCP_*_ALLOWED_ACTIONS`）控制 MCP 工具可执行的操作类型，防止意外的破坏性操作
+- **火忘式写入**：审计日志在 executor 中异步写入数据库，不阻塞主流程
+- **可查询**：`get_audit_log` MCP 工具支持按时间、工具、用户维度查询审计记录
 
 ### 为什么使用统一 OpenAI 兼容 Provider 架构？
 - **协议统一**：所有目标提供商（OpenRouter、MiniMax、DeepSeek、智谱、Moonshot 等）均兼容 OpenAI Chat Completions API

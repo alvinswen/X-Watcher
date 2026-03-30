@@ -103,11 +103,11 @@ Agent 经常需要"查找提到某个话题的推文"，但目前只能按日期
 
 ---
 
-### 4. Webhook 事件推送系统
+### 4. ~~Webhook 事件推送系统~~ [归档：MCP stdio + recipes 已覆盖 Agent 主动获取场景，Webhook 推送需求未被验证]
 
 Agent 只能轮询 Feed/任务状态，无法被动接收通知。当有重要内容时无法主动推送。
 
-- [ ] 4.1 设计 Webhook 数据模型和存储
+- [ ] ~~4.1 设计 Webhook 数据模型和存储~~
   - 创建 `src/webhook/` 模块目录结构（`api/`、`services/`、`domain/`、`infrastructure/`）
   - 定义 ORM 模型：
     - `WebhookSubscriptionOrm`：id、user_id、url、secret（HMAC 签名密钥）、event_types（JSON 数组）、is_active、created_at、updated_at
@@ -115,7 +115,7 @@ Agent 只能轮询 Feed/任务状态，无法被动接收通知。当有重要�
   - 创建 Alembic 数据库迁移
   - 定义事件类型枚举：`new_tweets`、`summary_completed`、`scrape_completed`、`topic_summary_completed`
 
-- [ ] 4.2 实现 WebhookService 订阅管理和事件分发
+- [ ] ~~4.2 实现 WebhookService 订阅管理和事件分发~~
   - 在 `src/webhook/services/webhook_service.py` 中实现：
     - 订阅管理：注册、列表、更新、删除、启用/禁用
     - 事件分发：接收事件 → 查找匹配订阅 → 异步 POST 投递（httpx）
@@ -124,7 +124,7 @@ Agent 只能轮询 Feed/任务状态，无法被动接收通知。当有重要�
     - 投递日志记录
   - 使用 `asyncio.create_task` 非阻塞投递，不影响主流程
 
-- [ ] 4.3 实现 Webhook API 端点
+- [ ] ~~4.3 实现 Webhook API 端点~~
   - 在 `src/webhook/api/routes.py` 中创建端点：
     - `POST /api/webhooks` — 注册 Webhook
     - `GET /api/webhooks` — 列出当前用户的所有 Webhook
@@ -135,13 +135,13 @@ Agent 只能轮询 Feed/任务状态，无法被动接收通知。当有重要�
   - 使用 `get_current_user` 认证
   - 在 `src/main.py` 中注册路由
 
-- [ ] 4.4 在现有服务中集成事件触发点
+- [ ] ~~4.4 在现有服务中集成事件触发点~~
   - 实现内存事件总线（发布/订阅模式），避免服务间直接耦合
   - 在 `ScrapingService` 中抓取完成后触发 `scrape_completed` 和 `new_tweets` 事件
   - 在 `SummarizationQueue` 中摘要完成后触发 `summary_completed` 事件
   - 在 `TopicSummaryService` 中主题摘要完成后触发 `topic_summary_completed` 事件
 
-- [ ] 4.5 编写 Webhook 测试
+- [ ] ~~4.5 编写 Webhook 测试~~
   - 单元测试：订阅 CRUD、事件匹配、HMAC 签名计算
   - 集成测试：API 端点完整流程、测试事件投递（mock httpx）、重试逻辑
   - 测试认证：用户只能管理自己的 Webhook
@@ -150,11 +150,11 @@ Agent 只能轮询 Feed/任务状态，无法被动接收通知。当有重要�
 
 ## Phase 2 — 中优先级：数据消费效率提升
 
-### 5. 数据导出 API
+### 5. ~~数据导出 API~~ [归档：src/sync/ ���块的 export 功能已覆盖此需求]
 
 Agent 可能需要将数据导入其他系统或生成报告，目前无批量导出能力。
 
-- [ ] 5.1 实现 Feed 导出端点
+- [ ] ~~5.1 实现 Feed 导出端点~~
   - 在 `src/feed/api/routes.py` 中添加 `GET /api/feed/export` 端点
   - 支持查询参数：`format`（markdown / json / csv，默认 markdown）、`since`（必填）、`until`（可选）、`author`（可选）、`authors`（可选）、`keyword`（可选）、`include_summary`（默认 true）
   - Markdown 格式：按作者分组，每条推文含时间、正文、摘要、翻译
@@ -165,7 +165,7 @@ Agent 可能需要将数据导入其他系统或生成报告，目前无批量�
   - 复用 `FeedService` 的查询逻辑
   - 使用 `get_current_user` 认证
 
-- [ ] 5.2 编写导出 API 测试
+- [ ] ~~5.2 编写导出 API 测试~~
   - 测试 Markdown / JSON / CSV 三种格式输出
   - 测试筛选条件传递（author、keyword）
   - 测试认证和参数验证
@@ -213,11 +213,11 @@ Agent 需要快速了解系统健康状况和数据时效性，当前只有低�
 
 ---
 
-### 8. 实时事件流（SSE）
+### 8. ~~实时事件流��SSE）~~ [归档：MCP stdio 模式已提供 Agent 实时交互能力，SSE 需求不强]
 
-长时间任务（抓取、摘要）缺少实时进度反馈，Agent 只能轮询 task 端点。
+长时间任务（抓取、摘要）缺���实时进度反馈，Agent 只能轮询 task 端点。
 
-- [ ] 8.1 实现 SSE 事件流端点
+- [ ] ~~8.1 实现 SSE 事件流端点~~
   - 在 `src/api/routes/` 下创建 `events.py`，实现 `GET /api/events/stream` 端点
   - 使用 `StreamingResponse` + `text/event-stream` Content-Type
   - 支持事件类型筛选查询参数：`event_types`（逗号分隔）
@@ -228,12 +228,12 @@ Agent 需要快速了解系统健康状况和数据时效性，当前只有低�
   - 使用 `get_current_user` 认证（通过查询参数传递 api_key）
   - 与 Webhook（任务 4）共享事件总线
 
-- [ ] 8.2 在现有服务中集成事件发布
+- [ ] ~~8.2 在现有服务中集成事件发布~~
   - 在 `ScrapingService` 中发布抓取进度事件（开始、每批完成、结束）
   - 在 `SummarizationQueue` 中发布摘要队列进度事件
   - 在 `TaskRegistry` 中任务状态变更时发布事件
 
-- [ ] 8.3 编写 SSE 测试
+- [ ] ~~8.3 编写 SSE 测试~~
   - 测试 SSE 连接建立和心跳
   - 测试事件类型筛选
   - 测试事件数据格式（符合 SSE 规范）
@@ -243,35 +243,35 @@ Agent 需要快速了解系统健康状况和数据时效性，当前只有低�
 
 ## Phase 3 — 低优先级：数据质量闭环
 
-### 9. 去重结果浏览 API
+### 9. ~~去重结果浏览 API~~ [删除：去重功能已被 commit e77222e 完全移除]
 
 当前缺少"哪些推文被去重了"的概览能力，不利于质量监控。
 
-- [x] 9.1 实现去重结果按日期浏览端点
+- ~~[x] 9.1 实现去重结果按日期浏览端点~~
   - 在 `src/deduplication/api/routes.py` 中添加：
     - `GET /api/deduplicate/groups` — 列出去重组，支持 `date`（YYYY-MM-DD）、`page`、`page_size` 参数
     - `GET /api/deduplicate/stats/daily` — 按月查询每日去重统计（参考 `BrowseService.get_daily_stats` 模式）
   - 返回每个去重组的组内推文数量、去重类型、代表推文摘要等信息
   - 使用 `get_current_admin_user` 认证
 
-- [x] 9.2 编写去重浏览测试
+- ~~[x] 9.2 编写去重浏览测试~~
   - 测试按日期筛选去重组列表
   - 测试分页
   - 测试每日统计
 
 ---
 
-### 10. 推文反馈/标注 API
+### 10. ~~推文反馈/标注 API~~ [暂挂：有潜在价值但当前无明确需求信号，待需求验证后按 SDD 流程启动新 spec]
 
 Agent 无法标记推文的重要性或反馈摘要质量，不利于未来持续改进。
 
-- [ ] 10.1 设计反馈数据模型
+- [ ] ~~10.1 设计反馈数据模型~~
   - 创建 `src/feedback/` 模块目录结构
   - 定义 ORM 模型 `TweetFeedbackOrm`：id、user_id、tweet_id、feedback_type（important / irrelevant / bad_summary）、comment（可选文本）、created_at
   - 创建 Alembic 数据库迁移
   - 设置 (user_id, tweet_id, feedback_type) 复合唯一约束
 
-- [ ] 10.2 实现反馈 API 端点
+- [ ] ~~10.2 实现反馈 API 端点~~
   - 在 `src/feedback/api/routes.py` 中创建：
     - `POST /api/feedback/tweets/{tweet_id}` — 提交反馈（feedback_type + 可选 comment）
     - `GET /api/feedback/tweets/{tweet_id}` — 查询某推文的反馈
@@ -280,7 +280,7 @@ Agent 无法标记推文的重要性或反馈摘要质量，不利于未来持�
   - 使用 `get_current_user` 认证
   - 在 `src/main.py` 中注册路由
 
-- [ ] 10.3 编写反馈 API 测试
+- [ ] ~~10.3 编写反馈 API 测试~~
   - 测试提交、查询、撤销反馈完整流程
   - 测试重复提交同类型反馈返回 409
   - 测试统计接口正确性
@@ -289,14 +289,14 @@ Agent 无法标记推文的重要性或反馈摘要质量，不利于未来持�
 
 ## Phase 4 — 收尾：文档与集成验证
 
-### 11. 文档更新与集成验证
+### 11. ~~文档更新与集成验证~~ [删除：steering 文档已于 2026-03-30 同步更新]
 
-- [ ] 11.1 更新项目文档
+- [x] ~~11.1 更新项目文档~~
   - 更新 `.kiro/steering/product.md`，添加新增核心能力描述（搜索、批量操作、Webhook、导出、SSE、反馈）
   - 更新 `.kiro/steering/structure.md`，添加新模块（search、webhook、feedback）目录结构
   - 更新 `.kiro/steering/tech.md`，记录新增技术决策（事件总线、SSE、Webhook 签名等）
 
-- [ ] 11.2 运行全量测试确保无回归
+- [ ] ~~11.2 运行全量测试确保无回归~~
   - 运行 pytest 全量测试套件
   - 验证现有 Feed、Preference、Topic、Browse 模块未受影响
 
