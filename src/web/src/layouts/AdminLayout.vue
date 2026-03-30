@@ -18,12 +18,16 @@ import {
   TrendCharts,
   Histogram,
   Refresh,
+  Moon,
+  Sunny,
 } from "@element-plus/icons-vue"
 import { useAuthStore } from "@/stores/auth"
+import { useThemeStore } from "@/stores/theme"
 import { ElMessage } from "element-plus"
 
 const route = useRoute()
 const authStore = useAuthStore()
+const themeStore = useThemeStore()
 
 /** 侧边栏是否折叠 */
 const isCollapsed = ref(false)
@@ -131,11 +135,23 @@ function clearApiKey() {
           </span>
         </div>
 
-        <!-- 折叠/展开按钮 -->
-        <el-icon class="collapse-btn" @click="isCollapsed = !isCollapsed">
-          <Expand v-if="isCollapsed" />
-          <Fold v-else />
-        </el-icon>
+        <div class="aside-footer-actions">
+          <!-- 主题切换按钮 -->
+          <el-icon
+            class="theme-toggle-btn"
+            :title="themeStore.mode === 'light' ? '亮色模式' : themeStore.mode === 'dark' ? '暗色模式' : '跟随系统'"
+            @click="themeStore.toggle()"
+          >
+            <Moon v-if="themeStore.isDark()" />
+            <Sunny v-else />
+          </el-icon>
+
+          <!-- 折叠/展开按钮 -->
+          <el-icon class="collapse-btn" @click="isCollapsed = !isCollapsed">
+            <Expand v-if="isCollapsed" />
+            <Fold v-else />
+          </el-icon>
+        </div>
       </div>
     </el-aside>
 
@@ -209,11 +225,11 @@ function clearApiKey() {
 }
 
 .admin-aside {
-  background-color: #001529;
+  background-color: var(--bg-sidebar);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition: width 0.2s;
+  transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .aside-header {
@@ -221,14 +237,16 @@ function clearApiKey() {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .aside-title {
-  color: #fff;
+  color: var(--text-on-dark);
   font-size: 16px;
   font-weight: 600;
   white-space: nowrap;
+  font-family: var(--font-reading);
+  letter-spacing: 0.08em;
 }
 
 .aside-menu {
@@ -242,11 +260,18 @@ function clearApiKey() {
 }
 
 .aside-footer {
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
   padding: 8px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.aside-footer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
 }
 
 .api-key-status {
@@ -254,13 +279,13 @@ function clearApiKey() {
   align-items: center;
   gap: 8px;
   padding: 6px 8px;
-  border-radius: 4px;
+  border-radius: 6px;
   cursor: pointer;
-  transition: background-color 0.2s;
+  transition: background-color var(--transition-base);
 }
 
 .api-key-status:hover {
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: var(--bg-sidebar-hover);
 }
 
 .status-dot {
@@ -271,46 +296,48 @@ function clearApiKey() {
 }
 
 .status-active {
-  background-color: #67c23a;
+  background-color: var(--color-success);
 }
 
 .status-inactive {
-  background-color: #909399;
+  background-color: var(--text-tertiary);
 }
 
 .status-text {
-  color: rgba(255, 255, 255, 0.65);
+  color: var(--text-on-dark-secondary);
   font-size: 12px;
   white-space: nowrap;
 }
 
+.theme-toggle-btn,
 .collapse-btn {
-  color: rgba(255, 255, 255, 0.65);
+  color: var(--text-on-dark-secondary);
   cursor: pointer;
   padding: 6px 8px;
-  border-radius: 4px;
+  border-radius: 6px;
   font-size: 18px;
-  align-self: center;
-  transition: color 0.2s, background-color 0.2s;
+  transition: color var(--transition-base), background-color var(--transition-base);
 }
 
+.theme-toggle-btn:hover,
 .collapse-btn:hover {
-  color: #fff;
-  background-color: rgba(255, 255, 255, 0.1);
+  color: var(--text-on-dark);
+  background-color: var(--bg-sidebar-hover);
 }
 
 .admin-header {
   display: flex;
   align-items: center;
-  border-bottom: 1px solid #e0e0e0;
-  background-color: #fff;
+  border-bottom: 1px solid var(--border-light);
+  background-color: var(--bg-card);
   padding: 0 20px;
 }
 
 .header-title {
   font-size: 16px;
   font-weight: 500;
-  color: #303133;
+  color: var(--text-primary);
+  font-family: var(--font-reading);
 }
 
 .header-spacer {
@@ -318,7 +345,7 @@ function clearApiKey() {
 }
 
 .admin-main {
-  background-color: #f5f5f5;
+  background-color: var(--bg-page);
   overflow-y: auto;
 }
 </style>

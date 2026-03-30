@@ -649,7 +649,8 @@ onUnmounted(() => {
 .page-header h1 {
   margin: 0;
   font-size: 1.5rem;
-  color: #333;
+  color: var(--text-primary);
+  font-family: var(--font-reading);
 }
 
 .filter-bar {
@@ -657,8 +658,8 @@ onUnmounted(() => {
 }
 
 .form-hint {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
+  font-size: var(--xs-font-size);
+  color: var(--text-tertiary);
   margin-top: 4px;
 }
 
@@ -669,28 +670,33 @@ onUnmounted(() => {
 .detail-section h4 {
   margin: 0 0 10px;
   font-size: 14px;
-  color: var(--el-text-color-primary);
+  color: var(--text-primary);
+  font-family: var(--font-reading);
 }
 
 .summary-content {
-  padding: 16px;
-  background-color: var(--el-fill-color-light);
-  border-radius: 4px;
+  padding: 20px;
+  background-color: var(--bg-inset);
+  border-radius: 6px;
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 14px;
-  line-height: 1.8;
-  max-height: 400px;
+  font-size: var(--reading-font-size);
+  line-height: var(--reading-line-height);
+  letter-spacing: var(--reading-letter-spacing);
+  font-family: var(--font-reading);
+  color: var(--text-primary);
+  max-height: 500px;
   overflow-y: auto;
 }
 
 .custom-prompt-content {
-  padding: 12px;
-  background-color: var(--el-fill-color-lighter);
-  border-radius: 4px;
+  padding: 12px 16px;
+  background-color: var(--bg-inset);
+  border-radius: 6px;
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 13px;
-  color: var(--el-text-color-secondary);
+  font-size: var(--small-font-size);
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
 }
 </style>

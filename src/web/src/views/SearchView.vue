@@ -241,42 +241,48 @@ onMounted(() => {
 }
 
 .result-summary {
-  font-size: 14px;
-  color: var(--el-text-color-secondary);
+  font-size: var(--small-font-size);
+  color: var(--text-secondary);
   margin-bottom: 16px;
+  font-family: var(--font-mono);
 }
 
 .tweet-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--card-gap);
+  max-width: 720px;
 }
 
 .tweet-card {
-  background: #fff;
-  border: 1px solid #e4e7ed;
-  border-radius: 4px;
-  padding: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--card-radius);
+  padding: var(--card-padding);
   cursor: pointer;
-  transition: box-shadow 0.2s;
+  box-shadow: var(--shadow-card);
+  transition: box-shadow var(--transition-base), transform var(--transition-base), border-color var(--transition-base);
 }
 
 .tweet-card:hover {
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-card-hover);
+  transform: translateY(-1px);
+  border-color: var(--border-medium);
 }
 
 .tweet-time-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #f0f0f0;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-light);
 }
 
 .tweet-time {
-  font-size: 12px;
-  color: #909399;
+  font-size: var(--xs-font-size);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
 }
 
 .tweet-author-inline {
@@ -286,18 +292,19 @@ onMounted(() => {
 }
 
 .inline-author-name {
-  font-size: 13px;
+  font-size: var(--small-font-size);
   font-weight: 600;
-  color: #303133;
+  color: var(--text-primary);
 }
 
 .inline-author-handle {
-  font-size: 12px;
-  color: #909399;
+  font-size: var(--xs-font-size);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
 }
 
 .tweet-section {
-  margin-bottom: 10px;
+  margin-bottom: var(--section-gap);
 }
 
 .tweet-section:last-child {
@@ -305,42 +312,43 @@ onMounted(() => {
 }
 
 .section-label {
-  font-size: 11px;
-  color: #909399;
-  margin-bottom: 4px;
+  font-size: var(--label-font-size);
+  color: var(--text-tertiary);
+  margin-bottom: 6px;
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
 .section-content {
-  font-size: 14px;
-  line-height: 1.7;
-  color: #303133;
+  font-size: var(--reading-font-size);
+  line-height: var(--reading-line-height);
+  letter-spacing: var(--reading-letter-spacing);
+  color: var(--text-primary);
   white-space: pre-wrap;
   word-break: break-word;
+  font-family: var(--font-reading);
 }
 
 .summary-section .section-content {
-  background: #f0f9eb;
-  padding: 8px 12px;
-  border-radius: 4px;
-  border-left: 3px solid #67c23a;
+  font-size: var(--summary-font-size);
 }
 
 .translation-section .section-content {
-  background: #ecf5ff;
-  padding: 8px 12px;
-  border-radius: 4px;
-  border-left: 3px solid #409eff;
+  background: var(--bg-inset);
+  padding: 12px 16px;
+  border-radius: 6px;
+  border-left: 3px solid var(--color-primary);
 }
 
 .original-text {
-  color: #606266;
+  color: var(--text-tertiary);
+  font-size: var(--small-font-size);
+  line-height: 1.8;
 }
 
 .tweet-media {
-  margin-top: 8px;
+  margin-top: 12px;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 8px;
@@ -348,34 +356,36 @@ onMounted(() => {
 
 .media-image {
   width: 100%;
-  border-radius: 4px;
+  border-radius: 6px;
   object-fit: cover;
   max-height: 200px;
 }
 
 .referenced-tweet {
-  margin-top: 10px;
-  padding: 10px 12px;
-  background: #fafafa;
-  border: 1px solid #e4e7ed;
-  border-radius: 4px;
+  margin-top: 12px;
+  padding: 12px 16px;
+  background: var(--bg-inset);
+  border-left: 2px solid var(--border-medium);
+  border-radius: 0 6px 6px 0;
 }
 
 .ref-label {
-  font-size: 11px;
-  color: #909399;
+  font-size: var(--label-font-size);
+  color: var(--text-tertiary);
   margin-bottom: 4px;
 }
 
 .ref-content {
-  font-size: 13px;
-  line-height: 1.6;
-  color: #606266;
+  font-size: var(--small-font-size);
+  line-height: 1.7;
+  color: var(--text-secondary);
+  font-family: var(--font-reading);
 }
 
 .ref-author {
   font-weight: 500;
-  color: #409eff;
+  color: var(--color-primary);
+  font-family: var(--font-mono);
   margin-right: 6px;
 }
 
@@ -387,6 +397,6 @@ onMounted(() => {
 .pagination-bar {
   display: flex;
   justify-content: center;
-  padding: 16px 0;
+  padding: 20px 0;
 }
 </style>

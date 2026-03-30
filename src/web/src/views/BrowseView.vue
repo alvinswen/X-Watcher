@@ -142,7 +142,12 @@
         <el-skeleton v-if="activeTweetsLoading" :rows="8" animated />
         <el-empty v-else-if="activeTweets.length === 0" :description="mode === 'timeline' ? '该时间段暂无推文' : '该日期暂无推文'" />
         <div v-else class="tweet-list">
-          <div v-for="tweet in activeTweets" :key="tweet.tweet_id" class="tweet-card">
+          <div
+            v-for="(tweet, tweetIndex) in activeTweets"
+            :key="tweet.tweet_id"
+            class="tweet-card"
+            :style="{ '--index': tweetIndex }"
+          >
             <!-- 发布时刻 -->
             <div class="tweet-time-row">
               <span class="tweet-time">{{ formatFullDateTime(tweet.created_at) }}</span>
@@ -162,9 +167,8 @@
               </el-button>
             </div>
 
-            <!-- 摘要 -->
+            <!-- 摘要（无标签，通过字号建立层次） -->
             <div v-if="tweet.summary_text" class="tweet-section summary-section">
-              <div class="section-label">摘要</div>
               <div class="section-content">{{ tweet.summary_text }}</div>
             </div>
 
@@ -174,10 +178,15 @@
               <div class="section-content">{{ tweet.translation_text }}</div>
             </div>
 
-            <!-- 原文 -->
-            <div class="tweet-section original-section">
+            <!-- 原文（可折叠） -->
+            <div
+              class="tweet-section original-section"
+              :class="{ expanded: expandedOriginals.has(tweet.tweet_id) }"
+              @click="toggleOriginal(tweet.tweet_id)"
+            >
               <div class="section-label">原文</div>
               <div class="section-content original-text">{{ tweet.text }}</div>
+              <div v-if="!expandedOriginals.has(tweet.tweet_id)" class="original-fade-mask"></div>
             </div>
 
             <!-- 媒体附件 -->
@@ -302,6 +311,16 @@ const pageSize = 20
 /** 加载状态 */
 const authorsLoading = ref(false)
 const tweetsLoading = ref(false)
+
+/** 原文展开状态 */
+const expandedOriginals = ref<Set<string>>(new Set())
+
+function toggleOriginal(tweetId: string) {
+  const s = new Set(expandedOriginals.value)
+  if (s.has(tweetId)) s.delete(tweetId)
+  else s.add(tweetId)
+  expandedOriginals.value = s
+}
 
 /** ===== 时间线模式状态 ===== */
 type BrowseMode = "date" | "timeline"
@@ -724,8 +743,8 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   padding: 8px 16px;
-  background: #fff;
-  border-bottom: 1px solid #e4e7ed;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border-light);
 }
 
 .fullscreen-spacer {
@@ -735,10 +754,11 @@ onUnmounted(() => {
 .fullscreen-title {
   font-size: 15px;
   font-weight: 500;
-  color: #303133;
+  color: var(--text-primary);
+  font-family: var(--font-reading);
 }
 
-/* 日历面板 */
+/* ========== 日历面板 ========== */
 .calendar-panel {
   width: 320px;
   flex-shrink: 0;
@@ -746,11 +766,14 @@ onUnmounted(() => {
 }
 
 .browse-calendar {
-  --el-calendar-border: 1px solid #e4e7ed;
+  --el-calendar-border: 1px solid var(--border-light);
+  background-color: var(--bg-card);
+  border-radius: var(--card-radius);
 }
 
 .browse-calendar :deep(.el-calendar__header) {
   padding: 8px 12px;
+  font-family: var(--font-reading);
 }
 
 .browse-calendar :deep(.el-calendar__body) {
@@ -777,12 +800,14 @@ onUnmounted(() => {
 
 .calendar-day {
   font-size: 13px;
+  font-family: var(--font-mono);
 }
 
 .tweet-count {
-  font-size: 11px;
+  font-size: var(--label-font-size);
   font-weight: 500;
-  color: #1a56db;
+  color: var(--color-primary);
+  font-family: var(--font-mono);
   white-space: nowrap;
 }
 
@@ -792,13 +817,13 @@ onUnmounted(() => {
   right: 2px;
 }
 
-/* 作者面板 */
+/* ========== 作者面板 ========== */
 .author-panel {
   width: 240px;
   flex-shrink: 0;
-  border: 1px solid #e4e7ed;
-  border-radius: 4px;
-  background: #fff;
+  border: 1px solid var(--border-light);
+  border-radius: var(--card-radius);
+  background: var(--bg-card);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -808,8 +833,9 @@ onUnmounted(() => {
   padding: 12px 16px;
   font-weight: 600;
   font-size: 14px;
-  border-bottom: 1px solid #e4e7ed;
-  color: #303133;
+  border-bottom: 1px solid var(--border-light);
+  color: var(--text-primary);
+  font-family: var(--font-reading);
 }
 
 .author-list {
@@ -823,17 +849,21 @@ onUnmounted(() => {
   justify-content: space-between;
   padding: 10px 16px;
   cursor: pointer;
-  transition: background-color 0.2s;
-  border-bottom: 1px solid #f0f0f0;
+  transition: background-color var(--transition-base);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.author-item:last-child {
+  border-bottom: none;
 }
 
 .author-item:hover {
-  background-color: #f5f7fa;
+  background-color: var(--bg-inset);
 }
 
 .author-item.active {
-  background-color: #ecf5ff;
-  color: #409eff;
+  background-color: var(--color-primary-lighter);
+  color: var(--color-primary);
 }
 
 .author-info-block {
@@ -852,95 +882,115 @@ onUnmounted(() => {
 }
 
 .author-display-name {
-  font-size: 13px;
+  font-size: var(--small-font-size);
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--text-primary);
 }
 
 .author-handle {
-  font-size: 11px;
-  color: #909399;
+  font-size: var(--label-font-size);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .author-reason {
-  font-size: 11px;
-  color: #303133;
+  font-size: var(--label-font-size);
+  color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .author-name-text {
-  font-size: 13px;
+  font-size: var(--small-font-size);
   font-weight: 500;
+  color: var(--text-primary);
 }
 
-/* 推文面板 */
+/* ========== 推文面板 ========== */
 .tweet-panel {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  padding-right: 8px;
 }
 
 .selected-author-header {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 16px;
-  background: #fff;
-  border: 1px solid #e4e7ed;
-  border-radius: 4px;
-  margin-bottom: 12px;
+  padding: 14px 20px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--card-radius);
+  margin-bottom: 16px;
 }
 
 .selected-author-name {
   font-size: 16px;
   font-weight: 600;
-  color: #303133;
+  color: var(--text-primary);
+  font-family: var(--font-reading);
 }
 
 .selected-author-handle {
-  font-size: 13px;
-  color: #909399;
+  font-size: var(--small-font-size);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
 }
 
 .selected-author-reason {
-  font-size: 13px;
-  color: #303133;
+  font-size: var(--small-font-size);
+  color: var(--text-secondary);
 }
 
+/* ========== 推文列表 ========== */
 .tweet-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--card-gap);
+  max-width: 720px;
 }
 
 .tweet-card {
-  background: #fff;
-  border: 1px solid #e4e7ed;
-  border-radius: 4px;
-  padding: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--card-radius);
+  padding: var(--card-padding);
+  box-shadow: var(--shadow-card);
+  transition: box-shadow var(--transition-base), transform var(--transition-base), border-color var(--transition-base);
+  animation: card-enter 0.4s ease both;
+  animation-delay: calc(var(--index, 0) * 60ms);
 }
 
+.tweet-card:hover {
+  box-shadow: var(--shadow-card-hover);
+  transform: translateY(-1px);
+  border-color: var(--border-medium);
+}
+
+/* ---- 时间行 ---- */
 .tweet-time-row {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  margin-bottom: 12px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #f0f0f0;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-light);
 }
 
 .tweet-time {
-  font-size: 12px;
-  color: #909399;
+  font-size: var(--xs-font-size);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
 }
 
 .tweet-author-inline {
@@ -951,22 +1001,20 @@ onUnmounted(() => {
 }
 
 .inline-author-name {
-  font-size: 13px;
+  font-size: var(--small-font-size);
   font-weight: 600;
-  color: #303133;
+  color: var(--text-primary);
 }
 
 .inline-author-handle {
-  font-size: 12px;
-  color: #909399;
+  font-size: var(--xs-font-size);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
 }
 
-.share-btn {
-  margin-left: auto;
-}
-
+/* ---- 推文内容区段 ---- */
 .tweet-section {
-  margin-bottom: 10px;
+  margin-bottom: var(--section-gap);
 }
 
 .tweet-section:last-child {
@@ -974,42 +1022,74 @@ onUnmounted(() => {
 }
 
 .section-label {
-  font-size: 11px;
-  color: #909399;
-  margin-bottom: 4px;
+  font-size: var(--label-font-size);
+  color: var(--text-tertiary);
+  margin-bottom: 6px;
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
 .section-content {
-  font-size: 14px;
-  line-height: 1.7;
-  color: #303133;
+  font-size: var(--reading-font-size);
+  line-height: var(--reading-line-height);
+  letter-spacing: var(--reading-letter-spacing);
+  color: var(--text-primary);
   white-space: pre-wrap;
   word-break: break-word;
+  font-family: var(--font-reading);
 }
 
+/* 摘要区：通过字号自然成为焦点，无背景色 */
 .summary-section .section-content {
-  background: #f0f9eb;
-  padding: 8px 12px;
-  border-radius: 4px;
-  border-left: 3px solid #67c23a;
+  font-size: var(--summary-font-size);
+  line-height: var(--reading-line-height);
+  letter-spacing: var(--reading-letter-spacing);
+  color: var(--text-primary);
 }
 
+/* 翻译区：淡底色 + 朱砂左边框 */
 .translation-section .section-content {
-  background: #ecf5ff;
-  padding: 8px 12px;
-  border-radius: 4px;
-  border-left: 3px solid #409eff;
+  background: var(--bg-inset);
+  padding: 12px 16px;
+  border-radius: 6px;
+  border-left: 3px solid var(--color-primary);
+}
+
+/* 原文区：折叠 + 淡色 */
+.original-section {
+  position: relative;
+  cursor: pointer;
+  max-height: 5.6em;
+  overflow: hidden;
+  transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.original-section.expanded {
+  max-height: none;
+  cursor: default;
 }
 
 .original-text {
-  color: #606266;
+  color: var(--text-tertiary);
+  font-size: var(--small-font-size);
+  line-height: 1.8;
+  font-family: var(--font-reading);
 }
 
+.original-fade-mask {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2.4em;
+  background: linear-gradient(transparent, var(--bg-card));
+  pointer-events: none;
+}
+
+/* ---- 媒体 ---- */
 .tweet-media {
-  margin-top: 8px;
+  margin-top: 12px;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 8px;
@@ -1017,34 +1097,42 @@ onUnmounted(() => {
 
 .media-image {
   width: 100%;
-  border-radius: 4px;
+  border-radius: 6px;
   object-fit: cover;
   max-height: 200px;
+  transition: transform var(--transition-base);
 }
 
+.media-image:hover {
+  transform: scale(1.02);
+}
+
+/* ---- 引用推文 ---- */
 .referenced-tweet {
-  margin-top: 10px;
-  padding: 10px 12px;
-  background: #fafafa;
-  border: 1px solid #e4e7ed;
-  border-radius: 4px;
+  margin-top: 12px;
+  padding: 12px 16px;
+  background: var(--bg-inset);
+  border-left: 2px solid var(--border-medium);
+  border-radius: 0 6px 6px 0;
 }
 
 .ref-label {
-  font-size: 11px;
-  color: #909399;
+  font-size: var(--label-font-size);
+  color: var(--text-tertiary);
   margin-bottom: 4px;
 }
 
 .ref-content {
-  font-size: 13px;
-  line-height: 1.6;
-  color: #606266;
+  font-size: var(--small-font-size);
+  line-height: 1.7;
+  color: var(--text-secondary);
+  font-family: var(--font-reading);
 }
 
 .ref-author {
   font-weight: 500;
-  color: #409eff;
+  color: var(--color-primary);
+  font-family: var(--font-mono);
   margin-right: 6px;
 }
 
@@ -1057,26 +1145,27 @@ onUnmounted(() => {
   margin-top: 6px;
 }
 
+/* ---- 分页 ---- */
 .pagination-bar {
   display: flex;
   justify-content: center;
-  padding: 16px 0;
+  padding: 20px 0;
   margin-top: auto;
 }
 
-/* 分享按钮 */
+/* ---- 分享按钮 ---- */
 .share-btn {
   padding: 2px 4px;
   margin-left: auto;
-  color: #c0c4cc;
-  transition: color 0.2s;
+  color: var(--text-tertiary);
+  transition: color var(--transition-base);
 }
 
 .share-btn:hover {
-  color: #409eff;
+  color: var(--color-primary);
 }
 
-/* 作者列表操作区 */
+/* ---- 作者列表操作区 ---- */
 .author-item-actions {
   display: flex;
   align-items: center;
@@ -1084,28 +1173,28 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
-/* 时间线按钮 */
+/* ---- 时间线按钮 ---- */
 .timeline-btn {
   padding: 2px 4px;
-  color: #c0c4cc;
-  transition: color 0.2s;
+  color: var(--text-tertiary);
+  transition: color var(--transition-base);
 }
 
 .timeline-btn:hover {
-  color: #409eff;
+  color: var(--color-primary);
 }
 
-/* 时间线侧边栏 */
+/* ========== 时间线侧边栏 ========== */
 .timeline-sidebar {
   width: 320px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding: 12px;
-  border: 1px solid #e4e7ed;
-  border-radius: 4px;
-  background: #fff;
+  padding: 16px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--card-radius);
+  background: var(--bg-card);
 }
 
 .timeline-back {
@@ -1113,28 +1202,31 @@ onUnmounted(() => {
 }
 
 .timeline-author-card {
-  padding: 12px;
-  background: #f5f7fa;
-  border-radius: 4px;
+  padding: 16px;
+  background: var(--bg-inset);
+  border-radius: 6px;
 }
 
 .timeline-author-name {
   font-size: 16px;
   font-weight: 600;
-  color: #303133;
+  color: var(--text-primary);
+  font-family: var(--font-reading);
 }
 
 .timeline-author-handle {
-  font-size: 13px;
-  color: #909399;
+  font-size: var(--small-font-size);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
   margin-top: 2px;
 }
 
 .timeline-author-reason {
-  font-size: 13px;
-  color: #303133;
+  font-size: var(--small-font-size);
+  color: var(--text-secondary);
   margin-top: 8px;
-  line-height: 1.5;
+  line-height: 1.6;
+  font-family: var(--font-reading);
 }
 
 .timeline-range-section {
@@ -1147,7 +1239,8 @@ onUnmounted(() => {
 }
 
 .timeline-stats {
-  font-size: 13px;
-  color: #909399;
+  font-size: var(--small-font-size);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
 }
 </style>

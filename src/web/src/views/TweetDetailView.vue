@@ -166,12 +166,12 @@ onMounted(() => {
 
 <style scoped>
 .tweet-detail-view {
-  max-width: 900px;
+  max-width: 720px;
   margin: 0 auto;
 }
 
 .back-button {
-  margin-bottom: 1rem;
+  margin-bottom: 1.5rem;
 }
 
 .tweet-detail {
@@ -181,7 +181,7 @@ onMounted(() => {
 }
 
 .tweet-card {
-  border-radius: 8px;
+  border-radius: var(--card-radius);
 }
 
 .tweet-header {
@@ -190,7 +190,7 @@ onMounted(() => {
   justify-content: space-between;
   padding-bottom: 0.75rem;
   margin-bottom: 0.75rem;
-  border-bottom: 1px solid #ebeef5;
+  border-bottom: 1px solid var(--border-light);
 }
 
 .author-info {
@@ -202,25 +202,30 @@ onMounted(() => {
 .author-name {
   font-weight: 600;
   font-size: 1.125rem;
-  color: #333;
+  color: var(--text-primary);
+  font-family: var(--font-reading);
 }
 
 .author-username {
-  color: #666;
+  color: var(--text-tertiary);
   font-size: 0.875rem;
+  font-family: var(--font-mono);
 }
 
 .tweet-time {
-  color: #999;
+  color: var(--text-tertiary);
   font-size: 0.875rem;
+  font-family: var(--font-mono);
   margin-left: 1.5rem;
   white-space: nowrap;
 }
 
 .tweet-content {
-  color: #333;
-  line-height: 1.8;
-  font-size: 1rem;
+  color: var(--text-primary);
+  line-height: var(--reading-line-height);
+  letter-spacing: var(--reading-letter-spacing);
+  font-size: var(--reading-font-size);
+  font-family: var(--font-reading);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -234,13 +239,13 @@ onMounted(() => {
 
 .media-image {
   width: 100%;
-  border-radius: 8px;
+  border-radius: var(--card-radius);
   object-fit: cover;
 }
 
 .summary-card,
 .info-card {
-  border-radius: 8px;
+  border-radius: var(--card-radius);
 }
 
 .card-header {
@@ -260,18 +265,25 @@ onMounted(() => {
 }
 
 .summary-text {
-  color: #333;
-  line-height: 1.8;
+  color: var(--text-primary);
+  line-height: var(--reading-line-height);
+  letter-spacing: var(--reading-letter-spacing);
+  font-size: var(--summary-font-size);
+  font-family: var(--font-reading);
   margin: 0 0 1rem 0;
 }
 
 .summary-translation {
-  color: #666;
-  line-height: 1.8;
+  color: var(--text-secondary);
+  line-height: var(--reading-line-height);
+  letter-spacing: var(--reading-letter-spacing);
+  font-size: var(--reading-font-size);
+  font-family: var(--font-reading);
   margin: 0;
-  padding: 0.75rem;
-  background-color: #f5f7fa;
-  border-radius: 4px;
+  padding: 12px 16px;
+  background-color: var(--bg-inset);
+  border-left: 3px solid var(--color-primary);
+  border-radius: 0 6px 6px 0;
 }
 
 .summary-meta {
