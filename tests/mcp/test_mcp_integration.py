@@ -480,6 +480,9 @@ class TestToolRegistration:
             # Phase 3: Summarization (2)
             "get_unsummarized_tweets",
             "save_summaries",
+            # Claude Code topic summary (2)
+            "get_topic_tweets_for_summary",
+            "save_topic_summary",
         }
         assert expected == tool_names, f"差异: 多余={tool_names - expected}, 缺少={expected - tool_names}"
 
@@ -496,5 +499,6 @@ class TestToolRegistration:
             "xwatcher://config",
             "xwatcher://recipes/daily-summary",
             "xwatcher://recipes/claude-code-summarize",
+            "xwatcher://recipes/claude-code-topic-summary",
         }
         assert expected == resource_uris, f"差异: 多余={resource_uris - expected}, 缺少={expected - resource_uris}"

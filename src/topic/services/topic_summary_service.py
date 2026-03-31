@@ -158,6 +158,160 @@ class TopicSummaryService:
 
         return task_domain
 
+    async def get_account_profiles(
+        self, session: AsyncSession, usernames: list[str]
+    ) -> dict[str, dict]:
+        """查询账号档案和简介（降级容错）。
+
+        Returns:
+            {lowercase_username: {"display_name": ..., "brief_intro": ...}}
+        """
+        account_profiles: dict[str, dict] = {}
+        try:
+            from src.preference.infrastructure.x_user_profile_repository import XUserProfileRepository
+            from src.preference.infrastructure.scraper_config_repository import ScraperConfigRepository
+
+            profile_repo = XUserProfileRepository(session)
+            profiles = await profile_repo.get_profiles_by_usernames(usernames)
+            profiles_map = {p.username.lower(): p for p in profiles}
+
+            config_repo = ScraperConfigRepository(session)
+            follows = await config_repo.get_active_follows()
+            follows_map = {f.username.lower(): f for f in follows}
+
+            for uname in usernames:
+                key = uname.lower()
+                profile = profiles_map.get(key)
+                follow = follows_map.get(key)
+                account_profiles[key] = {
+                    "display_name": (profile.display_name if profile else None) or uname,
+                    "brief_intro": follow.brief_intro if follow else None,
+                }
+        except Exception:
+            logger.warning("查询账号档案/简介失败，使用默认格式", exc_info=True)
+            account_profiles = {}
+        return account_profiles
+
+    async def save_external_summary(
+        self,
+        session: AsyncSession,
+        topic_id: int,
+        content: str,
+        time_span_hours: int,
+        deadline: datetime,
+        tz_offset: int,
+        tweet_count: int,
+        account_count: int,
+    ) -> TopicSummaryTaskDomain:
+        """保存外部（Claude Code）生成的摘要，创建已完成的 task + summary 记录。"""
+        # 验证主题存在
+        topic = await self._topic_repo.get_by_id(session, topic_id)
+        if not topic:
+            raise ValueError(f"主题 ID {topic_id} 不存在")
+
+        # 规范化 deadline
+        if deadline.tzinfo is not None:
+            deadline = deadline.astimezone(timezone.utc).replace(tzinfo=None)
+
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+        # 创建已完成的 task
+        task_orm = TopicSummaryTaskOrm(
+            topic_id=topic_id,
+            time_span_hours=time_span_hours,
+            deadline=deadline,
+            tz_offset=tz_offset,
+            status=TopicSummaryTaskStatus.completed.value,
+            started_at=now,
+            completed_at=now,
+        )
+        await self._task_repo.create_task(session, task_orm)
+
+        # 创建 summary
+        summary_orm = TopicSummaryOrm(
+            task_id=task_orm.id,
+            content=content,
+            llm_provider="claude_code",
+            llm_model="claude-opus-4-6",
+            prompt_tokens=0,
+            completion_tokens=0,
+            total_tokens=0,
+            cost_usd=0.0,
+            tweet_count=tweet_count,
+            account_count=account_count,
+        )
+        await self._task_repo.create_summary(session, summary_orm)
+        await session.commit()
+
+        # 刷新以获取完整关联
+        await session.refresh(task_orm, ["topic", "summary"])
+        return task_orm.to_domain()
+
+    async def prepare_summary_data(
+        self,
+        session: AsyncSession,
+        topic_id: int,
+        time_span_hours: int,
+        deadline: datetime,
+        tz_offset: int = -480,
+    ) -> dict:
+        """获取主题推文数据和默认 prompt，供外部（Claude Code）生成摘要。
+
+        Returns:
+            包含 topic_name, coverage_period, tweet_count, account_count,
+            default_prompt 等字段的字典。若无推文则 tweet_count=0 且无 default_prompt。
+        """
+        # 验证主题
+        topic = await self._topic_repo.get_by_id(session, topic_id)
+        if not topic:
+            raise ValueError(f"主题 ID {topic_id} 不存在")
+
+        # 使用 eager-loaded accounts（get_by_id 已 selectinload）
+        if not topic.accounts:
+            raise ValueError("该主题没有关联任何账号")
+
+        usernames = [a.username for a in topic.accounts]
+
+        # 规范化 deadline
+        if deadline.tzinfo is not None:
+            deadline = deadline.astimezone(timezone.utc).replace(tzinfo=None)
+
+        end_time = deadline
+        start_time = end_time - timedelta(hours=time_span_hours)
+
+        # 获取账号档案
+        account_profiles = await self.get_account_profiles(session, usernames)
+
+        # 查询推文
+        tweets_data = await self._query_tweets(session, usernames, start_time, end_time)
+
+        coverage_period = self._format_coverage_period(start_time, end_time, tz_offset)
+
+        result: dict = {
+            "topic_id": topic_id,
+            "topic_name": topic.name,
+            "time_span_hours": time_span_hours,
+            "deadline": str(end_time),
+            "coverage_period": coverage_period,
+            "account_count": len(usernames),
+        }
+
+        if not tweets_data:
+            result["tweet_count"] = 0
+            result["message"] = "该时间范围内没有找到推文数据"
+            return result
+
+        # 构建 prompt
+        prompt, tweet_count = self._build_prompt(
+            tweets_data, usernames, time_span_hours,
+            start_time, end_time, tz_offset,
+            account_profiles=account_profiles or None,
+        )
+
+        result["tweet_count"] = tweet_count
+        result["default_prompt"] = prompt
+        return result
+
     async def _execute_task(
         self, task_id: int, session_factory: async_sessionmaker
     ) -> None:
@@ -181,30 +335,7 @@ class TopicSummaryService:
                 usernames = [a.username for a in accounts]
 
                 # 查询档案和简介（降级容错）
-                account_profiles: dict[str, dict] = {}
-                try:
-                    from src.preference.infrastructure.x_user_profile_repository import XUserProfileRepository
-                    from src.preference.infrastructure.scraper_config_repository import ScraperConfigRepository
-
-                    profile_repo = XUserProfileRepository(session)
-                    profiles = await profile_repo.get_profiles_by_usernames(usernames)
-                    profiles_map = {p.username.lower(): p for p in profiles}
-
-                    config_repo = ScraperConfigRepository(session)
-                    follows = await config_repo.get_active_follows()
-                    follows_map = {f.username.lower(): f for f in follows}
-
-                    for uname in usernames:
-                        key = uname.lower()
-                        profile = profiles_map.get(key)
-                        follow = follows_map.get(key)
-                        account_profiles[key] = {
-                            "display_name": (profile.display_name if profile else None) or uname,
-                            "brief_intro": follow.brief_intro if follow else None,
-                        }
-                except Exception:
-                    logger.warning("查询账号档案/简介失败，使用默认格式", exc_info=True)
-                    account_profiles = {}
+                account_profiles = await self.get_account_profiles(session, usernames)
 
                 # 计算时间范围
                 end_time = task.deadline

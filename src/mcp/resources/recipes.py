@@ -170,6 +170,84 @@ Claude Code 本身就是 LLM，直接阅读推文原文并生成中文摘要和�
 """
 
 
+CLAUDE_CODE_TOPIC_SUMMARY_RECIPE = """\
+# Claude Code 主题摘要生成工作流
+
+## 场景
+使用 Claude Code 替代外部 LLM API，直接生成主题聚合摘要报告。
+Claude Code 本身就是 LLM，阅读主题推文后直接生成中文摘要。
+
+## 前置条件
+- 目标主题已创建并关联了 X 账号
+- 推文数据已抓取（建议先完成翻译以提升摘要质量）
+
+## 分步流程
+
+### Step 1：确定目标主题
+调用 `list_topics()` 查看可用主题，记录目标 topic_id
+- 默认主题：「精选账号」(topic_id=4)
+
+### Step 2：获取主题推文数据
+调用 `get_topic_tweets_for_summary(
+    topic_id=<id>,
+    time_span_hours=24,
+    deadline="<ISO 8601>",
+    tz_offset=-480
+)`
+
+返回值包含：
+- `default_prompt`: 完整的默认提示词（含格式化推文和账号信息）
+- `tweet_count` / `account_count`: 统计数据
+- `coverage_period`: 覆盖时段描述
+
+### Step 3：生成摘要
+方式一（推荐）：直接使用 default_prompt 作为输入生成摘要
+方式二：基于 default_prompt 中的推文数据，用自己的判断力撰写报告
+
+生成要求（已包含在 default_prompt 中）：
+- 按话题/事件组织内容
+- 标注信息来源（账号引用格式）
+- 包含「综合观察」部分
+- 使用中文撰写
+
+### Step 4：保存摘要
+调用 `save_topic_summary(
+    topic_id=<id>,
+    content="<生成的摘要 Markdown>",
+    time_span_hours=24,
+    deadline="<与 Step 2 相同>",
+    tz_offset=-480,
+    tweet_count=<Step 2 返回的 tweet_count>,
+    account_count=<Step 2 返回的 account_count>
+)`
+
+### Step 5：验证
+调用 `get_topic_summary(topic_id=<id>, action="latest")` 确认摘要已保存
+检查 llm_provider 应为 "claude_code"
+
+## 时间参数计算
+- 默认截止时间：当天 18:00 北京时间 = 当天 10:00:00Z
+- 如果当前 >= 18:00 → deadline = 今天 10:00:00Z
+- 如果当前 < 18:00 → deadline = 昨天 10:00:00Z
+
+## 与 backend 方式对比
+| 维度 | Claude Code 方式 | Backend 方式 |
+|------|------------------|-------------|
+| 工具 | get_topic_tweets_for_summary + save_topic_summary | get_topic_summary(action="create") |
+| LLM | Claude Code 本身 | OpenRouter/DeepSeek |
+| 灵活性 | 可自定义生成逻辑 | 使用固定模板 |
+| 成本 | Claude Code 订阅内 | 按 API 调用计费 |
+
+## 工具调用速查
+| 步骤 | 工具 | 关键参数 |
+|------|------|----------|
+| 查找主题 | list_topics | - |
+| 获取推文数据 | get_topic_tweets_for_summary | topic_id, time_span_hours, deadline |
+| 保存摘要 | save_topic_summary | topic_id, content, tweet_count, account_count |
+| 验证 | get_topic_summary | action="latest" |
+"""
+
+
 def register(mcp: FastMCP) -> None:
     """注册工作流配方资源。"""
 
@@ -190,3 +268,12 @@ def register(mcp: FastMCP) -> None:
         直接在上下文中完成推文翻译和摘要生成。
         """
         return CLAUDE_CODE_SUMMARIZE_RECIPE
+
+    @mcp.resource("xwatcher://recipes/claude-code-topic-summary")
+    async def claude_code_topic_summary_recipe() -> str:
+        """Claude Code 主题摘要生成工作流配方。
+
+        使用 Claude Code 替代外部 LLM API，
+        直接生成主题聚合摘要报告。
+        """
+        return CLAUDE_CODE_TOPIC_SUMMARY_RECIPE

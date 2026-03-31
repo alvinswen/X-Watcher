@@ -1,7 +1,8 @@
 """MCP Topic 管理工具。
 
-提供 list_topics、get_topic、manage_topic、manage_topic_accounts、get_topic_summary
-五个 MCP 工具，映射到 TopicService 和 TopicSummaryService。
+提供 list_topics、get_topic、manage_topic、manage_topic_accounts、get_topic_summary、
+get_topic_tweets_for_summary、save_topic_summary 七个 MCP 工具，
+映射到 TopicService 和 TopicSummaryService。
 """
 
 import logging
@@ -354,3 +355,141 @@ def register(mcp: FastMCP) -> None:
                 audit_log("get_topic_summary", action, result="failure", error=str(e))
             logger.error("get_topic_summary 失败: %s", e, exc_info=True)
             return error_response(f"操作失败: {e}")
+
+    @mcp.tool()
+    async def get_topic_tweets_for_summary(
+        topic_id: int,
+        time_span_hours: int = 24,
+        deadline: str | None = None,
+        tz_offset: int = -480,
+    ) -> str:
+        """获取主题推文数据和默认 prompt，供 Claude Code 生成摘要。需要管理员权限。
+
+        返回格式化的推文内容、账号信息和构建好的默认提示词，
+        Claude Code 可直接使用 default_prompt 生成摘要报告。
+
+        Args:
+            topic_id: 主题 ID
+            time_span_hours: 时间跨度（小时），默认 24
+            deadline: 覆盖时段截止时间，ISO 8601 格式。默认为当前时间
+            tz_offset: 时区偏移（分钟），UTC+8 为 -480。默认 -480
+        """
+        from src.mcp.auth import require_admin
+
+        perm_err = require_admin()
+        if perm_err:
+            return perm_err
+
+        try:
+            from src.database.async_session import get_async_session_maker
+            from src.topic.services.topic_summary_service import TopicSummaryService
+
+            session_maker = get_async_session_maker()
+            summary_service = TopicSummaryService.get_instance()
+
+            deadline_dt = parse_datetime_optional(deadline)
+            if deadline_dt is None:
+                deadline_dt = datetime.now(timezone.utc)
+
+            async with session_maker() as session:
+                data = await summary_service.prepare_summary_data(
+                    session=session,
+                    topic_id=topic_id,
+                    time_span_hours=time_span_hours,
+                    deadline=deadline_dt,
+                    tz_offset=tz_offset,
+                )
+
+                if "default_prompt" in data:
+                    data["note"] = "直接使用 default_prompt 生成摘要，或基于其中的推文数据用自己的判断力撰写报告"
+
+                return success_response(data)
+
+        except ValueError as e:
+            return error_response(str(e), "validation")
+        except Exception as e:
+            logger.error("get_topic_tweets_for_summary 失败: %s", e, exc_info=True)
+            return error_response(f"获取主题推文失败: {e}")
+
+    @mcp.tool()
+    async def save_topic_summary(
+        topic_id: int,
+        content: str,
+        time_span_hours: int = 24,
+        deadline: str | None = None,
+        tz_offset: int = -480,
+        tweet_count: int = 0,
+        account_count: int = 0,
+    ) -> str:
+        """保存 Claude Code 生成的主题摘要到数据库。需要管理员权限。
+
+        创建一条已完成的摘要任务记录，标记为 claude_code 生成。
+        通常在调用 get_topic_tweets_for_summary 并生成摘要后使用。
+
+        Args:
+            topic_id: 主题 ID
+            content: 摘要 Markdown 内容
+            time_span_hours: 时间跨度（小时），默认 24
+            deadline: 覆盖时段截止时间，ISO 8601 格式。默认为当前时间
+            tz_offset: 时区偏移（分钟），UTC+8 为 -480。默认 -480
+            tweet_count: 摘要覆盖的推文数量
+            account_count: 摘要覆盖的账号数量
+        """
+        from src.mcp.auth import require_admin
+        from src.mcp.security import audit_log
+
+        perm_err = require_admin()
+        if perm_err:
+            return perm_err
+
+        if not content or not content.strip():
+            return error_response("content 不能为空", "validation")
+
+        try:
+            from src.database.async_session import get_async_session_maker
+            from src.topic.services.topic_summary_service import TopicSummaryService
+
+            session_maker = get_async_session_maker()
+            summary_service = TopicSummaryService.get_instance()
+
+            deadline_dt = parse_datetime_optional(deadline)
+            if deadline_dt is None:
+                deadline_dt = datetime.now(timezone.utc)
+
+            async with session_maker() as session:
+                task_domain = await summary_service.save_external_summary(
+                    session=session,
+                    topic_id=topic_id,
+                    content=content.strip(),
+                    time_span_hours=time_span_hours,
+                    deadline=deadline_dt,
+                    tz_offset=tz_offset,
+                    tweet_count=tweet_count,
+                    account_count=account_count,
+                )
+
+            audit_log(
+                "save_topic_summary", "save",
+                params={
+                    "topic_id": topic_id,
+                    "tweet_count": tweet_count,
+                    "account_count": account_count,
+                },
+            )
+
+            return success_response({
+                "action": "saved",
+                "task_id": task_domain.id,
+                "topic_id": topic_id,
+                "topic_name": task_domain.topic_name,
+                "tweet_count": tweet_count,
+                "account_count": account_count,
+                "llm_provider": "claude_code",
+            })
+
+        except ValueError as e:
+            return error_response(str(e), "validation")
+        except Exception as e:
+            audit_log("save_topic_summary", "save", result="failure", error=str(e))
+            logger.error("save_topic_summary 失败: %s", e, exc_info=True)
+            return error_response(f"保存摘要失败: {e}")

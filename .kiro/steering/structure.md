@@ -65,17 +65,17 @@ src/
 │   ├── token_verifier.py    # MCP Token 验证器（ADMIN_API_KEY + 数据库 API Key 双层验证）
 │   ├── security.py          # 审计日志 + Action Guard 操作白名单（环境变量控制可执行操作）
 │   ├── helpers.py           # 结构化 JSON 响应工具（success_response / error_response）
-│   ├── tools/               # MCP 工具（22 个）
+│   ├── tools/               # MCP 工具（24 个）
 │   │   ├── feed_tools.py    # get_feed, search_tweets
 │   │   ├── browse_tools.py  # get_daily_stats, get_authors_for_date, browse_tweets
 │   │   ├── status_tools.py  # get_system_status, get_audit_log
-│   │   ├── topic_tools.py   # list_topics, get_topic, manage_topic, manage_topic_accounts, get_topic_summary
+│   │   ├── topic_tools.py   # list_topics, get_topic, manage_topic, manage_topic_accounts, get_topic_summary, get_topic_tweets_for_summary, save_topic_summary
 │   │   ├── analytics_tools.py  # get_posting_frequency
 │   │   ├── admin_tools.py   # manage_follows, trigger_scrape, trigger_backfill, get_task_status, manage_scheduler, batch_summarize, get_follow_accounts_info
 │   │   └── summarization_tools.py  # get_unsummarized_tweets, save_summaries（Claude Code 翻译接管）
 │   └── resources/           # MCP 动态资源（6 个）
 │       ├── providers.py     # xwatcher://status, xwatcher://follows, xwatcher://topics, xwatcher://config
-│       └── recipes.py       # xwatcher://recipes/daily-summary, xwatcher://recipes/claude-code-summarize
+│       └── recipes.py       # xwatcher://recipes/daily-summary, xwatcher://recipes/claude-code-summarize, xwatcher://recipes/claude-code-topic-summary
 ├── summarization/           # AI 摘要模块
 │   ├── domain/models.py     # 领域模型
 │   ├── infrastructure/
