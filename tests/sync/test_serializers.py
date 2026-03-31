@@ -43,7 +43,7 @@ class TestFollowSerializer:
 
         result = dict_to_follow(d)
         assert result["username"] == "alice"
-        assert result["added_at"] == datetime(2026, 1, 1, tzinfo=timezone.utc)
+        assert result["added_at"] == datetime(2026, 1, 1)  # _iso_to_naive_dt 剥离时区
         assert result["manual_limit"] == 50
 
     def test_defaults(self):

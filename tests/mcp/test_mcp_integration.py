@@ -447,20 +447,21 @@ class TestSystemStatusIntegration:
 
 
 class TestToolRegistration:
-    def test_all_18_tools_registered(self):
-        """验证全部 18 个工具已注册。"""
+    def test_all_tools_registered(self):
+        """验证全部工具已注册。"""
         from src.mcp.server import create_mcp_server
 
         mcp = create_mcp_server()
         tool_names = set(mcp._tool_manager._tools.keys())
         expected = {
-            # Phase 1: Feed + Browse + Status (6)
+            # Phase 1: Feed + Browse + Status (7)
             "get_feed",
             "search_tweets",
             "get_daily_stats",
             "get_authors_for_date",
             "browse_tweets",
             "get_system_status",
+            "get_audit_log",
             # Phase 2: Topic + Analytics (6)
             "list_topics",
             "get_topic",
@@ -468,18 +469,22 @@ class TestToolRegistration:
             "manage_topic_accounts",
             "get_topic_summary",
             "get_posting_frequency",
-            # Phase 3: Admin (6)
+            # Phase 3: Admin (7)
             "manage_follows",
             "trigger_scrape",
+            "trigger_backfill",
             "get_task_status",
             "manage_scheduler",
             "batch_summarize",
             "get_follow_accounts_info",
+            # Phase 3: Summarization (2)
+            "get_unsummarized_tweets",
+            "save_summaries",
         }
-        assert expected == tool_names, f"缺少工具: {expected - tool_names}"
+        assert expected == tool_names, f"差异: 多余={tool_names - expected}, 缺少={expected - tool_names}"
 
-    def test_all_5_resources_registered(self):
-        """验证全部 5 个资源已注册。"""
+    def test_all_resources_registered(self):
+        """验证全部资源已注册。"""
         from src.mcp.server import create_mcp_server
 
         mcp = create_mcp_server()
@@ -490,5 +495,6 @@ class TestToolRegistration:
             "xwatcher://topics",
             "xwatcher://config",
             "xwatcher://recipes/daily-summary",
+            "xwatcher://recipes/claude-code-summarize",
         }
-        assert expected == resource_uris
+        assert expected == resource_uris, f"差异: 多余={resource_uris - expected}, 缺少={expected - resource_uris}"

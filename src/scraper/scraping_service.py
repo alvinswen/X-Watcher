@@ -47,6 +47,7 @@ class ScrapingService:
         repository: Any | None = None,
         max_concurrent: int = 3,
         limit_calculator: LimitCalculator | None = None,
+        skip_summarization: bool = False,
     ) -> None:
         """初始化抓取服务。
 
@@ -57,12 +58,14 @@ class ScrapingService:
             repository: 推文仓库（为 None 时创建新实例）
             max_concurrent: 最大并发请求数
             limit_calculator: 动态 Limit 计算器（为 None 时从配置创建）
+            skip_summarization: 跳过自动摘要生成（Claude Code 接管翻译时使用）
         """
         self._client = client or TwitterClient()
         self._parser = parser or TweetParser()
         self._validator = validator or TweetValidator()
         self._repository = repository
         self._max_concurrent = max_concurrent
+        self._skip_summarization = skip_summarization
         self._registry = TaskRegistry.get_instance()
 
         if limit_calculator is not None:
@@ -985,7 +988,7 @@ class ScrapingService:
                 await session.commit()
 
                 # 保存成功后，触发摘要
-                if result.success_count > 0:
+                if result.success_count > 0 and not self._skip_summarization:
                     await self._trigger_summarization(result.saved_tweet_ids)
 
                 return result
@@ -996,7 +999,7 @@ class ScrapingService:
             )
 
             # 保存成功后，触发摘要
-            if save_result.success_count > 0:
+            if save_result.success_count > 0 and not self._skip_summarization:
                 await self._trigger_summarization(save_result.saved_tweet_ids)
 
             return save_result

@@ -17,6 +17,7 @@ X-watcher 是一个**面向 Agent 的 X 平台智能信息监控服务**，通�
 - **推文浏览** - 管理员按日期和作者维度浏览推文，结构化展示摘要、翻译、原文；支持作者时间线模式（查看单一作者的历史推文脉络）
 - **发文聚类分析** - 基于 24 小时发推分布的层次聚类，将监控账号自动分组，支持重切割和手动调整，优化抓取调度和摘要时机
 - **系统状态概览** - 一站式获取推文、关注、摘要、主题、调度器和系统维度的关键指标，便于 Agent 了解数据时效性和系统健康状况
+- **Claude Code 翻译接管** - 支持 Claude Code 通过 MCP 工具直接接管翻译工作（`get_unsummarized_tweets` + `save_summaries`），`trigger_scrape(skip_summarization=true)` 跳过自动翻译，用户订阅覆盖翻译成本
 - **多 LLM 提供商** - 统一 OpenAI 兼容协议，支持 OpenRouter、MiniMax、DeepSeek、智谱、Moonshot 等 6+ 提供商，一键切换
 - **数据同步** - JSON 文件导出/导入机制，支持跨服务器同步配置、推文、摘要和主题数据，含冲突策略（skip/overwrite/merge）和 dry-run 预览
 - **MCP Service** - 提供 Model Context Protocol 接口，Claude Code / Claude Desktop 等 AI 助手可直接调用 x-watcher 的 20 个工具和 5 个动态资源，支持 stdio 和 SSE 双传输模式，内置工作流配方（recipes）引导 Agent 自主完成复杂流程

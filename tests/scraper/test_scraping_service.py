@@ -492,6 +492,88 @@ class TestAutoSummarization:
         assert len(trigger_summarization_called) == 1
         assert set(trigger_summarization_called[0]) == {"tweet1", "tweet2"}
 
+    @pytest.mark.asyncio
+    async def test_save_tweets_skips_summarization_when_flag_set(
+        self, mock_repository, monkeypatch
+    ):
+        """测试 skip_summarization=True 时不触发摘要。"""
+        monkeypatch.setenv("AUTO_SUMMARIZATION_ENABLED", "true")
+        from src.config import clear_settings_cache
+        clear_settings_cache()
+
+        # 创建 skip_summarization=True 的 service
+        service = ScrapingService(
+            repository=mock_repository,
+            skip_summarization=True,
+        )
+
+        mock_repository.save_tweets.return_value = SaveResult(
+            success_count=2, skipped_count=0, error_count=0,
+            saved_tweet_ids=["tweet1", "tweet2"],
+        )
+
+        trigger_summarization_called = []
+
+        async def mock_trigger_summarization(tweet_ids):
+            trigger_summarization_called.append(tweet_ids)
+
+        service._trigger_summarization = mock_trigger_summarization
+
+        tweets = [
+            Tweet(
+                tweet_id="tweet1",
+                text="Test 1",
+                created_at=datetime.now(),
+                author_username="user1",
+            ),
+            Tweet(
+                tweet_id="tweet2",
+                text="Test 2",
+                created_at=datetime.now(),
+                author_username="user2",
+            ),
+        ]
+
+        await service._save_tweets(tweets)
+
+        # skip_summarization=True 时不应触发摘要
+        assert len(trigger_summarization_called) == 0
+
+    @pytest.mark.asyncio
+    async def test_skip_summarization_default_false(
+        self, service, mock_repository, monkeypatch
+    ):
+        """测试 skip_summarization 默认为 False，仍然触发摘要。"""
+        monkeypatch.setenv("AUTO_SUMMARIZATION_ENABLED", "true")
+        from src.config import clear_settings_cache
+        clear_settings_cache()
+
+        mock_repository.save_tweets.return_value = SaveResult(
+            success_count=1, skipped_count=0, error_count=0,
+            saved_tweet_ids=["tweet1"],
+        )
+
+        trigger_summarization_called = []
+
+        async def mock_trigger_summarization(tweet_ids):
+            trigger_summarization_called.append(tweet_ids)
+
+        service._trigger_summarization = mock_trigger_summarization
+
+        tweets = [
+            Tweet(
+                tweet_id="tweet1",
+                text="Test 1",
+                created_at=datetime.now(),
+                author_username="user1",
+            ),
+        ]
+
+        await service._save_tweets(tweets)
+
+        # 默认 skip_summarization=False 应触发摘要
+        assert len(trigger_summarization_called) == 1
+
 
 class TestAdditionalPages:
     """满页翻页机制测试。"""

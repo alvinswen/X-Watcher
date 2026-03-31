@@ -113,6 +113,63 @@ DAILY_SUMMARY_RECIPE = """\
 """
 
 
+CLAUDE_CODE_SUMMARIZE_RECIPE = """\
+# Claude Code 翻译工作流
+
+## 场景
+使用 Claude Code 替代外部 LLM API 完成推文翻译和摘要生成。
+Claude Code 本身就是 LLM，直接阅读推文原文并生成中文摘要和翻译。
+
+## 分步流程
+
+### Step 1：抓取推文（跳过自动翻译）
+调用 `trigger_scrape(skip_summarization=true)`
+- 设置 `skip_summarization=true` 确保抓取后不自动调用 LLM API 翻译
+- 记录返回的 task_id
+
+### Step 2：等待抓取完成
+轮询 `get_task_status(task_id)` 直到 status == "completed"
+- 轮询间隔建议：15 秒
+
+### Step 3：获取待翻译推文
+调用 `get_unsummarized_tweets(limit=100)`
+- 可选参数：since/until 时间过滤，author 作者过滤
+- 返回推文原文、作者、引用类型等完整上下文
+
+### Step 4：生成摘要和翻译
+对返回的每条推文，在 Claude Code 上下文中生成：
+- **summary**：中文摘要（≤500 字符）
+  - 原创推文：提取核心观点
+  - 转推：格式「@用户 转推 @原作者: (内容摘要)」
+  - 引用推文：格式「@用户 引用 @原作者: (内容)，并评论：(态度)」
+- **translation**：中文翻译（保留专有名词和 URL）
+  - 纯中文推文：可省略翻译
+  - 混合语言：完整翻译
+
+### Step 5：保存结果
+调用 `save_summaries(summaries=<JSON>)`
+- JSON 格式：`[{"tweet_id": "...", "summary": "...", "translation": "..."}]`
+- 支持批量保存，单条失败不影响其他条目
+- 结果以 model_provider="claude_code" 存储
+
+### Step 6：验证
+调用 `browse_tweets(date=<today>)` 确认摘要已生效
+
+## 批量处理建议
+- 单次 limit=100~200（1M context window 轻松处理）
+- 如有大量积压，循环执行 Step 3-5 直到返回 0 条
+
+## 工具调用速查
+| 步骤 | 工具 | 关键参数 |
+|------|------|----------|
+| 抓取 | trigger_scrape | skip_summarization=true |
+| 等待 | get_task_status | task_id |
+| 获取待翻译 | get_unsummarized_tweets | limit, since, until |
+| 保存结果 | save_summaries | summaries (JSON) |
+| 验证 | browse_tweets | date |
+"""
+
+
 def register(mcp: FastMCP) -> None:
     """注册工作流配方资源。"""
 
@@ -124,3 +181,12 @@ def register(mcp: FastMCP) -> None:
         数据就绪检查、摘要生成和交付的完整流程。
         """
         return DAILY_SUMMARY_RECIPE
+
+    @mcp.resource("xwatcher://recipes/claude-code-summarize")
+    async def claude_code_summarize_recipe() -> str:
+        """Claude Code 翻译工作流配方。
+
+        使用 Claude Code 替代外部 LLM API，
+        直接在上下文中完成推文翻译和摘要生成。
+        """
+        return CLAUDE_CODE_SUMMARIZE_RECIPE

@@ -170,12 +170,15 @@ def register(mcp: FastMCP) -> None:
     async def trigger_scrape(
         usernames: str | None = None,
         limit: int = 100,
+        skip_summarization: bool = False,
     ) -> str:
         """手动触发抓取任务。需要管理员权限。
 
         Args:
             usernames: 要抓取的 X 用户名，逗号分隔。留空则抓取所有活跃账号
             limit: 每个用户的抓取推文数量限制，默认 100
+            skip_summarization: 跳过自动摘要生成。设为 true 时抓取后不自动翻译，
+                               适用于 Claude Code 接管翻译的场景
         """
         perm_err = require_admin()
         if perm_err:
@@ -200,7 +203,7 @@ def register(mcp: FastMCP) -> None:
                     "rate_limit",
                 )
 
-            service = ScrapingService()
+            service = ScrapingService(skip_summarization=skip_summarization)
 
             user_list = await resolve_user_list(usernames)
             if not user_list:
@@ -212,12 +215,14 @@ def register(mcp: FastMCP) -> None:
                 limit=limit,
             )
 
-            audit_log("trigger_scrape", "scrape", params={"usernames": user_list, "limit": limit})
+            audit_log("trigger_scrape", "scrape", params={"usernames": user_list, "limit": limit, "skip_summarization": skip_summarization})
+            msg = "抓取任务已完成（摘要生成已跳过，等待外部翻译）" if skip_summarization else "抓取任务已完成（含摘要生成）"
             return success_response({
                 "task_id": task_id,
                 "usernames": user_list,
                 "limit": limit,
-                "message": "抓取任务已完成（含摘要生成）",
+                "skip_summarization": skip_summarization,
+                "message": msg,
             })
         except Exception as e:
             audit_log("trigger_scrape", "scrape", result="failure", error=str(e))

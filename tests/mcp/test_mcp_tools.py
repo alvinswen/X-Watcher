@@ -427,3 +427,63 @@ class TestMCPServer:
         assert mcp.name == "x-watcher"
 
     # 注：工具/资源注册完整性测试在 test_mcp_integration.py::TestToolRegistration 中
+
+
+class TestTriggerScrape:
+    """trigger_scrape 工具的 skip_summarization 参数测试。"""
+
+    @pytest.mark.asyncio
+    async def test_trigger_scrape_passes_skip_summarization_to_service(self, tool_funcs):
+        """测试 skip_summarization=True 传递给 ScrapingService。"""
+        trigger_scrape = tool_funcs["trigger_scrape"]
+
+        mock_service_instance = AsyncMock()
+        mock_service_instance.scrape_users = AsyncMock(return_value="task-123")
+
+        with (
+            patch("src.mcp.tools.admin_tools.require_admin", return_value=None),
+            patch("src.mcp.security.check_scrape_guard", return_value=None),
+            patch("src.mcp.tools.admin_tools.resolve_user_list", new_callable=AsyncMock, return_value=["user1"]),
+            patch("src.mcp.security.audit_log"),
+            patch("src.scraper.task_registry.TaskRegistry.get_instance") as mock_registry,
+            patch("src.scraper.ScrapingService", return_value=mock_service_instance) as mock_service_cls,
+        ):
+            mock_registry.return_value.get_tasks_by_status.return_value = []
+
+            result_json = await trigger_scrape(
+                usernames="user1",
+                limit=10,
+                skip_summarization=True,
+            )
+
+            # 验证 ScrapingService 被传入 skip_summarization=True
+            mock_service_cls.assert_called_once_with(skip_summarization=True)
+
+            result = json.loads(result_json)
+            assert result["success"] is True
+
+    @pytest.mark.asyncio
+    async def test_trigger_scrape_default_skip_summarization_false(self, tool_funcs):
+        """测试默认 skip_summarization=False。"""
+        trigger_scrape = tool_funcs["trigger_scrape"]
+
+        mock_service_instance = AsyncMock()
+        mock_service_instance.scrape_users = AsyncMock(return_value="task-123")
+
+        with (
+            patch("src.mcp.tools.admin_tools.require_admin", return_value=None),
+            patch("src.mcp.security.check_scrape_guard", return_value=None),
+            patch("src.mcp.tools.admin_tools.resolve_user_list", new_callable=AsyncMock, return_value=["user1"]),
+            patch("src.mcp.security.audit_log"),
+            patch("src.scraper.task_registry.TaskRegistry.get_instance") as mock_registry,
+            patch("src.scraper.ScrapingService", return_value=mock_service_instance) as mock_service_cls,
+        ):
+            mock_registry.return_value.get_tasks_by_status.return_value = []
+
+            result_json = await trigger_scrape(
+                usernames="user1",
+                limit=10,
+            )
+
+            # 默认不传 skip_summarization，应为 False
+            mock_service_cls.assert_called_once_with(skip_summarization=False)
