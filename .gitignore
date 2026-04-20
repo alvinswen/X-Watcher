@@ -89,3 +89,6 @@ openapi*.json
 # Debug reports
 debug_reports/
 *.db.bak*
+
+# 每日摘要可视化（本地生成，不提交）
+summaries/

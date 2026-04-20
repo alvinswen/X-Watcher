@@ -132,9 +132,10 @@ Claude Code 本身就是 LLM，直接阅读推文原文并生成中文摘要和�
 - 轮询间隔建议：15 秒
 
 ### Step 3：获取待翻译推文
-调用 `get_unsummarized_tweets(limit=100)`
+调用 `get_unsummarized_tweets(limit=25)`
 - 可选参数：since/until 时间过滤，author 作者过滤
 - 返回推文原文、作者、引用类型等完整上下文
+- 如果输出被持久化到文件，用 Read 工具读取完整数据；严禁用脚本截断推文文本
 
 ### Step 4：生成摘要和翻译
 对返回的每条推文，在 Claude Code 上下文中生成：
@@ -156,8 +157,9 @@ Claude Code 本身就是 LLM，直接阅读推文原文并生成中文摘要和�
 调用 `browse_tweets(date=<today>)` 确认摘要已生效
 
 ## 批量处理建议
-- 单次 limit=100~200（1M context window 轻松处理）
-- 如有大量积压，循环执行 Step 3-5 直到返回 0 条
+- 单次 limit=25（确保输出可直接读取，避免截断）
+- 循环执行 Step 3-5 直到返回 0 条
+- 保存前自检：翻译不得以"……"结尾（除非原文如此）
 
 ## 工具调用速查
 | 步骤 | 工具 | 关键参数 |
