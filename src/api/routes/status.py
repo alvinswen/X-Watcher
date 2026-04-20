@@ -74,6 +74,15 @@ class StatusOverviewResponse(BaseModel):
     system: SystemStats
 
 
+class TwitterBalanceResponse(UTCDatetimeModel):
+    recharge_credits: int | None
+    fetched_at: datetime | None
+    source: str  # "live" | "cache" | "stale" | "error"
+    error: str | None = None
+    warning_threshold: int
+    danger_threshold: int
+
+
 # ── 端点 ──────────────────────────────────────────────────
 
 
@@ -120,6 +129,36 @@ async def get_status_overview(
         topics=topics,
         scheduler=scheduler,
         system=system,
+    )
+
+
+@router.get(
+    "/twitter-balance",
+    response_model=TwitterBalanceResponse,
+    summary="TwitterAPI.io 账户余额",
+    description=(
+        "查询 TwitterAPI.io 账户剩余 credits。结果默认缓存 10 分钟，"
+        "可通过 ?force=true 强制刷新。响应同时返回前端用于变色判断的告警阈值。"
+    ),
+)
+async def get_twitter_balance(
+    force: bool = False,
+    current_user: UserDomain = Depends(get_current_user),
+) -> TwitterBalanceResponse:
+    """获取 TwitterAPI.io 账户余额。"""
+    from src.scraper.account_info_service import get_account_info_service
+
+    service = get_account_info_service()
+    settings = get_settings()
+    data = await service.get_balance(force_refresh=force)
+
+    return TwitterBalanceResponse(
+        recharge_credits=data["recharge_credits"],
+        fetched_at=data["fetched_at"],
+        source=data["source"],
+        error=data["error"],
+        warning_threshold=settings.twitter_balance_warning_threshold,
+        danger_threshold=settings.twitter_balance_danger_threshold,
     )
 
 

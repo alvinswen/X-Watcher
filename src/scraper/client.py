@@ -541,6 +541,81 @@ class TwitterClient:
                 logger.exception("batch_info_by_ids 未预期的错误: %s", e)
                 return Failure(TwitterClientError(f"未预期的错误: {e}"))
 
+    async def fetch_account_info(
+        self,
+    ) -> Result[dict[str, Any], TwitterClientError]:
+        """查询 TwitterAPI.io 账户信息（剩余 credits）。
+
+        调用 https://api.twitterapi.io/oapi/my/info 接口，返回
+        ``{"recharge_credits": <int>}``。该接口位于 ``/oapi`` 子路径，
+        与默认 ``base_url=/twitter`` 不同，因此使用绝对 URL 调用。
+
+        由于该方法主要用于"余额监控"场景且自身可能消耗 credits，
+        重试次数比常规抓取更克制（仅 2 次），且不参与熔断器统计——
+        余额查询失败不应影响主抓取链路的熔断决策。
+        """
+        self._ensure_client()
+        assert self._client is not None
+
+        url = "https://api.twitterapi.io/oapi/my/info"
+        max_retries = 2
+        retry_count = 0
+        current_delay = self._base_delay
+
+        while True:
+            try:
+                response = await self._client.get(url)
+                status_code = response.status_code
+
+                if status_code == 200:
+                    response_data = response.json()
+                    if not isinstance(response_data, dict):
+                        return Failure(
+                            TwitterClientError(
+                                f"响应格式错误: 期望 dict，实际 {type(response_data)}"
+                            )
+                        )
+                    return Success(response_data)
+
+                if status_code in self.NON_RETRYABLE_STATUS_CODES:
+                    error_msg = self._get_error_message(status_code)
+                    return Failure(
+                        TwitterClientError(
+                            f"API 错误 {status_code}: {error_msg}",
+                            status_code=status_code,
+                        )
+                    )
+
+                if retry_count >= max_retries:
+                    return Failure(
+                        TwitterClientError(
+                            f"API 错误 {status_code}: 已达到最大重试次数",
+                            status_code=status_code,
+                        )
+                    )
+
+                await asyncio.sleep(current_delay)
+                current_delay = min(current_delay * 2, self._max_delay)
+                retry_count += 1
+
+            except httpx.TimeoutException as e:
+                if retry_count >= max_retries:
+                    return Failure(TwitterClientError(f"请求超时: {e}"))
+                await asyncio.sleep(current_delay)
+                current_delay = min(current_delay * 2, self._max_delay)
+                retry_count += 1
+
+            except httpx.NetworkError as e:
+                if retry_count >= max_retries:
+                    return Failure(TwitterClientError(f"网络错误: {e}"))
+                await asyncio.sleep(current_delay)
+                current_delay = min(current_delay * 2, self._max_delay)
+                retry_count += 1
+
+            except Exception as e:
+                logger.exception("fetch_account_info 未预期的错误: %s", e)
+                return Failure(TwitterClientError(f"未预期的错误: {e}"))
+
     async def _fetch_with_retry(
         self,
         endpoint: str,

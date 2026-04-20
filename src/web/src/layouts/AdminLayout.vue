@@ -24,6 +24,7 @@ import {
 import { useAuthStore } from "@/stores/auth"
 import { useThemeStore } from "@/stores/theme"
 import { ElMessage } from "element-plus"
+import TwitterBalanceIndicator from "@/components/TwitterBalanceIndicator.vue"
 
 const route = useRoute()
 const authStore = useAuthStore()
@@ -160,6 +161,7 @@ function clearApiKey() {
       <el-header v-show="!isFullscreen" class="admin-header" height="50px">
         <span class="header-title">{{ route.meta.title }}</span>
         <span class="header-spacer"></span>
+        <TwitterBalanceIndicator class="header-balance" />
         <template v-if="route.path === '/browse'">
           <el-switch
             v-model="longTweetFilterEnabled"
@@ -342,6 +344,10 @@ function clearApiKey() {
 
 .header-spacer {
   flex: 1;
+}
+
+.header-balance {
+  margin-right: 12px;
 }
 
 .admin-main {

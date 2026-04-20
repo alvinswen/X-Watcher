@@ -72,3 +72,13 @@ export interface ConfigValidateResponse {
   twitter_api: ServiceValidation
   database: ServiceValidation
 }
+
+/** TwitterAPI.io 余额响应 */
+export interface TwitterBalanceResponse {
+  recharge_credits: number | null
+  fetched_at: string | null
+  source: "live" | "cache" | "stale" | "error"
+  error: string | null
+  warning_threshold: number
+  danger_threshold: number
+}

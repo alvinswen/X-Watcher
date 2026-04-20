@@ -27,6 +27,7 @@ X-watcher 是一个**面向 Agent 的 X 平台智能信息监控服务**，通�
 - **审计与安全** - 所有写操作审计日志（MCP + REST API）、Action Guard 操作白名单控制、可查询的审计日志数据库
 - **历史回溯** - 支持 backfill 历史推文补抓，自动触发摘要生成
 - **配置验证** - 运行时验证 LLM 提供商、Twitter API、数据库的健康状态
+- **TwitterAPI.io 余额监控** - 前端 header 实时显示账户剩余 credits，三色阈值告警（绿/黄/红），后端 10 分钟 TTL 缓存避免重复消耗外部配额，支持手动强制刷新
 - **结构化输出** - 所有数据通过 RESTful API 和 MCP 协议以 JSON 格式输出，便于 Agent 消费
 
 ## 目标用户

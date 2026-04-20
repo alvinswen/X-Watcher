@@ -26,7 +26,7 @@ src/
 │       ├── admin.py         # 管理功能 API（抓取任务、任务历史查询、Article 回溯）
 │       ├── config_routes.py # 配置验证 API（GET /api/admin/config/validate）
 │       ├── scheduler.py     # 调度器执行历史 API（GET /api/admin/scheduler/history）
-│       ├── status.py        # 系统状态概览 API（GET /api/status/overview）
+│       ├── status.py        # 系统状态概览 API（GET /api/status/overview, /api/status/twitter-balance）
 │       ├── sync_routes.py   # 数据同步 API（导出下载/导入预览/导入执行）
 │       └── tweets.py        # 推文列表/详情 API
 ├── scraper/                 # 推文抓取模块

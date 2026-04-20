@@ -157,6 +157,18 @@ class Settings(BaseSettings):
         description="Feed API 单次最大返回推文数量"
     )
 
+    # TwitterAPI.io 余额告警阈值（按 recharge_credits 数值，默认每次抓取约 100 credits）
+    twitter_balance_warning_threshold: int = Field(
+        default=50000,
+        ge=0,
+        description="余额低于此值时前端显示黄色告警（默认约 2 天用量）"
+    )
+    twitter_balance_danger_threshold: int = Field(
+        default=10000,
+        ge=0,
+        description="余额低于此值时前端显示红色告警（默认约半天用量）"
+    )
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
