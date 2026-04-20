@@ -1,0 +1,1559 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>X-watcher | 面向 AI Agent 的 X 平台智能信息监控服务</title>
+<style>
+/* ========== Reset & Base ========== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: #0a0a1a;
+  color: #e8e8f0;
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+/* ========== CSS Variables ========== */
+:root {
+  --bg-primary: #0a0a1a;
+  --bg-secondary: #111128;
+  --text-primary: #e8e8f0;
+  --text-secondary: #9898b0;
+  --text-muted: #6a6a80;
+  --accent-blue: #667eea;
+  --accent-purple: #764ba2;
+  --accent-teal: #38b2ac;
+  --accent-green: #48bb78;
+  --accent-orange: #ed8936;
+  --accent-red: #fc5c65;
+  --accent-pink: #e056a0;
+  --gradient-main: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --gradient-blue: linear-gradient(135deg, #667eea 0%, #4facfe 100%);
+  --gradient-purple: linear-gradient(135deg, #764ba2 0%, #a855f7 100%);
+  --gradient-teal: linear-gradient(135deg, #38b2ac 0%, #4fd1c5 100%);
+  --gradient-orange: linear-gradient(135deg, #ed8936 0%, #f6ad55 100%);
+  --glass-bg: rgba(255, 255, 255, 0.04);
+  --glass-border: 1px solid rgba(255, 255, 255, 0.08);
+  --glass-blur: blur(16px);
+  --mono: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Courier New', monospace;
+  --max-w: 1200px;
+}
+
+/* ========== Background Decorations ========== */
+body::before, body::after {
+  content: '';
+  position: fixed;
+  border-radius: 50%;
+  filter: blur(120px);
+  z-index: 0;
+  pointer-events: none;
+}
+body::before {
+  width: 600px; height: 600px;
+  background: radial-gradient(circle, rgba(102, 126, 234, 0.12), transparent 70%);
+  top: -200px; left: -100px;
+  animation: float 20s ease-in-out infinite;
+}
+body::after {
+  width: 500px; height: 500px;
+  background: radial-gradient(circle, rgba(118, 75, 162, 0.10), transparent 70%);
+  bottom: -100px; right: -100px;
+  animation: float 25s ease-in-out infinite reverse;
+}
+
+@keyframes float {
+  0%, 100% { transform: translate(0, 0); }
+  33% { transform: translate(30px, -40px); }
+  66% { transform: translate(-20px, 30px); }
+}
+
+/* ========== Navigation ========== */
+.nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  background: rgba(10, 10, 26, 0.7);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  transition: background 0.3s;
+}
+.nav.scrolled { background: rgba(10, 10, 26, 0.95); }
+.nav-inner {
+  max-width: var(--max-w); margin: 0 auto;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 24px; height: 56px;
+}
+.nav-logo {
+  font-size: 1.2rem; font-weight: 700; letter-spacing: -0.5px;
+  background: var(--gradient-main); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.nav-links { display: flex; gap: 4px; }
+.nav-links a {
+  color: var(--text-secondary); text-decoration: none; font-size: 0.85rem;
+  padding: 6px 12px; border-radius: 6px;
+  transition: color 0.2s, background 0.2s;
+}
+.nav-links a:hover, .nav-links a.active {
+  color: var(--text-primary);
+  background: rgba(255,255,255,0.06);
+}
+
+/* ========== Sections Common ========== */
+section {
+  position: relative; z-index: 1;
+  padding: 100px 24px;
+}
+.section-inner {
+  max-width: var(--max-w); margin: 0 auto;
+}
+.section-title {
+  font-size: clamp(1.8rem, 4vw, 2.4rem);
+  font-weight: 700; margin-bottom: 12px;
+  background: var(--gradient-main); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.section-subtitle {
+  color: var(--text-secondary); font-size: 1.05rem; margin-bottom: 48px;
+  max-width: 600px;
+}
+
+/* Scroll animation */
+.fade-in {
+  opacity: 0; transform: translateY(30px);
+  transition: opacity 0.7s ease, transform 0.7s ease;
+}
+.fade-in.visible { opacity: 1; transform: translateY(0); }
+
+/* ========== Hero ========== */
+.hero {
+  min-height: 100vh;
+  display: flex; align-items: center; justify-content: center;
+  text-align: center;
+  padding-top: 56px;
+  background:
+    radial-gradient(ellipse at 30% 20%, rgba(102, 126, 234, 0.10), transparent 50%),
+    radial-gradient(ellipse at 70% 80%, rgba(118, 75, 162, 0.08), transparent 50%);
+}
+.hero-content { max-width: 800px; }
+.hero-badge {
+  display: inline-block; padding: 6px 16px; border-radius: 20px;
+  background: rgba(102, 126, 234, 0.15); border: 1px solid rgba(102, 126, 234, 0.3);
+  color: var(--accent-blue); font-size: 0.85rem; margin-bottom: 24px;
+}
+.hero h1 {
+  font-size: clamp(3rem, 8vw, 5rem);
+  font-weight: 800; letter-spacing: -2px; line-height: 1.1;
+  background: var(--gradient-main); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text; margin-bottom: 16px;
+}
+.hero-tagline {
+  font-size: clamp(1.1rem, 2.5vw, 1.4rem);
+  color: var(--text-secondary); margin-bottom: 8px;
+}
+.hero-sub {
+  font-size: 1rem; color: var(--text-muted); margin-bottom: 48px;
+  letter-spacing: 2px;
+}
+
+/* Counter Cards */
+.counters {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px;
+  margin-bottom: 48px;
+}
+.counter-card {
+  background: var(--glass-bg); border: var(--glass-border);
+  backdrop-filter: var(--glass-blur);
+  border-radius: 16px; padding: 24px 16px;
+  transition: transform 0.3s, box-shadow 0.3s;
+}
+.counter-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 32px rgba(102, 126, 234, 0.15);
+}
+.counter-icon { font-size: 1.8rem; margin-bottom: 8px; }
+.counter-value {
+  font-size: 2.4rem; font-weight: 800;
+  background: var(--gradient-main); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.counter-label { color: var(--text-secondary); font-size: 0.85rem; margin-top: 4px; }
+
+/* Scroll indicator */
+.scroll-hint {
+  animation: bounce 2s ease-in-out infinite;
+  color: var(--text-muted); font-size: 1.5rem;
+}
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(8px); }
+}
+
+/* ========== Architecture ========== */
+#architecture { background: var(--bg-secondary); }
+.arch-svg-container {
+  width: 100%; overflow-x: auto;
+  padding: 20px 0;
+}
+.arch-svg-container svg { display: block; margin: 0 auto; }
+.arch-svg-container svg text {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+/* SVG hover effects */
+.arch-layer rect { transition: filter 0.3s, opacity 0.3s; cursor: default; }
+.arch-layer:hover rect {
+  filter: drop-shadow(0 0 12px rgba(102, 126, 234, 0.4));
+}
+
+/* Flow particles */
+@keyframes flowParticle {
+  0% { offset-distance: 0%; opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { offset-distance: 100%; opacity: 0; }
+}
+
+/* ========== Features Grid ========== */
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+}
+.feature-card {
+  background: var(--glass-bg); border: var(--glass-border);
+  backdrop-filter: var(--glass-blur);
+  border-radius: 16px; padding: 28px 24px;
+  transition: transform 0.3s, box-shadow 0.3s, border-color 0.3s;
+  position: relative; overflow: hidden;
+}
+.feature-card::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: var(--gradient-main);
+  transform: scaleX(0); transform-origin: left;
+  transition: transform 0.4s ease;
+}
+.feature-card:hover::before { transform: scaleX(1); }
+.feature-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+  border-color: rgba(102, 126, 234, 0.2);
+}
+.feature-icon { font-size: 2rem; margin-bottom: 12px; display: block; }
+.feature-title {
+  font-size: 1.15rem; font-weight: 600; margin-bottom: 8px;
+  color: var(--text-primary);
+}
+.feature-desc {
+  font-size: 0.9rem; color: var(--text-secondary); line-height: 1.6;
+}
+.feature-tags {
+  margin-top: 12px; display: flex; flex-wrap: wrap; gap: 6px;
+}
+.feature-tag {
+  font-size: 0.75rem; padding: 2px 10px;
+  border-radius: 10px; background: rgba(102, 126, 234, 0.12);
+  color: var(--accent-blue);
+}
+
+/* ========== Tech Stack ========== */
+#techstack { background: var(--bg-secondary); }
+.tech-category { margin-bottom: 28px; }
+.tech-category-label {
+  font-size: 0.85rem; color: var(--text-muted); margin-bottom: 10px;
+  text-transform: uppercase; letter-spacing: 1px; font-weight: 600;
+}
+.tech-badges { display: flex; flex-wrap: wrap; gap: 8px; }
+.tech-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 14px; border-radius: 8px;
+  font-size: 0.85rem; font-weight: 500;
+  background: var(--glass-bg); border: var(--glass-border);
+  color: var(--text-primary);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.tech-badge:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+}
+.tech-badge .dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+}
+
+/* ========== Data Flow ========== */
+.pipeline {
+  display: flex; align-items: center; justify-content: center;
+  gap: 0; flex-wrap: nowrap; overflow-x: auto;
+  padding: 40px 0;
+}
+.pipe-node {
+  display: flex; flex-direction: column; align-items: center;
+  min-width: 90px; position: relative;
+}
+.pipe-circle {
+  width: 64px; height: 64px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.6rem; position: relative; z-index: 2;
+  border: 2px solid rgba(255,255,255,0.1);
+  transition: transform 0.3s, box-shadow 0.3s;
+}
+.pipe-circle:hover {
+  transform: scale(1.15);
+  box-shadow: 0 0 24px rgba(102, 126, 234, 0.4);
+}
+.pipe-label {
+  margin-top: 10px; font-size: 0.78rem; color: var(--text-secondary);
+  text-align: center; white-space: nowrap;
+}
+.pipe-arrow {
+  width: 40px; height: 2px; position: relative;
+  flex-shrink: 0;
+}
+.pipe-arrow::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, rgba(102,126,234,0.4), rgba(118,75,162,0.4));
+}
+.pipe-arrow::after {
+  content: ''; position: absolute; top: -3px; right: 0;
+  border: 4px solid transparent;
+  border-left: 6px solid rgba(118, 75, 162, 0.5);
+}
+/* Animated dot on arrow */
+.pipe-arrow .flow-dot {
+  position: absolute; top: -3px; left: 0;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent-blue);
+  box-shadow: 0 0 8px var(--accent-blue);
+  animation: pipeDot 2s ease-in-out infinite;
+}
+@keyframes pipeDot {
+  0% { left: 0; opacity: 0; }
+  20% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { left: calc(100% - 8px); opacity: 0; }
+}
+
+/* Three flow rows */
+.pipeline-section { margin-bottom: 40px; }
+.pipeline-label {
+  display: inline-block; padding: 4px 12px; border-radius: 8px;
+  font-size: 0.8rem; font-weight: 600; margin-bottom: 16px;
+}
+.pipeline-label.blue { background: rgba(102,126,234,0.15); color: var(--accent-blue); }
+.pipeline-label.purple { background: rgba(118,75,162,0.15); color: var(--accent-purple); }
+.pipeline-label.green { background: rgba(72,187,120,0.15); color: var(--accent-green); }
+
+/* ========== MCP Tools ========== */
+#mcp-tools { background: var(--bg-secondary); }
+.mcp-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px;
+}
+.mcp-group {
+  background: var(--glass-bg); border: var(--glass-border);
+  border-radius: 16px; padding: 24px; overflow: hidden;
+}
+.mcp-group-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 16px; padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.mcp-group-title { font-size: 1.05rem; font-weight: 600; }
+.mcp-group-badge {
+  font-size: 0.75rem; padding: 3px 10px; border-radius: 10px;
+  font-weight: 600;
+}
+.mcp-group.blue .mcp-group-badge { background: rgba(102,126,234,0.15); color: var(--accent-blue); }
+.mcp-group.purple .mcp-group-badge { background: rgba(118,75,162,0.15); color: #a855f7; }
+.mcp-group.orange .mcp-group-badge { background: rgba(237,137,54,0.15); color: var(--accent-orange); }
+.mcp-tool-item {
+  padding: 8px 0; display: flex; align-items: flex-start; gap: 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  transition: background 0.2s;
+}
+.mcp-tool-item:last-child { border-bottom: none; }
+.mcp-tool-item:hover { background: rgba(255,255,255,0.02); margin: 0 -8px; padding: 8px 8px; border-radius: 6px; }
+.mcp-tool-name {
+  font-family: var(--mono); font-size: 0.82rem;
+  color: var(--accent-blue); white-space: nowrap; min-width: 140px;
+}
+.mcp-group.purple .mcp-tool-name { color: #a855f7; }
+.mcp-group.orange .mcp-tool-name { color: var(--accent-orange); }
+.mcp-tool-desc { font-size: 0.82rem; color: var(--text-secondary); }
+
+/* ========== Dev Quality ========== */
+.quality-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px;
+  margin-bottom: 48px;
+}
+.quality-card {
+  background: var(--glass-bg); border: var(--glass-border);
+  border-radius: 16px; padding: 24px;
+}
+.quality-card-title {
+  font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase;
+  letter-spacing: 1px; margin-bottom: 12px; font-weight: 600;
+}
+.quality-big-num {
+  font-size: 2.4rem; font-weight: 800;
+  background: var(--gradient-main); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text; line-height: 1.2;
+}
+.quality-detail { font-size: 0.85rem; color: var(--text-secondary); margin-top: 6px; }
+.quality-bar {
+  height: 6px; border-radius: 3px; background: rgba(255,255,255,0.06); margin-top: 12px;
+  overflow: hidden;
+}
+.quality-bar-fill {
+  height: 100%; border-radius: 3px;
+  background: var(--gradient-main);
+  transition: width 1.2s ease;
+}
+
+/* Code quality badges */
+.tool-badges { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.tool-badge-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 12px; border-radius: 8px;
+  font-size: 0.8rem;
+  background: rgba(72, 187, 120, 0.1); color: var(--accent-green);
+}
+
+/* ========== Deploy ========== */
+#deploy { background: var(--bg-secondary); }
+.deploy-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px;
+}
+.deploy-card {
+  background: var(--glass-bg); border: var(--glass-border);
+  border-radius: 16px; overflow: hidden;
+}
+.deploy-card-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  display: flex; align-items: center; gap: 10px;
+}
+.deploy-card-icon { font-size: 1.4rem; }
+.deploy-card-title { font-weight: 600; font-size: 1rem; }
+.deploy-card-label {
+  margin-left: auto; font-size: 0.72rem; padding: 2px 8px;
+  border-radius: 6px; font-weight: 600;
+}
+.deploy-card-label.dev { background: rgba(72,187,120,0.15); color: var(--accent-green); }
+.deploy-card-label.prod { background: rgba(102,126,234,0.15); color: var(--accent-blue); }
+.deploy-card-label.cli { background: rgba(118,75,162,0.15); color: #a855f7; }
+.deploy-card-label.mcp { background: rgba(237,137,54,0.15); color: var(--accent-orange); }
+.deploy-card-body { padding: 16px 20px; }
+.deploy-features {
+  list-style: none; margin-bottom: 16px;
+}
+.deploy-features li {
+  font-size: 0.85rem; color: var(--text-secondary);
+  padding: 3px 0;
+}
+.deploy-features li::before {
+  content: '\2713'; color: var(--accent-green); margin-right: 8px; font-weight: 700;
+}
+
+/* Terminal code block */
+.terminal {
+  background: #1a1a2e; border-radius: 10px; overflow: hidden;
+  font-family: var(--mono); font-size: 0.82rem;
+}
+.terminal-bar {
+  background: #252540; padding: 8px 12px;
+  display: flex; gap: 6px; align-items: center;
+}
+.terminal-dot { width: 10px; height: 10px; border-radius: 50%; }
+.terminal-dot.r { background: #fc5c65; }
+.terminal-dot.y { background: #fed330; }
+.terminal-dot.g { background: #26de81; }
+.terminal-bar-title {
+  margin-left: 8px; font-size: 0.72rem; color: var(--text-muted);
+}
+.terminal-body { padding: 14px 16px; line-height: 1.8; }
+.terminal-body .cmd { color: var(--accent-green); }
+.terminal-body .flag { color: var(--accent-orange); }
+.terminal-body .comment { color: var(--text-muted); }
+.terminal-body .string { color: #fed330; }
+
+/* ========== Footer ========== */
+.footer {
+  text-align: center; padding: 40px 24px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  position: relative; z-index: 1;
+}
+.footer-logo {
+  font-size: 1.4rem; font-weight: 700;
+  background: var(--gradient-main); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text; margin-bottom: 8px;
+}
+.footer-text { color: var(--text-muted); font-size: 0.85rem; }
+.footer-badges { margin-top: 12px; display: flex; justify-content: center; gap: 8px; }
+.footer-badge {
+  font-size: 0.75rem; padding: 3px 10px; border-radius: 8px;
+  background: var(--glass-bg); border: var(--glass-border);
+  color: var(--text-secondary);
+}
+
+/* ========== Responsive ========== */
+@media (max-width: 1024px) {
+  .mcp-grid { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 768px) {
+  section { padding: 60px 16px; }
+  .nav-links { display: none; }
+  .counters { grid-template-columns: repeat(2, 1fr); }
+  .mcp-grid { grid-template-columns: 1fr; }
+  .pipeline { flex-wrap: wrap; justify-content: flex-start; }
+  .pipe-arrow { width: 24px; }
+  .features-grid { grid-template-columns: 1fr; }
+  .deploy-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 480px) {
+  .hero h1 { letter-spacing: -1px; }
+  .counters { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .counter-card { padding: 16px 12px; }
+  .counter-value { font-size: 1.8rem; }
+}
+</style>
+</head>
+<body>
+
+<!-- ==================== Navigation ==================== -->
+<nav class="nav" id="nav">
+  <div class="nav-inner">
+    <div class="nav-logo">Xw</div>
+    <div class="nav-links">
+      <a href="#hero">概览</a>
+      <a href="#architecture">架构</a>
+      <a href="#features">功能</a>
+      <a href="#techstack">技术栈</a>
+      <a href="#dataflow">数据流</a>
+      <a href="#mcp-tools">MCP 工具</a>
+      <a href="#quality">开发质量</a>
+      <a href="#deploy">部署</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ==================== Hero ==================== -->
+<section class="hero" id="hero">
+  <div class="hero-content">
+    <div class="hero-badge">AI-Native Information Service</div>
+    <h1>X-watcher</h1>
+    <p class="hero-tagline">面向 AI Agent 的 X 平台智能信息监控服务</p>
+    <p class="hero-sub">采集 / 摘要 / 翻译 / 聚合 / 回溯 / 分发 &mdash; 一站式 Agent 信息中台</p>
+    <div class="counters">
+      <div class="counter-card">
+        <div class="counter-icon">&#x1F527;</div>
+        <div class="counter-value" data-target="20">0</div>
+        <div class="counter-label">MCP 工具</div>
+      </div>
+      <div class="counter-card">
+        <div class="counter-icon">&#x2705;</div>
+        <div class="counter-value" data-target="1137">0</div>
+        <div class="counter-label">测试用例</div>
+      </div>
+      <div class="counter-card">
+        <div class="counter-icon">&#x1F4CB;</div>
+        <div class="counter-value" data-target="14">0</div>
+        <div class="counter-label">完整规格</div>
+      </div>
+      <div class="counter-card">
+        <div class="counter-icon">&#x1F916;</div>
+        <div class="counter-value" data-target="6">0</div>
+        <div class="counter-label">LLM 提供商</div>
+      </div>
+    </div>
+    <div class="scroll-hint">&#x25BE;</div>
+  </div>
+</section>
+
+<!-- ==================== Architecture ==================== -->
+<section id="architecture" class="fade-in">
+  <div class="section-inner">
+    <h2 class="section-title">系统架构</h2>
+    <p class="section-subtitle">六层模块化架构，清晰的职责分离与数据流向</p>
+    <div class="arch-svg-container">
+      <svg viewBox="0 0 1000 620" width="100%" style="max-width:1000px;" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="arrowBlue" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="rgba(102,126,234,0.6)"/>
+          </marker>
+          <linearGradient id="gBlue" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stop-color="#4a5568" stop-opacity="0.3"/>
+            <stop offset="100%" stop-color="#667eea" stop-opacity="0.3"/>
+          </linearGradient>
+          <linearGradient id="gPurple" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stop-color="#667eea" stop-opacity="0.25"/>
+            <stop offset="100%" stop-color="#764ba2" stop-opacity="0.25"/>
+          </linearGradient>
+          <linearGradient id="gIndigo" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stop-color="#5a67d8" stop-opacity="0.25"/>
+            <stop offset="100%" stop-color="#667eea" stop-opacity="0.25"/>
+          </linearGradient>
+          <linearGradient id="gTeal" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stop-color="#38b2ac" stop-opacity="0.25"/>
+            <stop offset="100%" stop-color="#4fd1c5" stop-opacity="0.25"/>
+          </linearGradient>
+          <linearGradient id="gGreen" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stop-color="#48bb78" stop-opacity="0.25"/>
+            <stop offset="100%" stop-color="#38a169" stop-opacity="0.25"/>
+          </linearGradient>
+          <linearGradient id="gOrange" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stop-color="#ed8936" stop-opacity="0.25"/>
+            <stop offset="100%" stop-color="#dd6b20" stop-opacity="0.25"/>
+          </linearGradient>
+        </defs>
+
+        <!-- Layer labels -->
+        <text x="16" y="48" fill="#6a6a80" font-size="11" font-weight="600">消费者</text>
+        <text x="16" y="148" fill="#6a6a80" font-size="11" font-weight="600">接口层</text>
+        <text x="16" y="258" fill="#6a6a80" font-size="11" font-weight="600">服务层</text>
+        <text x="16" y="368" fill="#6a6a80" font-size="11" font-weight="600">基础设施</text>
+        <text x="16" y="468" fill="#6a6a80" font-size="11" font-weight="600">数据层</text>
+        <text x="16" y="578" fill="#6a6a80" font-size="11" font-weight="600">外部系统</text>
+
+        <!-- Row 1: Consumers -->
+        <g class="arch-layer">
+          <rect x="100" y="24" width="140" height="40" rx="8" fill="url(#gBlue)" stroke="rgba(74,85,104,0.4)" stroke-width="1"/>
+          <text x="170" y="49" fill="#a0aec0" font-size="13" text-anchor="middle">Web SPA</text>
+
+          <rect x="270" y="24" width="140" height="40" rx="8" fill="url(#gBlue)" stroke="rgba(74,85,104,0.4)" stroke-width="1"/>
+          <text x="340" y="49" fill="#a0aec0" font-size="13" text-anchor="middle">REST API</text>
+
+          <rect x="440" y="24" width="160" height="40" rx="8" fill="url(#gBlue)" stroke="rgba(74,85,104,0.4)" stroke-width="1"/>
+          <text x="520" y="49" fill="#a0aec0" font-size="13" text-anchor="middle">Claude Code</text>
+
+          <rect x="630" y="24" width="175" height="40" rx="8" fill="url(#gBlue)" stroke="rgba(74,85,104,0.4)" stroke-width="1"/>
+          <text x="718" y="49" fill="#a0aec0" font-size="13" text-anchor="middle">Claude Desktop</text>
+
+          <rect x="835" y="24" width="120" height="40" rx="8" fill="url(#gBlue)" stroke="rgba(74,85,104,0.4)" stroke-width="1"/>
+          <text x="895" y="49" fill="#a0aec0" font-size="13" text-anchor="middle">CLI</text>
+        </g>
+
+        <!-- Arrows Row1 -> Row2 -->
+        <line x1="220" y1="64" x2="300" y2="120" stroke="rgba(102,126,234,0.3)" stroke-width="1" marker-end="url(#arrowBlue)"/>
+        <line x1="370" y1="64" x2="300" y2="120" stroke="rgba(102,126,234,0.3)" stroke-width="1" marker-end="url(#arrowBlue)"/>
+        <line x1="550" y1="64" x2="680" y2="120" stroke="rgba(102,126,234,0.3)" stroke-width="1" marker-end="url(#arrowBlue)"/>
+        <line x1="730" y1="64" x2="680" y2="120" stroke="rgba(102,126,234,0.3)" stroke-width="1" marker-end="url(#arrowBlue)"/>
+
+        <!-- Row 2: Interface Layer -->
+        <g class="arch-layer">
+          <rect x="120" y="120" width="330" height="44" rx="8" fill="url(#gPurple)" stroke="rgba(102,126,234,0.3)" stroke-width="1"/>
+          <text x="285" y="147" fill="#9f9fee" font-size="13" text-anchor="middle">FastAPI 路由（9 个功能模块）</text>
+
+          <rect x="520" y="120" width="370" height="44" rx="8" fill="url(#gPurple)" stroke="rgba(118,75,162,0.3)" stroke-width="1"/>
+          <text x="705" y="147" fill="#c39fe0" font-size="13" text-anchor="middle">FastMCP（20 工具 + 5 资源 + 工作流配方）</text>
+        </g>
+
+        <!-- Arrows Row2 -> Row3 -->
+        <line x1="285" y1="164" x2="173" y2="230" stroke="rgba(102,126,234,0.25)" stroke-width="1" marker-end="url(#arrowBlue)"/>
+        <line x1="285" y1="164" x2="338" y2="230" stroke="rgba(102,126,234,0.25)" stroke-width="1" marker-end="url(#arrowBlue)"/>
+        <line x1="285" y1="164" x2="635" y2="230" stroke="rgba(102,126,234,0.25)" stroke-width="1" marker-end="url(#arrowBlue)"/>
+        <line x1="705" y1="164" x2="495" y2="230" stroke="rgba(118,75,162,0.25)" stroke-width="1" marker-end="url(#arrowBlue)"/>
+        <line x1="705" y1="164" x2="635" y2="230" stroke="rgba(118,75,162,0.25)" stroke-width="1" marker-end="url(#arrowBlue)"/>
+        <line x1="705" y1="164" x2="860" y2="230" stroke="rgba(118,75,162,0.25)" stroke-width="1" marker-end="url(#arrowBlue)"/>
+
+        <!-- Row 3: Service Layer -->
+        <g class="arch-layer">
+          <rect x="100" y="230" width="145" height="40" rx="8" fill="url(#gIndigo)" stroke="rgba(90,103,216,0.3)" stroke-width="1"/>
+          <text x="173" y="255" fill="#9098e8" font-size="11" text-anchor="middle">Scraping Service</text>
+
+          <rect x="260" y="230" width="155" height="40" rx="8" fill="url(#gIndigo)" stroke="rgba(90,103,216,0.3)" stroke-width="1"/>
+          <text x="338" y="255" fill="#9098e8" font-size="11" text-anchor="middle">Summary Service</text>
+
+          <rect x="430" y="230" width="130" height="40" rx="8" fill="url(#gIndigo)" stroke="rgba(90,103,216,0.3)" stroke-width="1"/>
+          <text x="495" y="255" fill="#9098e8" font-size="11" text-anchor="middle">Topic Service</text>
+
+          <rect x="575" y="230" width="120" height="40" rx="8" fill="url(#gIndigo)" stroke="rgba(90,103,216,0.3)" stroke-width="1"/>
+          <text x="635" y="255" fill="#9098e8" font-size="11" text-anchor="middle">Feed / Browse</text>
+
+          <rect x="710" y="230" width="90" height="40" rx="8" fill="url(#gIndigo)" stroke="rgba(90,103,216,0.3)" stroke-width="1"/>
+          <text x="755" y="255" fill="#9098e8" font-size="11" text-anchor="middle">Search</text>
+
+          <rect x="815" y="230" width="90" height="40" rx="8" fill="url(#gIndigo)" stroke="rgba(90,103,216,0.3)" stroke-width="1"/>
+          <text x="860" y="255" fill="#9098e8" font-size="11" text-anchor="middle">Sync</text>
+
+          <rect x="920" y="230" width="55" height="40" rx="8" fill="url(#gIndigo)" stroke="rgba(90,103,216,0.3)" stroke-width="1"/>
+          <text x="948" y="255" fill="#9098e8" font-size="10" text-anchor="middle">...</text>
+        </g>
+
+        <!-- Arrows Row3 -> Row4 -->
+        <line x1="260" y1="270" x2="330" y2="340" stroke="rgba(56,178,172,0.3)" stroke-width="1" marker-end="url(#arrowBlue)"/>
+        <line x1="495" y1="270" x2="330" y2="340" stroke="rgba(56,178,172,0.3)" stroke-width="1" marker-end="url(#arrowBlue)"/>
+        <line x1="635" y1="270" x2="330" y2="340" stroke="rgba(56,178,172,0.3)" stroke-width="1" marker-end="url(#arrowBlue)"/>
+        <line x1="338" y1="270" x2="700" y2="340" stroke="rgba(56,178,172,0.3)" stroke-width="1" marker-end="url(#arrowBlue)"/>
+
+        <!-- Row 4: Infrastructure -->
+        <g class="arch-layer">
+          <rect x="130" y="340" width="400" height="40" rx="8" fill="url(#gTeal)" stroke="rgba(56,178,172,0.3)" stroke-width="1"/>
+          <text x="330" y="365" fill="#80cbc4" font-size="13" text-anchor="middle">Repository Layer（SQLAlchemy ORM + Alembic）</text>
+
+          <rect x="580" y="340" width="330" height="40" rx="8" fill="url(#gTeal)" stroke="rgba(56,178,172,0.3)" stroke-width="1"/>
+          <text x="745" y="365" fill="#80cbc4" font-size="13" text-anchor="middle">LLM Provider（OpenAI 兼容协议）</text>
+        </g>
+
+        <!-- Arrows Row4 -> Row5 -->
+        <line x1="330" y1="380" x2="300" y2="440" stroke="rgba(72,187,120,0.3)" stroke-width="1" marker-end="url(#arrowBlue)"/>
+        <line x1="173" y1="270" x2="300" y2="440" stroke="rgba(72,187,120,0.2)" stroke-width="1" stroke-dasharray="4,4" marker-end="url(#arrowBlue)"/>
+        <line x1="745" y1="380" x2="700" y2="440" stroke="rgba(72,187,120,0.3)" stroke-width="1" marker-end="url(#arrowBlue)"/>
+
+        <!-- Row 5: Data Layer -->
+        <g class="arch-layer">
+          <rect x="120" y="440" width="310" height="40" rx="8" fill="url(#gGreen)" stroke="rgba(72,187,120,0.3)" stroke-width="1"/>
+          <text x="275" y="465" fill="#9ae6b4" font-size="13" text-anchor="middle">SQLite (WAL) / PostgreSQL</text>
+
+          <rect x="480" y="440" width="210" height="40" rx="8" fill="url(#gGreen)" stroke="rgba(72,187,120,0.3)" stroke-width="1"/>
+          <text x="585" y="465" fill="#9ae6b4" font-size="13" text-anchor="middle">TwitterAPI.io</text>
+
+          <rect x="740" y="440" width="210" height="40" rx="8" fill="url(#gGreen)" stroke="rgba(72,187,120,0.3)" stroke-width="1"/>
+          <text x="845" y="465" fill="#9ae6b4" font-size="13" text-anchor="middle">6+ LLM APIs</text>
+        </g>
+
+        <!-- Arrows Row5 -> Row6 -->
+        <line x1="585" y1="480" x2="500" y2="550" stroke="rgba(237,137,54,0.3)" stroke-width="1" marker-end="url(#arrowBlue)"/>
+        <line x1="845" y1="480" x2="700" y2="550" stroke="rgba(237,137,54,0.3)" stroke-width="1" marker-end="url(#arrowBlue)"/>
+        <line x1="845" y1="480" x2="830" y2="550" stroke="rgba(237,137,54,0.3)" stroke-width="1" marker-end="url(#arrowBlue)"/>
+
+        <!-- Row 6: External Systems -->
+        <g class="arch-layer">
+          <rect x="390" y="550" width="170" height="40" rx="8" fill="url(#gOrange)" stroke="rgba(237,137,54,0.3)" stroke-width="1"/>
+          <text x="475" y="575" fill="#fbd38d" font-size="13" text-anchor="middle">X Platform</text>
+
+          <rect x="590" y="550" width="140" height="40" rx="8" fill="url(#gOrange)" stroke="rgba(237,137,54,0.3)" stroke-width="1"/>
+          <text x="660" y="575" fill="#fbd38d" font-size="13" text-anchor="middle">OpenRouter</text>
+
+          <rect x="760" y="550" width="130" height="40" rx="8" fill="url(#gOrange)" stroke="rgba(237,137,54,0.3)" stroke-width="1"/>
+          <text x="825" y="575" fill="#fbd38d" font-size="13" text-anchor="middle">DeepSeek</text>
+
+          <rect x="115" y="550" width="120" height="40" rx="8" fill="url(#gOrange)" stroke="rgba(237,137,54,0.3)" stroke-width="1"/>
+          <text x="175" y="575" fill="#fbd38d" font-size="12" text-anchor="middle">MiniMax</text>
+
+          <rect x="260" y="550" width="100" height="40" rx="8" fill="url(#gOrange)" stroke="rgba(237,137,54,0.3)" stroke-width="1"/>
+          <text x="310" y="575" fill="#fbd38d" font-size="12" text-anchor="middle">Zhipu</text>
+
+          <rect x="910" y="550" width="60" height="40" rx="8" fill="url(#gOrange)" stroke="rgba(237,137,54,0.3)" stroke-width="1"/>
+          <text x="940" y="575" fill="#fbd38d" font-size="11" text-anchor="middle">...</text>
+        </g>
+
+        <!-- Animated flow dots along key paths -->
+        <circle r="3" fill="#667eea" opacity="0.8">
+          <animateMotion dur="4s" repeatCount="indefinite" path="M285,164 L338,230 L330,340 L300,440"/>
+        </circle>
+        <circle r="3" fill="#764ba2" opacity="0.8">
+          <animateMotion dur="5s" repeatCount="indefinite" path="M705,164 L635,230 L700,340 L700,440 L845,480"/>
+        </circle>
+        <circle r="3" fill="#48bb78" opacity="0.7">
+          <animateMotion dur="6s" repeatCount="indefinite" path="M475,590 L585,480 L330,380 L330,270 L285,164"/>
+        </circle>
+      </svg>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== Features ==================== -->
+<section id="features" class="fade-in">
+  <div class="section-inner">
+    <h2 class="section-title">核心功能</h2>
+    <p class="section-subtitle">从数据采集到智能分发，覆盖信息监控全链路</p>
+    <div class="features-grid">
+
+      <div class="feature-card">
+        <span class="feature-icon">&#x1F578;&#xFE0F;</span>
+        <div class="feature-title">推文抓取</div>
+        <div class="feature-desc">从 X 平台智能抓取推文，支持定时/手动触发。自动检测 Articles 长文，含重试退避、去重和数据质量校验。</div>
+        <div class="feature-tags">
+          <span class="feature-tag">TwitterAPI.io</span>
+          <span class="feature-tag">APScheduler</span>
+          <span class="feature-tag">指数退避</span>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <span class="feature-icon">&#x1F9E0;</span>
+        <div class="feature-title">AI 摘要 &amp; 翻译</div>
+        <div class="feature-desc">多 LLM 提供商摘要+中文翻译，自动故障转移。集中式优先级队列调度，内容哈希缓存避免重复调用。</div>
+        <div class="feature-tags">
+          <span class="feature-tag">6 提供商</span>
+          <span class="feature-tag">智能降级</span>
+          <span class="feature-tag">背压控制</span>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <span class="feature-icon">&#x1F4E1;</span>
+        <div class="feature-title">Feed 信息流</div>
+        <div class="feature-desc">增量拉取 API，支持时间范围、多作者、关键词过滤。专为 AI Agent 设计的结构化输出格式。</div>
+        <div class="feature-tags">
+          <span class="feature-tag">增量查询</span>
+          <span class="feature-tag">ISO 8601</span>
+          <span class="feature-tag">Agent 友好</span>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <span class="feature-icon">&#x1F4C5;</span>
+        <div class="feature-title">推文浏览</div>
+        <div class="feature-desc">按日期和作者维度结构化浏览。日历视图显示每日推文数，摘要/翻译/原文三合一展示。</div>
+        <div class="feature-tags">
+          <span class="feature-tag">日历选择</span>
+          <span class="feature-tag">作者时间线</span>
+          <span class="feature-tag">分页加载</span>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <span class="feature-icon">&#x1F50D;</span>
+        <div class="feature-title">推文搜索</div>
+        <div class="feature-desc">多字段 AND 关键词搜索，覆盖正文、摘要、翻译、引用推文。支持作者和时间范围过滤。</div>
+        <div class="feature-tags">
+          <span class="feature-tag">多字段搜索</span>
+          <span class="feature-tag">AND 逻辑</span>
+          <span class="feature-tag">实时检索</span>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <span class="feature-icon">&#x1F4CA;</span>
+        <div class="feature-title">主题聚合</div>
+        <div class="feature-desc">多账号推文聚合到主题，AI 生成综合分析报告。支持自定义 Prompt、时间窗口和所有权控制。</div>
+        <div class="feature-tags">
+          <span class="feature-tag">多账号</span>
+          <span class="feature-tag">AI 综合</span>
+          <span class="feature-tag">异步任务</span>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <span class="feature-icon">&#x1F9E9;</span>
+        <div class="feature-title">聚类分析</div>
+        <div class="feature-desc">基于 24h 发推时间分布的层次聚类（JSD + 平均链接法），识别发推行为模式，优化抓取调度。</div>
+        <div class="feature-tags">
+          <span class="feature-tag">scipy</span>
+          <span class="feature-tag">JSD 距离</span>
+          <span class="feature-tag">热力图</span>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <span class="feature-icon">&#x1F916;</span>
+        <div class="feature-title">MCP 服务</div>
+        <div class="feature-desc">20 工具 + 5 资源，支持 stdio/SSE 双通道。三级权限分组，内置审计日志查询和工作流配方（如每日摘要生成指南）。</div>
+        <div class="feature-tags">
+          <span class="feature-tag">FastMCP</span>
+          <span class="feature-tag">stdio/SSE</span>
+          <span class="feature-tag">配方资源</span>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <span class="feature-icon">&#x1F6E1;&#xFE0F;</span>
+        <div class="feature-title">防御性工程</div>
+        <div class="feature-desc">Twitter API 熔断器（连续失败自动熔断）、僵尸任务启动恢复、MCP 操作白名单 Action Guard、全链路审计日志。</div>
+        <div class="feature-tags">
+          <span class="feature-tag">熔断器</span>
+          <span class="feature-tag">审计日志</span>
+          <span class="feature-tag">Action Guard</span>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <span class="feature-icon">&#x1F504;</span>
+        <div class="feature-title">数据同步 &amp; 回溯</div>
+        <div class="feature-desc">JSON 文件导出/导入跨服务器同步，冲突策略（skip/overwrite/merge）+ dry-run 预览。Backfill 历史推文补抓并自动触发摘要。</div>
+        <div class="feature-tags">
+          <span class="feature-tag">导出/导入</span>
+          <span class="feature-tag">Backfill</span>
+          <span class="feature-tag">冲突策略</span>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <span class="feature-icon">&#x1F5BC;&#xFE0F;</span>
+        <div class="feature-title">Web 管理台</div>
+        <div class="feature-desc">Vue 3 + Element Plus 企业级 UI，「墨纸」沉浸式阅读主题——宣纸配色、楷体字体、暗色模式。支持用户/账号/调度/主题/任务全方位管理。</div>
+        <div class="feature-tags">
+          <span class="feature-tag">Vue 3</span>
+          <span class="feature-tag">Element Plus</span>
+          <span class="feature-tag">墨纸主题</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ==================== Tech Stack ==================== -->
+<section id="techstack" class="fade-in">
+  <div class="section-inner">
+    <h2 class="section-title">技术栈</h2>
+    <p class="section-subtitle">精选成熟稳定的技术方案，确保系统可靠性与可维护性</p>
+
+    <div class="tech-category">
+      <div class="tech-category-label">后端框架</div>
+      <div class="tech-badges">
+        <span class="tech-badge"><span class="dot" style="background:#3776ab"></span>Python 3.11+</span>
+        <span class="tech-badge"><span class="dot" style="background:#009688"></span>FastAPI</span>
+        <span class="tech-badge"><span class="dot" style="background:#4db6ac"></span>Uvicorn</span>
+        <span class="tech-badge"><span class="dot" style="background:#e91e63"></span>Pydantic V2</span>
+        <span class="tech-badge"><span class="dot" style="background:#7e57c2"></span>Click (CLI)</span>
+        <span class="tech-badge"><span class="dot" style="background:#5c6bc0"></span>APScheduler</span>
+      </div>
+    </div>
+
+    <div class="tech-category">
+      <div class="tech-category-label">数据库 &amp; ORM</div>
+      <div class="tech-badges">
+        <span class="tech-badge"><span class="dot" style="background:#039be5"></span>SQLite (WAL)</span>
+        <span class="tech-badge"><span class="dot" style="background:#336791"></span>PostgreSQL</span>
+        <span class="tech-badge"><span class="dot" style="background:#d32f2f"></span>SQLAlchemy 2.0</span>
+        <span class="tech-badge"><span class="dot" style="background:#795548"></span>Alembic</span>
+      </div>
+    </div>
+
+    <div class="tech-category">
+      <div class="tech-category-label">LLM 集成</div>
+      <div class="tech-badges">
+        <span class="tech-badge"><span class="dot" style="background:#7c4dff"></span>OpenRouter</span>
+        <span class="tech-badge"><span class="dot" style="background:#00bfa5"></span>DeepSeek</span>
+        <span class="tech-badge"><span class="dot" style="background:#ff6d00"></span>MiniMax</span>
+        <span class="tech-badge"><span class="dot" style="background:#2962ff"></span>Zhipu AI</span>
+        <span class="tech-badge"><span class="dot" style="background:#ffd600"></span>Moonshot</span>
+        <span class="tech-badge"><span class="dot" style="background:#78909c"></span>Custom</span>
+      </div>
+    </div>
+
+    <div class="tech-category">
+      <div class="tech-category-label">前端</div>
+      <div class="tech-badges">
+        <span class="tech-badge"><span class="dot" style="background:#42b883"></span>Vue 3</span>
+        <span class="tech-badge"><span class="dot" style="background:#3178c6"></span>TypeScript</span>
+        <span class="tech-badge"><span class="dot" style="background:#409eff"></span>Element Plus</span>
+        <span class="tech-badge"><span class="dot" style="background:#646cff"></span>Vite</span>
+        <span class="tech-badge"><span class="dot" style="background:#e43a42"></span>ECharts</span>
+        <span class="tech-badge"><span class="dot" style="background:#f7d336"></span>Pinia</span>
+      </div>
+    </div>
+
+    <div class="tech-category">
+      <div class="tech-category-label">协议 &amp; 安全</div>
+      <div class="tech-badges">
+        <span class="tech-badge"><span class="dot" style="background:#00c853"></span>REST API</span>
+        <span class="tech-badge"><span class="dot" style="background:#aa00ff"></span>MCP (Model Context Protocol)</span>
+        <span class="tech-badge"><span class="dot" style="background:#ff6f00"></span>JWT (HS256)</span>
+        <span class="tech-badge"><span class="dot" style="background:#d50000"></span>bcrypt</span>
+        <span class="tech-badge"><span class="dot" style="background:#0091ea"></span>API Key</span>
+      </div>
+    </div>
+
+    <div class="tech-category">
+      <div class="tech-category-label">质量工具</div>
+      <div class="tech-badges">
+        <span class="tech-badge"><span class="dot" style="background:#26a69a"></span>pytest (1137 tests)</span>
+        <span class="tech-badge"><span class="dot" style="background:#1a1a1a"></span>Black</span>
+        <span class="tech-badge"><span class="dot" style="background:#d84315"></span>Ruff</span>
+        <span class="tech-badge"><span class="dot" style="background:#1565c0"></span>mypy</span>
+        <span class="tech-badge"><span class="dot" style="background:#e65100"></span>Prometheus</span>
+      </div>
+    </div>
+
+    <div class="tech-category">
+      <div class="tech-category-label">部署</div>
+      <div class="tech-badges">
+        <span class="tech-badge"><span class="dot" style="background:#2496ed"></span>Docker</span>
+        <span class="tech-badge"><span class="dot" style="background:#1a73e8"></span>docker-compose</span>
+        <span class="tech-badge"><span class="dot" style="background:#009688"></span>Multi-stage Build</span>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ==================== Data Flow ==================== -->
+<section id="dataflow" class="fade-in">
+  <div class="section-inner">
+    <h2 class="section-title">数据流水线</h2>
+    <p class="section-subtitle">从推文采集到智能消费的完整数据旅程</p>
+
+    <!-- Flow 1: Scraping -->
+    <div class="pipeline-section">
+      <div class="pipeline-label blue">&#x1F4E5; 采集流</div>
+      <div class="pipeline">
+        <div class="pipe-node">
+          <div class="pipe-circle" style="background: rgba(237,137,54,0.15); border-color: rgba(237,137,54,0.3);">&#x1D54F;</div>
+          <div class="pipe-label">X Platform</div>
+        </div>
+        <div class="pipe-arrow"><div class="flow-dot"></div></div>
+        <div class="pipe-node">
+          <div class="pipe-circle" style="background: rgba(72,187,120,0.15); border-color: rgba(72,187,120,0.3);">&#x1F310;</div>
+          <div class="pipe-label">TwitterAPI.io</div>
+        </div>
+        <div class="pipe-arrow"><div class="flow-dot" style="animation-delay: 0.3s;"></div></div>
+        <div class="pipe-node">
+          <div class="pipe-circle" style="background: rgba(102,126,234,0.15); border-color: rgba(102,126,234,0.3);">&#x1F578;&#xFE0F;</div>
+          <div class="pipe-label">Scraper</div>
+        </div>
+        <div class="pipe-arrow"><div class="flow-dot" style="animation-delay: 0.6s;"></div></div>
+        <div class="pipe-node">
+          <div class="pipe-circle" style="background: rgba(56,178,172,0.15); border-color: rgba(56,178,172,0.3);">&#x2705;</div>
+          <div class="pipe-label">校验 &amp; 去重</div>
+        </div>
+        <div class="pipe-arrow"><div class="flow-dot" style="animation-delay: 0.9s;"></div></div>
+        <div class="pipe-node">
+          <div class="pipe-circle" style="background: rgba(72,187,120,0.15); border-color: rgba(72,187,120,0.3);">&#x1F4BE;</div>
+          <div class="pipe-label">Database</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Flow 2: Summarization -->
+    <div class="pipeline-section">
+      <div class="pipeline-label purple">&#x1F9E0; 摘要流</div>
+      <div class="pipeline">
+        <div class="pipe-node">
+          <div class="pipe-circle" style="background: rgba(72,187,120,0.15); border-color: rgba(72,187,120,0.3);">&#x1F4BE;</div>
+          <div class="pipe-label">未摘要推文</div>
+        </div>
+        <div class="pipe-arrow"><div class="flow-dot" style="animation-delay: 0.2s;"></div></div>
+        <div class="pipe-node">
+          <div class="pipe-circle" style="background: rgba(118,75,162,0.15); border-color: rgba(118,75,162,0.3);">&#x1F4CB;</div>
+          <div class="pipe-label">优先级队列</div>
+        </div>
+        <div class="pipe-arrow"><div class="flow-dot" style="animation-delay: 0.5s;"></div></div>
+        <div class="pipe-node">
+          <div class="pipe-circle" style="background: rgba(102,126,234,0.15); border-color: rgba(102,126,234,0.3);">&#x1F916;</div>
+          <div class="pipe-label">LLM 调用</div>
+        </div>
+        <div class="pipe-arrow"><div class="flow-dot" style="animation-delay: 0.8s;"></div></div>
+        <div class="pipe-node">
+          <div class="pipe-circle" style="background: rgba(56,178,172,0.15); border-color: rgba(56,178,172,0.3);">&#x1F504;</div>
+          <div class="pipe-label">故障转移</div>
+        </div>
+        <div class="pipe-arrow"><div class="flow-dot" style="animation-delay: 1.1s;"></div></div>
+        <div class="pipe-node">
+          <div class="pipe-circle" style="background: rgba(72,187,120,0.15); border-color: rgba(72,187,120,0.3);">&#x1F4DD;</div>
+          <div class="pipe-label">摘要 + 翻译</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Flow 3: Consumption -->
+    <div class="pipeline-section">
+      <div class="pipeline-label green">&#x1F4E4; 消费流</div>
+      <div class="pipeline">
+        <div class="pipe-node">
+          <div class="pipe-circle" style="background: rgba(72,187,120,0.15); border-color: rgba(72,187,120,0.3);">&#x1F4BE;</div>
+          <div class="pipe-label">结构化数据</div>
+        </div>
+        <div class="pipe-arrow"><div class="flow-dot" style="animation-delay: 0.4s;"></div></div>
+        <div class="pipe-node">
+          <div class="pipe-circle" style="background: rgba(102,126,234,0.15); border-color: rgba(102,126,234,0.3);">&#x26A1;</div>
+          <div class="pipe-label">API / MCP</div>
+        </div>
+        <div class="pipe-arrow"><div class="flow-dot" style="animation-delay: 0.7s;"></div></div>
+        <div class="pipe-node">
+          <div class="pipe-circle" style="background: rgba(118,75,162,0.15); border-color: rgba(118,75,162,0.3);">&#x1F916;</div>
+          <div class="pipe-label">AI Agent</div>
+        </div>
+        <div class="pipe-arrow"><div class="flow-dot" style="animation-delay: 1.0s;"></div></div>
+        <div class="pipe-node">
+          <div class="pipe-circle" style="background: rgba(56,178,172,0.15); border-color: rgba(56,178,172,0.3);">&#x1F5A5;&#xFE0F;</div>
+          <div class="pipe-label">Web 管理台</div>
+        </div>
+        <div class="pipe-arrow"><div class="flow-dot" style="animation-delay: 1.3s;"></div></div>
+        <div class="pipe-node">
+          <div class="pipe-circle" style="background: rgba(237,137,54,0.15); border-color: rgba(237,137,54,0.3);">&#x1F464;</div>
+          <div class="pipe-label">终端用户</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ==================== MCP Tools ==================== -->
+<section id="mcp-tools" class="fade-in">
+  <div class="section-inner">
+    <h2 class="section-title">MCP 工具集</h2>
+    <p class="section-subtitle">20 个工具 + 5 个动态资源，三级权限分组，为 AI Agent 量身打造</p>
+    <div class="mcp-grid">
+
+      <!-- Phase 1: User Read-Only -->
+      <div class="mcp-group blue">
+        <div class="mcp-group-header">
+          <div class="mcp-group-title">&#x1F4D6; 用户只读</div>
+          <span class="mcp-group-badge">Phase 1 &middot; 7 工具</span>
+        </div>
+        <div class="mcp-tool-item">
+          <span class="mcp-tool-name">get_feed</span>
+          <span class="mcp-tool-desc">获取增量推文 Feed</span>
+        </div>
+        <div class="mcp-tool-item">
+          <span class="mcp-tool-name">search_tweets</span>
+          <span class="mcp-tool-desc">多字段关键词搜索</span>
+        </div>
+        <div class="mcp-tool-item">
+          <span class="mcp-tool-name">get_daily_stats</span>
+          <span class="mcp-tool-desc">每日推文统计</span>
+        </div>
+        <div class="mcp-tool-item">
+          <span class="mcp-tool-name">get_authors_for_date</span>
+          <span class="mcp-tool-desc">指定日期作者列表</span>
+        </div>
+        <div class="mcp-tool-item">
+          <span class="mcp-tool-name">browse_tweets</span>
+          <span class="mcp-tool-desc">按条件浏览推文</span>
+        </div>
+        <div class="mcp-tool-item">
+          <span class="mcp-tool-name">get_system_status</span>
+          <span class="mcp-tool-desc">系统状态概览</span>
+        </div>
+        <div class="mcp-tool-item">
+          <span class="mcp-tool-name">get_audit_log</span>
+          <span class="mcp-tool-desc">查询审计日志</span>
+        </div>
+      </div>
+
+      <!-- Phase 2: User Management -->
+      <div class="mcp-group purple">
+        <div class="mcp-group-header">
+          <div class="mcp-group-title">&#x1F4DD; 用户管理</div>
+          <span class="mcp-group-badge">Phase 2 &middot; 6 工具</span>
+        </div>
+        <div class="mcp-tool-item">
+          <span class="mcp-tool-name">list_topics</span>
+          <span class="mcp-tool-desc">列出所有主题</span>
+        </div>
+        <div class="mcp-tool-item">
+          <span class="mcp-tool-name">get_topic</span>
+          <span class="mcp-tool-desc">获取主题详情</span>
+        </div>
+        <div class="mcp-tool-item">
+          <span class="mcp-tool-name">manage_topic</span>
+          <span class="mcp-tool-desc">创建/更新/删除主题</span>
+        </div>
+        <div class="mcp-tool-item">
+          <span class="mcp-tool-name">manage_topic_accounts</span>
+          <span class="mcp-tool-desc">管理主题关联账号</span>
+        </div>
+        <div class="mcp-tool-item">
+          <span class="mcp-tool-name">get_topic_summary</span>
+          <span class="mcp-tool-desc">获取/生成主题摘要</span>
+        </div>
+        <div class="mcp-tool-item">
+          <span class="mcp-tool-name">get_posting_frequency</span>
+          <span class="mcp-tool-desc">发文频次分析</span>
+        </div>
+      </div>
+
+      <!-- Phase 3: Admin -->
+      <div class="mcp-group orange">
+        <div class="mcp-group-header">
+          <div class="mcp-group-title">&#x1F6E0;&#xFE0F; 管理员</div>
+          <span class="mcp-group-badge">Phase 3 &middot; 7 工具</span>
+        </div>
+        <div class="mcp-tool-item">
+          <span class="mcp-tool-name">manage_follows</span>
+          <span class="mcp-tool-desc">管理关注列表</span>
+        </div>
+        <div class="mcp-tool-item">
+          <span class="mcp-tool-name">trigger_scrape</span>
+          <span class="mcp-tool-desc">触发抓取任务</span>
+        </div>
+        <div class="mcp-tool-item">
+          <span class="mcp-tool-name">trigger_backfill</span>
+          <span class="mcp-tool-desc">历史推文回溯补抓</span>
+        </div>
+        <div class="mcp-tool-item">
+          <span class="mcp-tool-name">get_task_status</span>
+          <span class="mcp-tool-desc">查询任务状态</span>
+        </div>
+        <div class="mcp-tool-item">
+          <span class="mcp-tool-name">manage_scheduler</span>
+          <span class="mcp-tool-desc">管理调度器</span>
+        </div>
+        <div class="mcp-tool-item">
+          <span class="mcp-tool-name">batch_summarize</span>
+          <span class="mcp-tool-desc">批量摘要生成</span>
+        </div>
+        <div class="mcp-tool-item">
+          <span class="mcp-tool-name">get_follow_accounts_info</span>
+          <span class="mcp-tool-desc">获取关注账号信息</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ==================== Development Quality ==================== -->
+<section id="quality" class="fade-in">
+  <div class="section-inner">
+    <h2 class="section-title">开发质量</h2>
+    <p class="section-subtitle">规格驱动开发 + 测试驱动开发，确保每个功能经过完整生命周期验证</p>
+
+    <div class="quality-grid">
+
+      <div class="quality-card">
+        <div class="quality-card-title">测试覆盖</div>
+        <div class="quality-big-num">1,137</div>
+        <div class="quality-detail">测试用例，覆盖 86 个测试文件</div>
+        <div class="quality-bar"><div class="quality-bar-fill" data-width="85"></div></div>
+        <div class="quality-detail" style="margin-top:4px;">目标覆盖率 80%+</div>
+      </div>
+
+      <div class="quality-card">
+        <div class="quality-card-title">规格驱动</div>
+        <div class="quality-big-num">14</div>
+        <div class="quality-detail">完整规格（需求 &rarr; 设计 &rarr; 任务 &rarr; 实现）</div>
+        <div class="quality-bar"><div class="quality-bar-fill" data-width="100"></div></div>
+        <div class="quality-detail" style="margin-top:4px;">全部已批准并实现</div>
+      </div>
+
+      <div class="quality-card">
+        <div class="quality-card-title">源代码</div>
+        <div class="quality-big-num">175+</div>
+        <div class="quality-detail">Python 源文件，16 个功能模块</div>
+        <div class="quality-bar"><div class="quality-bar-fill" data-width="75"></div></div>
+      </div>
+
+      <div class="quality-card">
+        <div class="quality-card-title">代码质量</div>
+        <div class="quality-big-num" style="font-size: 1.6rem;">Triple Check</div>
+        <div class="tool-badges">
+          <span class="tool-badge-item">&#x2713; Black 格式化</span>
+          <span class="tool-badge-item">&#x2713; Ruff 静态分析</span>
+          <span class="tool-badge-item">&#x2713; mypy 类型检查</span>
+        </div>
+      </div>
+
+      <div class="quality-card">
+        <div class="quality-card-title">防御性工程</div>
+        <div class="quality-big-num" style="font-size: 1.6rem;">Production Ready</div>
+        <div class="tool-badges">
+          <span class="tool-badge-item">&#x1F6E1;&#xFE0F; 熔断器</span>
+          <span class="tool-badge-item">&#x1F527; 僵尸任务恢复</span>
+          <span class="tool-badge-item">&#x1F4CA; 审计日志</span>
+          <span class="tool-badge-item">&#x26A1; 背压控制</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Spec list -->
+    <div style="background: var(--glass-bg); border: var(--glass-border); border-radius: 16px; padding: 24px; margin-top: 8px;">
+      <div style="font-size: 0.95rem; font-weight: 600; margin-bottom: 16px;">&#x1F4CB; 14 个完整规格一览</div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px;">
+        <div style="display: flex; align-items: center; gap: 8px; font-size: 0.84rem; padding: 6px 0;">
+          <span style="color: var(--accent-green);">&#x25CF;</span>
+          <span style="color: var(--text-secondary);">project-init</span>
+          <span style="color: var(--text-muted);">&mdash; 项目初始化</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; font-size: 0.84rem; padding: 6px 0;">
+          <span style="color: var(--accent-green);">&#x25CF;</span>
+          <span style="color: var(--text-secondary);">news-scraper</span>
+          <span style="color: var(--text-muted);">&mdash; 推文抓取</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; font-size: 0.84rem; padding: 6px 0;">
+          <span style="color: var(--accent-green);">&#x25CF;</span>
+          <span style="color: var(--text-secondary);">news-summarizer</span>
+          <span style="color: var(--text-muted);">&mdash; AI 摘要</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; font-size: 0.84rem; padding: 6px 0;">
+          <span style="color: var(--accent-green);">&#x25CF;</span>
+          <span style="color: var(--text-secondary);">feed-api</span>
+          <span style="color: var(--text-muted);">&mdash; 信息流 API</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; font-size: 0.84rem; padding: 6px 0;">
+          <span style="color: var(--accent-green);">&#x25CF;</span>
+          <span style="color: var(--text-secondary);">topic-manager</span>
+          <span style="color: var(--text-muted);">&mdash; 主题管理</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; font-size: 0.84rem; padding: 6px 0;">
+          <span style="color: var(--accent-green);">&#x25CF;</span>
+          <span style="color: var(--text-secondary);">tweet-browse</span>
+          <span style="color: var(--text-muted);">&mdash; 推文浏览</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; font-size: 0.84rem; padding: 6px 0;">
+          <span style="color: var(--accent-green);">&#x25CF;</span>
+          <span style="color: var(--text-secondary);">scheduler-admin</span>
+          <span style="color: var(--text-muted);">&mdash; 调度管理</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; font-size: 0.84rem; padding: 6px 0;">
+          <span style="color: var(--accent-green);">&#x25CF;</span>
+          <span style="color: var(--text-secondary);">web-admin-ui</span>
+          <span style="color: var(--text-muted);">&mdash; Web 管理台 v1</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; font-size: 0.84rem; padding: 6px 0;">
+          <span style="color: var(--accent-green);">&#x25CF;</span>
+          <span style="color: var(--text-secondary);">web-admin-ui-v2</span>
+          <span style="color: var(--text-muted);">&mdash; Web 管理台 v2</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; font-size: 0.84rem; padding: 6px 0;">
+          <span style="color: var(--accent-green);">&#x25CF;</span>
+          <span style="color: var(--text-secondary);">user-manager</span>
+          <span style="color: var(--text-muted);">&mdash; 用户管理</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; font-size: 0.84rem; padding: 6px 0;">
+          <span style="color: var(--accent-green);">&#x25CF;</span>
+          <span style="color: var(--text-secondary);">preference-manager</span>
+          <span style="color: var(--text-muted);">&mdash; 偏好管理</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; font-size: 0.84rem; padding: 6px 0;">
+          <span style="color: var(--accent-green);">&#x25CF;</span>
+          <span style="color: var(--text-secondary);">summary-repair</span>
+          <span style="color: var(--text-muted);">&mdash; 摘要修复</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; font-size: 0.84rem; padding: 6px 0;">
+          <span style="color: var(--accent-green);">&#x25CF;</span>
+          <span style="color: var(--text-secondary);">agent-api-optimization</span>
+          <span style="color: var(--text-muted);">&mdash; Agent API 优化</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; font-size: 0.84rem; padding: 6px 0;">
+          <span style="color: var(--accent-green);">&#x25CF;</span>
+          <span style="color: var(--text-secondary);">tweets-date-range-filter</span>
+          <span style="color: var(--text-muted);">&mdash; 日期范围过滤</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ==================== Deploy ==================== -->
+<section id="deploy" class="fade-in">
+  <div class="section-inner">
+    <h2 class="section-title">部署方案</h2>
+    <p class="section-subtitle">从单机开发到生产部署，灵活适配不同场景</p>
+    <div class="deploy-grid">
+
+      <!-- Dev mode -->
+      <div class="deploy-card">
+        <div class="deploy-card-header">
+          <span class="deploy-card-icon">&#x1F4E6;</span>
+          <span class="deploy-card-title">SQLite 模式</span>
+          <span class="deploy-card-label dev">开发</span>
+        </div>
+        <div class="deploy-card-body">
+          <ul class="deploy-features">
+            <li>零配置启动</li>
+            <li>WAL 模式 + 30s busy_timeout</li>
+            <li>Docker 持久化卷</li>
+            <li>自动健康检查</li>
+          </ul>
+          <div class="terminal">
+            <div class="terminal-bar">
+              <span class="terminal-dot r"></span>
+              <span class="terminal-dot y"></span>
+              <span class="terminal-dot g"></span>
+              <span class="terminal-bar-title">bash</span>
+            </div>
+            <div class="terminal-body">
+              <span class="cmd">docker compose</span> <span class="flag">up -d</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Prod mode -->
+      <div class="deploy-card">
+        <div class="deploy-card-header">
+          <span class="deploy-card-icon">&#x1F680;</span>
+          <span class="deploy-card-title">PostgreSQL 模式</span>
+          <span class="deploy-card-label prod">生产</span>
+        </div>
+        <div class="deploy-card-body">
+          <ul class="deploy-features">
+            <li>PostgreSQL 16 数据库</li>
+            <li>Alembic 自动迁移</li>
+            <li>数据持久化 + 备份</li>
+            <li>多阶段 Docker 构建</li>
+          </ul>
+          <div class="terminal">
+            <div class="terminal-bar">
+              <span class="terminal-dot r"></span>
+              <span class="terminal-dot y"></span>
+              <span class="terminal-dot g"></span>
+              <span class="terminal-bar-title">bash</span>
+            </div>
+            <div class="terminal-body">
+              <span class="cmd">docker compose</span> <span class="flag">--profile prod</span> <span class="flag">up -d</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CLI -->
+      <div class="deploy-card">
+        <div class="deploy-card-header">
+          <span class="deploy-card-icon">&#x2328;&#xFE0F;</span>
+          <span class="deploy-card-title">CLI 命令</span>
+          <span class="deploy-card-label cli">本地</span>
+        </div>
+        <div class="deploy-card-body">
+          <ul class="deploy-features">
+            <li>pip install 一键安装</li>
+            <li>交互式初始化向导</li>
+            <li>配置校验 + 数据导入导出</li>
+            <li>内置 uvicorn 启动</li>
+          </ul>
+          <div class="terminal">
+            <div class="terminal-bar">
+              <span class="terminal-dot r"></span>
+              <span class="terminal-dot y"></span>
+              <span class="terminal-dot g"></span>
+              <span class="terminal-bar-title">bash</span>
+            </div>
+            <div class="terminal-body">
+              <div><span class="cmd">pip install</span> <span class="flag">-e</span> <span class="string">".[dev]"</span></div>
+              <div><span class="cmd">x-watcher</span> <span class="flag">init</span> <span class="comment"># 初始化配置</span></div>
+              <div><span class="cmd">x-watcher</span> <span class="flag">serve</span> <span class="comment"># 启动服务</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MCP -->
+      <div class="deploy-card">
+        <div class="deploy-card-header">
+          <span class="deploy-card-icon">&#x1F916;</span>
+          <span class="deploy-card-title">MCP 集成</span>
+          <span class="deploy-card-label mcp">Agent</span>
+        </div>
+        <div class="deploy-card-body">
+          <ul class="deploy-features">
+            <li>stdio 模式（Claude Desktop）</li>
+            <li>SSE 模式（HTTP 远程）</li>
+            <li>20 工具 + 5 资源</li>
+            <li>内置工作流配方</li>
+          </ul>
+          <div class="terminal">
+            <div class="terminal-bar">
+              <span class="terminal-dot r"></span>
+              <span class="terminal-dot y"></span>
+              <span class="terminal-dot g"></span>
+              <span class="terminal-bar-title">bash</span>
+            </div>
+            <div class="terminal-body">
+              <div><span class="cmd">x-watcher</span> <span class="flag">mcp</span> <span class="comment"># stdio 模式</span></div>
+              <div><span class="cmd">x-watcher</span> <span class="flag">mcp --mode sse</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ==================== Footer ==================== -->
+<footer class="footer">
+  <div class="footer-logo">X-watcher</div>
+  <div class="footer-text">面向 AI Agent 的 X 平台智能信息监控服务</div>
+  <div class="footer-badges">
+    <span class="footer-badge">Spec-Driven Development</span>
+    <span class="footer-badge">Test-Driven Development</span>
+    <span class="footer-badge">AI-DLC</span>
+  </div>
+</footer>
+
+<!-- ==================== JavaScript ==================== -->
+<script>
+(function() {
+  'use strict';
+
+  // ---- Animated Counters ----
+  const counters = document.querySelectorAll('.counter-value');
+  let counterAnimated = false;
+
+  function easeOutExpo(t) {
+    return t === 1 ? 1 : 1 - Math.pow(2, -10 * t);
+  }
+
+  function animateCounters() {
+    if (counterAnimated) return;
+    counterAnimated = true;
+    counters.forEach(function(el) {
+      const target = parseInt(el.getAttribute('data-target'), 10);
+      const duration = 2000;
+      const start = performance.now();
+      function update(now) {
+        const elapsed = now - start;
+        const progress = Math.min(elapsed / duration, 1);
+        const value = Math.round(easeOutExpo(progress) * target);
+        el.textContent = value.toLocaleString();
+        if (progress < 1) requestAnimationFrame(update);
+      }
+      requestAnimationFrame(update);
+    });
+  }
+
+  // ---- Scroll Animations ----
+  const fadeEls = document.querySelectorAll('.fade-in');
+  const qualityBars = document.querySelectorAll('.quality-bar-fill');
+
+  const observer = new IntersectionObserver(function(entries) {
+    entries.forEach(function(entry) {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('visible');
+        // Animate quality bars when quality section appears
+        if (entry.target.id === 'quality' || entry.target.closest('#quality')) {
+          qualityBars.forEach(function(bar) {
+            bar.style.width = bar.getAttribute('data-width') + '%';
+          });
+        }
+      }
+    });
+  }, { threshold: 0.1 });
+
+  fadeEls.forEach(function(el) { observer.observe(el); });
+
+  // Counter observer
+  const heroObserver = new IntersectionObserver(function(entries) {
+    if (entries[0].isIntersecting) animateCounters();
+  }, { threshold: 0.3 });
+  heroObserver.observe(document.querySelector('.counters'));
+
+  // ---- Navigation Active State ----
+  const sections = document.querySelectorAll('section[id]');
+  const navLinks = document.querySelectorAll('.nav-links a');
+
+  const navObserver = new IntersectionObserver(function(entries) {
+    entries.forEach(function(entry) {
+      if (entry.isIntersecting) {
+        navLinks.forEach(function(link) {
+          link.classList.toggle('active',
+            link.getAttribute('href') === '#' + entry.target.id);
+        });
+      }
+    });
+  }, { threshold: 0.3, rootMargin: '-56px 0px 0px 0px' });
+
+  sections.forEach(function(s) { navObserver.observe(s); });
+
+  // ---- Nav scroll effect ----
+  var nav = document.getElementById('nav');
+  window.addEventListener('scroll', function() {
+    nav.classList.toggle('scrolled', window.scrollY > 50);
+  }, { passive: true });
+
+  // ---- Smooth scroll for nav links ----
+  navLinks.forEach(function(link) {
+    link.addEventListener('click', function(e) {
+      e.preventDefault();
+      var target = document.querySelector(this.getAttribute('href'));
+      if (target) target.scrollIntoView({ behavior: 'smooth' });
+    });
+  });
+
+  // ---- Initialize quality bars at 0 ----
+  qualityBars.forEach(function(bar) { bar.style.width = '0%'; });
+
+})();
+</script>
+
+</body>
+</html>
