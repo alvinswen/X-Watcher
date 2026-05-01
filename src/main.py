@@ -313,7 +313,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # 生产环境应限制具体域名
-    allow_credentials=True,
+    allow_credentials=False,  # ACAO=* 与 ACAC=true 是非法组合，会让浏览器拒绝 cross-origin module 响应（动态懒加载的路由切换会失败）。本服务用 X-API-Key header 认证，不依赖 cookie credentials。
     allow_methods=["*"],
     allow_headers=["*"],
 )
