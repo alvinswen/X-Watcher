@@ -504,7 +504,12 @@ class TopicSummaryService:
         self, session: AsyncSession, usernames: list[str],
         start_time: datetime, end_time: datetime
     ) -> list[dict]:
-        """查询指定账号在时间范围内的推文，优先使用已有翻译。"""
+        """查询指定账号在时间范围内的推文，优先使用已有翻译。
+
+        同时取出 referenced_tweet_text/referenced_tweet_author_username，
+        便于 RT/quote 类推文（外壳 ~140 字符、本体常达 2000+ 字符）把
+        真正的信息体投放进 prompt，避免 LLM 只能看到"RT @x: ..."外壳。
+        """
         stmt = (
             select(
                 TweetOrm.tweet_id,
@@ -512,6 +517,8 @@ class TopicSummaryService:
                 TweetOrm.author_username,
                 TweetOrm.created_at,
                 SummaryOrm.translation_text,
+                TweetOrm.referenced_tweet_text,
+                TweetOrm.referenced_tweet_author_username,
             )
             .outerjoin(SummaryOrm, TweetOrm.tweet_id == SummaryOrm.tweet_id)
             .where(
@@ -531,6 +538,8 @@ class TopicSummaryService:
                 "author": row[2],
                 "created_at": row[3],
                 "translation": row[4],
+                "referenced_tweet_text": row[5],
+                "referenced_tweet_author_username": row[6],
             }
             for row in rows
         ]
@@ -596,8 +605,20 @@ class TopicSummaryService:
             (prompt, tweet_count, tweet_id_pool)
             tweet_id_pool 列出本次实际写进 prompt 的所有 tweet_id，
             供调用方在保存前比对 observations 引用的合法性。
+
+        选片策略（修复 dict-order 截断 bug）：
+            1. 全局按"信息密度"打分（text + referenced_tweet_text 估 token），
+               长推文获得高分；
+            2. 维护单作者软配额 ``SOFT_CAP_PER_AUTHOR=30``，防止一个 author
+                的长推文风暴占满整个预算；
+            3. 第一阶段按打分倒序填预算（超预算 ``continue`` 而非 ``break``，
+               让更短的推文有机会塞进剩余空间）；
+            4. 第二阶段公平兜底：第一阶段一条都没入选的 author，从其推文里
+               找最短能塞下的一条强行加入，确保每个有数据的 author 都有声音；
+            5. 输出仍按 ``by_author`` dict 的 key 顺序（各 author 第一条推文
+               时间），作者内部按时间正序，叙事感与原行为一致。
         """
-        # 按作者分组
+        # 按作者分组（dict 插入序就是各 author 第一条推文的时间序）
         by_author: dict[str, list[dict]] = {}
         for tweet in tweets_data:
             author = tweet["author"]
@@ -605,48 +626,117 @@ class TopicSummaryService:
                 by_author[author] = []
             by_author[author].append(tweet)
 
-        # 构建推文内容（优先使用翻译）
-        content_parts: list[str] = []
-        total_tokens = 0
-        included_count = 0
-        tweet_id_pool: list[str] = []
+        # 预渲染每条推文为 prompt 行，并打分（含 ref_text 长度）
+        def _render_tweet_line(tweet: dict, author: str) -> str:
+            text = tweet["translation"] or tweet["text"]
+            if review_mode:
+                line = (
+                    f"tweet_id={tweet['tweet_id']} | @{author} | "
+                    f"[{tweet['created_at']}] {text}\n"
+                )
+            else:
+                line = f"[{tweet['created_at']}] {text}\n"
+            ref_text = tweet.get("referenced_tweet_text") or ""
+            if ref_text:
+                ref_author = tweet.get("referenced_tweet_author_username") or ""
+                ref_prefix = f"@{ref_author}" if ref_author else "via"
+                line += f"  ↪ via {ref_prefix}: {ref_text}\n"
+            return line
 
-        for author, author_tweets in by_author.items():
+        def _make_section(author: str) -> str:
             if account_profiles and author.lower() in account_profiles:
                 dn = account_profiles[author.lower()]["display_name"]
-                author_section = f"\n--- {dn}（@{author}）---\n"
-            else:
-                author_section = f"\n--- @{author} ---\n"
-            author_tokens = estimate_tokens(author_section)
+                return f"\n--- {dn}（@{author}）---\n"
+            return f"\n--- @{author} ---\n"
 
+        rendered: list[dict] = []
+        for author, author_tweets in by_author.items():
             for tweet in author_tweets:
-                # 优先使用已有翻译
-                text = tweet["translation"] or tweet["text"]
-                # review_mode 下显式注入 tweet_id，方便 LLM 直接写引用且不编造 ID
-                if review_mode:
-                    tweet_line = (
-                        f"tweet_id={tweet['tweet_id']} | @{author} | "
-                        f"[{tweet['created_at']}] {text}\n"
-                    )
-                else:
-                    tweet_line = f"[{tweet['created_at']}] {text}\n"
-                line_tokens = estimate_tokens(tweet_line)
+                line = _render_tweet_line(tweet, author)
+                tokens = estimate_tokens(line)
+                rendered.append({
+                    "tweet": tweet,
+                    "author": author,
+                    "line": line,
+                    "tokens": tokens,
+                })
 
-                # 检查是否超出上下文限制
-                if total_tokens + author_tokens + line_tokens > MAX_CONTEXT_TOKENS:
-                    break  # 截断最旧推文（已按时间正序）
+        # 长推优先：按 token 数倒序（供 stage 2 全局填空）
+        rendered.sort(key=lambda r: r["tokens"], reverse=True)
 
-                if not content_parts or content_parts[-1] != author_section:
-                    content_parts.append(author_section)
-                    total_tokens += author_tokens
+        section_tokens_by_author: dict[str, int] = {}
+        per_author_count: dict[str, int] = {}
+        selected: dict[str, dict] = {}  # tweet_id -> rendered item
+        used_tokens = 0
 
-                content_parts.append(tweet_line)
-                total_tokens += line_tokens
-                included_count += 1
-                tweet_id_pool.append(str(tweet["tweet_id"]))
+        # Stage 1：公平基线——每个 active author 至少 1 条（最长能塞下的）
+        # 综述场景的核心是"听到所有声音"，覆盖率优先于"长推全堆给大户"。
+        # 实测 65 账号 × 7 天窗口，43 个 active author × 平均 ~200 token/作者 ≈ 8.6k，
+        # 80k 预算下保底基线只占 1/9，剩下绝大部分留给 stage 2 长推填空。
+        for author, author_tweets in by_author.items():
+            section_tok = estimate_tokens(_make_section(author))
+            longest_first = sorted(
+                (r for r in rendered if r["author"] == author),
+                key=lambda r: r["tokens"],
+                reverse=True,
+            )
+            for r in longest_first:
+                delta = r["tokens"] + section_tok
+                if used_tokens + delta > MAX_CONTEXT_TOKENS:
+                    continue  # 该条太长塞不下，降一档试更短的
+                selected[r["tweet"]["tweet_id"]] = r
+                used_tokens += delta
+                section_tokens_by_author[author] = section_tok
+                per_author_count[author] = 1
+                break
+            # 若该 author 所有推文都比剩余预算大（极端情况），放弃
+
+        # Stage 2：长推优先填空 + 软配额（防单作者长推风暴吃掉所有预算）
+        # 配额 15 = 一周窗口下单 author 上限。先前实测 30 时，4 个长推大户
+        # （levelsio/garymarcus/elonmusk/hwchase17）满配 30 条占 ~70% 预算，
+        # 14 个小作者直接被挤掉；改 15 后 4 大户每个 15 条仍能保住主要观点，
+        # 剩余 35k+ token 让长尾 author 也能补到 2-3 条。
+        SOFT_CAP_PER_AUTHOR = 15
+        for r in rendered:
+            tid = r["tweet"]["tweet_id"]
+            if tid in selected:
+                continue
+            author = r["author"]
+            if per_author_count.get(author, 0) >= SOFT_CAP_PER_AUTHOR:
+                continue
+            section_first_use = author not in section_tokens_by_author
+            delta = r["tokens"]
+            if section_first_use:
+                section_tok = estimate_tokens(_make_section(author))
+                delta += section_tok
+            if used_tokens + delta > MAX_CONTEXT_TOKENS:
+                continue  # 跳过，留给更短的推文
+            selected[tid] = r
+            used_tokens += delta
+            if section_first_use:
+                section_tokens_by_author[author] = section_tok
+            per_author_count[author] = per_author_count.get(author, 0) + 1
+
+        # 输出顺序：沿用 by_author dict 的 key 顺序（各 author 第一条推文时间），
+        # 作者内部按时间正序，保留原叙事感
+        content_parts: list[str] = []
+        tweet_id_pool: list[str] = []
+        for author in by_author.keys():
+            chosen = [
+                selected[t["tweet_id"]]
+                for t in by_author[author]
+                if t["tweet_id"] in selected
+            ]
+            if not chosen:
+                continue
+            chosen.sort(key=lambda r: r["tweet"]["created_at"])
+            content_parts.append(_make_section(author))
+            for r in chosen:
+                content_parts.append(r["line"])
+                tweet_id_pool.append(str(r["tweet"]["tweet_id"]))
 
         tweets_content = "".join(content_parts)
-        tweet_count = included_count
+        tweet_count = len(tweet_id_pool)
 
         # 时间跨度描述（保留用于 custom_prompt 向后兼容）
         if time_span_hours < 24:
