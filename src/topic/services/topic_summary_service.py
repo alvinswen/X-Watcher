@@ -45,6 +45,53 @@ DEFAULT_TOPIC_SUMMARY_PROMPT = """你是一位专业的信息分析师。请根�
 
 请生成摘要报告："""
 
+# 主题综述提示词模板（带出处引用，供 /topic-review 使用）。
+# 与日报模板相比，强调：
+# - 时间窗口为任意区间而非固定 24h
+# - 必须按"观点"组织，而非按事件流水
+# - 每条观点必须挂至少 1 个 source_tweet_id，且必须出自下方推文清单
+# - 末尾以 ```observations 代码块产出机器可读 JSON，供 save_topic_summary 入库
+DEFAULT_TOPIC_REVIEW_PROMPT = """你是一位专业的信息综述写作者。请根据下方来自 {account_count} 个 Twitter 账号、共 {tweet_count} 条推文的内容，对该主题写一份带出处的"观点综述"（review），而不是新闻流水。
+
+报告开头必须包含以下元数据（每项单独一行，使用 Markdown 加粗格式）：
+**数据范围：** {account_count} 个账号 | {tweet_count} 条推文
+**覆盖时段：** {coverage_period}
+
+写作要求：
+1. 围绕该主题抽取 5-12 个独立"观点"（observation），每个观点是一句可被独立验证的论断或趋势归纳。不要按时间或账号排版。
+2. 每个观点写成一个二级标题 `## N. <观点一句话>` + 一段不超过 4 句话的展开。展开末尾用 Markdown 列表给出 1-N 条引用，每条形如 `- @author · YYYY-MM-DD · tweet_id=<id>`。
+3. 引用中的 tweet_id 必须严格来自下方"推文数据"中标注的 `tweet_id=...`，禁止编造、禁止改写。如某观点没有任何推文支持，请删掉它，不要凭空补足。
+4. 至少要让 60% 的观点拥有 ≥2 条出自不同账号的引用；少数观点可只有 1 条引用，但要明确标出"仅一处来源"。
+5. **长推文（≥300 字符）必须优先纳入归纳作为主证据**。原因：长推文承载了完整的论点、数据、案例与上下文，承载的信息密度远高于短推文（一句话回复、转推一行评论）；若下方推文清单中存在与该主题相关的 ≥300 字符长推却未被任何观点引用，视为归纳失误，需要补回（要么扩充已有观点的引用，要么新增观点专门承接）。短推文（<100 字符的回复/简评）只在与某长推文形成强烈对照、补充或反方时才入选，不要把多条同口径的简短回复并列堆叠。
+6. 报告最后必须包含 `## 综合观察` 部分，给出 3-5 个跨观点的趋势性判断；该段也要在每个判断末尾挂引用。
+7. 忽略与政治相关的讨论。
+8. 中文撰写。账号引用规则：
+   - 对于下方"关注账号列表"中的账号：首次提及时使用「显示名（@用户名，极简介绍）」格式；后续提及直接使用显示名（保持原文，不音译）
+   - 对于列表之外的其他 @账号：保持 @用户名 格式不变
+9. **自检步骤**（产出综述前在心里跑一遍）：扫一遍下方推文清单里所有 ≥300 字符的推文，逐条判断是否与主题相关；若相关则确认它已经被某个观点的 source_tweet_ids 包含；若你判断"相关但故意不入选"，必须能说出明确理由（例如：与某条已入选长推完全同义而被合并）。
+{account_reference}
+
+正文写完之后，**必须**再追加一段以下格式的代码块（机器读取，用于落库）：
+
+```observations
+{{
+  "observations": [
+    {{"idx": 1, "text": "<同正文中第 1 条观点的标题>", "source_tweet_ids": ["<id1>", "<id2>"]}},
+    {{"idx": 2, "text": "<同正文中第 2 条观点的标题>", "source_tweet_ids": ["<id3>"]}}
+  ]
+}}
+```
+
+要求：
+- observations 数组的每条 idx 与正文 `## N.` 的编号一一对应（包含「综合观察」部分则 idx 接续编号）
+- source_tweet_ids 必须是字符串数组，元素严格取自下方推文清单
+- JSON 必须能被 `json.loads` 解析，不要写注释、不要尾随逗号
+
+推文数据（每行格式：`tweet_id=<id> | <作者> | [创建时间] <正文>`）：
+{tweets_content}
+
+请直接输出综述报告："""
+
 # 配图提示词模板
 IMAGE_PROMPT_TEMPLATE = """你是一位专业的视觉设计提示词工程师。请根据以下摘要内容，生成一段适用于 AI 图片生成工具（如 DALL-E、Midjourney）的英文提示词。
 
@@ -202,8 +249,13 @@ class TopicSummaryService:
         tz_offset: int,
         tweet_count: int,
         account_count: int,
+        metadata_json: dict | None = None,
     ) -> TopicSummaryTaskDomain:
-        """保存外部（Claude Code）生成的摘要，创建已完成的 task + summary 记录。"""
+        """保存外部（Claude Code）生成的摘要，创建已完成的 task + summary 记录。
+
+        ``metadata_json`` 用于 /topic-review 等场景写入 observations、review_window
+        等结构化字段；为 None 时落库为 ``{}``，与既有 /topic-summary 行为一致。
+        """
         # 验证主题存在
         topic = await self._topic_repo.get_by_id(session, topic_id)
         if not topic:
@@ -239,6 +291,7 @@ class TopicSummaryService:
             cost_usd=0.0,
             tweet_count=tweet_count,
             account_count=account_count,
+            metadata_json=metadata_json or {},
         )
         await self._task_repo.create_summary(session, summary_orm)
         await session.commit()
@@ -254,6 +307,9 @@ class TopicSummaryService:
         time_span_hours: int,
         deadline: datetime,
         tz_offset: int = -480,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        review_mode: bool = False,
     ) -> dict:
         """获取主题推文数据和默认 prompt，供外部（Claude Code）生成摘要。
 
@@ -276,8 +332,24 @@ class TopicSummaryService:
         if deadline.tzinfo is not None:
             deadline = deadline.astimezone(timezone.utc).replace(tzinfo=None)
 
-        end_time = deadline
-        start_time = end_time - timedelta(hours=time_span_hours)
+        # 任意时间区间(since/until)优先于 deadline+time_span_hours：
+        # 任一为非 None 时，按区间型语义计算 start/end；否则保持旧的"截至 deadline 回看 N 小时"。
+        if since is not None or until is not None:
+            now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+            if until is not None:
+                end_time = until.astimezone(timezone.utc).replace(tzinfo=None) if until.tzinfo else until
+            else:
+                end_time = now_utc
+            if since is not None:
+                start_time = since.astimezone(timezone.utc).replace(tzinfo=None) if since.tzinfo else since
+            else:
+                # 仅传 until 时，回退使用 time_span_hours 作窗口大小
+                start_time = end_time - timedelta(hours=time_span_hours)
+            if start_time >= end_time:
+                raise ValueError("since 必须早于 until")
+        else:
+            end_time = deadline
+            start_time = end_time - timedelta(hours=time_span_hours)
 
         # 获取账号档案
         account_profiles = await self.get_account_profiles(session, usernames)
@@ -294,6 +366,11 @@ class TopicSummaryService:
             "deadline": str(end_time),
             "coverage_period": coverage_period,
             "account_count": len(usernames),
+            "review_mode": review_mode,
+            "window": {
+                "since": start_time.isoformat() + "Z",
+                "until": end_time.isoformat() + "Z",
+            },
         }
 
         if not tweets_data:
@@ -302,14 +379,18 @@ class TopicSummaryService:
             return result
 
         # 构建 prompt
-        prompt, tweet_count = self._build_prompt(
+        prompt, tweet_count, tweet_id_pool = self._build_prompt(
             tweets_data, usernames, time_span_hours,
             start_time, end_time, tz_offset,
             account_profiles=account_profiles or None,
+            review_mode=review_mode,
         )
 
         result["tweet_count"] = tweet_count
         result["default_prompt"] = prompt
+        # 列出本次纳入 prompt 的 tweet_id 集合，便于调用方在保存前自检
+        # observations 中的 source_tweet_ids 是否真的来自这批数据
+        result["allowed_tweet_ids"] = tweet_id_pool
         return result
 
     async def _execute_task(
@@ -365,8 +446,8 @@ class TopicSummaryService:
                     await session.commit()
                     return
 
-                # 构建聚合 prompt
-                prompt, tweet_count = self._build_prompt(
+                # 构建聚合 prompt（backend 路径不启用 review_mode，第三个返回值忽略）
+                prompt, tweet_count, _ = self._build_prompt(
                     tweets_data, usernames, task.time_span_hours,
                     start_time, end_time, task.tz_offset, task.custom_prompt,
                     account_profiles=account_profiles or None,
@@ -507,8 +588,15 @@ class TopicSummaryService:
         tz_offset: int = 0,
         custom_prompt: str | None = None,
         account_profiles: dict[str, dict] | None = None,
-    ) -> tuple[str, int]:
-        """构建聚合提示词。返回 (prompt, tweet_count)。"""
+        review_mode: bool = False,
+    ) -> tuple[str, int, list[str]]:
+        """构建聚合提示词。
+
+        Returns:
+            (prompt, tweet_count, tweet_id_pool)
+            tweet_id_pool 列出本次实际写进 prompt 的所有 tweet_id，
+            供调用方在保存前比对 observations 引用的合法性。
+        """
         # 按作者分组
         by_author: dict[str, list[dict]] = {}
         for tweet in tweets_data:
@@ -521,6 +609,7 @@ class TopicSummaryService:
         content_parts: list[str] = []
         total_tokens = 0
         included_count = 0
+        tweet_id_pool: list[str] = []
 
         for author, author_tweets in by_author.items():
             if account_profiles and author.lower() in account_profiles:
@@ -533,7 +622,14 @@ class TopicSummaryService:
             for tweet in author_tweets:
                 # 优先使用已有翻译
                 text = tweet["translation"] or tweet["text"]
-                tweet_line = f"[{tweet['created_at']}] {text}\n"
+                # review_mode 下显式注入 tweet_id，方便 LLM 直接写引用且不编造 ID
+                if review_mode:
+                    tweet_line = (
+                        f"tweet_id={tweet['tweet_id']} | @{author} | "
+                        f"[{tweet['created_at']}] {text}\n"
+                    )
+                else:
+                    tweet_line = f"[{tweet['created_at']}] {text}\n"
                 line_tokens = estimate_tokens(tweet_line)
 
                 # 检查是否超出上下文限制
@@ -547,6 +643,7 @@ class TopicSummaryService:
                 content_parts.append(tweet_line)
                 total_tokens += line_tokens
                 included_count += 1
+                tweet_id_pool.append(str(tweet["tweet_id"]))
 
         tweets_content = "".join(content_parts)
         tweet_count = included_count
@@ -592,10 +689,12 @@ class TopicSummaryService:
         }
         if custom_prompt:
             prompt = custom_prompt.format(**format_kwargs)
+        elif review_mode:
+            prompt = DEFAULT_TOPIC_REVIEW_PROMPT.format(**format_kwargs)
         else:
             prompt = DEFAULT_TOPIC_SUMMARY_PROMPT.format(**format_kwargs)
 
-        return prompt, tweet_count
+        return prompt, tweet_count, tweet_id_pool
 
     async def _call_llm_with_failover(self, prompt: str) -> LLMResponse | None:
         """调用 LLM（failover 模式），获取全局信号量控制并发。"""

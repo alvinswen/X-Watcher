@@ -5,6 +5,7 @@ get_topic_tweets_for_summary、save_topic_summary 七个 MCP 工具，
 映射到 TopicService 和 TopicSummaryService。
 """
 
+import json
 import logging
 from datetime import datetime, timezone
 
@@ -362,17 +363,28 @@ def register(mcp: FastMCP) -> None:
         time_span_hours: int = 24,
         deadline: str | None = None,
         tz_offset: int = -480,
+        since: str | None = None,
+        until: str | None = None,
+        review_mode: bool = False,
     ) -> str:
-        """获取主题推文数据和默认 prompt，供 Claude Code 生成摘要。需要管理员权限。
+        """获取主题推文数据和默认 prompt，供 Claude Code 生成摘要或综述。需要管理员权限。
 
         返回格式化的推文内容、账号信息和构建好的默认提示词，
-        Claude Code 可直接使用 default_prompt 生成摘要报告。
+        Claude Code 可直接使用 default_prompt 生成报告。
+
+        时间窗口规则：
+        - 若 ``since`` 或 ``until`` 任一为非空，按 since/until 区间取数（任意区间，含主题综述场景）；
+        - 否则沿用 ``deadline`` 与 ``time_span_hours`` 计算 [deadline - N 小时, deadline]。
 
         Args:
             topic_id: 主题 ID
-            time_span_hours: 时间跨度（小时），默认 24
+            time_span_hours: 时间跨度（小时），默认 24（仅 since/until 都为空时生效）
             deadline: 覆盖时段截止时间，ISO 8601 格式。默认为当前时间
             tz_offset: 时区偏移（分钟），UTC+8 为 -480。默认 -480
+            since: 综述起始时间（含），ISO 8601 格式；与 until 配合任选其一即生效
+            until: 综述截止时间（不含），ISO 8601 格式；省略则取当前时间
+            review_mode: 启用主题综述模式——使用带出处引用的 prompt 模板，
+                         且推文行会显式注入 tweet_id 供 LLM 引用。默认 False（日报式摘要）
         """
         from src.mcp.auth import require_admin
 
@@ -391,6 +403,9 @@ def register(mcp: FastMCP) -> None:
             if deadline_dt is None:
                 deadline_dt = datetime.now(timezone.utc)
 
+            since_dt = parse_datetime_optional(since)
+            until_dt = parse_datetime_optional(until)
+
             async with session_maker() as session:
                 data = await summary_service.prepare_summary_data(
                     session=session,
@@ -398,10 +413,21 @@ def register(mcp: FastMCP) -> None:
                     time_span_hours=time_span_hours,
                     deadline=deadline_dt,
                     tz_offset=tz_offset,
+                    since=since_dt,
+                    until=until_dt,
+                    review_mode=review_mode,
                 )
 
                 if "default_prompt" in data:
-                    data["note"] = "直接使用 default_prompt 生成摘要，或基于其中的推文数据用自己的判断力撰写报告"
+                    if review_mode:
+                        data["note"] = (
+                            "综述模式：直接使用 default_prompt 生成观点综述，"
+                            "并按 prompt 末尾要求附上 ```observations 代码块（机器读取）。"
+                            "保存时把解析后的 observations 列表传给 save_topic_summary。"
+                            "校验提示：observations 中每个 source_tweet_id 必须出现在 allowed_tweet_ids 中。"
+                        )
+                    else:
+                        data["note"] = "直接使用 default_prompt 生成摘要，或基于其中的推文数据用自己的判断力撰写报告"
 
                 return success_response(data)
 
@@ -420,11 +446,19 @@ def register(mcp: FastMCP) -> None:
         tz_offset: int = -480,
         tweet_count: int = 0,
         account_count: int = 0,
+        observations: str | list | None = None,
+        review_window_since: str | None = None,
+        review_window_until: str | None = None,
+        review_kind: str = "topic_summary",
     ) -> str:
-        """保存 Claude Code 生成的主题摘要到数据库。需要管理员权限。
+        """保存 Claude Code 生成的主题摘要/综述到数据库。需要管理员权限。
 
         创建一条已完成的摘要任务记录，标记为 claude_code 生成。
         通常在调用 get_topic_tweets_for_summary 并生成摘要后使用。
+
+        若提供 observations / review_window_* / review_kind 任一字段，会被打包写入
+        ``topic_summaries.metadata_json``（JSON 列），供后续展示/校验使用；
+        默认全为空，与既有 /topic-summary 行为完全一致。
 
         Args:
             topic_id: 主题 ID
@@ -434,6 +468,13 @@ def register(mcp: FastMCP) -> None:
             tz_offset: 时区偏移（分钟），UTC+8 为 -480。默认 -480
             tweet_count: 摘要覆盖的推文数量
             account_count: 摘要覆盖的账号数量
+            observations: JSON 字符串，数组形式，每项形如
+                ``{"idx": 1, "text": "...", "source_tweet_ids": ["..."]}``。
+                用于 /topic-review 等综述场景，留下"观点 ↔ 出处"机器可读映射。
+            review_window_since: 综述时间窗口起始（ISO 8601），仅当本次保存属于综述时填写
+            review_window_until: 综述时间窗口截止（ISO 8601），仅当本次保存属于综述时填写
+            review_kind: 标记本条记录类型，可选 ``"topic_summary"``（默认日报）或
+                ``"topic_review"``（带出处的综述）。
         """
         from src.mcp.auth import require_admin
         from src.mcp.security import audit_log
@@ -444,6 +485,66 @@ def register(mcp: FastMCP) -> None:
 
         if not content or not content.strip():
             return error_response("content 不能为空", "validation")
+
+        # ---- 解析并校验 observations / review_window，组装 metadata ----
+        metadata: dict = {}
+        observation_errors: list[str] = []
+        observation_count = 0
+
+        # 支持两种形态:JSON 字符串(本意约定) 或 已被调用方/harness 解析过的 list。
+        # 后者是为了兼容某些 MCP 客户端会把 "[…]" 形式自动二次解析为数组。
+        parsed = None
+        if isinstance(observations, list):
+            parsed = observations
+        elif isinstance(observations, str) and observations.strip():
+            try:
+                parsed = json.loads(observations)
+            except json.JSONDecodeError as e:
+                return error_response(
+                    f"observations 不是合法 JSON: {e}", "validation"
+                )
+
+        if parsed is not None:
+            if not isinstance(parsed, list):
+                return error_response("observations 必须是 JSON 数组", "validation")
+
+            cleaned: list[dict] = []
+            for i, item in enumerate(parsed):
+                if not isinstance(item, dict):
+                    observation_errors.append(f"observations[{i}] 不是对象")
+                    continue
+                text = item.get("text")
+                src_ids = item.get("source_tweet_ids") or []
+                if not text or not isinstance(text, str):
+                    observation_errors.append(f"observations[{i}] 缺少 text")
+                    continue
+                if not isinstance(src_ids, list):
+                    observation_errors.append(
+                        f"observations[{i}].source_tweet_ids 必须是数组"
+                    )
+                    continue
+                # source_tweet_ids 为空不阻塞保存，但记入 errors 提示调用方补足
+                src_ids = [str(s) for s in src_ids]
+                if not src_ids:
+                    observation_errors.append(
+                        f"observations[{i}] 没有任何 source_tweet_ids（已保存但需检查）"
+                    )
+                cleaned.append({
+                    "idx": item.get("idx", i + 1),
+                    "text": text,
+                    "source_tweet_ids": src_ids,
+                })
+            metadata["observations"] = cleaned
+            observation_count = len(cleaned)
+
+        if review_window_since or review_window_until:
+            metadata["review_window"] = {
+                "since": review_window_since,
+                "until": review_window_until,
+            }
+
+        if review_kind and review_kind != "topic_summary":
+            metadata["review_kind"] = review_kind
 
         try:
             from src.database.async_session import get_async_session_maker
@@ -466,6 +567,7 @@ def register(mcp: FastMCP) -> None:
                     tz_offset=tz_offset,
                     tweet_count=tweet_count,
                     account_count=account_count,
+                    metadata_json=metadata if metadata else None,
                 )
 
             audit_log(
@@ -474,6 +576,8 @@ def register(mcp: FastMCP) -> None:
                     "topic_id": topic_id,
                     "tweet_count": tweet_count,
                     "account_count": account_count,
+                    "review_kind": review_kind,
+                    "observation_count": observation_count,
                 },
             )
 
@@ -485,6 +589,9 @@ def register(mcp: FastMCP) -> None:
                 "tweet_count": tweet_count,
                 "account_count": account_count,
                 "llm_provider": "claude_code",
+                "review_kind": review_kind,
+                "observation_count": observation_count,
+                "observation_warnings": observation_errors,
             })
 
         except ValueError as e:

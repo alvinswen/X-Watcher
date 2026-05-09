@@ -59,7 +59,8 @@ def create_mcp_server(
             "对于复杂场景，请读取 xwatcher://recipes/ 下的资源获取分步指南。"
             "可用配方：xwatcher://recipes/daily-summary（每日摘要生成）、"
             "xwatcher://recipes/claude-code-summarize（Claude Code 翻译工作流）、"
-            "xwatcher://recipes/claude-code-topic-summary（Claude Code 主题摘要生成）。"
+            "xwatcher://recipes/claude-code-topic-summary（Claude Code 主题摘要生成）、"
+            "xwatcher://recipes/claude-code-topic-review（Claude Code 主题综述：任意区间 + 出处引用）。"
         ),
         "lifespan": mcp_lifespan,
         "host": host,

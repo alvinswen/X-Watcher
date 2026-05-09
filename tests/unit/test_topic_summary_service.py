@@ -152,7 +152,7 @@ def test_build_prompt_groups_by_author():
         {"tweet_id": "2", "text": "Hello from B", "author": "user_b", "created_at": "2025-01-01 11:00", "translation": None},
         {"tweet_id": "3", "text": "Second from A", "author": "user_a", "created_at": "2025-01-01 12:00", "translation": None},
     ]
-    prompt, count = service._build_prompt(tweets, ["user_a", "user_b"], 24, start, end)
+    prompt, count, _ = service._build_prompt(tweets, ["user_a", "user_b"], 24, start, end)
 
     assert "@user_a" in prompt
     assert "@user_b" in prompt
@@ -170,7 +170,7 @@ def test_build_prompt_prefers_translation():
     tweets = [
         {"tweet_id": "1", "text": "Original English", "author": "user_a", "created_at": "2025-01-01", "translation": "已有中文翻译"},
     ]
-    prompt, count = service._build_prompt(tweets, ["user_a"], 24, start, end)
+    prompt, count, _ = service._build_prompt(tweets, ["user_a"], 24, start, end)
 
     assert "已有中文翻译" in prompt
     assert "Original English" not in prompt
@@ -185,7 +185,7 @@ def test_build_prompt_coverage_period():
     tweets = [
         {"tweet_id": "1", "text": "Test", "author": "user_a", "created_at": "2025-01-01", "translation": None},
     ]
-    prompt, _ = service._build_prompt(tweets, ["user_a"], 12, start, end)
+    prompt, _, _ = service._build_prompt(tweets, ["user_a"], 12, start, end)
 
     assert "覆盖时段" in prompt
     assert "2025/01/01 06:00" in prompt  # UTC start
@@ -202,7 +202,7 @@ def test_build_prompt_coverage_period_with_tz_offset():
     tweets = [
         {"tweet_id": "1", "text": "Test", "author": "user_a", "created_at": "2025-01-01", "translation": None},
     ]
-    prompt, _ = service._build_prompt(tweets, ["user_a"], 30, start, end, tz_offset=-480)
+    prompt, _, _ = service._build_prompt(tweets, ["user_a"], 30, start, end, tz_offset=-480)
 
     # 本地时间应该是 2025/01/02 00:00 ~ 2025/01/03 06:00
     assert "2025/01/02 00:00" in prompt
@@ -219,7 +219,7 @@ def test_build_prompt_coverage_period_naive_datetime():
     tweets = [
         {"tweet_id": "1", "text": "Test", "author": "user_a", "created_at": "2025-01-01", "translation": None},
     ]
-    prompt, _ = service._build_prompt(tweets, ["user_a"], 24, start, end, tz_offset=-480)
+    prompt, _, _ = service._build_prompt(tweets, ["user_a"], 24, start, end, tz_offset=-480)
 
     # naive datetime 应被标记为 UTC，然后转 UTC+8：
     # UTC 16:00 → UTC+8 次日 00:00
@@ -237,7 +237,7 @@ def test_build_prompt_custom_prompt():
         {"tweet_id": "1", "text": "Test", "author": "user_a", "created_at": "2025-01-01", "translation": None},
     ]
     custom = "自定义模板: {account_count} 个账号, {time_span}, {tweet_count} 条推文\n{tweets_content}"
-    prompt, count = service._build_prompt(tweets, ["user_a"], 24, start, end, custom_prompt=custom)
+    prompt, count, _ = service._build_prompt(tweets, ["user_a"], 24, start, end, custom_prompt=custom)
 
     assert "自定义模板" in prompt
     assert "1 个账号" in prompt
@@ -263,7 +263,7 @@ def test_build_prompt_token_truncation():
 
     start = datetime(2025, 1, 1, 0, 0, tzinfo=timezone.utc)
     end = datetime(2025, 1, 2, 0, 0, tzinfo=timezone.utc)
-    prompt, count = service._build_prompt(tweets, ["user_a"], 24, start, end)
+    prompt, count, _ = service._build_prompt(tweets, ["user_a"], 24, start, end)
 
     # 应该截断，不是全部包含
     assert count < 500
@@ -645,7 +645,7 @@ def test_build_prompt_with_account_profiles():
         "user_a": {"display_name": "Alice", "brief_intro": "AI研究员"},
         "user_b": {"display_name": "Bob", "brief_intro": "科技博主"},
     }
-    prompt, count = service._build_prompt(
+    prompt, count, _ = service._build_prompt(
         tweets, ["user_a", "user_b"], 24, start, end,
         account_profiles=profiles,
     )
@@ -668,7 +668,7 @@ def test_build_prompt_without_account_profiles():
     tweets = [
         {"tweet_id": "1", "text": "Hello", "author": "user_a", "created_at": "2025-01-01 10:00", "translation": None},
     ]
-    prompt, count = service._build_prompt(
+    prompt, count, _ = service._build_prompt(
         tweets, ["user_a"], 24, start, end,
         account_profiles=None,
     )
@@ -692,7 +692,7 @@ def test_build_prompt_partial_profiles():
         "user_a": {"display_name": "Alice", "brief_intro": "AI研究员"},
         "user_b": {"display_name": "Bob", "brief_intro": None},
     }
-    prompt, count = service._build_prompt(
+    prompt, count, _ = service._build_prompt(
         tweets, ["user_a", "user_b"], 24, start, end,
         account_profiles=profiles,
     )
@@ -719,7 +719,7 @@ def test_build_prompt_custom_prompt_backward_compatible():
         "user_a": {"display_name": "Alice", "brief_intro": "AI研究员"},
     }
     # str.format 忽略未使用的 kwargs，不会报错
-    prompt, count = service._build_prompt(
+    prompt, count, _ = service._build_prompt(
         tweets, ["user_a"], 24, start, end,
         custom_prompt=custom, account_profiles=profiles,
     )

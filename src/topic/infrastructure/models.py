@@ -2,7 +2,8 @@
 
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+import sqlalchemy as sa
+from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.database.models import Base
@@ -169,6 +170,14 @@ class TopicSummaryOrm(Base):
     tweet_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     account_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_utc_now)
+    # 结构化扩展字段：observations / review_window / review_kind 等机器可读信息。
+    # 列名 metadata_json 而非 metadata：避免与 SQLAlchemy Base.metadata 保留属性冲突。
+    metadata_json: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+        server_default=sa.text("'{}'"),
+    )
 
     # Relationships
     task: Mapped["TopicSummaryTaskOrm"] = relationship("TopicSummaryTaskOrm", back_populates="summary")
@@ -187,4 +196,5 @@ class TopicSummaryOrm(Base):
             tweet_count=self.tweet_count,
             account_count=self.account_count,
             created_at=self.created_at,
+            metadata_json=self.metadata_json or {},
         )

@@ -3,7 +3,7 @@
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class TopicSummaryTaskStatus(str, Enum):
@@ -56,6 +56,10 @@ class TopicSummaryDomain(BaseModel):
     tweet_count: int
     account_count: int
     created_at: datetime
+    # 结构化扩展：observations、review_window、review_kind 等。
+    # 注意命名为 metadata_json 而非 metadata：SQLAlchemy Base.metadata 是保留属性，
+    # 在 ORM 与 domain 层保持同名以减少映射歧义。
+    metadata_json: dict = Field(default_factory=dict)
 
 
 class TopicSummaryTaskDomain(BaseModel):

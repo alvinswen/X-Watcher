@@ -250,6 +250,89 @@ Claude Code 本身就是 LLM，阅读主题推文后直接生成中文摘要。
 """
 
 
+CLAUDE_CODE_TOPIC_REVIEW_RECIPE = """\
+# Claude Code 主题综述（Topic Review）工作流
+
+## 场景
+把 x-watcher 当作"观点知识库"：给定主题与任意时间区间，让 Claude Code 写一份
+**带出处的综述**——每个观点必须挂至少 1 个 source_tweet_id（出自实际抓到的推文），
+而不是含糊的"信息来源"。综述与日报式摘要并存，互不影响。
+
+## 与 claude-code-topic-summary 的区别
+| 维度 | topic-summary（日报） | topic-review（综述，本配方） |
+|------|----------------------|--------------------------|
+| 时间窗口 | deadline + 24h | 任意 since/until 区间 |
+| 引用粒度 | 标注作者 | 每条观点挂 tweet_id |
+| 输出形态 | 一段连贯 Markdown | content + observations JSON 两轨 |
+
+## 前置条件
+- 目标主题已创建并关联了 X 账号
+- 区间内推文已抓取（建议先翻译以提升综述质量）
+
+## 分步流程
+
+### Step 1：确定主题与区间
+- 调用 `list_topics()` 找到目标 topic_id
+- 与用户确认 since / until（ISO 8601）。允许相对表达，但 Claude Code 在调用 MCP 前必须换算为绝对时间
+
+### Step 2：取数据 + 默认 prompt
+调用 `get_topic_tweets_for_summary(
+    topic_id=<id>,
+    since="<ISO 8601>",
+    until="<ISO 8601>",
+    review_mode=true,
+    tz_offset=-480
+)`
+
+返回值含：
+- `default_prompt`：综述版 prompt（每条推文行带 `tweet_id=...` 前缀）
+- `tweet_count` / `account_count` / `coverage_period`
+- `allowed_tweet_ids`：本次实际写入 prompt 的 tweet_id 列表，**用于 Step 4 自检**
+- `window`：标准化后的 since/until
+
+### Step 3：生成综述
+直接以 `default_prompt` 为输入生成报告。LLM 必须按 prompt 末尾的格式
+追加一段 ```observations 代码块，例如：
+
+```observations
+{
+  "observations": [
+    {"idx": 1, "text": "观点一句话", "source_tweet_ids": ["205...", "205..."]}
+  ]
+}
+```
+
+### Step 4：保存前自检
+- 解析 ```observations 代码块得到 `observations: list[dict]`
+- 校验：每个 source_tweet_id 必须出现在 Step 2 返回的 `allowed_tweet_ids` 中。
+  若发现"幽灵 ID"，说明 LLM 编造了引用——重新生成或剔除该观点
+- 校验通过后调用 `save_topic_summary(
+      topic_id=<id>,
+      content="<综述 Markdown>",
+      tweet_count=<Step 2 返回值>,
+      account_count=<Step 2 返回值>,
+      observations=<json.dumps(observations 列表)>,
+      review_window_since=<since>,
+      review_window_until=<until>,
+      review_kind="topic_review",
+      tz_offset=-480
+  )`
+
+返回的 `observation_warnings` 若非空，需向用户报告（多为缺 source_tweet_ids 等弱告警）
+
+### Step 5：验证
+调用 `get_topic_summary(topic_id=<id>, action="latest")` 确认 task 已落库；
+读取 summary.metadata_json.observations 应能拿回完整观点列表。
+
+## 工具调用速查
+| 步骤 | 工具 | 关键参数 |
+|------|------|----------|
+| 取数据 + prompt | get_topic_tweets_for_summary | topic_id, since, until, review_mode=true |
+| 保存综述 | save_topic_summary | content, observations(JSON 字符串), review_window_since/until, review_kind="topic_review" |
+| 验证 | get_topic_summary | action="latest"（看 metadata_json.observations） |
+"""
+
+
 def register(mcp: FastMCP) -> None:
     """注册工作流配方资源。"""
 
@@ -279,3 +362,12 @@ def register(mcp: FastMCP) -> None:
         直接生成主题聚合摘要报告。
         """
         return CLAUDE_CODE_TOPIC_SUMMARY_RECIPE
+
+    @mcp.resource("xwatcher://recipes/claude-code-topic-review")
+    async def claude_code_topic_review_recipe() -> str:
+        """Claude Code 主题综述工作流配方。
+
+        给定主题 + 任意 since/until 区间，产出带出处引用的观点综述：
+        每条观点都挂回原推文 tweet_id，落库到 topic_summaries.metadata_json。
+        """
+        return CLAUDE_CODE_TOPIC_REVIEW_RECIPE
