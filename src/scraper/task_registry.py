@@ -3,6 +3,8 @@
 管理异步抓取任务的状态和生命周期。
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import threading

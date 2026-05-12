@@ -3,6 +3,8 @@
 协调缓存、LLM 调用、数据持久化，实现完整的摘要翻译流程。
 """
 
+from __future__ import annotations
+
 import asyncio
 import hashlib
 import json
