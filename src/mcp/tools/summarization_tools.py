@@ -109,34 +109,44 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool()
     async def save_summaries(
-        summaries: str,
+        summaries: list | str,
     ) -> str:
         """保存外部生成的摘要/翻译结果到数据库。需要管理员权限。
 
         Args:
-            summaries: JSON 字符串，数组格式。每项包含：
+            summaries: 数组，每项包含：
                        - tweet_id (必填): 推文 ID
                        - summary (必填): 中文摘要（≤500字符）
                        - translation (可选): 中文翻译
+                       优先以原生数组形式传入；也兼容 JSON 字符串
+                       （为兼容旧调用方保留，但不推荐——手工拼装 JSON 字符串
+                       容易出现引号转义错位类错误）。
         """
         perm_err = require_admin()
         if perm_err:
             return perm_err
 
-        try:
-            items = json.loads(summaries)
-        except json.JSONDecodeError as e:
-            return error_response(f"JSON 解析失败: {e}", "validation")
+        # 支持两种形态:原生 list(推荐) 或 JSON 字符串(兼容旧调用方)。
+        # 原生 list 由 MCP 层 / Pydantic 直接反序列化,杜绝引号转义错位类错误。
+        if isinstance(summaries, str):
+            try:
+                items = json.loads(summaries)
+            except json.JSONDecodeError as e:
+                return error_response(f"JSON 解析失败: {e}", "validation")
+        else:
+            items = summaries
 
         if not isinstance(items, list):
-            return error_response("summaries 必须是 JSON 数组", "validation")
+            return error_response("summaries 必须是数组", "validation")
 
         try:
+            from src.config import get_settings
             from src.database.async_session import get_async_session_maker
             from src.mcp.security import audit_log
             from src.summarization.domain.models import SummaryRecord
             from src.summarization.infrastructure.repository import SummarizationRepository
 
+            model_name = get_settings().claude_code_model_name
             session_maker = get_async_session_maker()
             saved = 0
             failed = 0
@@ -147,6 +157,10 @@ def register(mcp: FastMCP) -> None:
                 repo = SummarizationRepository(session)
 
                 for item in items:
+                    if not isinstance(item, dict):
+                        failed += 1
+                        errors.append(f"条目不是对象: {type(item).__name__}")
+                        continue
                     try:
                         tweet_id = item.get("tweet_id")
                         summary_text = item.get("summary")
@@ -166,7 +180,7 @@ def register(mcp: FastMCP) -> None:
                             summary_text=summary_text,
                             translation_text=item.get("translation"),
                             model_provider="claude_code",
-                            model_name="claude-opus-4-6",
+                            model_name=model_name,
                             prompt_tokens=0,
                             completion_tokens=0,
                             total_tokens=0,
@@ -183,7 +197,10 @@ def register(mcp: FastMCP) -> None:
 
                     except Exception as e:
                         failed += 1
-                        errors.append(f"tweet_id={item.get('tweet_id')}: {e}")
+                        errors.append(
+                            f"tweet_id={item.get('tweet_id')}: "
+                            f"{type(e).__name__}: {e}"
+                        )
                         logger.warning("保存摘要失败: %s", e)
 
                 await session.commit()

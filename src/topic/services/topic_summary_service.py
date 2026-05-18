@@ -280,11 +280,13 @@ class TopicSummaryService:
         await self._task_repo.create_task(session, task_orm)
 
         # 创建 summary
+        from src.config import get_settings
+
         summary_orm = TopicSummaryOrm(
             task_id=task_orm.id,
             content=content,
             llm_provider="claude_code",
-            llm_model="claude-opus-4-6",
+            llm_model=get_settings().claude_code_model_name,
             prompt_tokens=0,
             completion_tokens=0,
             total_tokens=0,

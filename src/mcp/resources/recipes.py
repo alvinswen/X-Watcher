@@ -148,8 +148,10 @@ Claude Code 本身就是 LLM，直接阅读推文原文并生成中文摘要和�
   - 混合语言：完整翻译
 
 ### Step 5：保存结果
-调用 `save_summaries(summaries=<JSON>)`
-- JSON 格式：`[{"tweet_id": "...", "summary": "...", "translation": "..."}]`
+调用 `save_summaries(summaries=[...])`
+- 入参：原生数组 `[{"tweet_id": "...", "summary": "...", "translation": "..."}]`
+  （推荐原生数组形态；为兼容旧调用方也接受 JSON 字符串，但不推荐——
+  手工拼装 JSON 字符串容易出现引号转义错位类错误）
 - 支持批量保存，单条失败不影响其他条目
 - 结果以 model_provider="claude_code" 存储
 
@@ -167,7 +169,7 @@ Claude Code 本身就是 LLM，直接阅读推文原文并生成中文摘要和�
 | 抓取 | trigger_scrape | skip_summarization=true |
 | 等待 | get_task_status | task_id |
 | 获取待翻译 | get_unsummarized_tweets | limit, since, until |
-| 保存结果 | save_summaries | summaries (JSON) |
+| 保存结果 | save_summaries | summaries (原生数组,亦兼容 JSON 字符串) |
 | 验证 | browse_tweets | date |
 """
 

@@ -161,14 +161,13 @@ class TestSaveSummaries:
 
     @pytest.mark.asyncio
     async def test_save_single_summary(self, tool_funcs):
-        """测试保存单条摘要。"""
+        """测试保存单条摘要(原生 list 形态——推荐入参)。"""
         save_summaries = tool_funcs["save_summaries"]
 
         mock_session = AsyncMock()
         mock_session.commit = AsyncMock()
         mock_sm = _mock_session_maker(mock_session)
 
-        # Mock repository 的 save_summary_record
         mock_record = MagicMock()
         with (
             patch("src.mcp.tools.summarization_tools.require_admin", return_value=None),
@@ -180,13 +179,13 @@ class TestSaveSummaries:
             ) as mock_save,
             patch("src.mcp.security.audit_log"),
         ):
-            summaries_json = json.dumps([{
+            summaries = [{
                 "tweet_id": "t1",
                 "summary": "Elon Musk 发布了关于 AI 的看法",
                 "translation": "Elon Musk shared his views on AI",
-            }])
+            }]
 
-            result_json = await save_summaries(summaries=summaries_json)
+            result_json = await save_summaries(summaries=summaries)
 
         result = json.loads(result_json)
         assert result["success"] is True
@@ -198,6 +197,8 @@ class TestSaveSummaries:
         mock_save.assert_called_once()
         saved_record = mock_save.call_args[0][0]
         assert saved_record.model_provider == "claude_code"
+        # model_name 应来自配置(默认 claude-opus-4-7)而非硬编码
+        assert saved_record.model_name.startswith("claude-opus-")
         assert saved_record.cost_usd == 0.0
         assert saved_record.tweet_id == "t1"
 
@@ -221,13 +222,13 @@ class TestSaveSummaries:
             ) as mock_save,
             patch("src.mcp.security.audit_log"),
         ):
-            summaries_json = json.dumps([
+            summaries = [
                 {"tweet_id": "t1", "summary": "摘要1"},
                 {"tweet_id": "t2", "summary": "摘要2", "translation": "翻译2"},
                 {"tweet_id": "t3", "summary": "摘要3"},
-            ])
+            ]
 
-            result_json = await save_summaries(summaries=summaries_json)
+            result_json = await save_summaries(summaries=summaries)
 
         result = json.loads(result_json)
         assert result["data"]["saved"] == 3
@@ -235,8 +236,35 @@ class TestSaveSummaries:
         assert mock_save.call_count == 3
 
     @pytest.mark.asyncio
-    async def test_save_invalid_json(self, tool_funcs):
-        """测试无效 JSON 返回错误。"""
+    async def test_save_json_string_backward_compat(self, tool_funcs):
+        """测试 JSON 字符串形态仍兼容(为旧调用方保留的退路)。"""
+        save_summaries = tool_funcs["save_summaries"]
+
+        mock_session = AsyncMock()
+        mock_session.commit = AsyncMock()
+        mock_sm = _mock_session_maker(mock_session)
+
+        mock_record = MagicMock()
+        with (
+            patch("src.mcp.tools.summarization_tools.require_admin", return_value=None),
+            patch("src.database.async_session.get_async_session_maker", return_value=mock_sm),
+            patch(
+                "src.summarization.infrastructure.repository.SummarizationRepository.save_summary_record",
+                new_callable=AsyncMock,
+                return_value=mock_record,
+            ),
+            patch("src.mcp.security.audit_log"),
+        ):
+            summaries_json = json.dumps([{"tweet_id": "t1", "summary": "摘要"}])
+            result_json = await save_summaries(summaries=summaries_json)
+
+        result = json.loads(result_json)
+        assert result["success"] is True
+        assert result["data"]["saved"] == 1
+
+    @pytest.mark.asyncio
+    async def test_save_invalid_json_string(self, tool_funcs):
+        """测试无效 JSON 字符串返回错误。"""
         save_summaries = tool_funcs["save_summaries"]
 
         with patch("src.mcp.tools.summarization_tools.require_admin", return_value=None):
@@ -263,16 +291,16 @@ class TestSaveSummaries:
                 "src.summarization.infrastructure.repository.SummarizationRepository.save_summary_record",
                 new_callable=AsyncMock,
                 return_value=mock_record,
-            ) as mock_save,
+            ),
             patch("src.mcp.security.audit_log"),
         ):
-            summaries_json = json.dumps([
+            summaries = [
                 {"tweet_id": "t1", "summary": "有效摘要"},
                 {"tweet_id": "t2"},  # 缺少 summary
                 {"summary": "没有tweet_id"},  # 缺少 tweet_id
-            ])
+            ]
 
-            result_json = await save_summaries(summaries=summaries_json)
+            result_json = await save_summaries(summaries=summaries)
 
         result = json.loads(result_json)
         assert result["data"]["saved"] == 1
@@ -281,12 +309,13 @@ class TestSaveSummaries:
 
     @pytest.mark.asyncio
     async def test_save_not_array(self, tool_funcs):
-        """测试非数组 JSON 返回错误。"""
+        """测试非数组入参返回错误(dict 单对象不是数组)。"""
         save_summaries = tool_funcs["save_summaries"]
 
         with patch("src.mcp.tools.summarization_tools.require_admin", return_value=None):
+            # 原生 dict 形态(非数组)
             result_json = await save_summaries(
-                summaries=json.dumps({"tweet_id": "t1", "summary": "test"})
+                summaries={"tweet_id": "t1", "summary": "test"}
             )
 
         result = json.loads(result_json)

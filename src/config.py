@@ -99,6 +99,12 @@ class Settings(BaseSettings):
         description="JWT 过期时间（小时）"
     )
 
+    # Claude Code 翻译/摘要接管模型名（写入 provenance 元数据）
+    claude_code_model_name: str = Field(
+        default="claude-opus-4-7",
+        description="Claude Code 翻译/摘要接管时写入数据库的模型名（model_name / llm_model 字段）"
+    )
+
     # 自动摘要配置
     auto_summarization_enabled: bool = Field(
         default=True,
