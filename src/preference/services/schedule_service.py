@@ -43,12 +43,13 @@ class ScraperScheduleService:
         for attempt in range(_RETRY_MAX):
             try:
                 from src.database.async_session import get_async_session_maker
+                from src.data_layer.provider import get_schedule_repo
 
                 session_maker = get_async_session_maker()
                 async with session_maker() as session:
-                    repo = ScraperScheduleRepository(session)
+                    repo = get_schedule_repo(session)
                     result = await repo.upsert_schedule_config(**kwargs)
-                    await session.commit()
+                    await session.commit()   # file 模式 session 未用,commit 为无害 no-op
                     return result
             except OperationalError as e:
                 last_error = e

@@ -50,13 +50,11 @@ async def _get_schedule_config_from_db() -> tuple[int | None, datetime | None, b
     """
     try:
         from src.database.async_session import get_async_session_maker
-        from src.preference.infrastructure.schedule_repository import (
-            ScraperScheduleRepository,
-        )
+        from src.data_layer.provider import get_schedule_repo
 
         session_maker = get_async_session_maker()
         async with session_maker() as session:
-            repo = ScraperScheduleRepository(session)
+            repo = get_schedule_repo(session)
             config = await repo.get_schedule_config()
             if config:
                 return (config.interval_seconds, config.next_run_time, config.is_enabled)
