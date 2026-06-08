@@ -6,7 +6,9 @@
 """
 from __future__ import annotations
 
+import logging
 import os
+import threading
 from pathlib import Path
 
 
@@ -16,6 +18,12 @@ def _data_layer() -> str:
 
 def _data_root() -> Path:
     return Path(os.environ.get("XWATCHER_DATA_ROOT", "data"))
+
+
+logger = logging.getLogger(__name__)
+
+# 模块级:串化跨线程同步写,规避 asyncio.Lock 跨 loop/跨线程复用(file 模式同步桥接专用)
+_SCHEDULER_LOG_SYNC_LOCK = threading.Lock()
 
 
 def get_schedule_repo(session=None):
@@ -105,3 +113,39 @@ def get_scheduler_log_repo(session=None):
     from src.scraper.infrastructure.scheduler_log_repository import SchedulerExecutionLogRepository
 
     return SchedulerExecutionLogRepository(session)
+
+
+class _FileSchedulerLogSyncWriter:
+    """file 模式同步桥接:把 async 文件层 write_log 桥到同步调用点。
+
+    BackgroundScheduler 回调线程无 running loop → asyncio.run 安全。
+    threading.Lock 串化跨线程并发(多 job 同刻完成);整体 try/except 吞异常仅 log,
+    镜像旧 SchedulerExecutionLogSyncWriter「写失败不影响调度器运行」契约。
+    """
+
+    def __init__(self, data_root: Path) -> None:
+        self._data_root = data_root
+
+    def write_log(self, log) -> None:
+        try:
+            import asyncio
+
+            from src.scraper.infrastructure.file_scheduler_log_repository import FileSchedulerLogStore
+
+            with _SCHEDULER_LOG_SYNC_LOCK:
+                asyncio.run(FileSchedulerLogStore(self._data_root).write_log(log))
+        except Exception as e:  # noqa: BLE001
+            logger.error("file 模式同步写入调度器执行日志失败: %s", e, exc_info=True)
+
+
+def get_scheduler_log_sync_writer():
+    """返回带 write_log(log) 的同步写入器(鸭子兼容旧静态调用 `.write_log(log_entry)`)。
+
+    file 模式:_FileSchedulerLogSyncWriter 实例(asyncio.run 桥接 async 文件层)。
+    sqlalchemy 模式:旧 SchedulerExecutionLogSyncWriter 类本身(静态 write_log,零行为变化)。
+    """
+    if _data_layer() == "file":
+        return _FileSchedulerLogSyncWriter(_data_root())
+    from src.scraper.infrastructure.scheduler_log_repository import SchedulerExecutionLogSyncWriter
+
+    return SchedulerExecutionLogSyncWriter

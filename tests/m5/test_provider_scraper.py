@@ -67,3 +67,22 @@ def test_get_scheduler_log_repo_default_is_sqlalchemy(monkeypatch):
     from src.scraper.infrastructure.scheduler_log_repository import SchedulerExecutionLogRepository
 
     assert isinstance(get_scheduler_log_repo(session=None), SchedulerExecutionLogRepository)
+
+
+def test_get_scheduler_log_sync_writer_file_mode(monkeypatch, tmp_path):
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    from src.data_layer.provider import _FileSchedulerLogSyncWriter, get_scheduler_log_sync_writer
+
+    writer = get_scheduler_log_sync_writer()
+    assert isinstance(writer, _FileSchedulerLogSyncWriter)
+    assert hasattr(writer, "write_log")
+
+
+def test_get_scheduler_log_sync_writer_default_is_legacy_class(monkeypatch):
+    monkeypatch.delenv("XWATCHER_DATA_LAYER", raising=False)
+    from src.data_layer.provider import get_scheduler_log_sync_writer
+    from src.scraper.infrastructure.scheduler_log_repository import SchedulerExecutionLogSyncWriter
+
+    # sqlalchemy 模式返回旧静态类本身(鸭子兼容 .write_log(log) 静态调用)
+    assert get_scheduler_log_sync_writer() is SchedulerExecutionLogSyncWriter
