@@ -31,11 +31,11 @@ from src.preference.api.schemas import (
     SyncProfilesResponse,
 )
 from src.preference.infrastructure.scraper_config_repository import (
-    ScraperConfigRepository,
     NotFoundError,
     DuplicateError,
     RepositoryError,
 )
+from src.data_layer.provider import get_follows_repo
 from src.preference.services.scraper_config_service import ScraperConfigService
 from src.topic.services.topic_summary_service import build_llm_providers
 
@@ -66,7 +66,7 @@ async def _get_scraper_config_service(
     Returns:
         ScraperConfigService: 服务实例
     """
-    repository = ScraperConfigRepository(session)
+    repository = get_follows_repo(session)
     return ScraperConfigService(repository)
 
 
@@ -457,7 +457,7 @@ async def sync_user_profiles(
 
     try:
         # 获取所有有 platform_user_id 的活跃 follows
-        config_repo = ScraperConfigRepository(session)
+        config_repo = get_follows_repo(session)
         follows = await config_repo.get_all_follows(include_inactive=False)
         user_ids = [
             f.platform_user_id
@@ -666,7 +666,7 @@ async def generate_follow_intro(
 
     try:
         # 查询 follow
-        config_repo = ScraperConfigRepository(session)
+        config_repo = get_follows_repo(session)
         follow = await config_repo.get_follow_by_username(username)
         if follow is None:
             raise HTTPException(

@@ -216,13 +216,13 @@ class TopicSummaryService:
         account_profiles: dict[str, dict] = {}
         try:
             from src.preference.infrastructure.x_user_profile_repository import XUserProfileRepository
-            from src.preference.infrastructure.scraper_config_repository import ScraperConfigRepository
+            from src.data_layer.provider import get_follows_repo
 
             profile_repo = XUserProfileRepository(session)
             profiles = await profile_repo.get_profiles_by_usernames(usernames)
             profiles_map = {p.username.lower(): p for p in profiles}
 
-            config_repo = ScraperConfigRepository(session)
+            config_repo = get_follows_repo(session)
             follows = await config_repo.get_active_follows()
             follows_map = {f.username.lower(): f for f in follows}
 

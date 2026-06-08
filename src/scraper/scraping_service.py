@@ -567,13 +567,11 @@ class ScrapingService:
         """更新用户的回溯状态。"""
         try:
             from src.database.async_session import get_async_session_maker
-            from src.preference.infrastructure.scraper_config_repository import (
-                ScraperConfigRepository,
-            )
+            from src.data_layer.provider import get_follows_repo
 
             session_maker = get_async_session_maker()
             async with session_maker() as session:
-                repo = ScraperConfigRepository(session)
+                repo = get_follows_repo(session)
                 await repo.update_backfill_status(
                     username, status, completed_at=completed_at,
                 )
@@ -1136,13 +1134,11 @@ class ScrapingService:
         """
         try:
             from src.database.async_session import get_async_session_maker
-            from src.preference.infrastructure.scraper_config_repository import (
-                ScraperConfigRepository,
-            )
+            from src.data_layer.provider import get_follows_repo
 
             session_maker = get_async_session_maker()
             async with session_maker() as session:
-                repo = ScraperConfigRepository(session)
+                repo = get_follows_repo(session)
                 await repo.update_platform_user_id(username, user_id)
                 await session.commit()
                 logger.info(
@@ -1163,13 +1159,11 @@ class ScrapingService:
         """
         try:
             from src.database.async_session import get_async_session_maker
-            from src.preference.infrastructure.scraper_config_repository import (
-                ScraperConfigRepository,
-            )
+            from src.data_layer.provider import get_follows_repo
 
             session_maker = get_async_session_maker()
             async with session_maker() as session:
-                repo = ScraperConfigRepository(session)
+                repo = get_follows_repo(session)
                 follow = await repo.get_follow_by_username(old_username)
 
                 if not follow or not follow.platform_user_id:
@@ -1236,9 +1230,7 @@ class ScrapingService:
         """
         try:
             from src.database.async_session import get_async_session_maker
-            from src.preference.infrastructure.scraper_config_repository import (
-                ScraperConfigRepository,
-            )
+            from src.data_layer.provider import get_follows_repo
             from src.preference.infrastructure.x_user_profile_repository import (
                 XUserProfileRepository,
             )
@@ -1246,7 +1238,7 @@ class ScrapingService:
 
             session_maker = get_async_session_maker()
             async with session_maker() as session:
-                config_repo = ScraperConfigRepository(session)
+                config_repo = get_follows_repo(session)
 
                 # 查询这些用户名对应的 platform_user_id
                 user_ids: list[str] = []

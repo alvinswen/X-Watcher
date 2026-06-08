@@ -64,9 +64,7 @@ def register(mcp: FastMCP) -> None:
 
         try:
             from src.database.async_session import get_async_session_maker
-            from src.preference.infrastructure.scraper_config_repository import (
-                ScraperConfigRepository,
-            )
+            from src.data_layer.provider import get_follows_repo
             from src.preference.services.scraper_config_service import (
                 ScraperConfigService,
             )
@@ -74,7 +72,7 @@ def register(mcp: FastMCP) -> None:
             session_maker = get_async_session_maker()
 
             async with session_maker() as session:
-                repo = ScraperConfigRepository(session)
+                repo = get_follows_repo(session)
                 service = ScraperConfigService(repo)
 
                 if action == "list":
