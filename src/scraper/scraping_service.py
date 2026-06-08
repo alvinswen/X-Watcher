@@ -590,13 +590,11 @@ class ScrapingService:
         """
         try:
             from src.database.async_session import get_async_session_maker
-            from src.scraper.infrastructure.fetch_stats_repository import (
-                FetchStatsRepository,
-            )
+            from src.data_layer.provider import get_fetch_stats_repo
 
             session_maker = get_async_session_maker()
             async with session_maker() as session:
-                repo = FetchStatsRepository(session)
+                repo = get_fetch_stats_repo(session)
                 return await repo.get_stats(username)
         except Exception as e:
             logger.warning("查询抓取统计失败（使用默认 limit）: %s", e)
@@ -619,9 +617,7 @@ class ScrapingService:
         """
         try:
             from src.database.async_session import get_async_session_maker
-            from src.scraper.infrastructure.fetch_stats_repository import (
-                FetchStatsRepository,
-            )
+            from src.data_layer.provider import get_fetch_stats_repo
 
             updated = self._limit_calculator.update_stats_after_fetch(
                 stats=old_stats,
@@ -632,7 +628,7 @@ class ScrapingService:
 
             session_maker = get_async_session_maker()
             async with session_maker() as session:
-                repo = FetchStatsRepository(session)
+                repo = get_fetch_stats_repo(session)
                 await repo.upsert_stats(updated)
                 await session.commit()
 
@@ -749,7 +745,7 @@ class ScrapingService:
         try:
             from src.database.async_session import get_async_session_maker
             from src.scraper.domain.models import Article
-            from src.scraper.infrastructure.article_repository import ArticleRepository
+            from src.data_layer.provider import get_article_repo
 
             session_maker = get_async_session_maker()
 
@@ -757,7 +753,7 @@ class ScrapingService:
                 try:
                     # 检查是否已存在
                     async with session_maker() as session:
-                        repo = ArticleRepository(session)
+                        repo = get_article_repo(session)
                         if await repo.article_exists(tweet.tweet_id):
                             continue
 
@@ -809,7 +805,7 @@ class ScrapingService:
                         )
 
                     async with session_maker() as session:
-                        repo = ArticleRepository(session)
+                        repo = get_article_repo(session)
                         saved = await repo.save_article(article)
                         await session.commit()
 
@@ -856,7 +852,7 @@ class ScrapingService:
         try:
             from src.database.async_session import get_async_session_maker
             from src.scraper.domain.models import Article
-            from src.scraper.infrastructure.article_repository import ArticleRepository
+            from src.data_layer.provider import get_article_repo
 
             session_maker = get_async_session_maker()
 
@@ -932,7 +928,7 @@ class ScrapingService:
                     )
 
                     async with session_maker() as session:
-                        repo = ArticleRepository(session)
+                        repo = get_article_repo(session)
                         saved = await repo.save_article(article)
                         await session.commit()
 
@@ -975,12 +971,12 @@ class ScrapingService:
         if self._repository is None:
             # 延迟导入避免循环依赖
             from src.database.async_session import get_async_session_maker
-            from src.scraper.infrastructure.repository import TweetRepository
+            from src.data_layer.provider import get_tweet_repo
 
             session_maker = get_async_session_maker()
 
             async with session_maker() as session:
-                repo = TweetRepository(session)
+                repo = get_tweet_repo(session)
                 result = await repo.save_tweets(tweets, early_stop_threshold=early_stop)
                 # 提交事务
                 await session.commit()
