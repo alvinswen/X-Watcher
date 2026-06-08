@@ -21,6 +21,7 @@ from src.data_layer.migration import registry  # noqa: E402
 from src.data_layer.migration import schedule  # noqa: E402,F401
 from src.data_layer.migration import follows  # noqa: E402,F401
 from src.data_layer.migration import profile  # noqa: E402,F401
+from src.data_layer.migration import fetch_stats  # noqa: E402,F401
 
 
 async def _run(only: str | None, data_root: Path):
