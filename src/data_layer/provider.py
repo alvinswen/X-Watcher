@@ -31,3 +31,33 @@ def get_schedule_repo(session=None):
     from src.preference.infrastructure.schedule_repository import ScraperScheduleRepository
 
     return ScraperScheduleRepository(session)
+
+
+def get_follows_repo(session=None):
+    """返回 FollowStore 形态 repo(12 契约方法)。
+
+    file 模式:FileFollowStore(data_root),忽略 session。
+    sqlalchemy 模式:ScraperConfigRepository(session)。
+    """
+    if _data_layer() == "file":
+        from src.preference.infrastructure.file_follow_repository import FileFollowStore
+
+        return FileFollowStore(_data_root())
+    from src.preference.infrastructure.scraper_config_repository import ScraperConfigRepository
+
+    return ScraperConfigRepository(session)
+
+
+def get_profile_repo(session=None):
+    """返回 ProfileStore 形态 repo(6 契约方法)。
+
+    file 模式:FileProfileStore(data_root),忽略 session。
+    sqlalchemy 模式:XUserProfileRepository(session)。
+    """
+    if _data_layer() == "file":
+        from src.preference.infrastructure.file_profile_repository import FileProfileStore
+
+        return FileProfileStore(_data_root())
+    from src.preference.infrastructure.x_user_profile_repository import XUserProfileRepository
+
+    return XUserProfileRepository(session)
