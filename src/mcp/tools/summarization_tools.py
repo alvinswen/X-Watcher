@@ -144,7 +144,7 @@ def register(mcp: FastMCP) -> None:
             from src.database.async_session import get_async_session_maker
             from src.mcp.security import audit_log
             from src.summarization.domain.models import SummaryRecord
-            from src.summarization.infrastructure.repository import SummarizationRepository
+            from src.data_layer.provider import get_summary_repo
 
             model_name = get_settings().claude_code_model_name
             session_maker = get_async_session_maker()
@@ -154,7 +154,7 @@ def register(mcp: FastMCP) -> None:
             now = datetime.now(timezone.utc)
 
             async with session_maker() as session:
-                repo = SummarizationRepository(session)
+                repo = get_summary_repo(session)
 
                 for item in items:
                     if not isinstance(item, dict):
