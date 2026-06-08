@@ -149,3 +149,29 @@ def get_scheduler_log_sync_writer():
     from src.scraper.infrastructure.scheduler_log_repository import SchedulerExecutionLogSyncWriter
 
     return SchedulerExecutionLogSyncWriter
+
+
+def get_summary_repo(session=None):
+    """返回 SummaryStore 形态 repo。file:FileSummaryStore(忽略 session);sqlalchemy:SummarizationRepository(session)。"""
+    if _data_layer() == "file":
+        from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
+
+        return FileSummaryStore(_data_root())
+    from src.summarization.infrastructure.repository import SummarizationRepository
+
+    return SummarizationRepository(session)
+
+
+def get_user_repo(session=None):
+    """返回 UserStore 形态 repo(14 契约方法,含 get_password_hash_by_*)。
+
+    file 模式:FileUserStore(data_root),忽略 session。
+    sqlalchemy 模式:UserRepository(session)。
+    """
+    if _data_layer() == "file":
+        from src.user.infrastructure.file_user_repository import FileUserStore
+
+        return FileUserStore(_data_root())
+    from src.user.infrastructure.repository import UserRepository
+
+    return UserRepository(session)
