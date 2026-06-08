@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.async_session import get_async_session
 from src.user.domain.schemas import LoginRequest, LoginResponse
-from src.user.infrastructure.repository import UserRepository
+from src.data_layer.provider import get_user_repo
 from src.user.services.auth_service import AuthService
 
 logger = logging.getLogger(__name__)
@@ -21,19 +21,20 @@ async def login(
     session: AsyncSession = Depends(get_async_session),
 ) -> LoginResponse:
     """用户登录，返回 JWT Token。"""
-    repo = UserRepository(session)
+    repo = get_user_repo(session)
     auth = AuthService()
 
-    # 查询用户（使用 ORM 对象以获取 password_hash）
-    user_orm = await repo.get_user_orm_by_email(request.email)
-    if user_orm is None or user_orm.password_hash is None:
+    # 查询用户域对象(id/email/is_admin 供 JWT)+ password_hash(供密码验证)
+    user = await repo.get_user_by_email(request.email)
+    password_hash = await repo.get_password_hash_by_email(request.email)
+    if user is None or password_hash is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="邮箱或密码错误",
         )
 
     # 验证密码
-    if not await auth.verify_password(request.password, user_orm.password_hash):
+    if not await auth.verify_password(request.password, password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="邮箱或密码错误",
@@ -41,9 +42,9 @@ async def login(
 
     # 生成 JWT Token
     token = auth.create_jwt_token(
-        user_id=user_orm.id,
-        email=user_orm.email,
-        is_admin=user_orm.is_admin,
+        user_id=user.id,
+        email=user.email,
+        is_admin=user.is_admin,
     )
 
     return LoginResponse(access_token=token)
