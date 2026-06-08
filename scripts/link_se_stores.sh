@@ -15,11 +15,34 @@ elif [[ -n "${1:-}" ]]; then
 fi
 SE_SRC="$SE_ROOT/src"
 
-# 子项目 0 MANIFEST(相对 src/ 的路径;后续子项目在此追加本实体文件集)
+# 子项目 0+1 MANIFEST(相对 src/ 的路径;后续子项目在此追加本实体文件集)
 MANIFEST=(
   "storage"                                                 # 底座整包(目录符号链接)
   "preference/infrastructure/schedule_store.py"             # ScheduleStore Protocol
   "preference/infrastructure/file_schedule_repository.py"   # FileScheduleStore
+  "preference/infrastructure/follow_store.py"
+  "preference/infrastructure/file_follow_repository.py"
+  "preference/infrastructure/profile_store.py"
+  "preference/infrastructure/file_profile_repository.py"
+  "scraper/infrastructure/fetch_stats_store.py"
+  "scraper/infrastructure/file_fetch_stats_repository.py"
+  "scraper/infrastructure/article_store.py"
+  "scraper/infrastructure/file_article_repository.py"
+  "scraper/infrastructure/scheduler_log_store.py"
+  "scraper/infrastructure/file_scheduler_log_repository.py"
+  "scraper/domain/pagination.py"                            # Feed/Page:tweet store 依赖的 se-only 域模型
+  "scraper/infrastructure/tweet_store.py"
+  "scraper/infrastructure/file_tweet_repository.py"
+  "summarization/infrastructure/summary_store.py"
+  "summarization/infrastructure/file_summary_repository.py"
+  "topic/infrastructure/topic_store.py"
+  "topic/infrastructure/file_topic_repository.py"
+  "topic/infrastructure/topic_task_store.py"
+  "topic/infrastructure/file_topic_summary_task_repository.py"
+  "analytics/infrastructure/clustering_store.py"
+  "analytics/infrastructure/file_clustering_repository.py"
+  "user/infrastructure/user_store.py"
+  "user/infrastructure/file_user_repository.py"
 )
 
 for rel in "${MANIFEST[@]}"; do
