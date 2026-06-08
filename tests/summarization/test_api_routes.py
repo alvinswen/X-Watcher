@@ -241,7 +241,7 @@ class TestGetTweetSummaryEndpoint:
             return_value=lambda: mock_session,
         ):
             with patch(
-                "src.summarization.api.routes.SummarizationRepository",
+                "src.summarization.api.routes.get_summary_repo",
                 return_value=mock_repo,
             ):
                 response = client.get("/api/summaries/tweets/nonexistent-tweet")
@@ -279,7 +279,7 @@ class TestGetCostStatsEndpoint:
             return_value=lambda: mock_session,
         ):
             with patch(
-                "src.summarization.api.routes.SummarizationRepository",
+                "src.summarization.api.routes.get_summary_repo",
                 return_value=mock_repo,
             ):
                 response = client.get("/api/summaries/stats")
@@ -320,7 +320,7 @@ class TestGetCostStatsEndpoint:
             return_value=lambda: mock_session,
         ):
             with patch(
-                "src.summarization.api.routes.SummarizationRepository",
+                "src.summarization.api.routes.get_summary_repo",
                 return_value=mock_repo,
             ):
                 response = client.get(
@@ -364,7 +364,7 @@ class TestRegenerateSummaryEndpoint:
             return_value=lambda: mock_session,
         ):
             with patch(
-                "src.summarization.api.routes.SummarizationRepository",
+                "src.summarization.api.routes.get_summary_repo",
                 return_value=mock_repo,
             ):
                 with patch(
@@ -395,7 +395,7 @@ class TestRegenerateSummaryEndpoint:
             return_value=lambda: mock_session,
         ):
             with patch(
-                "src.summarization.api.routes.SummarizationRepository",
+                "src.summarization.api.routes.get_summary_repo",
                 return_value=mock_repo,
             ):
                 with patch(
