@@ -12,7 +12,6 @@ from sqlalchemy.exc import OperationalError
 
 from src.config import get_settings
 from src.preference.api.schemas import ScheduleConfigResponse
-from src.preference.infrastructure.schedule_repository import ScraperScheduleRepository
 from src.scheduler_accessor import get_scheduler
 
 logger = logging.getLogger(__name__)
@@ -70,10 +69,11 @@ class ScraperScheduleService:
         for attempt in range(_RETRY_MAX):
             try:
                 from src.database.async_session import get_async_session_maker
+                from src.data_layer.provider import get_schedule_repo
 
                 session_maker = get_async_session_maker()
                 async with session_maker() as session:
-                    repo = ScraperScheduleRepository(session)
+                    repo = get_schedule_repo(session)
                     return await repo.get_schedule_config()
             except OperationalError as e:
                 last_error = e
