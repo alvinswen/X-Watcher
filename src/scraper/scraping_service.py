@@ -1230,10 +1230,7 @@ class ScrapingService:
         """
         try:
             from src.database.async_session import get_async_session_maker
-            from src.data_layer.provider import get_follows_repo
-            from src.preference.infrastructure.x_user_profile_repository import (
-                XUserProfileRepository,
-            )
+            from src.data_layer.provider import get_follows_repo, get_profile_repo
             from src.preference.domain.models import XUserProfile
 
             session_maker = get_async_session_maker()
@@ -1277,7 +1274,7 @@ class ScrapingService:
                         raw_data_map[profile.platform_user_id] = u
 
                 # 持久化
-                profile_repo = XUserProfileRepository(session)
+                profile_repo = get_profile_repo(session)
                 count = await profile_repo.upsert_profiles(
                     profiles, raw_data_map=raw_data_map
                 )

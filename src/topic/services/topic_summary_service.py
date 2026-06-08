@@ -215,10 +215,9 @@ class TopicSummaryService:
         """
         account_profiles: dict[str, dict] = {}
         try:
-            from src.preference.infrastructure.x_user_profile_repository import XUserProfileRepository
-            from src.data_layer.provider import get_follows_repo
+            from src.data_layer.provider import get_follows_repo, get_profile_repo
 
-            profile_repo = XUserProfileRepository(session)
+            profile_repo = get_profile_repo(session)
             profiles = await profile_repo.get_profiles_by_usernames(usernames)
             profiles_map = {p.username.lower(): p for p in profiles}
 
