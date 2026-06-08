@@ -25,6 +25,7 @@ from src.data_layer.migration import fetch_stats  # noqa: E402,F401
 from src.data_layer.migration import article  # noqa: E402,F401
 from src.data_layer.migration import scheduler_log  # noqa: E402,F401
 from src.data_layer.migration import summary  # noqa: E402,F401
+from src.data_layer.migration import topic  # noqa: E402,F401
 
 
 async def _run(only: str | None, data_root: Path):
