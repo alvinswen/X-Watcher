@@ -17,9 +17,7 @@ from apscheduler.events import (
 )
 
 from src.scraper.domain.scheduler_log import SchedulerEventType, SchedulerExecutionLog
-from src.scraper.infrastructure.scheduler_log_repository import (
-    SchedulerExecutionLogSyncWriter,
-)
+from src.data_layer.provider import get_scheduler_log_sync_writer
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +114,7 @@ def scheduler_event_listener(event: Any) -> None:
             duration_seconds=duration_secs,
             next_run_time=next_run,
         )
-        SchedulerExecutionLogSyncWriter.write_log(log_entry)
+        get_scheduler_log_sync_writer().write_log(log_entry)
         _update_prometheus_metrics(
             SchedulerEventType.EXECUTED, job_id, duration_secs
         )
@@ -157,7 +155,7 @@ def scheduler_event_listener(event: Any) -> None:
             ),
             next_run_time=next_run,
         )
-        SchedulerExecutionLogSyncWriter.write_log(log_entry)
+        get_scheduler_log_sync_writer().write_log(log_entry)
         _update_prometheus_metrics(
             SchedulerEventType.ERROR, job_id, duration_secs
         )
@@ -189,7 +187,7 @@ def scheduler_event_listener(event: Any) -> None:
             executed_at=now,
             next_run_time=next_run,
         )
-        SchedulerExecutionLogSyncWriter.write_log(log_entry)
+        get_scheduler_log_sync_writer().write_log(log_entry)
         _update_prometheus_metrics(
             SchedulerEventType.MISSED, job_id, None
         )
