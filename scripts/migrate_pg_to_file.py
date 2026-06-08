@@ -19,6 +19,7 @@ from src.data_layer.migration import registry  # noqa: E402
 
 # migrator 模块 import(import 即注册进 registry.MIGRATORS),随各 Task 增量加入:
 from src.data_layer.migration import schedule  # noqa: E402,F401
+from src.data_layer.migration import follows  # noqa: E402,F401
 
 
 async def _run(only: str | None, data_root: Path):
