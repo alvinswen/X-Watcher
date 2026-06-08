@@ -358,13 +358,11 @@ def register(mcp: FastMCP) -> None:
                 last_execution = None
                 try:
                     from src.database.async_session import get_async_session_maker
-                    from src.scraper.infrastructure.scheduler_log_repository import (
-                        SchedulerExecutionLogRepository,
-                    )
+                    from src.data_layer.provider import get_scheduler_log_repo
 
                     session_maker = get_async_session_maker()
                     async with session_maker() as session:
-                        repo = SchedulerExecutionLogRepository(session)
+                        repo = get_scheduler_log_repo(session)
                         logs = await repo.get_recent_logs(limit=1)
                         if logs:
                             log = logs[0]

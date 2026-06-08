@@ -209,7 +209,7 @@ async def get_follows_stats(
     Returns:
         list[FollowStatsResponse]: 各账号的运行时统计
     """
-    from src.scraper.infrastructure.fetch_stats_repository import FetchStatsRepository
+    from src.data_layer.provider import get_fetch_stats_repo
     from src.scraper.infrastructure.models import TweetOrm
     from src.scraper.services.limit_calculator import LimitCalculator
 
@@ -223,7 +223,7 @@ async def get_follows_stats(
             return []
 
         # 2. 批量查 FetchStats → 计算 effective_limit
-        stats_repo = FetchStatsRepository(session)
+        stats_repo = get_fetch_stats_repo(session)
         stats_map = await stats_repo.batch_get_stats(usernames)
         calculator = LimitCalculator()
 

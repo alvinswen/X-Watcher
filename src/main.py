@@ -171,14 +171,12 @@ async def _cleanup_old_scheduler_logs():
     """清理过期的调度器执行日志。"""
     try:
         from src.database.async_session import get_async_session_maker
-        from src.scraper.infrastructure.scheduler_log_repository import (
-            SchedulerExecutionLogRepository,
-        )
+        from src.data_layer.provider import get_scheduler_log_repo
 
         settings = get_settings()
         session_maker = get_async_session_maker()
         async with session_maker() as session:
-            repo = SchedulerExecutionLogRepository(session)
+            repo = get_scheduler_log_repo(session)
             deleted = await repo.cleanup_old_logs(
                 retention_days=settings.scheduler_log_retention_days
             )
