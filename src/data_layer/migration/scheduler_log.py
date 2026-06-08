@@ -44,6 +44,7 @@ def _content_key(rec: SchedulerExecutionLog) -> str:
 async def migrate_scheduler_log(session, data_root: Path) -> MigrationReport:
     rows = (await session.execute(select(SchedulerExecutionLogOrm))).scalars().all()
     rep = MigrationReport(entity="scheduler_log", pg_count=len(rows))
+    rep.dropped_columns = ["created_at"]  # DB audit 时间戳,域模型无(诚实标注;pg 现 0 行)
     store = FileSchedulerLogStore(data_root)
     store._path.unlink(missing_ok=True)
     domains = [_to_domain(o) for o in rows]
