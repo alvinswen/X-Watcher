@@ -27,6 +27,7 @@ from src.data_layer.migration import scheduler_log  # noqa: E402,F401
 from src.data_layer.migration import summary  # noqa: E402,F401
 from src.data_layer.migration import topic  # noqa: E402,F401
 from src.data_layer.migration import clustering  # noqa: E402,F401
+from src.data_layer.migration import user  # noqa: E402,F401
 
 
 async def _run(only: str | None, data_root: Path):
