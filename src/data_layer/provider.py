@@ -61,3 +61,47 @@ def get_profile_repo(session=None):
     from src.preference.infrastructure.x_user_profile_repository import XUserProfileRepository
 
     return XUserProfileRepository(session)
+
+
+def get_tweet_repo(session=None):
+    """返回 TweetStore 形态 repo。file:FileTweetStore(忽略 session);sqlalchemy:TweetRepository(session)。"""
+    if _data_layer() == "file":
+        from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
+
+        return FileTweetStore(_data_root())
+    from src.scraper.infrastructure.repository import TweetRepository
+
+    return TweetRepository(session)
+
+
+def get_article_repo(session=None):
+    """返回 ArticleStore 形态 repo。file:FileArticleStore;sqlalchemy:ArticleRepository(session)。"""
+    if _data_layer() == "file":
+        from src.scraper.infrastructure.file_article_repository import FileArticleStore
+
+        return FileArticleStore(_data_root())
+    from src.scraper.infrastructure.article_repository import ArticleRepository
+
+    return ArticleRepository(session)
+
+
+def get_fetch_stats_repo(session=None):
+    """返回 FetchStatsStore 形态 repo。file:FileFetchStatsStore;sqlalchemy:FetchStatsRepository(session)。"""
+    if _data_layer() == "file":
+        from src.scraper.infrastructure.file_fetch_stats_repository import FileFetchStatsStore
+
+        return FileFetchStatsStore(_data_root())
+    from src.scraper.infrastructure.fetch_stats_repository import FetchStatsRepository
+
+    return FetchStatsRepository(session)
+
+
+def get_scheduler_log_repo(session=None):
+    """返回 SchedulerLogStore 形态 repo(async 读/cleanup)。file:FileSchedulerLogStore;sqlalchemy:SchedulerExecutionLogRepository(session)。"""
+    if _data_layer() == "file":
+        from src.scraper.infrastructure.file_scheduler_log_repository import FileSchedulerLogStore
+
+        return FileSchedulerLogStore(_data_root())
+    from src.scraper.infrastructure.scheduler_log_repository import SchedulerExecutionLogRepository
+
+    return SchedulerExecutionLogRepository(session)
