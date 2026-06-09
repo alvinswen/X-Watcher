@@ -53,3 +53,19 @@ def test_build_read_cases_shape():
             assert c.db is None
         else:
             assert c.db is not None
+
+
+async def test_write_case_file_side_does_not_mutate_origin(tmp_path):
+    from src.data_layer.bench.cases import build_write_case, seed_tiny_tweet_fixture
+    from src.data_layer.bench.harness import measure_side
+    from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
+
+    origin = tmp_path / "origin"
+    await seed_tiny_tweet_fixture(str(origin), n=3)
+
+    case = build_write_case(data_root=str(origin), batch_size=5)
+    await measure_side(case.file, n_warm=1)
+
+    # 原盘仍只有 3 条(写发生在 temp 副本,teardown 已清理)
+    after = await FileTweetStore(origin).get_all_tweets()
+    assert len(after) == 3

@@ -154,3 +154,74 @@ def build_read_cases(*, data_root: str, author: str = DEFAULT_AUTHOR) -> list[Be
     ))
 
     return cases
+
+
+def _synthetic_tweets(n: int, *, run_tag: str):
+    from datetime import datetime, timezone
+
+    from src.scraper.domain.models import Tweet
+
+    return [
+        Tweet(
+            tweet_id=f"bench-{run_tag}-{i}",
+            text=f"bench write {i}",
+            created_at=datetime(2026, 6, 1, 0, 0, (i % 60), tzinfo=timezone.utc).replace(tzinfo=None),
+            author_username="benchwriter",
+        )
+        for i in range(n)
+    ]
+
+
+def build_write_case(*, data_root: str, batch_size: int = 100) -> BenchCase:
+    """写路径:save_tweets([batch_size 合成新推])。
+    file:setup copytree data_root→fresh temp + 指向 temp;thunk 写合成批;teardown 删 temp。
+    db  :thunk save_tweets 后 rollback(只 flush 不 commit,pg 不污染)。
+    合成批=全新 tweet_id 避开 save_tweets 去重早停(报告诚实标合成写批)。
+    """
+    import shutil
+    import tempfile
+
+    state: dict = {"tmp": None, "run": 0}
+
+    # ---- file side ----
+    def file_setup():
+        state["run"] += 1
+        tmp = tempfile.mkdtemp(prefix="xw-bench-write-")
+        src = Path(data_root)
+        if src.exists():
+            shutil.copytree(src, tmp, dirs_exist_ok=True)
+        state["tmp"] = tmp
+
+    def file_thunk():
+        from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
+
+        store = FileTweetStore(Path(state["tmp"]))
+        batch = _synthetic_tweets(batch_size, run_tag=f"f{state['run']}")
+        return store.save_tweets(batch, early_stop_threshold=0)
+
+    def file_teardown():
+        if state["tmp"]:
+            shutil.rmtree(state["tmp"], ignore_errors=True)
+            state["tmp"] = None
+
+    # ---- db side ----
+    db_state: dict = {"run": 0}
+
+    async def db_thunk():
+        from src.scraper.infrastructure.repository import TweetRepository
+
+        db_state["run"] += 1
+        maker = _async_session_maker()
+        async with maker() as s:
+            batch = _synthetic_tweets(batch_size, run_tag=f"d{db_state['run']}")
+            try:
+                return await TweetRepository(s).save_tweets(batch, early_stop_threshold=0)
+            finally:
+                await s.rollback()  # 只 flush 未 commit → 撤销,pg 不污染
+
+    return BenchCase(
+        name=f"写 save_tweets(batch={batch_size} 合成新推)",
+        file=Side(thunk=file_thunk, setup=file_setup, teardown=file_teardown),
+        db=Side(thunk=db_thunk),
+        note="file: temp 副本(copytree 计时区外)+合成批; db: flush 后 rollback。合成写批非真数据写",
+    )
