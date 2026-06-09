@@ -277,9 +277,15 @@ class _FileImportSyncAdapter:
         self._tmp = None
         if dry_run:
             self._tmp = tempfile.mkdtemp(prefix="xw-import-dryrun-")
-            src = Path(data_root)
-            if src.exists():
-                shutil.copytree(src, self._tmp, dirs_exist_ok=True)
+            try:
+                src = Path(data_root)
+                if src.exists():
+                    shutil.copytree(src, self._tmp, dirs_exist_ok=True)
+            except Exception:
+                # 构造期 copytree 失败(磁盘满/权限):先清理 temp 再上抛,避免泄漏
+                shutil.rmtree(self._tmp, ignore_errors=True)
+                self._tmp = None
+                raise
             root = self._tmp
         else:
             root = data_root
