@@ -69,3 +69,35 @@ async def test_write_case_file_side_does_not_mutate_origin(tmp_path):
     # 原盘仍只有 3 条(写发生在 temp 副本,teardown 已清理)
     after = await FileTweetStore(origin).get_all_tweets()
     assert len(after) == 3
+
+
+# ---- Task 6: 聚合用例 + copytree 探针 + asyncio.run 桥基线 ----
+from src.data_layer.bench.cases import (
+    build_aggregate_case,
+    build_copytree_probe,
+    measure_bridge_overhead_ms,
+)
+
+
+async def test_aggregate_case_file_thunk_runs_on_tiny_fixture(tmp_path):
+    from src.data_layer.bench.cases import seed_tiny_summary_fixture
+
+    await seed_tiny_summary_fixture(str(tmp_path), n=2)
+    case = build_aggregate_case(data_root=str(tmp_path))
+    res = case.file.thunk()
+    if hasattr(res, "__await__"):
+        res = await res
+    assert res is not None  # CostStats 返回
+
+
+async def test_copytree_probe_returns_seconds_and_mb(tmp_path):
+    from src.data_layer.bench.cases import seed_tiny_tweet_fixture
+
+    await seed_tiny_tweet_fixture(str(tmp_path), n=3)
+    secs, mb = build_copytree_probe(data_root=str(tmp_path))()
+    assert secs >= 0 and mb >= 0
+
+
+async def test_bridge_overhead_returns_nonneg():
+    ms = await measure_bridge_overhead_ms(n=5)
+    assert ms >= 0

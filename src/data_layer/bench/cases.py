@@ -225,3 +225,95 @@ def build_write_case(*, data_root: str, batch_size: int = 100) -> BenchCase:
         db=Side(thunk=db_thunk),
         note="file: temp 副本(copytree 计时区外)+合成批; db: flush 后 rollback。合成写批非真数据写",
     )
+
+
+# ---- Task 6: 聚合用例 + copytree 探针 + asyncio.run 桥基线 ----
+async def seed_tiny_summary_fixture(data_root: str, n: int = 2) -> None:
+    """往 data_root 写 n 条合成 summary(file 模式),供聚合单测。"""
+    from datetime import datetime, timezone
+
+    from src.summarization.domain.models import SummaryRecord
+    from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
+
+    store = FileSummaryStore(Path(data_root))
+    records = []
+    for i in range(n):
+        records.append(SummaryRecord(
+            summary_id=f"tiny-sum-{i}",
+            tweet_id=f"tiny-{i}",
+            summary_text=f"s{i}",
+            model_provider="openai",
+            model_name="gpt",
+            prompt_tokens=10, completion_tokens=5, total_tokens=15,
+            cost_usd=0.001,
+            content_hash=f"h{i}",
+            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc).replace(tzinfo=None),
+            updated_at=datetime(2026, 1, 1, tzinfo=timezone.utc).replace(tzinfo=None),
+        ))
+    await store.seed(records)
+
+
+def build_aggregate_case(*, data_root: str) -> BenchCase:
+    """聚合:file get_cost_stats(读时全扫) ↔ DB SummarizationRepository.get_cost_stats(SUM/GROUP BY)。"""
+    def file_thunk():
+        from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
+
+        return FileSummaryStore(Path(data_root)).get_cost_stats()
+
+    async def db_thunk():
+        maker = _async_session_maker()
+        async with maker() as s:
+            from src.summarization.infrastructure.repository import SummarizationRepository
+
+            return await SummarizationRepository(s).get_cost_stats()
+
+    return BenchCase(
+        name="聚合 get_cost_stats",
+        file=Side(thunk=file_thunk),
+        db=Side(thunk=db_thunk),
+        note="读时全扫聚合 vs SUM/GROUP BY",
+    )
+
+
+def _dir_size_mb(path: Path) -> float:
+    total = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+    return total / (1024 * 1024)
+
+
+def build_copytree_probe(*, data_root: str):
+    """返回 0-arg probe:计时 get_import_repo(dry_run=True) 构造期 copytree + 返回 (秒, 体积MB)。
+    用 file 模式;构造后立即 close 清理 temp。"""
+    def probe():
+        from time import perf_counter
+
+        mb = _dir_size_mb(Path(data_root))
+        with data_layer_mode("file", data_root=data_root):
+            from src.data_layer.provider import get_import_repo
+
+            t0 = perf_counter()
+            repo = get_import_repo(dry_run=True)
+            secs = perf_counter() - t0
+            if hasattr(repo, "close"):
+                repo.close()
+        return secs, mb
+
+    return probe
+
+
+async def measure_bridge_overhead_ms(n: int = 7) -> float:
+    """测 asyncio.run(trivial) loop 起停开销中位(毫秒)。须在无 running loop 的线程跑。"""
+    import asyncio
+    from statistics import median
+    from time import perf_counter
+
+    async def _trivial():
+        return None
+
+    def _one() -> float:
+        t0 = perf_counter()
+        asyncio.run(_trivial())
+        return (perf_counter() - t0) * 1000.0
+
+    # 当前协程已在 loop 内,asyncio.run 不能嵌套 → 在 worker 线程跑
+    samples = await asyncio.to_thread(lambda: [_one() for _ in range(n)])
+    return median(samples)
