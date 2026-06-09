@@ -256,3 +256,74 @@ def get_export_repo(session=None):
     from src.sync.infrastructure.export_repository import ExportRepository
 
     return _SqlalchemyExportDictAdapter(ExportRepository(session))
+
+
+class _FileImportSyncAdapter:
+    """file 模式 import 同步门面:asyncio.run 桥 async FileImportStore.import_*。
+
+    dry_run=True 时 copytree data_root→temp、FileImportStore 指向 temp 跑、close() 清理 temp
+    → 真数据未动(per-category 独立副本匹配 sqlalchemy per-category rollback 隔离)。
+    调用上下文无 running loop(路由 to_thread / CLI 同步)→ asyncio.run 安全。
+    """
+
+    def __init__(self, data_root, dry_run=False) -> None:
+        import shutil
+        import tempfile
+        from pathlib import Path
+
+        from src.sync.infrastructure.file_import_repository import FileImportStore
+
+        self._dry_run = dry_run
+        self._tmp = None
+        if dry_run:
+            self._tmp = tempfile.mkdtemp(prefix="xw-import-dryrun-")
+            src = Path(data_root)
+            if src.exists():
+                shutil.copytree(src, self._tmp, dirs_exist_ok=True)
+            root = self._tmp
+        else:
+            root = data_root
+        self._store = FileImportStore(root)
+
+    def _run(self, coro):
+        import asyncio
+        return asyncio.run(coro)
+
+    def import_follows(self, items, strategy):
+        return self._run(self._store.import_follows(items, strategy))
+
+    def import_schedule_config(self, item, strategy):
+        return self._run(self._store.import_schedule_config(item, strategy))
+
+    def import_tweets(self, items, strategy):
+        return self._run(self._store.import_tweets(items, strategy))
+
+    def import_summaries(self, items, strategy):
+        return self._run(self._store.import_summaries(items, strategy))
+
+    def import_articles(self, items, strategy):
+        return self._run(self._store.import_articles(items, strategy))
+
+    def import_topics(self, items, strategy):
+        return self._run(self._store.import_topics(items, strategy))
+
+    def close(self) -> None:
+        """清理 dry_run temp 副本(非 dry_run 无副本,no-op)。"""
+        if self._tmp is not None:
+            import shutil
+
+            shutil.rmtree(self._tmp, ignore_errors=True)
+            self._tmp = None
+
+
+def get_import_repo(session=None, dry_run=False):
+    """返回 import 门面(6 方法同名同形 import_*→ImportStats)。
+
+    file 模式:_FileImportSyncAdapter(asyncio.run 桥;dry_run=True copytree 隔离写,真数据未动)。
+    sqlalchemy 模式:旧 ImportRepository(session)(dry_run 由 import_service session.rollback 处理)。
+    """
+    if _data_layer() == "file":
+        return _FileImportSyncAdapter(_data_root(), dry_run=dry_run)
+    from src.sync.infrastructure.import_repository import ImportRepository
+
+    return ImportRepository(session)
