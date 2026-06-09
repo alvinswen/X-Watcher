@@ -82,8 +82,14 @@ def _async_session_maker():
 DEFAULT_AUTHOR = "elonmusk"
 
 
-def build_read_cases(*, data_root: str, author: str = DEFAULT_AUTHOR) -> list[BenchCase]:
+def build_read_cases(*, data_root: str, author: str = DEFAULT_AUTHOR,
+                     by_day=None) -> list[BenchCase]:
+    """by_day: file-only by-day 用例测哪一天(默认 2026-05-29 = data_migrated 高峰日 488 推,
+    避免测到近空日没代表性;传入 datetime.date 覆盖)。"""
     from datetime import date, datetime, timezone
+
+    if by_day is None:
+        by_day = date(2026, 5, 29)
 
     from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
 
@@ -127,11 +133,11 @@ def build_read_cases(*, data_root: str, author: str = DEFAULT_AUTHOR) -> list[Be
     # 3) file-only by-day
     def file_by_day():
         return FileTweetStore(Path(data_root)).get_by_day(
-            date(2026, 1, 1), tz_offset_min=0, min_text_length=0, limit=None
+            by_day, tz_offset_min=0, min_text_length=0, limit=None
         )
 
     cases.append(BenchCase(
-        name="by-day get_by_day(file-only)",
+        name=f"by-day get_by_day(file-only,{by_day})",
         file=Side(thunk=file_by_day),
         db=None,
         note="DB 侧无 repo 配对,由 feed/browse 服务层查询承接",
