@@ -317,3 +317,33 @@ async def measure_bridge_overhead_ms(n: int = 7) -> float:
     # 当前协程已在 loop 内,asyncio.run 不能嵌套 → 在 worker 线程跑
     samples = await asyncio.to_thread(lambda: [_one() for _ in range(n)])
     return median(samples)
+
+
+# ---- Task 7: runner 依赖的助手 ----
+def probe_real_author(data_root: str) -> str:
+    """从 data_migrated tweets 盘面取一个真实作者名(canonical 分片目录名)。"""
+    base = Path(data_root) / "tweets"
+    if base.exists():
+        for child in sorted(base.iterdir()):
+            if child.is_dir():
+                return child.name
+    return DEFAULT_AUTHOR
+
+
+async def measure_nit3_engine_ms(n: int = 7) -> float:
+    """测 file 模式 export/import 路径仍建的 sync engine+Session 开销中位(毫秒)。"""
+    import asyncio
+    from statistics import median
+    from time import perf_counter
+
+    def _one() -> float:
+        from sqlalchemy.orm import Session
+
+        from src.database.models import get_engine
+
+        t0 = perf_counter()
+        with Session(get_engine()):
+            pass
+        return (perf_counter() - t0) * 1000.0
+
+    return median(await asyncio.to_thread(lambda: [_one() for _ in range(n)]))
