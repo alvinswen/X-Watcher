@@ -3,6 +3,8 @@
 按 FK 顺序处理 categories，应用冲突策略，dry-run 支持，per-category 事务。
 """
 
+from __future__ import annotations
+
 from typing import Any
 
 from sqlalchemy.orm import Session, sessionmaker
@@ -14,7 +16,7 @@ from src.sync.domain.models import (
     ImportStats,
     SyncCategory,
 )
-from src.sync.infrastructure.import_repository import ImportRepository
+from src.data_layer.provider import get_import_repo
 
 
 class ImportService:
@@ -70,9 +72,8 @@ class ImportService:
     ) -> None:
         """在独立事务中导入一个 category。"""
         session: Session = self._session_factory()
+        repo = get_import_repo(session, dry_run=dry_run)
         try:
-            repo = ImportRepository(session)
-
             if category == "config":
                 self._import_config(repo, data, strategy, result)
             elif category == "content":
@@ -89,6 +90,8 @@ class ImportService:
             result.success = False
             result.errors.append(f"[{category}] {e}")
         finally:
+            if hasattr(repo, "close"):
+                repo.close()
             session.close()
 
     def _import_config(
