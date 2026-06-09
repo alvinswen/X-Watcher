@@ -84,6 +84,10 @@ async def test_aggregate_case_file_thunk_runs_on_tiny_fixture(tmp_path):
 
     await seed_tiny_summary_fixture(str(tmp_path), n=2)
     case = build_aggregate_case(data_root=str(tmp_path))
+    # handle 在 setup 获取(计时外口径),先跑 setup 再 thunk
+    r = case.file.setup()
+    if hasattr(r, "__await__"):
+        await r
     res = case.file.thunk()
     if hasattr(res, "__await__"):
         res = await res
@@ -101,3 +105,14 @@ async def test_copytree_probe_returns_seconds_and_mb(tmp_path):
 async def test_bridge_overhead_returns_nonneg():
     ms = await measure_bridge_overhead_ms(n=5)
     assert ms >= 0
+
+
+async def test_handle_acquisition_case_file_thunk_constructs(tmp_path):
+    from src.data_layer.bench.cases import build_handle_acquisition_case, seed_tiny_tweet_fixture
+    from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
+
+    await seed_tiny_tweet_fixture(str(tmp_path), n=3)
+    case = build_handle_acquisition_case(data_root=str(tmp_path))
+    store = case.file.thunk()  # 构造 FileTweetStore(无 setup,直接构造)
+    assert isinstance(store, FileTweetStore)
+    assert case.db is not None  # db 配对 = session 获取

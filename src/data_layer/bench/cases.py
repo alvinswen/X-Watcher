@@ -84,68 +84,89 @@ DEFAULT_AUTHOR = "elonmusk"
 
 def build_read_cases(*, data_root: str, author: str = DEFAULT_AUTHOR,
                      by_day=None) -> list[BenchCase]:
-    """by_day: file-only by-day 用例测哪一天(默认 2026-05-29 = data_migrated 高峰日 488 推,
-    避免测到近空日没代表性;传入 datetime.date 覆盖)。"""
+    """读用例:handle(file store / db repo+session)在 setup(计时外)lazy-once 获取,
+    thunk 只测操作本身(不含 FileTweetStore 构造的 index+view rebuild ~0.69s)。
+    by_day: file-only by-day 测哪天(默认 2026-05-29 = data_migrated 高峰日 488 推)。"""
     from datetime import date, datetime, timezone
 
     if by_day is None:
         by_day = date(2026, 5, 29)
 
-    from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
-
     cases: list[BenchCase] = []
 
-    # 1) 全量读
-    def file_get_all():
-        return FileTweetStore(Path(data_root)).get_all_tweets()
+    # 1) 全量读:file get_all_tweets() ↔ DB(sync)ExportRepository.get_tweets()
+    f1: dict = {}
+    def f1_setup():
+        if "h" not in f1:
+            from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
+            f1["h"] = FileTweetStore(Path(data_root))
+    def f1_thunk():
+        return f1["h"].get_all_tweets()
 
-    def db_get_all():
-        repo, session = _sync_export_repo()
-        try:
-            return repo.get_tweets(since=None, until=None, authors=None)
-        finally:
-            session.close()
+    d1: dict = {}
+    def d1_setup():
+        if "h" not in d1:
+            repo, session = _sync_export_repo()
+            d1["h"], d1["s"] = repo, session
+    def d1_thunk():
+        return d1["h"].get_tweets(since=None, until=None, authors=None)
 
     cases.append(BenchCase(
         name="全量读 get_all_tweets↔export.get_tweets",
-        file=Side(thunk=file_get_all),
-        db=Side(thunk=db_get_all),
-        note="749 分片全扫 vs SELECT 全表(最大疑点)",
+        file=Side(thunk=f1_thunk, setup=f1_setup),
+        db=Side(thunk=d1_thunk, setup=d1_setup),
+        note="749 分片全扫 vs SELECT 全表(最大疑点;handle 计时外)",
     ))
 
-    # 2) 索引读
-    def file_by_author():
-        return FileTweetStore(Path(data_root)).get_tweets_by_author(author, limit=100)
+    # 2) 索引读:file get_tweets_by_author ↔ DB(async)TweetRepository.get_tweets_by_author
+    f2: dict = {}
+    def f2_setup():
+        if "h" not in f2:
+            from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
+            f2["h"] = FileTweetStore(Path(data_root))
+    def f2_thunk():
+        return f2["h"].get_tweets_by_author(author, limit=100)
 
-    async def db_by_author():
-        maker = _async_session_maker()
-        async with maker() as s:
+    d2: dict = {}
+    async def d2_setup():
+        if "h" not in d2:
             from src.scraper.infrastructure.repository import TweetRepository
-            return await TweetRepository(s).get_tweets_by_author(author, limit=100)
+            s = _async_session_maker()()
+            d2["h"], d2["s"] = TweetRepository(s), s
+    async def d2_thunk():
+        return await d2["h"].get_tweets_by_author(author, limit=100)
 
     cases.append(BenchCase(
         name="索引读 get_tweets_by_author",
-        file=Side(thunk=file_by_author),
-        db=Side(thunk=db_by_author),
-        note=f"扫作者分片+排序 vs B-tree 索引(author={author})",
+        file=Side(thunk=f2_thunk, setup=f2_setup),
+        db=Side(thunk=d2_thunk, setup=d2_setup),
+        note=f"扫作者分片+排序 vs B-tree 索引(author={author};handle 计时外)",
     ))
 
     # 3) file-only by-day
-    def file_by_day():
-        return FileTweetStore(Path(data_root)).get_by_day(
-            by_day, tz_offset_min=0, min_text_length=0, limit=None
-        )
+    f3: dict = {}
+    def f3_setup():
+        if "h" not in f3:
+            from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
+            f3["h"] = FileTweetStore(Path(data_root))
+    def f3_thunk():
+        return f3["h"].get_by_day(by_day, tz_offset_min=0, min_text_length=0, limit=None)
 
     cases.append(BenchCase(
         name=f"by-day get_by_day(file-only,{by_day})",
-        file=Side(thunk=file_by_day),
+        file=Side(thunk=f3_thunk, setup=f3_setup),
         db=None,
-        note="DB 侧无 repo 配对,由 feed/browse 服务层查询承接",
+        note="DB 侧无 repo 配对,由 feed/browse 服务层查询承接(handle 计时外)",
     ))
 
     # 4) file-only 分页
-    def file_pagination():
-        return FileTweetStore(Path(data_root)).get_by_author_range(
+    f4: dict = {}
+    def f4_setup():
+        if "h" not in f4:
+            from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
+            f4["h"] = FileTweetStore(Path(data_root))
+    def f4_thunk():
+        return f4["h"].get_by_author_range(
             author,
             since=datetime(2000, 1, 1, tzinfo=timezone.utc),
             until=datetime(2100, 1, 1, tzinfo=timezone.utc),
@@ -154,9 +175,9 @@ def build_read_cases(*, data_root: str, author: str = DEFAULT_AUTHOR,
 
     cases.append(BenchCase(
         name="分页 get_by_author_range(file-only)",
-        file=Side(thunk=file_pagination),
+        file=Side(thunk=f4_thunk, setup=f4_setup),
         db=None,
-        note=f"DB 侧无 repo 配对(author={author})",
+        note=f"DB 侧无 repo 配对(author={author};handle 计时外)",
     ))
 
     return cases
@@ -179,57 +200,57 @@ def _synthetic_tweets(n: int, *, run_tag: str):
 
 
 def build_write_case(*, data_root: str, batch_size: int = 100) -> BenchCase:
-    """写路径:save_tweets([batch_size 合成新推])。
-    file:setup copytree data_root→fresh temp + 指向 temp;thunk 写合成批;teardown 删 temp。
-    db  :thunk save_tweets 后 rollback(只 flush 不 commit,pg 不污染)。
-    合成批=全新 tweet_id 避开 save_tweets 去重早停(报告诚实标合成写批)。
-    """
+    """写路径:save_tweets([batch_size 合成新推]),只测写本身(store 构造/session 获取在计时外)。
+    file:setup copytree→fresh temp + 构造 store(计时外);thunk save_tweets;teardown 删 temp。
+    db  :setup lazy-once session;thunk save_tweets;teardown rollback(只 flush 不 commit,pg 不污染)。
+    合成批=全新 tweet_id 避开去重早停(报告诚实标合成写批)。"""
     import shutil
     import tempfile
 
-    state: dict = {"tmp": None, "run": 0}
+    fstate: dict = {"tmp": None, "store": None, "run": 0}
 
-    # ---- file side ----
     def file_setup():
-        state["run"] += 1
+        from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
+        fstate["run"] += 1
         tmp = tempfile.mkdtemp(prefix="xw-bench-write-")
         src = Path(data_root)
         if src.exists():
             shutil.copytree(src, tmp, dirs_exist_ok=True)
-        state["tmp"] = tmp
+        fstate["tmp"] = tmp
+        fstate["store"] = FileTweetStore(Path(tmp))  # 构造计时外
 
     def file_thunk():
-        from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
-
-        store = FileTweetStore(Path(state["tmp"]))
-        batch = _synthetic_tweets(batch_size, run_tag=f"f{state['run']}")
-        return store.save_tweets(batch, early_stop_threshold=0)
+        batch = _synthetic_tweets(batch_size, run_tag=f"f{fstate['run']}")
+        return fstate["store"].save_tweets(batch, early_stop_threshold=0)
 
     def file_teardown():
-        if state["tmp"]:
-            shutil.rmtree(state["tmp"], ignore_errors=True)
-            state["tmp"] = None
+        if fstate["tmp"]:
+            shutil.rmtree(fstate["tmp"], ignore_errors=True)
+            fstate["tmp"] = None
+            fstate["store"] = None
 
-    # ---- db side ----
-    db_state: dict = {"run": 0}
+    dstate: dict = {"s": None, "repo": None, "run": 0}
+
+    async def db_setup():
+        if dstate["s"] is None:
+            from src.scraper.infrastructure.repository import TweetRepository
+            s = _async_session_maker()()
+            dstate["s"], dstate["repo"] = s, TweetRepository(s)
 
     async def db_thunk():
-        from src.scraper.infrastructure.repository import TweetRepository
+        dstate["run"] += 1
+        batch = _synthetic_tweets(batch_size, run_tag=f"d{dstate['run']}")
+        return await dstate["repo"].save_tweets(batch, early_stop_threshold=0)
 
-        db_state["run"] += 1
-        maker = _async_session_maker()
-        async with maker() as s:
-            batch = _synthetic_tweets(batch_size, run_tag=f"d{db_state['run']}")
-            try:
-                return await TweetRepository(s).save_tweets(batch, early_stop_threshold=0)
-            finally:
-                await s.rollback()  # 只 flush 未 commit → 撤销,pg 不污染
+    async def db_teardown():
+        if dstate["s"] is not None:
+            await dstate["s"].rollback()  # 撤销本轮写,pg 不污染(untimed)
 
     return BenchCase(
         name=f"写 save_tweets(batch={batch_size} 合成新推)",
         file=Side(thunk=file_thunk, setup=file_setup, teardown=file_teardown),
-        db=Side(thunk=db_thunk),
-        note="file: temp 副本(copytree 计时区外)+合成批; db: flush 后 rollback。合成写批非真数据写",
+        db=Side(thunk=db_thunk, setup=db_setup, teardown=db_teardown),
+        note="只测写本身;file temp 副本+合成批,db flush 后 rollback。合成写批非真数据写",
     )
 
 
@@ -260,24 +281,49 @@ async def seed_tiny_summary_fixture(data_root: str, n: int = 2) -> None:
 
 
 def build_aggregate_case(*, data_root: str) -> BenchCase:
-    """聚合:file get_cost_stats(读时全扫) ↔ DB SummarizationRepository.get_cost_stats(SUM/GROUP BY)。"""
+    """聚合:file get_cost_stats(读时全扫) ↔ DB get_cost_stats(SUM/GROUP BY)。handle 计时外。"""
+    f: dict = {}
+    def file_setup():
+        if "h" not in f:
+            from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
+            f["h"] = FileSummaryStore(Path(data_root))
     def file_thunk():
-        from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
+        return f["h"].get_cost_stats()
 
-        return FileSummaryStore(Path(data_root)).get_cost_stats()
-
-    async def db_thunk():
-        maker = _async_session_maker()
-        async with maker() as s:
+    d: dict = {}
+    async def db_setup():
+        if "h" not in d:
             from src.summarization.infrastructure.repository import SummarizationRepository
-
-            return await SummarizationRepository(s).get_cost_stats()
+            s = _async_session_maker()()
+            d["h"], d["s"] = SummarizationRepository(s), s
+    async def db_thunk():
+        return await d["h"].get_cost_stats()
 
     return BenchCase(
         name="聚合 get_cost_stats",
+        file=Side(thunk=file_thunk, setup=file_setup),
+        db=Side(thunk=db_thunk, setup=db_setup),
+        note="读时全扫聚合 vs SUM/GROUP BY(handle 计时外)",
+    )
+
+
+def build_handle_acquisition_case(*, data_root: str) -> BenchCase:
+    """handle 获取成本:file FileTweetStore 构造(TweetIdIndex.build 全扫 + views.rebuild_by_day
+    全重建,写密集)↔ DB 从连接池获取 session。这是 file 模式相对 DB 的"取 repo"开销(真实 app
+    每抓取周期付一次,非每请求)。"""
+    def file_thunk():
+        from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
+        return FileTweetStore(Path(data_root))
+
+    async def db_thunk():
+        s = _async_session_maker()()
+        await s.close()
+
+    return BenchCase(
+        name="handle 获取 FileTweetStore 构造↔db session 获取",
         file=Side(thunk=file_thunk),
         db=Side(thunk=db_thunk),
-        note="读时全扫聚合 vs SUM/GROUP BY",
+        note="file=TweetIdIndex.build 全扫+views.rebuild_by_day 全重建(写);db=连接池取 session",
     )
 
 

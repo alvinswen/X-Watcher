@@ -68,6 +68,7 @@ async def main() -> int:
         C.build_read_cases(data_root=data_root, author=author)
         + [C.build_write_case(data_root=data_root, batch_size=args.batch)]
         + [C.build_aggregate_case(data_root=data_root)]
+        + [C.build_handle_acquisition_case(data_root=data_root)]
     )
 
     for case in bench_cases:
