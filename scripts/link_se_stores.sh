@@ -43,6 +43,9 @@ MANIFEST=(
   "analytics/infrastructure/file_clustering_repository.py"
   "user/infrastructure/user_store.py"
   "user/infrastructure/file_user_repository.py"
+  "sync/infrastructure/export_serializers.py"              # 子项目5:FileExportStore 依赖的序列化器
+  "sync/infrastructure/file_export_repository.py"          # 子项目5:FileExportStore
+  "sync/infrastructure/file_import_repository.py"          # 子项目5:FileImportStore
 )
 
 for rel in "${MANIFEST[@]}"; do
