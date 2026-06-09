@@ -20,3 +20,36 @@ def test_data_layer_mode_restores_prior_value():
         assert os.environ["XWATCHER_DATA_LAYER"] == "file"
     assert os.environ["XWATCHER_DATA_LAYER"] == "sqlalchemy"
     os.environ.pop("XWATCHER_DATA_LAYER", None)
+
+
+import asyncio
+from datetime import datetime, timezone
+
+from src.data_layer.bench.cases import (
+    build_read_cases,
+    seed_tiny_tweet_fixture,
+)
+from src.data_layer.bench.harness import Side
+
+
+async def test_tiny_fixture_then_file_get_all_thunk_counts(tmp_path):
+    await seed_tiny_tweet_fixture(str(tmp_path), n=3)
+    from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
+
+    store = FileTweetStore(tmp_path)
+    tweets = await store.get_all_tweets()
+    assert len(tweets) == 3
+
+
+def test_build_read_cases_shape():
+    cases = build_read_cases(data_root="/tmp/xw-bench-z")
+    names = {c.name for c in cases}
+    assert "全量读 get_all_tweets↔export.get_tweets" in names
+    assert "索引读 get_tweets_by_author" in names
+    assert any("by-day" in n for n in names)
+    for c in cases:
+        assert isinstance(c.file, Side)
+        if "by-day" in c.name or "分页" in c.name:
+            assert c.db is None
+        else:
+            assert c.db is not None
