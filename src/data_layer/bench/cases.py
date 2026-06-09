@@ -103,19 +103,20 @@ def build_read_cases(*, data_root: str, author: str = DEFAULT_AUTHOR,
     def f1_thunk():
         return f1["h"].get_all_tweets()
 
-    d1: dict = {}
-    def d1_setup():
-        if "h" not in d1:
-            repo, session = _sync_export_repo()
-            d1["h"], d1["s"] = repo, session
     def d1_thunk():
-        return d1["h"].get_tweets(since=None, until=None, authors=None)
+        # db 侧每 thunk 上下文管理 session(获取 ~ms 可忽略;leak-free)。
+        from sqlalchemy.orm import Session
+
+        from src.database.models import get_engine
+        from src.sync.infrastructure.export_repository import ExportRepository
+        with Session(get_engine()) as s:
+            return ExportRepository(s).get_tweets(since=None, until=None, authors=None)
 
     cases.append(BenchCase(
         name="全量读 get_all_tweets↔export.get_tweets",
         file=Side(thunk=f1_thunk, setup=f1_setup),
-        db=Side(thunk=d1_thunk, setup=d1_setup),
-        note="749 分片全扫 vs SELECT 全表(最大疑点;handle 计时外)",
+        db=Side(thunk=d1_thunk),
+        note="749 分片全扫 vs SELECT 全表(最大疑点;file handle 计时外,db session 每 thunk)",
     ))
 
     # 2) 索引读:file get_tweets_by_author ↔ DB(async)TweetRepository.get_tweets_by_author
@@ -127,20 +128,16 @@ def build_read_cases(*, data_root: str, author: str = DEFAULT_AUTHOR,
     def f2_thunk():
         return f2["h"].get_tweets_by_author(author, limit=100)
 
-    d2: dict = {}
-    async def d2_setup():
-        if "h" not in d2:
-            from src.scraper.infrastructure.repository import TweetRepository
-            s = _async_session_maker()()
-            d2["h"], d2["s"] = TweetRepository(s), s
     async def d2_thunk():
-        return await d2["h"].get_tweets_by_author(author, limit=100)
+        from src.scraper.infrastructure.repository import TweetRepository
+        async with _async_session_maker()() as s:
+            return await TweetRepository(s).get_tweets_by_author(author, limit=100)
 
     cases.append(BenchCase(
         name="索引读 get_tweets_by_author",
         file=Side(thunk=f2_thunk, setup=f2_setup),
-        db=Side(thunk=d2_thunk, setup=d2_setup),
-        note=f"扫作者分片+排序 vs B-tree 索引(author={author};handle 计时外)",
+        db=Side(thunk=d2_thunk),
+        note=f"扫作者分片+排序 vs B-tree 索引(author={author};file handle 计时外,db session 每 thunk)",
     ))
 
     # 3) file-only by-day
@@ -229,28 +226,24 @@ def build_write_case(*, data_root: str, batch_size: int = 100) -> BenchCase:
             fstate["tmp"] = None
             fstate["store"] = None
 
-    dstate: dict = {"s": None, "repo": None, "run": 0}
-
-    async def db_setup():
-        if dstate["s"] is None:
-            from src.scraper.infrastructure.repository import TweetRepository
-            s = _async_session_maker()()
-            dstate["s"], dstate["repo"] = s, TweetRepository(s)
+    dstate: dict = {"run": 0}
 
     async def db_thunk():
+        # db 侧每 thunk 上下文管理 session(leak-free);save 后 rollback(只 flush 不 commit,pg 不污染)。
+        from src.scraper.infrastructure.repository import TweetRepository
         dstate["run"] += 1
         batch = _synthetic_tweets(batch_size, run_tag=f"d{dstate['run']}")
-        return await dstate["repo"].save_tweets(batch, early_stop_threshold=0)
-
-    async def db_teardown():
-        if dstate["s"] is not None:
-            await dstate["s"].rollback()  # 撤销本轮写,pg 不污染(untimed)
+        async with _async_session_maker()() as s:
+            try:
+                return await TweetRepository(s).save_tweets(batch, early_stop_threshold=0)
+            finally:
+                await s.rollback()
 
     return BenchCase(
         name=f"写 save_tweets(batch={batch_size} 合成新推)",
         file=Side(thunk=file_thunk, setup=file_setup, teardown=file_teardown),
-        db=Side(thunk=db_thunk, setup=db_setup, teardown=db_teardown),
-        note="只测写本身;file temp 副本+合成批,db flush 后 rollback。合成写批非真数据写",
+        db=Side(thunk=db_thunk),
+        note="只测写本身;file temp 副本+合成批(store 计时外),db session 每 thunk+flush 后 rollback。合成写批非真数据写",
     )
 
 
@@ -290,20 +283,16 @@ def build_aggregate_case(*, data_root: str) -> BenchCase:
     def file_thunk():
         return f["h"].get_cost_stats()
 
-    d: dict = {}
-    async def db_setup():
-        if "h" not in d:
-            from src.summarization.infrastructure.repository import SummarizationRepository
-            s = _async_session_maker()()
-            d["h"], d["s"] = SummarizationRepository(s), s
     async def db_thunk():
-        return await d["h"].get_cost_stats()
+        from src.summarization.infrastructure.repository import SummarizationRepository
+        async with _async_session_maker()() as s:
+            return await SummarizationRepository(s).get_cost_stats()
 
     return BenchCase(
         name="聚合 get_cost_stats",
         file=Side(thunk=file_thunk, setup=file_setup),
-        db=Side(thunk=db_thunk, setup=db_setup),
-        note="读时全扫聚合 vs SUM/GROUP BY(handle 计时外)",
+        db=Side(thunk=db_thunk),
+        note="读时全扫聚合 vs SUM/GROUP BY(file handle 计时外,db session 每 thunk)",
     )
 
 

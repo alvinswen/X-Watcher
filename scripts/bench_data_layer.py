@@ -101,6 +101,20 @@ async def main() -> int:
            "extras": extras, "author": author}
     Path(REPO / "bench_results.json").write_text(json.dumps(out, ensure_ascii=False, indent=2))
     print("[DONE] wrote bench_results.json")
+
+    # 显式释放连接池(避免进程退出期 loop-closed GC 噪声警告;不影响已记录的测量数字)
+    try:
+        from src.database.async_session import get_async_engine
+
+        await get_async_engine().dispose()
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from src.database.models import get_engine
+
+        get_engine().dispose()
+    except Exception:  # noqa: BLE001
+        pass
     return 0
 
 
