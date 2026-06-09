@@ -175,3 +175,84 @@ def get_user_repo(session=None):
     from src.user.infrastructure.repository import UserRepository
 
     return UserRepository(session)
+
+
+class _FileExportSyncAdapter:
+    """file 模式 export 同步门面:asyncio.run 桥 async FileExportStore.export_*,统一返 dict。
+
+    调用上下文无 running loop(路由 to_thread 工作线程 / CLI 同步)→ asyncio.run 安全。
+    暴露 export_service 调用的 6 方法名。
+    """
+
+    def __init__(self, store) -> None:
+        self._store = store
+
+    def get_follows(self):
+        import asyncio
+        return asyncio.run(self._store.export_follows())
+
+    def get_schedule_config(self):
+        import asyncio
+        return asyncio.run(self._store.export_schedule_config())
+
+    def get_tweets(self, since=None, until=None, authors=None):
+        import asyncio
+        return asyncio.run(self._store.export_tweets(since=since, until=until, authors=authors))
+
+    def get_summaries(self, tweet_ids=None):
+        import asyncio
+        return asyncio.run(self._store.export_summaries(tweet_ids=tweet_ids))
+
+    def get_articles(self, tweet_ids=None):
+        import asyncio
+        return asyncio.run(self._store.export_articles(tweet_ids=tweet_ids))
+
+    def get_topics(self):
+        import asyncio
+        return asyncio.run(self._store.export_topics())
+
+
+class _SqlalchemyExportDictAdapter:
+    """sqlalchemy 模式 export 门面:套旧 ExportRepository + serializers.*_to_dict,统一返 dict。
+
+    把原 export_service 的序列化职责搬进适配器,使两侧 export_service 消费同格式 dict。
+    """
+
+    def __init__(self, repo) -> None:
+        self._repo = repo
+
+    def get_follows(self):
+        from src.sync.infrastructure.serializers import follow_to_dict
+        return [follow_to_dict(f) for f in self._repo.get_follows()]
+
+    def get_schedule_config(self):
+        from src.sync.infrastructure.serializers import schedule_config_to_dict
+        c = self._repo.get_schedule_config()
+        return schedule_config_to_dict(c) if c is not None else None
+
+    def get_tweets(self, since=None, until=None, authors=None):
+        from src.sync.infrastructure.serializers import tweet_to_dict
+        return [tweet_to_dict(t) for t in self._repo.get_tweets(since=since, until=until, authors=authors)]
+
+    def get_summaries(self, tweet_ids=None):
+        from src.sync.infrastructure.serializers import summary_to_dict
+        return [summary_to_dict(s) for s in self._repo.get_summaries(tweet_ids=tweet_ids)]
+
+    def get_articles(self, tweet_ids=None):
+        from src.sync.infrastructure.serializers import article_to_dict
+        return [article_to_dict(a) for a in self._repo.get_articles(tweet_ids=tweet_ids)]
+
+    def get_topics(self):
+        from src.sync.infrastructure.serializers import topic_to_dict
+        return [topic_to_dict(t) for t in self._repo.get_topics()]
+
+
+def get_export_repo(session=None):
+    """返回 export 门面(统一 6 方法返 dict)。file:_FileExportSyncAdapter;sqlalchemy:_SqlalchemyExportDictAdapter。"""
+    if _data_layer() == "file":
+        from src.sync.infrastructure.file_export_repository import FileExportStore
+
+        return _FileExportSyncAdapter(FileExportStore(_data_root()))
+    from src.sync.infrastructure.export_repository import ExportRepository
+
+    return _SqlalchemyExportDictAdapter(ExportRepository(session))
