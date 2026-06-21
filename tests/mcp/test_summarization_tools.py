@@ -166,6 +166,10 @@ class TestSaveSummaries:
 
         mock_session = AsyncMock()
         mock_session.commit = AsyncMock()
+        # 验证门会批量回查原文；默认返回空 → 各项降级放行
+        _origin_result = MagicMock()
+        _origin_result.fetchall.return_value = []
+        mock_session.execute = AsyncMock(return_value=_origin_result)
         mock_sm = _mock_session_maker(mock_session)
 
         mock_record = MagicMock()
@@ -209,6 +213,10 @@ class TestSaveSummaries:
 
         mock_session = AsyncMock()
         mock_session.commit = AsyncMock()
+        # 验证门会批量回查原文；默认返回空 → 各项降级放行
+        _origin_result = MagicMock()
+        _origin_result.fetchall.return_value = []
+        mock_session.execute = AsyncMock(return_value=_origin_result)
         mock_sm = _mock_session_maker(mock_session)
 
         mock_record = MagicMock()
@@ -242,6 +250,10 @@ class TestSaveSummaries:
 
         mock_session = AsyncMock()
         mock_session.commit = AsyncMock()
+        # 验证门会批量回查原文；默认返回空 → 各项降级放行
+        _origin_result = MagicMock()
+        _origin_result.fetchall.return_value = []
+        mock_session.execute = AsyncMock(return_value=_origin_result)
         mock_sm = _mock_session_maker(mock_session)
 
         mock_record = MagicMock()
@@ -281,6 +293,10 @@ class TestSaveSummaries:
 
         mock_session = AsyncMock()
         mock_session.commit = AsyncMock()
+        # 验证门会批量回查原文；默认返回空 → 各项降级放行
+        _origin_result = MagicMock()
+        _origin_result.fetchall.return_value = []
+        mock_session.execute = AsyncMock(return_value=_origin_result)
         mock_sm = _mock_session_maker(mock_session)
 
         mock_record = MagicMock()
@@ -306,6 +322,56 @@ class TestSaveSummaries:
         assert result["data"]["saved"] == 1
         assert result["data"]["failed"] == 2
         assert len(result["data"]["errors"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_save_rejects_truncated_translation(self, tool_funcs):
+        """验证门：截断译文不入库，计入 failed/errors（替代静默入库）。"""
+        save_summaries = tool_funcs["save_summaries"]
+
+        origin_row = MagicMock()
+        origin_row._mapping = {
+            "tweet_id": "t1",
+            "text": (
+                "People in Africa are not starving. This is a myth. The only "
+                "time there is a shortage of food is when there is a war going "
+                "on and the only way to solve that would be invasion!"
+            ),
+            "referenced_tweet_text": None,
+            "reference_type": None,
+        }
+        mock_session = AsyncMock()
+        mock_session.commit = AsyncMock()
+        _origin_result = MagicMock()
+        _origin_result.fetchall.return_value = [origin_row]
+        mock_session.execute = AsyncMock(return_value=_origin_result)
+        mock_sm = _mock_session_maker(mock_session)
+
+        with (
+            patch("src.mcp.tools.summarization_tools.require_admin", return_value=None),
+            patch("src.database.async_session.get_async_session_maker", return_value=mock_sm),
+            patch(
+                "src.summarization.infrastructure.repository.SummarizationRepository.save_summary_record",
+                new_callable=AsyncMock,
+            ) as mock_save,
+            patch("src.mcp.security.audit_log"),
+        ):
+            summaries = [{
+                "tweet_id": "t1",
+                "summary": "非洲粮食问题摘要",
+                "translation": "非洲人。",  # 严重截断
+            }]
+            result_json = await save_summaries(summaries=summaries)
+
+        result = json.loads(result_json)
+        assert result["data"]["saved"] == 0
+        assert result["data"]["failed"] == 1
+        assert "t1" in result["data"]["errors"][0]
+        mock_save.assert_not_called()
+        # 结构化 rejected 供编排回灌：含 tweet_id 与 reason
+        rejected = result["data"]["rejected"]
+        assert len(rejected) == 1
+        assert rejected[0]["tweet_id"] == "t1"
+        assert "过短" in rejected[0]["reason"]
 
     @pytest.mark.asyncio
     async def test_save_not_array(self, tool_funcs):
