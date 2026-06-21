@@ -9,6 +9,14 @@ from src.database.models import ScraperFollow
 from src.topic.services.topic_service import TopicService
 
 
+@pytest.fixture(autouse=True)
+def _pin_sqlalchemy_layer(monkeypatch):
+    """钉 sqlalchemy 模式:本组是行为保真回归(走真 session),不受本地 .env 的
+    XWATCHER_DATA_LAYER=file 污染(否则 service 经 provider 切到文件层、读到 data_root
+    持久数据 → 跨测试状态泄漏)。file 模式覆盖见 tests/data_layer/test_topic_service_file_mode.py。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
+
+
 # ── 辅助函数 ──
 
 
