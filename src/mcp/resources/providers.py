@@ -171,13 +171,11 @@ def register(mcp: FastMCP) -> None:
             schedule_config = None
             try:
                 from src.database.async_session import get_async_session_maker
-                from src.preference.infrastructure.schedule_repository import (
-                    ScraperScheduleRepository,
-                )
+                from src.data_layer.provider import get_schedule_repo
 
                 session_maker = get_async_session_maker()
                 async with session_maker() as session:
-                    repo = ScraperScheduleRepository(session)
+                    repo = get_schedule_repo(session)
                     config = await repo.get_schedule_config()
                     if config:
                         schedule_config = {

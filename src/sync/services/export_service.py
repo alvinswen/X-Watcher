@@ -13,22 +13,14 @@ from src.sync.domain.models import (
     ExportPackage,
     SyncCategory,
 )
-from src.sync.infrastructure.export_repository import ExportRepository
-from src.sync.infrastructure.serializers import (
-    article_to_dict,
-    follow_to_dict,
-    schedule_config_to_dict,
-    summary_to_dict,
-    topic_to_dict,
-    tweet_to_dict,
-)
+from src.data_layer.provider import get_export_repo
 
 
 class ExportService:
     """编排数据导出流程。"""
 
     def __init__(self, session: Session) -> None:
-        self._repo = ExportRepository(session)
+        self._repo = get_export_repo(session)
 
     def export(
         self,
@@ -88,12 +80,12 @@ class ExportService:
         schedule = self._repo.get_schedule_config()
 
         config_data: dict = {
-            "scraper_follows": [follow_to_dict(f) for f in follows],
+            "scraper_follows": follows,
         }
         counts = {"scraper_follows": len(follows)}
 
         if schedule:
-            config_data["scraper_schedule_config"] = schedule_config_to_dict(schedule)
+            config_data["scraper_schedule_config"] = schedule
             counts["scraper_schedule_config"] = 1
         else:
             config_data["scraper_schedule_config"] = None
@@ -108,15 +100,15 @@ class ExportService:
         authors: list[str] | None,
     ) -> tuple[dict, dict[str, int]]:
         tweets = self._repo.get_tweets(since=since, until=until, authors=authors)
-        tweet_ids = [t.tweet_id for t in tweets] if tweets else None
+        tweet_ids = [t["tweet_id"] for t in tweets] if tweets else None
 
         summaries = self._repo.get_summaries(tweet_ids=tweet_ids)
         articles = self._repo.get_articles(tweet_ids=tweet_ids)
 
         content_data = {
-            "tweets": [tweet_to_dict(t) for t in tweets],
-            "summaries": [summary_to_dict(s) for s in summaries],
-            "articles": [article_to_dict(a) for a in articles],
+            "tweets": tweets,
+            "summaries": summaries,
+            "articles": articles,
         }
         counts = {
             "tweets": len(tweets),
@@ -128,7 +120,7 @@ class ExportService:
     def _export_topics(self) -> tuple[dict, dict[str, int]]:
         topics = self._repo.get_topics()
         topics_data = {
-            "topics": [topic_to_dict(t) for t in topics],
+            "topics": topics,
         }
         counts = {"topics": len(topics)}
         return topics_data, counts

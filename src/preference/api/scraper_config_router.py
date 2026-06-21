@@ -31,11 +31,11 @@ from src.preference.api.schemas import (
     SyncProfilesResponse,
 )
 from src.preference.infrastructure.scraper_config_repository import (
-    ScraperConfigRepository,
     NotFoundError,
     DuplicateError,
     RepositoryError,
 )
+from src.data_layer.provider import get_follows_repo
 from src.preference.services.scraper_config_service import ScraperConfigService
 from src.topic.services.topic_summary_service import build_llm_providers
 
@@ -66,7 +66,7 @@ async def _get_scraper_config_service(
     Returns:
         ScraperConfigService: 服务实例
     """
-    repository = ScraperConfigRepository(session)
+    repository = get_follows_repo(session)
     return ScraperConfigService(repository)
 
 
@@ -209,7 +209,7 @@ async def get_follows_stats(
     Returns:
         list[FollowStatsResponse]: 各账号的运行时统计
     """
-    from src.scraper.infrastructure.fetch_stats_repository import FetchStatsRepository
+    from src.data_layer.provider import get_fetch_stats_repo
     from src.scraper.infrastructure.models import TweetOrm
     from src.scraper.services.limit_calculator import LimitCalculator
 
@@ -223,7 +223,7 @@ async def get_follows_stats(
             return []
 
         # 2. 批量查 FetchStats → 计算 effective_limit
-        stats_repo = FetchStatsRepository(session)
+        stats_repo = get_fetch_stats_repo(session)
         stats_map = await stats_repo.batch_get_stats(usernames)
         calculator = LimitCalculator()
 
@@ -391,12 +391,10 @@ async def get_user_profiles(
 
     返回从 TwitterAPI.io 获取并缓存的 X 平台用户档案列表。
     """
-    from src.preference.infrastructure.x_user_profile_repository import (
-        XUserProfileRepository,
-    )
+    from src.data_layer.provider import get_profile_repo
 
     try:
-        repo = XUserProfileRepository(session)
+        repo = get_profile_repo(session)
         profiles = await repo.get_all_profiles()
         return [
             XUserProfileResponse(
@@ -449,15 +447,13 @@ async def sync_user_profiles(
     查询所有有 platform_user_id 的活跃关注账号，
     批量调用 TwitterAPI.io 获取最新档案信息并更新缓存。
     """
-    from src.preference.infrastructure.x_user_profile_repository import (
-        XUserProfileRepository,
-    )
+    from src.data_layer.provider import get_profile_repo
     from src.preference.domain.models import XUserProfile
     from src.scraper.client import TwitterClient
 
     try:
         # 获取所有有 platform_user_id 的活跃 follows
-        config_repo = ScraperConfigRepository(session)
+        config_repo = get_follows_repo(session)
         follows = await config_repo.get_all_follows(include_inactive=False)
         user_ids = [
             f.platform_user_id
@@ -498,7 +494,7 @@ async def sync_user_profiles(
                 profiles.append(profile)
                 raw_data_map[profile.platform_user_id] = u
 
-        profile_repo = XUserProfileRepository(session)
+        profile_repo = get_profile_repo(session)
         count = await profile_repo.upsert_profiles(profiles, raw_data_map=raw_data_map)
 
         return SyncProfilesResponse(
@@ -531,12 +527,10 @@ async def get_user_profile(
     admin: UserDomain = Depends(get_current_admin_user),
 ) -> XUserProfileResponse:
     """获取指定用户的档案信息。"""
-    from src.preference.infrastructure.x_user_profile_repository import (
-        XUserProfileRepository,
-    )
+    from src.data_layer.provider import get_profile_repo
 
     try:
-        repo = XUserProfileRepository(session)
+        repo = get_profile_repo(session)
         profile = await repo.get_profile_by_username(username)
 
         if profile is None:
@@ -660,13 +654,11 @@ async def generate_follow_intro(
 
     查询用户档案，调用 LLM 生成 ≤10 汉字的极简介绍并保存。
     """
-    from src.preference.infrastructure.x_user_profile_repository import (
-        XUserProfileRepository,
-    )
+    from src.data_layer.provider import get_profile_repo
 
     try:
         # 查询 follow
-        config_repo = ScraperConfigRepository(session)
+        config_repo = get_follows_repo(session)
         follow = await config_repo.get_follow_by_username(username)
         if follow is None:
             raise HTTPException(
@@ -675,7 +667,7 @@ async def generate_follow_intro(
             )
 
         # 查询档案
-        profile_repo = XUserProfileRepository(session)
+        profile_repo = get_profile_repo(session)
         profile = await profile_repo.get_profile_by_username(username)
         if profile is None:
             raise HTTPException(
@@ -1094,12 +1086,10 @@ async def get_user_profiles_public(
 
     普通用户可访问此端点查看已缓存的用户档案信息。
     """
-    from src.preference.infrastructure.x_user_profile_repository import (
-        XUserProfileRepository,
-    )
+    from src.data_layer.provider import get_profile_repo
 
     try:
-        repo = XUserProfileRepository(session)
+        repo = get_profile_repo(session)
         profiles = await repo.get_all_profiles()
         return [
             XUserProfileResponse(

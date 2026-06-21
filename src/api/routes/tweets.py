@@ -303,9 +303,9 @@ async def get_tweet_detail(
         # 查询摘要信息
         summary = None
         try:
-            from src.summarization.infrastructure.repository import SummarizationRepository
+            from src.data_layer.provider import get_summary_repo
 
-            summary_repo = SummarizationRepository(session)
+            summary_repo = get_summary_repo(session)
             summary_record = await summary_repo.get_summary_by_tweet(tweet_id)
 
             if summary_record:

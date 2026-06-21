@@ -4,7 +4,8 @@ import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.user.domain.models import UserDomain, ApiKeyInfo
-from src.user.infrastructure.repository import UserRepository, NotFoundError
+from src.user.infrastructure.repository import NotFoundError
+from src.data_layer.provider import get_user_repo
 from src.user.services.auth_service import AuthService
 
 logger = logging.getLogger(__name__)
@@ -13,7 +14,7 @@ logger = logging.getLogger(__name__)
 class UserService:
     def __init__(self, session: AsyncSession):
         self._session = session
-        self._repo = UserRepository(session)
+        self._repo = get_user_repo(session)
         self._auth = AuthService()
 
     async def create_user(self, name: str, email: str) -> tuple[UserDomain, str, str]:
@@ -49,11 +50,11 @@ class UserService:
 
     async def change_password(self, user_id: int, old_password: str, new_password: str) -> None:
         """修改密码。旧密码错误抛出 ValueError。"""
-        user_orm = await self._repo.get_user_orm_by_id(user_id)
-        if user_orm is None:
+        password_hash = await self._repo.get_password_hash_by_id(user_id)
+        if password_hash is None:
             raise NotFoundError("用户不存在")
 
-        if not await self._auth.verify_password(old_password, user_orm.password_hash):
+        if not await self._auth.verify_password(old_password, password_hash):
             raise ValueError("旧密码不正确")
 
         new_hash = await self._auth.hash_password(new_password)

@@ -8,11 +8,9 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
 
+from src.data_layer.provider import get_scheduler_log_repo
 from src.database.async_session import get_db_session
 from src.scraper.domain.scheduler_log import SchedulerEventType
-from src.scraper.infrastructure.scheduler_log_repository import (
-    SchedulerExecutionLogRepository,
-)
 from src.user.api.auth import get_current_admin_user
 from src.user.domain.models import UserDomain
 
@@ -37,7 +35,7 @@ async def get_scheduler_history(
 
     返回最近的调度器执行/错误/遗漏事件日志。
     """
-    repo = SchedulerExecutionLogRepository(session)
+    repo = get_scheduler_log_repo(session)
 
     et = None
     if event_type is not None:
