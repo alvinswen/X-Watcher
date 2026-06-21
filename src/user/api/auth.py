@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.config import get_settings
 from src.database.async_session import get_async_session, get_async_session_maker
 from src.user.domain.models import BOOTSTRAP_ADMIN, UserDomain
-from src.user.infrastructure.repository import UserRepository
+from src.data_layer.provider import get_user_repo
 from src.user.services.auth_service import AuthService
 
 logger = logging.getLogger(__name__)
@@ -31,7 +31,7 @@ async def get_current_user(
     session: AsyncSession = Depends(get_async_session),
 ) -> UserDomain:
     """统一认证依赖：优先 API Key，其次 JWT。两者均无效则 401。"""
-    repo = UserRepository(session)
+    repo = get_user_repo(session)
 
     # 1. 尝试 API Key 认证
     if api_key:
@@ -44,7 +44,7 @@ async def get_current_user(
             try:
                 session_maker = get_async_session_maker()
                 async with session_maker() as update_session:
-                    update_repo = UserRepository(update_session)
+                    update_repo = get_user_repo(update_session)
                     await update_repo.update_key_last_used(key_info.id)
                     await update_session.commit()
             except Exception:

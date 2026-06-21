@@ -138,12 +138,10 @@ def register(mcp: FastMCP) -> None:
             # 调度器状态（MCP 进程不启动调度器，查询 DB 配置）
             scheduler_info = {"status": "not_running_in_mcp"}
             try:
-                from src.preference.infrastructure.schedule_repository import (
-                    ScraperScheduleRepository,
-                )
+                from src.data_layer.provider import get_schedule_repo
 
                 async with session_maker() as s:
-                    repo = ScraperScheduleRepository(s)
+                    repo = get_schedule_repo(s)
                     config = await repo.get_schedule_config()
                     if config:
                         scheduler_info = {

@@ -92,3 +92,6 @@ debug_reports/
 
 # 每日摘要可视化（本地生成，不提交）
 summaries/
+data_migrated/
+
+bench_results.json

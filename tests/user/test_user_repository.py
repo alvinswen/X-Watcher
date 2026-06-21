@@ -155,3 +155,33 @@ async def test_update_password_hash(async_session):
     orm_user = await repo.get_user_orm_by_id(user.id)
     assert orm_user is not None
     assert orm_user.password_hash == "new_hash"
+
+
+@pytest.mark.asyncio
+async def test_get_password_hash_by_id_returns_hash(async_session):
+    repo = UserRepository(async_session)
+    created = await repo.create_user("Alice", "alice@example.com", "hashed_pw_xyz")
+
+    got = await repo.get_password_hash_by_id(created.id)
+    assert got == "hashed_pw_xyz"
+
+
+@pytest.mark.asyncio
+async def test_get_password_hash_by_id_missing_returns_none(async_session):
+    repo = UserRepository(async_session)
+    assert await repo.get_password_hash_by_id(9999) is None
+
+
+@pytest.mark.asyncio
+async def test_get_password_hash_by_email_returns_hash(async_session):
+    repo = UserRepository(async_session)
+    await repo.create_user("Bob", "bob@example.com", "hashed_pw_bob")
+
+    got = await repo.get_password_hash_by_email("bob@example.com")
+    assert got == "hashed_pw_bob"
+
+
+@pytest.mark.asyncio
+async def test_get_password_hash_by_email_missing_returns_none(async_session):
+    repo = UserRepository(async_session)
+    assert await repo.get_password_hash_by_email("nobody@example.com") is None

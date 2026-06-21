@@ -122,12 +122,13 @@ class TestSchedulerEventListener:
         return event
 
     @patch("src.scraper.scheduler_listener._update_prometheus_metrics")
-    @patch("src.scraper.scheduler_listener.SchedulerExecutionLogSyncWriter.write_log")
+    @patch("src.scraper.scheduler_listener.get_scheduler_log_sync_writer")
     @patch("src.scraper.scheduler_listener._get_next_run_time", return_value=None)
     def test_listener_handles_executed_event(
-        self, mock_next_run, mock_write_log, mock_metrics
+        self, mock_next_run, mock_get_writer, mock_metrics
     ):
         """EVENT_JOB_EXECUTED 事件应记录日志并写入 DB。"""
+        mock_write_log = mock_get_writer.return_value.write_log
         event = self._make_executed_event()
         scheduler_event_listener(event)
 
@@ -144,12 +145,13 @@ class TestSchedulerEventListener:
         )
 
     @patch("src.scraper.scheduler_listener._update_prometheus_metrics")
-    @patch("src.scraper.scheduler_listener.SchedulerExecutionLogSyncWriter.write_log")
+    @patch("src.scraper.scheduler_listener.get_scheduler_log_sync_writer")
     @patch("src.scraper.scheduler_listener._get_next_run_time", return_value=None)
     def test_listener_handles_error_event(
-        self, mock_next_run, mock_write_log, mock_metrics
+        self, mock_next_run, mock_get_writer, mock_metrics
     ):
         """EVENT_JOB_ERROR 事件应记录错误详情。"""
+        mock_write_log = mock_get_writer.return_value.write_log
         exception = RuntimeError("connection timeout")
         event = self._make_error_event(exception)
         scheduler_event_listener(event)
@@ -164,12 +166,13 @@ class TestSchedulerEventListener:
         mock_metrics.assert_called_once()
 
     @patch("src.scraper.scheduler_listener._update_prometheus_metrics")
-    @patch("src.scraper.scheduler_listener.SchedulerExecutionLogSyncWriter.write_log")
+    @patch("src.scraper.scheduler_listener.get_scheduler_log_sync_writer")
     @patch("src.scraper.scheduler_listener._get_next_run_time", return_value=None)
     def test_listener_handles_missed_event(
-        self, mock_next_run, mock_write_log, mock_metrics
+        self, mock_next_run, mock_get_writer, mock_metrics
     ):
         """EVENT_JOB_MISSED 事件应记录遗漏信息。"""
+        mock_write_log = mock_get_writer.return_value.write_log
         event = self._make_missed_event()
         scheduler_event_listener(event)
 
@@ -204,12 +207,13 @@ class TestSchedulerEventListener:
             SchedulerExecutionLogSyncWriter.write_log(log_entry)
 
     @patch("src.scraper.scheduler_listener._update_prometheus_metrics")
-    @patch("src.scraper.scheduler_listener.SchedulerExecutionLogSyncWriter.write_log")
+    @patch("src.scraper.scheduler_listener.get_scheduler_log_sync_writer")
     @patch("src.scraper.scheduler_listener._get_next_run_time")
     def test_listener_records_next_run_time(
-        self, mock_next_run, mock_write_log, mock_metrics
+        self, mock_next_run, mock_get_writer, mock_metrics
     ):
         """监听器应记录下次运行时间。"""
+        mock_write_log = mock_get_writer.return_value.write_log
         expected_next = datetime(2026, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
         mock_next_run.return_value = expected_next
 
@@ -220,12 +224,13 @@ class TestSchedulerEventListener:
         assert log_entry.next_run_time == expected_next
 
     @patch("src.scraper.scheduler_listener._update_prometheus_metrics")
-    @patch("src.scraper.scheduler_listener.SchedulerExecutionLogSyncWriter.write_log")
+    @patch("src.scraper.scheduler_listener.get_scheduler_log_sync_writer")
     @patch("src.scraper.scheduler_listener._get_next_run_time", return_value=None)
     def test_error_message_truncated_to_2000_chars(
-        self, mock_next_run, mock_write_log, mock_metrics
+        self, mock_next_run, mock_get_writer, mock_metrics
     ):
         """过长的错误信息应被截断至 2000 字符。"""
+        mock_write_log = mock_get_writer.return_value.write_log
         long_error = "x" * 5000
         exception = RuntimeError(long_error)
         event = self._make_error_event(exception)

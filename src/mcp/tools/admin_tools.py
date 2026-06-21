@@ -64,9 +64,7 @@ def register(mcp: FastMCP) -> None:
 
         try:
             from src.database.async_session import get_async_session_maker
-            from src.preference.infrastructure.scraper_config_repository import (
-                ScraperConfigRepository,
-            )
+            from src.data_layer.provider import get_follows_repo
             from src.preference.services.scraper_config_service import (
                 ScraperConfigService,
             )
@@ -74,7 +72,7 @@ def register(mcp: FastMCP) -> None:
             session_maker = get_async_session_maker()
 
             async with session_maker() as session:
-                repo = ScraperConfigRepository(session)
+                repo = get_follows_repo(session)
                 service = ScraperConfigService(repo)
 
                 if action == "list":
@@ -360,13 +358,11 @@ def register(mcp: FastMCP) -> None:
                 last_execution = None
                 try:
                     from src.database.async_session import get_async_session_maker
-                    from src.scraper.infrastructure.scheduler_log_repository import (
-                        SchedulerExecutionLogRepository,
-                    )
+                    from src.data_layer.provider import get_scheduler_log_repo
 
                     session_maker = get_async_session_maker()
                     async with session_maker() as session:
-                        repo = SchedulerExecutionLogRepository(session)
+                        repo = get_scheduler_log_repo(session)
                         logs = await repo.get_recent_logs(limit=1)
                         if logs:
                             log = logs[0]
@@ -618,10 +614,10 @@ def register(mcp: FastMCP) -> None:
                         select(
                             XUserProfileOrm.username,
                             XUserProfileOrm.display_name,
-                            XUserProfileOrm.bio,
+                            XUserProfileOrm.description,
                             XUserProfileOrm.followers_count,
                             XUserProfileOrm.following_count,
-                            XUserProfileOrm.tweet_count,
+                            XUserProfileOrm.statuses_count,
                             XUserProfileOrm.updated_at,
                         ).order_by(XUserProfileOrm.username)
                     )
@@ -630,10 +626,10 @@ def register(mcp: FastMCP) -> None:
                         {
                             "username": r.username,
                             "display_name": r.display_name,
-                            "bio": r.bio,
+                            "bio": r.description,
                             "followers_count": r.followers_count,
                             "following_count": r.following_count,
-                            "tweet_count": r.tweet_count,
+                            "tweet_count": r.statuses_count,
                             "updated_at": r.updated_at,
                         }
                         for r in rows

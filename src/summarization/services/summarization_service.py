@@ -29,7 +29,7 @@ from src.summarization.domain.models import (
     TweetFailure,
     TweetType,
 )
-from src.summarization.infrastructure.repository import SummarizationRepository
+from src.data_layer.provider import get_summary_repo
 from src.summarization.logging_utils import get_summary_logger
 from src.summarization.llm.base import LLMProvider, classify_error
 
@@ -207,7 +207,7 @@ class SummarizationService:
         """
         try:
             async with self._session_factory() as session:
-                repository = SummarizationRepository(session)
+                repository = get_summary_repo(session)
                 stats = await repository.get_cost_stats(start_date, end_date)
                 return Success(stats)
 
@@ -384,7 +384,7 @@ class SummarizationService:
                         content_hash=content_hash,
                     )
                     async with self._session_factory() as session:
-                        repository = SummarizationRepository(session)
+                        repository = get_summary_repo(session)
                         summary = await repository.find_by_content_hash(
                             content_hash
                         )
@@ -419,7 +419,7 @@ class SummarizationService:
                 and not force_refresh
             ):
                 async with self._session_factory() as session:
-                    repository = SummarizationRepository(session)
+                    repository = get_summary_repo(session)
                     original_summary = await repository.get_summary_by_tweet(
                         referenced_tweet_id
                     )
@@ -544,7 +544,7 @@ class SummarizationService:
 
             # 使用独立 session 保存到数据库并提交
             async with self._session_factory() as session:
-                repository = SummarizationRepository(session)
+                repository = get_summary_repo(session)
                 await repository.save_summary_record(record)
                 await session.commit()
 

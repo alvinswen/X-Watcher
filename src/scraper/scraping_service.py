@@ -567,13 +567,11 @@ class ScrapingService:
         """更新用户的回溯状态。"""
         try:
             from src.database.async_session import get_async_session_maker
-            from src.preference.infrastructure.scraper_config_repository import (
-                ScraperConfigRepository,
-            )
+            from src.data_layer.provider import get_follows_repo
 
             session_maker = get_async_session_maker()
             async with session_maker() as session:
-                repo = ScraperConfigRepository(session)
+                repo = get_follows_repo(session)
                 await repo.update_backfill_status(
                     username, status, completed_at=completed_at,
                 )
@@ -592,13 +590,11 @@ class ScrapingService:
         """
         try:
             from src.database.async_session import get_async_session_maker
-            from src.scraper.infrastructure.fetch_stats_repository import (
-                FetchStatsRepository,
-            )
+            from src.data_layer.provider import get_fetch_stats_repo
 
             session_maker = get_async_session_maker()
             async with session_maker() as session:
-                repo = FetchStatsRepository(session)
+                repo = get_fetch_stats_repo(session)
                 return await repo.get_stats(username)
         except Exception as e:
             logger.warning("查询抓取统计失败（使用默认 limit）: %s", e)
@@ -621,9 +617,7 @@ class ScrapingService:
         """
         try:
             from src.database.async_session import get_async_session_maker
-            from src.scraper.infrastructure.fetch_stats_repository import (
-                FetchStatsRepository,
-            )
+            from src.data_layer.provider import get_fetch_stats_repo
 
             updated = self._limit_calculator.update_stats_after_fetch(
                 stats=old_stats,
@@ -634,7 +628,7 @@ class ScrapingService:
 
             session_maker = get_async_session_maker()
             async with session_maker() as session:
-                repo = FetchStatsRepository(session)
+                repo = get_fetch_stats_repo(session)
                 await repo.upsert_stats(updated)
                 await session.commit()
 
@@ -751,7 +745,7 @@ class ScrapingService:
         try:
             from src.database.async_session import get_async_session_maker
             from src.scraper.domain.models import Article
-            from src.scraper.infrastructure.article_repository import ArticleRepository
+            from src.data_layer.provider import get_article_repo
 
             session_maker = get_async_session_maker()
 
@@ -759,7 +753,7 @@ class ScrapingService:
                 try:
                     # 检查是否已存在
                     async with session_maker() as session:
-                        repo = ArticleRepository(session)
+                        repo = get_article_repo(session)
                         if await repo.article_exists(tweet.tweet_id):
                             continue
 
@@ -811,7 +805,7 @@ class ScrapingService:
                         )
 
                     async with session_maker() as session:
-                        repo = ArticleRepository(session)
+                        repo = get_article_repo(session)
                         saved = await repo.save_article(article)
                         await session.commit()
 
@@ -858,7 +852,7 @@ class ScrapingService:
         try:
             from src.database.async_session import get_async_session_maker
             from src.scraper.domain.models import Article
-            from src.scraper.infrastructure.article_repository import ArticleRepository
+            from src.data_layer.provider import get_article_repo
 
             session_maker = get_async_session_maker()
 
@@ -934,7 +928,7 @@ class ScrapingService:
                     )
 
                     async with session_maker() as session:
-                        repo = ArticleRepository(session)
+                        repo = get_article_repo(session)
                         saved = await repo.save_article(article)
                         await session.commit()
 
@@ -977,12 +971,12 @@ class ScrapingService:
         if self._repository is None:
             # 延迟导入避免循环依赖
             from src.database.async_session import get_async_session_maker
-            from src.scraper.infrastructure.repository import TweetRepository
+            from src.data_layer.provider import get_tweet_repo
 
             session_maker = get_async_session_maker()
 
             async with session_maker() as session:
-                repo = TweetRepository(session)
+                repo = get_tweet_repo(session)
                 result = await repo.save_tweets(tweets, early_stop_threshold=early_stop)
                 # 提交事务
                 await session.commit()
@@ -1136,13 +1130,11 @@ class ScrapingService:
         """
         try:
             from src.database.async_session import get_async_session_maker
-            from src.preference.infrastructure.scraper_config_repository import (
-                ScraperConfigRepository,
-            )
+            from src.data_layer.provider import get_follows_repo
 
             session_maker = get_async_session_maker()
             async with session_maker() as session:
-                repo = ScraperConfigRepository(session)
+                repo = get_follows_repo(session)
                 await repo.update_platform_user_id(username, user_id)
                 await session.commit()
                 logger.info(
@@ -1163,13 +1155,11 @@ class ScrapingService:
         """
         try:
             from src.database.async_session import get_async_session_maker
-            from src.preference.infrastructure.scraper_config_repository import (
-                ScraperConfigRepository,
-            )
+            from src.data_layer.provider import get_follows_repo
 
             session_maker = get_async_session_maker()
             async with session_maker() as session:
-                repo = ScraperConfigRepository(session)
+                repo = get_follows_repo(session)
                 follow = await repo.get_follow_by_username(old_username)
 
                 if not follow or not follow.platform_user_id:
@@ -1236,17 +1226,12 @@ class ScrapingService:
         """
         try:
             from src.database.async_session import get_async_session_maker
-            from src.preference.infrastructure.scraper_config_repository import (
-                ScraperConfigRepository,
-            )
-            from src.preference.infrastructure.x_user_profile_repository import (
-                XUserProfileRepository,
-            )
+            from src.data_layer.provider import get_follows_repo, get_profile_repo
             from src.preference.domain.models import XUserProfile
 
             session_maker = get_async_session_maker()
             async with session_maker() as session:
-                config_repo = ScraperConfigRepository(session)
+                config_repo = get_follows_repo(session)
 
                 # 查询这些用户名对应的 platform_user_id
                 user_ids: list[str] = []
@@ -1285,7 +1270,7 @@ class ScrapingService:
                         raw_data_map[profile.platform_user_id] = u
 
                 # 持久化
-                profile_repo = XUserProfileRepository(session)
+                profile_repo = get_profile_repo(session)
                 count = await profile_repo.upsert_profiles(
                     profiles, raw_data_map=raw_data_map
                 )

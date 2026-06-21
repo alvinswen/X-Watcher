@@ -29,7 +29,7 @@ from src.summarization.infrastructure.models import SummaryOrm
 from src.user.api.auth import get_current_admin_user
 from src.user.domain.models import UserDomain
 from src.summarization.domain.models import PromptConfig
-from src.summarization.infrastructure.repository import SummarizationRepository
+from src.data_layer.provider import get_summary_repo
 from src.summarization.llm.config import LLMProviderConfig
 from src.summarization.services.summarization_service import (
     create_summarization_service,
@@ -126,7 +126,7 @@ async def get_tweet_summary(
 
     try:
         async with session_maker() as session:
-            repository = SummarizationRepository(session)
+            repository = get_summary_repo(session)
             summary = await repository.get_summary_by_tweet(tweet_id)
 
             if summary is None:
@@ -185,7 +185,7 @@ async def get_cost_statistics(
 
     try:
         async with session_maker() as session:
-            repository = SummarizationRepository(session)
+            repository = get_summary_repo(session)
             stats = await repository.get_cost_stats(start_date, end_date)
 
             return CostStatsResponse(

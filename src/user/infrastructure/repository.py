@@ -60,6 +60,19 @@ class UserRepository:
         result = await self._session.execute(select(UserOrm).where(UserOrm.email == email))
         return result.scalar_one_or_none()
 
+    async def get_password_hash_by_id(self, user_id: int) -> str | None:
+        """M-5 重表达对接面:返回 password_hash(用于密码验证),user 不存在返 None。
+
+        与文件层 FileUserStore.get_password_hash_by_id 共用公共契约,使 provider 缝可切换。
+        """
+        user_orm = await self.get_user_orm_by_id(user_id)
+        return user_orm.password_hash if user_orm is not None else None
+
+    async def get_password_hash_by_email(self, email: str) -> str | None:
+        """M-5 重表达对接面:返回 password_hash,user 不存在返 None。"""
+        user_orm = await self.get_user_orm_by_email(email)
+        return user_orm.password_hash if user_orm is not None else None
+
     async def get_all_users(self) -> list[UserDomain]:
         result = await self._session.execute(select(UserOrm))
         users = result.scalars().all()

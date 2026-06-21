@@ -150,9 +150,7 @@ def register(mcp: FastMCP) -> None:
             from src.summarization.domain.summary_verification import (
                 verify_translation,
             )
-            from src.summarization.infrastructure.repository import (
-                SummarizationRepository,
-            )
+            from src.data_layer.provider import get_summary_repo
 
             model_name = get_settings().claude_code_model_name
             session_maker = get_async_session_maker()
@@ -163,7 +161,7 @@ def register(mcp: FastMCP) -> None:
             now = datetime.now(timezone.utc)
 
             async with session_maker() as session:
-                repo = SummarizationRepository(session)
+                repo = get_summary_repo(session)
 
                 # 批量回查原文，供翻译验证门按 tweet_id 取 text/referenced/type。
                 # 查不到的 tweet 在验证门内降级放行（不阻断入库）。
