@@ -45,58 +45,18 @@ def register(mcp: FastMCP) -> None:
             return perm_err
 
         try:
-            from sqlalchemy import select
-
             from src.database.async_session import get_async_session_maker
-            from src.scraper.infrastructure.models import TweetOrm
-            from src.summarization.infrastructure.models import SummaryOrm
+            from src.data_layer.provider import get_summarization_read_repo
 
             since_dt = parse_datetime_optional(since)
             until_dt = parse_datetime_optional(until)
-            clamped_limit = min(max(limit, 1), 200)
 
             session_maker = get_async_session_maker()
             async with session_maker() as session:
-                stmt = (
-                    select(
-                        TweetOrm.tweet_id,
-                        TweetOrm.text,
-                        TweetOrm.author_username,
-                        TweetOrm.author_display_name,
-                        TweetOrm.reference_type,
-                        TweetOrm.referenced_tweet_text,
-                        TweetOrm.referenced_tweet_author_username,
-                        TweetOrm.created_at,
-                    )
-                    .outerjoin(SummaryOrm, TweetOrm.tweet_id == SummaryOrm.tweet_id)
-                    .where(SummaryOrm.summary_id == None)  # noqa: E711
+                reader = get_summarization_read_repo(session)
+                tweets = await reader.get_unsummarized_tweets(
+                    since=since_dt, until=until_dt, author=author, limit=limit
                 )
-
-                if since_dt:
-                    stmt = stmt.where(TweetOrm.created_at >= since_dt)
-                if until_dt:
-                    stmt = stmt.where(TweetOrm.created_at < until_dt)
-                if author:
-                    stmt = stmt.where(TweetOrm.author_username == author)
-
-                stmt = stmt.order_by(TweetOrm.created_at.desc()).limit(clamped_limit)
-
-                result = await session.execute(stmt)
-                rows = result.fetchall()
-
-            tweets = []
-            for row in rows:
-                mapping = row._mapping
-                tweets.append({
-                    "tweet_id": mapping["tweet_id"],
-                    "text": mapping["text"],
-                    "author_username": mapping["author_username"],
-                    "author_display_name": mapping["author_display_name"],
-                    "reference_type": mapping["reference_type"],
-                    "referenced_tweet_text": mapping["referenced_tweet_text"],
-                    "referenced_tweet_author_username": mapping["referenced_tweet_author_username"],
-                    "created_at": mapping["created_at"],
-                })
 
             return success_response({
                 "tweets": tweets,
@@ -140,17 +100,17 @@ def register(mcp: FastMCP) -> None:
             return error_response("summaries 必须是数组", "validation")
 
         try:
-            from sqlalchemy import select
-
             from src.config import get_settings
             from src.database.async_session import get_async_session_maker
             from src.mcp.security import audit_log
-            from src.scraper.infrastructure.models import TweetOrm
             from src.summarization.domain.models import SummaryRecord
             from src.summarization.domain.summary_verification import (
                 verify_translation,
             )
-            from src.data_layer.provider import get_summary_repo
+            from src.data_layer.provider import (
+                get_summarization_read_repo,
+                get_summary_repo,
+            )
 
             model_name = get_settings().claude_code_model_name
             session_maker = get_async_session_maker()
@@ -170,20 +130,8 @@ def register(mcp: FastMCP) -> None:
                     for it in items
                     if isinstance(it, dict) and it.get("tweet_id")
                 ]
-                origin_map: dict = {}
-                if tweet_ids:
-                    origin_rows = await session.execute(
-                        select(
-                            TweetOrm.tweet_id,
-                            TweetOrm.text,
-                            TweetOrm.referenced_tweet_text,
-                            TweetOrm.reference_type,
-                        ).where(TweetOrm.tweet_id.in_(tweet_ids))
-                    )
-                    origin_map = {
-                        r._mapping["tweet_id"]: r._mapping
-                        for r in origin_rows.fetchall()
-                    }
+                reader = get_summarization_read_repo(session)
+                origin_map = await reader.get_tweet_origins(tweet_ids)
 
                 for item in items:
                     if not isinstance(item, dict):

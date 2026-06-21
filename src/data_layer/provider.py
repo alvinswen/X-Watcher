@@ -162,6 +162,23 @@ def get_summary_repo(session=None):
     return SummarizationRepository(session)
 
 
+def get_summarization_read_repo(session=None):
+    """返回 summarization 读门面(get_unsummarized_tweets 反连接 + get_tweet_origins 原文回查)。
+
+    file 模式:FileSummarizationReadStore(组合 FileTweetStore+FileSummaryStore),忽略 session。
+    sqlalchemy 模式:SqlalchemySummarizationReadStore(session)(逐字复刻原 raw 查询,产同构 dict)。
+    """
+    if _data_layer() == "file":
+        from src.summarization.infrastructure.file_summarization_read_repository import (
+            FileSummarizationReadStore,
+        )
+
+        return FileSummarizationReadStore(_data_root())
+    from src.data_layer._summarization_read_sqlalchemy import SqlalchemySummarizationReadStore
+
+    return SqlalchemySummarizationReadStore(session)
+
+
 def get_user_repo(session=None):
     """返回 UserStore 形态 repo(14 契约方法,含 get_password_hash_by_*)。
 
