@@ -26,10 +26,13 @@ async def session(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_topic_crud_and_accounts_file_mode(session):
+async def test_topic_crud_and_accounts_file_mode(session, tmp_path):
     svc = TopicService()
     t = await svc.create_topic(session, name="AI", description="d")
     assert t.id is not None
+    # 路由可证:create 后文件层盘面真被写,证 topic 自有数据走文件层(非 DB);
+    # 若 provider file 路由坏掉(误返 sqlalchemy adapter),此断言翻红、不再假绿
+    assert (tmp_path / "topics" / "topics.json").exists()
     listed = await svc.list_topics(session)
     assert any(x.id == t.id and x.account_count == 0 for x in listed)
     updated = await svc.update_topic(session, t.id, name="ML")
