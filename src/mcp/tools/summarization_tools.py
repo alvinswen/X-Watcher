@@ -140,21 +140,52 @@ def register(mcp: FastMCP) -> None:
             return error_response("summaries 必须是数组", "validation")
 
         try:
+            from sqlalchemy import select
+
             from src.config import get_settings
             from src.database.async_session import get_async_session_maker
             from src.mcp.security import audit_log
+            from src.scraper.infrastructure.models import TweetOrm
             from src.summarization.domain.models import SummaryRecord
-            from src.summarization.infrastructure.repository import SummarizationRepository
+            from src.summarization.domain.summary_verification import (
+                verify_translation,
+            )
+            from src.summarization.infrastructure.repository import (
+                SummarizationRepository,
+            )
 
             model_name = get_settings().claude_code_model_name
             session_maker = get_async_session_maker()
             saved = 0
             failed = 0
             errors = []
+            rejected: list[dict] = []  # 验证门拒绝项，供编排回灌重生成
             now = datetime.now(timezone.utc)
 
             async with session_maker() as session:
                 repo = SummarizationRepository(session)
+
+                # 批量回查原文，供翻译验证门按 tweet_id 取 text/referenced/type。
+                # 查不到的 tweet 在验证门内降级放行（不阻断入库）。
+                tweet_ids = [
+                    it.get("tweet_id")
+                    for it in items
+                    if isinstance(it, dict) and it.get("tweet_id")
+                ]
+                origin_map: dict = {}
+                if tweet_ids:
+                    origin_rows = await session.execute(
+                        select(
+                            TweetOrm.tweet_id,
+                            TweetOrm.text,
+                            TweetOrm.referenced_tweet_text,
+                            TweetOrm.reference_type,
+                        ).where(TweetOrm.tweet_id.in_(tweet_ids))
+                    )
+                    origin_map = {
+                        r._mapping["tweet_id"]: r._mapping
+                        for r in origin_rows.fetchall()
+                    }
 
                 for item in items:
                     if not isinstance(item, dict):
@@ -168,6 +199,23 @@ def register(mcp: FastMCP) -> None:
                         if not tweet_id or not summary_text:
                             failed += 1
                             errors.append(f"缺少必填字段: tweet_id={tweet_id}")
+                            continue
+
+                        # 确定性验证门：校验未过的项不入库，计入 errors
+                        # （替代此前"坏译文静默入库"）。原文查不到时降级放行。
+                        origin = origin_map.get(tweet_id)
+                        reject_reason = verify_translation(
+                            item.get("translation"),
+                            origin["text"] if origin else None,
+                            origin["referenced_tweet_text"] if origin else None,
+                            origin["reference_type"] if origin else None,
+                        )
+                        if reject_reason:
+                            failed += 1
+                            errors.append(f"tweet_id={tweet_id}: {reject_reason}")
+                            rejected.append(
+                                {"tweet_id": tweet_id, "reason": reject_reason}
+                            )
                             continue
 
                         content_hash = hashlib.sha256(
@@ -215,6 +263,8 @@ def register(mcp: FastMCP) -> None:
                 "failed": failed,
                 "total": len(items),
                 "errors": errors[:10] if errors else [],
+                # 验证门拒绝项（结构化），供 /scrape-and-translate 回灌重生成
+                "rejected": rejected,
             })
 
         except Exception as e:
