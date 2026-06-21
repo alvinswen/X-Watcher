@@ -12,6 +12,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.models import ScraperFollow
+from src.database.x_user_profile_model import XUserProfileOrm
 from src.scraper.infrastructure.models import TweetOrm
 from src.summarization.infrastructure.models import SummaryOrm
 from src.topic.infrastructure.models import TopicOrm, TopicAccountOrm
@@ -443,6 +444,52 @@ class TestSystemStatusIntegration:
         assert data["data"]["follows"]["active"] == 2
 
 
+# ── get_follow_accounts_info 集成测试 ─────────────────────────────
+
+
+class TestFollowAccountsInfoIntegration:
+    @pytest.mark.asyncio
+    async def test_profiles_returns_cached_profile_fields(
+        self, tool_funcs, async_session, test_session_factory
+    ):
+        """测试 profiles 类型返回档案字段（bio 映射 description、tweet_count 映射 statuses_count）。"""
+        async_session.add(
+            XUserProfileOrm(
+                platform_user_id="uid_tony",
+                username="tdinh_me",
+                display_name="Tony Dinh",
+                description="Indie hacker building apps",
+                followers_count=150000,
+                following_count=300,
+                statuses_count=417,
+                fetched_at=datetime(2026, 6, 1, 0, 0, 0),
+            )
+        )
+        await async_session.commit()
+
+        with (
+            patch(
+                "src.database.async_session.get_async_session_maker",
+                return_value=test_session_factory,
+            ),
+            patch("src.mcp.auth.require_admin", return_value=None),
+        ):
+            result = await tool_funcs["get_follow_accounts_info"](
+                info_type="profiles"
+            )
+
+        data = json.loads(result)
+        assert data["success"] is True, f"profiles 查询失败: {data.get('error')}"
+        assert data["data"]["count"] == 1
+        profile = data["data"]["profiles"][0]
+        assert profile["username"] == "tdinh_me"
+        assert profile["display_name"] == "Tony Dinh"
+        assert profile["bio"] == "Indie hacker building apps"
+        assert profile["followers_count"] == 150000
+        assert profile["following_count"] == 300
+        assert profile["tweet_count"] == 417
+
+
 # ── 工具注册完整性测试 ────────────────────────────────────────────
 
 
@@ -500,5 +547,6 @@ class TestToolRegistration:
             "xwatcher://recipes/daily-summary",
             "xwatcher://recipes/claude-code-summarize",
             "xwatcher://recipes/claude-code-topic-summary",
+            "xwatcher://recipes/claude-code-topic-review",
         }
         assert expected == resource_uris, f"差异: 多余={resource_uris - expected}, 缺少={expected - resource_uris}"

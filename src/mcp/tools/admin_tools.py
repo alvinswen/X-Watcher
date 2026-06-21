@@ -614,10 +614,10 @@ def register(mcp: FastMCP) -> None:
                         select(
                             XUserProfileOrm.username,
                             XUserProfileOrm.display_name,
-                            XUserProfileOrm.bio,
+                            XUserProfileOrm.description,
                             XUserProfileOrm.followers_count,
                             XUserProfileOrm.following_count,
-                            XUserProfileOrm.tweet_count,
+                            XUserProfileOrm.statuses_count,
                             XUserProfileOrm.updated_at,
                         ).order_by(XUserProfileOrm.username)
                     )
@@ -626,10 +626,10 @@ def register(mcp: FastMCP) -> None:
                         {
                             "username": r.username,
                             "display_name": r.display_name,
-                            "bio": r.bio,
+                            "bio": r.description,
                             "followers_count": r.followers_count,
                             "following_count": r.following_count,
-                            "tweet_count": r.tweet_count,
+                            "tweet_count": r.statuses_count,
                             "updated_at": r.updated_at,
                         }
                         for r in rows
