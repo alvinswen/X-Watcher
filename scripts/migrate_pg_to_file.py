@@ -26,7 +26,6 @@ from src.data_layer.migration import article  # noqa: E402,F401
 from src.data_layer.migration import scheduler_log  # noqa: E402,F401
 from src.data_layer.migration import summary  # noqa: E402,F401
 from src.data_layer.migration import topic  # noqa: E402,F401
-from src.data_layer.migration import clustering  # noqa: E402,F401
 from src.data_layer.migration import user  # noqa: E402,F401
 from src.data_layer.migration import tweet  # noqa: E402,F401
 

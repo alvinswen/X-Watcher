@@ -15,7 +15,6 @@ import {
   Collection,
   DataAnalysis,
   Search,
-  TrendCharts,
   Histogram,
   Refresh,
   Moon,
@@ -60,7 +59,6 @@ const menuItems = [
   { index: "/topic-summaries", title: "主题摘要", icon: DataAnalysis },
   { index: "/browse", title: "推文浏览", icon: Reading },
   { index: "/search", title: "推文搜索", icon: Search },
-  { index: "/clustering", title: "发文聚类", icon: TrendCharts },
   { index: "/analytics", title: "发文分析", icon: Histogram },
   // —— 管理功能 ——
   { index: "/topics", title: "主题管理", icon: Collection },

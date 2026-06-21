@@ -98,14 +98,6 @@ const routes: RouteRecordRaw[] = [
     },
   },
   {
-    path: "/clustering",
-    name: "clustering",
-    component: () => import("@/views/ClusteringView.vue"),
-    meta: {
-      title: "发文聚类",
-    },
-  },
-  {
     path: "/analytics",
     name: "analytics",
     component: () => import("@/views/AnalyticsView.vue"),
