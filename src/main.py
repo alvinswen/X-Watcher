@@ -431,10 +431,9 @@ from src.api.routes.config_routes import router as config_router
 
 app.include_router(config_router)
 
-# 注册分析模块 API 路由（聚类分析 + 发文统计）
-from src.analytics.api.routes import analytics_router, router as analytics_admin_router
+# 注册分析模块 API 路由（发文统计）
+from src.analytics.api.routes import analytics_router
 
-app.include_router(analytics_admin_router)
 app.include_router(analytics_router)
 
 # 注册数据同步 API 路由
