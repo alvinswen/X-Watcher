@@ -8,6 +8,7 @@ from returns.result import Success
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from src.data_layer.provider import get_topic_store, get_topic_summary_task_store
 from src.scraper.infrastructure.models import TweetOrm
 from src.summarization.domain.models import LLMResponse
 from src.summarization.infrastructure.models import SummaryOrm
@@ -15,8 +16,6 @@ from src.summarization.llm.base import LLMProvider
 from src.summarization.llm.config import LLMProviderConfig
 from src.summarization.services.summarization_service import _get_global_llm_semaphore
 from src.topic.domain.models import TopicSummaryTaskDomain, TopicSummaryTaskStatus
-from src.topic.infrastructure.models import TopicSummaryOrm, TopicSummaryTaskOrm
-from src.topic.infrastructure.repository import TopicRepository, TopicSummaryTaskRepository
 
 logger = logging.getLogger(__name__)
 
@@ -143,8 +142,6 @@ class TopicSummaryService:
 
     def __init__(self, providers: list[LLMProvider] | None = None) -> None:
         self._providers = providers if providers is not None else build_llm_providers()
-        self._topic_repo = TopicRepository()
-        self._task_repo = TopicSummaryTaskRepository()
 
     @classmethod
     def get_instance(cls) -> "TopicSummaryService":
@@ -169,14 +166,13 @@ class TopicSummaryService:
         tz_offset: int = 0,
     ) -> TopicSummaryTaskDomain:
         """创建摘要任务并异步启动执行。返回 pending 状态的任务。"""
+        topic_store = get_topic_store(session)
         # 验证主题存在
-        topic = await self._topic_repo.get_by_id(session, topic_id)
-        if not topic:
+        if not await topic_store.get_by_id(topic_id):
             raise ValueError(f"主题 ID {topic_id} 不存在")
 
         # 验证主题有关联账号
-        accounts = await self._topic_repo.get_accounts(session, topic_id)
-        if not accounts:
+        if not await topic_store.get_accounts(topic_id):
             raise ValueError("该主题没有关联任何账号，无法创建摘要任务")
 
         # 规范化 deadline 为 naive UTC（asyncpg + Python 3.14 不接受 aware datetime 给 TIMESTAMP WITHOUT TIME ZONE 列）
@@ -184,7 +180,8 @@ class TopicSummaryService:
             deadline = deadline.astimezone(timezone.utc).replace(tzinfo=None)
 
         # 创建任务记录
-        task_orm = TopicSummaryTaskOrm(
+        task_store = get_topic_summary_task_store(session)
+        created = await task_store.create_task(
             topic_id=topic_id,
             time_span_hours=time_span_hours,
             deadline=deadline,
@@ -192,18 +189,12 @@ class TopicSummaryService:
             tz_offset=tz_offset,
             status=TopicSummaryTaskStatus.pending.value,
         )
-        await self._task_repo.create_task(session, task_orm)
         await session.commit()
 
-        # 刷新以获取完整的关联（topic + summary）
-        await session.refresh(task_orm, ["topic", "summary"])
-
-        task_domain = task_orm.to_domain()
-
         # 异步启动后台执行
-        asyncio.create_task(self._execute_task(task_orm.id, session_factory))
+        asyncio.create_task(self._execute_task(created.id, session_factory))
 
-        return task_domain
+        return created
 
     async def get_account_profiles(
         self, session: AsyncSession, usernames: list[str]
@@ -256,8 +247,8 @@ class TopicSummaryService:
         等结构化字段；为 None 时落库为 ``{}``，与既有 /topic-summary 行为一致。
         """
         # 验证主题存在
-        topic = await self._topic_repo.get_by_id(session, topic_id)
-        if not topic:
+        topic_store = get_topic_store(session)
+        if not await topic_store.get_by_id(topic_id):
             raise ValueError(f"主题 ID {topic_id} 不存在")
 
         # 规范化 deadline
@@ -266,8 +257,11 @@ class TopicSummaryService:
 
         now = datetime.now(timezone.utc).replace(tzinfo=None)
 
-        # 创建已完成的 task
-        task_orm = TopicSummaryTaskOrm(
+        # 创建已完成的 task + summary（2 操作 1 次 commit 原子）
+        from src.config import get_settings
+
+        task_store = get_topic_summary_task_store(session)
+        created = await task_store.create_task(
             topic_id=topic_id,
             time_span_hours=time_span_hours,
             deadline=deadline,
@@ -276,13 +270,8 @@ class TopicSummaryService:
             started_at=now,
             completed_at=now,
         )
-        await self._task_repo.create_task(session, task_orm)
-
-        # 创建 summary
-        from src.config import get_settings
-
-        summary_orm = TopicSummaryOrm(
-            task_id=task_orm.id,
+        await task_store.create_summary(
+            task_id=created.id,
             content=content,
             llm_provider="claude_code",
             llm_model=get_settings().claude_code_model_name,
@@ -294,12 +283,10 @@ class TopicSummaryService:
             account_count=account_count,
             metadata_json=metadata_json or {},
         )
-        await self._task_repo.create_summary(session, summary_orm)
         await session.commit()
 
-        # 刷新以获取完整关联
-        await session.refresh(task_orm, ["topic", "summary"])
-        return task_orm.to_domain()
+        # 回读含 summary 的完整 domain
+        return await task_store.get_task(created.id)
 
     async def prepare_summary_data(
         self,
@@ -319,7 +306,7 @@ class TopicSummaryService:
             default_prompt 等字段的字典。若无推文则 tweet_count=0 且无 default_prompt。
         """
         # 验证主题
-        topic = await self._topic_repo.get_by_id(session, topic_id)
+        topic = await get_topic_store(session).get_by_id(topic_id)
         if not topic:
             raise ValueError(f"主题 ID {topic_id} 不存在")
 
@@ -400,20 +387,23 @@ class TopicSummaryService:
         """后台执行摘要任务。"""
         try:
             async with session_factory() as session:
+                task_store = get_topic_summary_task_store(session)
+                topic_store = get_topic_store(session)
+
                 # 获取任务
-                task = await self._task_repo.get_task(session, task_id)
+                task = await task_store.get_task(task_id)
                 if not task:
                     logger.error(f"摘要任务 {task_id} 不存在")
                     return
 
-                # 更新状态为 running
-                task.status = TopicSummaryTaskStatus.running.value
+                # 更新状态为 running（域 status 用枚举，store update_task 内部取 .value）
+                task.status = TopicSummaryTaskStatus.running
                 task.started_at = datetime.now(timezone.utc).replace(tzinfo=None)
-                await self._task_repo.update_task(session, task)
+                await task_store.update_task(task)
                 await session.commit()
 
                 # 查询关联账号
-                accounts = await self._topic_repo.get_accounts(session, task.topic_id)
+                accounts = await topic_store.get_accounts(task.topic_id)
                 usernames = [a.username for a in accounts]
 
                 # 查询档案和简介（降级容错）
@@ -423,12 +413,12 @@ class TopicSummaryService:
                 end_time = task.deadline
                 start_time = end_time - timedelta(hours=task.time_span_hours)
 
-                # 查询推文（LEFT JOIN 已有翻译）
+                # 查询推文（LEFT JOIN 已有翻译，跨域读保持走 session）
                 tweets_data = await self._query_tweets(session, usernames, start_time, end_time)
 
                 if not tweets_data:
                     # 无推文数据
-                    summary_orm = TopicSummaryOrm(
+                    await task_store.create_summary(
                         task_id=task_id,
                         content="该时间范围内没有找到推文数据",
                         llm_provider="none",
@@ -440,17 +430,20 @@ class TopicSummaryService:
                         tweet_count=0,
                         account_count=len(usernames),
                     )
-                    await self._task_repo.create_summary(session, summary_orm)
-                    task.status = TopicSummaryTaskStatus.completed.value
+                    task.status = TopicSummaryTaskStatus.completed
                     task.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
-                    await self._task_repo.update_task(session, task)
+                    await task_store.update_task(task)
                     await session.commit()
                     return
 
                 # 构建聚合 prompt（backend 路径不启用 review_mode，第三个返回值忽略）
+                # tz_offset 不在 TopicSummaryTaskDomain 域投影内（se 数据层契约:tz_offset
+                # 存盘但不出域、to_domain 不投影、永不入 parity），故走域模型默认值 0，
+                # 与 store 两侧 to_domain 的投影一致（原 ORM 路径默认 tz_offset=0 时字节等价）。
+                tz_offset = getattr(task, "tz_offset", 0)
                 prompt, tweet_count, _ = self._build_prompt(
                     tweets_data, usernames, task.time_span_hours,
-                    start_time, end_time, task.tz_offset, task.custom_prompt,
+                    start_time, end_time, tz_offset, task.custom_prompt,
                     account_profiles=account_profiles or None,
                 )
 
@@ -459,15 +452,15 @@ class TopicSummaryService:
 
                 if llm_result is None:
                     # 全部 provider 失败
-                    task.status = TopicSummaryTaskStatus.failed.value
+                    task.status = TopicSummaryTaskStatus.failed
                     task.error_message = "所有 LLM 提供商均不可用"
                     task.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
-                    await self._task_repo.update_task(session, task)
+                    await task_store.update_task(task)
                     await session.commit()
                     return
 
                 # 保存摘要结果
-                summary_orm = TopicSummaryOrm(
+                await task_store.create_summary(
                     task_id=task_id,
                     content=llm_result.content,
                     llm_provider=llm_result.provider,
@@ -479,10 +472,9 @@ class TopicSummaryService:
                     tweet_count=tweet_count,
                     account_count=len(usernames),
                 )
-                await self._task_repo.create_summary(session, summary_orm)
-                task.status = TopicSummaryTaskStatus.completed.value
+                task.status = TopicSummaryTaskStatus.completed
                 task.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
-                await self._task_repo.update_task(session, task)
+                await task_store.update_task(task)
                 await session.commit()
 
                 logger.info(f"摘要任务 {task_id} 完成: {tweet_count} 条推文, provider={llm_result.provider}")
@@ -491,12 +483,13 @@ class TopicSummaryService:
             logger.exception(f"摘要任务 {task_id} 执行异常: {e}")
             try:
                 async with session_factory() as err_session:
-                    task = await self._task_repo.get_task(err_session, task_id)
+                    task_store = get_topic_summary_task_store(err_session)
+                    task = await task_store.get_task(task_id)
                     if task:
-                        task.status = TopicSummaryTaskStatus.failed.value
+                        task.status = TopicSummaryTaskStatus.failed
                         task.error_message = str(e)
                         task.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
-                        await self._task_repo.update_task(err_session, task)
+                        await task_store.update_task(task)
                         await err_session.commit()
             except Exception as inner_e:
                 logger.error(f"更新任务 {task_id} 失败状态时出错: {inner_e}")
@@ -818,19 +811,17 @@ class TopicSummaryService:
 
     async def get_task(self, session: AsyncSession, task_id: int) -> TopicSummaryTaskDomain | None:
         """查询任务详情（含摘要结果）。"""
-        task = await self._task_repo.get_task(session, task_id)
-        return task.to_domain() if task else None
+        return await get_topic_summary_task_store(session).get_task(task_id)
 
     async def list_tasks(
         self, session: AsyncSession, topic_id: int | None = None, user_id: int | None = None
     ) -> list[TopicSummaryTaskDomain]:
         """列出任务（按创建时间倒序），可按 topic_id 和 user_id 筛选。"""
-        tasks = await self._task_repo.list_tasks(session, topic_id, user_id=user_id)
-        return [t.to_domain() for t in tasks]
+        return await get_topic_summary_task_store(session).list_tasks(topic_id, user_id=user_id)
 
     async def generate_image_prompt(self, session: AsyncSession, task_id: int) -> dict:
         """基于摘要内容生成配图提示词（实时调用 LLM）。"""
-        task = await self._task_repo.get_task(session, task_id)
+        task = await get_topic_summary_task_store(session).get_task(task_id)
         if not task or not task.summary:
             raise ValueError("摘要任务不存在或尚未生成摘要")
 
@@ -849,15 +840,13 @@ class TopicSummaryService:
         self, session: AsyncSession, topic_id: int
     ) -> TopicSummaryTaskDomain | None:
         """获取主题的最新已完成摘要任务（含摘要内容）。"""
-        topic = await self._topic_repo.get_by_id(session, topic_id)
-        if not topic:
+        if not await get_topic_store(session).get_by_id(topic_id):
             raise ValueError("主题不存在")
-        task = await self._task_repo.get_latest_completed_task(session, topic_id)
-        return task.to_domain() if task else None
+        return await get_topic_summary_task_store(session).get_latest_completed_task(topic_id)
 
     async def delete_task(self, session: AsyncSession, task_id: int) -> bool:
         """删除任务（级联删除摘要结果）。"""
-        result = await self._task_repo.delete_task(session, task_id)
+        result = await get_topic_summary_task_store(session).delete_task(task_id)
         if result:
             await session.commit()
         return result

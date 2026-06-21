@@ -33,6 +33,13 @@ from src.topic.services.topic_summary_service import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _pin_sqlalchemy_layer(monkeypatch):
+    """钉 sqlalchemy 模式:本组是行为保真回归(走真 session),不受本地 .env 的
+    XWATCHER_DATA_LAYER=file 污染。file 模式覆盖见 tests/data_layer/test_topic_summary_service_file_mode.py。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
+
+
 # ── Fixtures ──
 
 
