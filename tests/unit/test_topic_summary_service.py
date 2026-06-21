@@ -552,6 +552,82 @@ async def test_execute_task_llm_all_fail(async_session, test_session_factory, to
         assert "所有 LLM 提供商均不可用" in task.error_message
 
 
+@pytest.mark.asyncio
+async def test_execute_task_passes_tz_offset_to_build_prompt(
+    async_session, test_session_factory, topic_repo, task_repo
+):
+    """回归门:tz_offset 须从 create_and_execute_task 透传到 _execute_task → _build_prompt。
+
+    域模型 TopicSummaryTaskDomain 不投影 tz_offset(se 数据层契约:存盘但不出域),
+    若 _execute_task 从 task 域取(getattr(task, "tz_offset", 0))则恒得 0,致非零时区
+    用户后台摘要的"覆盖时段 (UTC+N)"标签退化为 UTC——本测试钉死参数透传链路防该退化复发。
+    """
+    from src.scraper.infrastructure.models import TweetOrm as TweetModel
+
+    topic = _make_topic()
+    await topic_repo.create(async_session, topic)
+    await async_session.flush()
+    await topic_repo.add_account(async_session, _make_account(topic.id, "tz_user"))
+    await async_session.flush()
+
+    now = datetime.now(timezone.utc)
+    tweet = TweetModel(
+        tweet_id="tweet_tz_001",
+        text="Tweet for tz_offset passthrough test.",
+        created_at=now - timedelta(hours=2),
+        author_username="tz_user",
+    )
+    async_session.add(tweet)
+    await async_session.flush()
+    await async_session.commit()
+
+    mock_response = _make_llm_response(content="时区透传摘要")
+    mock_provider = _make_mock_provider("openrouter", succeed=True, response=mock_response)
+    service = TopicSummaryService(providers=[mock_provider])
+
+    # 捕获 _build_prompt 实际收到的 tz_offset(第 6 位置参,index 5)
+    captured = {}
+    real_build_prompt = service._build_prompt
+
+    def _capture_build_prompt(*args, **kwargs):
+        # args[5] = tz_offset(create_and_execute_task → _execute_task 透传链终点)
+        captured["tz_offset"] = args[5]
+        return real_build_prompt(*args, **kwargs)
+
+    # patch asyncio.create_task:只拦下 _execute_task 协程手动 await,其余(如
+    # SQLAlchemy 内部 session 清理协程)透传给真 create_task,避免协程泄漏未 await。
+    import asyncio as _asyncio
+
+    real_create_task = _asyncio.create_task
+    scheduled = {}
+
+    def _capture_create_task(coro, *a, **kw):
+        if getattr(coro, "__name__", "") == "_execute_task":
+            scheduled["coro"] = coro
+            return MagicMock()
+        return real_create_task(coro, *a, **kw)
+
+    CHINA_TZ_OFFSET = -480  # 中国用户 getTimezoneOffset() 返回值
+
+    with patch("src.topic.services.topic_summary_service.asyncio.create_task", _capture_create_task), \
+         patch.object(service, "_build_prompt", side_effect=_capture_build_prompt):
+        await service.create_and_execute_task(
+            session=async_session,
+            session_factory=test_session_factory,
+            topic_id=topic.id,
+            time_span_hours=24,
+            deadline=now,
+            tz_offset=CHINA_TZ_OFFSET,
+        )
+        # 手动驱动被 patch 拦下的后台协程
+        await scheduled["coro"]
+
+    assert captured["tz_offset"] == CHINA_TZ_OFFSET, (
+        f"tz_offset 未透传到 _build_prompt:期望 {CHINA_TZ_OFFSET},实得 {captured.get('tz_offset')}"
+        "（退化迹象:从域模型取 → 恒得 0）"
+    )
+
+
 # ── 查询接口测试 ──
 
 

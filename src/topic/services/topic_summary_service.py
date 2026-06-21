@@ -191,8 +191,8 @@ class TopicSummaryService:
         )
         await session.commit()
 
-        # 异步启动后台执行
-        asyncio.create_task(self._execute_task(created.id, session_factory))
+        # 异步启动后台执行（tz_offset 不出域，参数透传给后台任务）
+        asyncio.create_task(self._execute_task(created.id, session_factory, tz_offset))
 
         return created
 
@@ -382,9 +382,15 @@ class TopicSummaryService:
         return result
 
     async def _execute_task(
-        self, task_id: int, session_factory: async_sessionmaker
+        self, task_id: int, session_factory: async_sessionmaker, tz_offset: int = 0
     ) -> None:
-        """后台执行摘要任务。"""
+        """后台执行摘要任务。
+
+        tz_offset 由 create_and_execute_task 透传（= 写库持久化的同一值，来自前端
+        getTimezoneOffset()），用于 _build_prompt 渲染"覆盖时段 (UTC+N)"标签。
+        不从 task 域模型取——TopicSummaryTaskDomain 不投影 tz_offset（se 数据层契约:
+        tz_offset 存盘但不出域），从域取会恒得默认 0、致非零时区用户后台时段标签退化。
+        """
         try:
             async with session_factory() as session:
                 task_store = get_topic_summary_task_store(session)
@@ -437,10 +443,7 @@ class TopicSummaryService:
                     return
 
                 # 构建聚合 prompt（backend 路径不启用 review_mode，第三个返回值忽略）
-                # tz_offset 不在 TopicSummaryTaskDomain 域投影内（se 数据层契约:tz_offset
-                # 存盘但不出域、to_domain 不投影、永不入 parity），故走域模型默认值 0，
-                # 与 store 两侧 to_domain 的投影一致（原 ORM 路径默认 tz_offset=0 时字节等价）。
-                tz_offset = getattr(task, "tz_offset", 0)
+                # tz_offset 由参数透传（见方法 docstring），不从 task 域取（域不投影）。
                 prompt, tweet_count, _ = self._build_prompt(
                     tweets_data, usernames, task.time_span_hours,
                     start_time, end_time, tz_offset, task.custom_prompt,
