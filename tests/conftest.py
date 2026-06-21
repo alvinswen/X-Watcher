@@ -43,7 +43,6 @@ from src.scraper.infrastructure.scheduler_log_models import SchedulerExecutionLo
 from src.scraper.infrastructure.article_models import ArticleOrm  # noqa: F401
 from src.summarization.infrastructure.models import SummaryOrm  # noqa: F401
 from src.topic.infrastructure.models import TopicOrm, TopicAccountOrm, TopicSummaryTaskOrm, TopicSummaryOrm  # noqa: F401
-from src.analytics.infrastructure.models import ClusteringRunOrm, ClusterAssignmentOrm  # noqa: F401
 
 # 在测试开始时加载 .env 文件
 from dotenv import load_dotenv

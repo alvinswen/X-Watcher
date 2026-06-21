@@ -39,8 +39,6 @@ MANIFEST=(
   "topic/infrastructure/file_topic_repository.py"
   "topic/infrastructure/topic_task_store.py"
   "topic/infrastructure/file_topic_summary_task_repository.py"
-  "analytics/infrastructure/clustering_store.py"
-  "analytics/infrastructure/file_clustering_repository.py"
   "user/infrastructure/user_store.py"
   "user/infrastructure/file_user_repository.py"
   "sync/infrastructure/export_serializers.py"              # 子项目5:FileExportStore 依赖的序列化器
