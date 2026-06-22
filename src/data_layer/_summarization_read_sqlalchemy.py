@@ -60,6 +60,33 @@ class SqlalchemySummarizationReadStore:
             for r in rows
         ]
 
+    async def count_unsummarized(self, since=None, until=None, author=None):
+        from sqlalchemy import func
+
+        stmt = (
+            select(func.count())
+            .select_from(TweetOrm)
+            .outerjoin(SummaryOrm, TweetOrm.tweet_id == SummaryOrm.tweet_id)
+            .where(SummaryOrm.summary_id == None)  # noqa: E711
+        )
+        if since:
+            stmt = stmt.where(TweetOrm.created_at >= since)
+        if until:
+            stmt = stmt.where(TweetOrm.created_at < until)
+        if author:
+            stmt = stmt.where(TweetOrm.author_username == author)
+        return (await self._session.execute(stmt)).scalar() or 0
+
+    async def count_tweets_in_window(self, since, until):
+        from sqlalchemy import func
+
+        stmt = (
+            select(func.count())
+            .select_from(TweetOrm)
+            .where(TweetOrm.created_at >= since, TweetOrm.created_at < until)
+        )
+        return (await self._session.execute(stmt)).scalar() or 0
+
     async def get_tweet_origins(self, tweet_ids):
         if not tweet_ids:
             return {}

@@ -458,36 +458,20 @@ def register(mcp: FastMCP) -> None:
             return guard_err
 
         try:
-            from sqlalchemy import func, select
-
+            from src.data_layer.provider import get_summarization_read_repo
             from src.database.async_session import get_async_session_maker
-            from src.scraper.infrastructure.models import TweetOrm
-            from src.summarization.infrastructure.models import SummaryOrm
 
             since_dt = parse_datetime_optional(since)
             until_dt = parse_datetime_optional(until)
             session_maker = get_async_session_maker()
 
-            def _time_conditions():
-                """构建时间范围过滤条件。"""
-                conds = [SummaryOrm.summary_id == None]  # noqa: E711
-                if since_dt:
-                    conds.append(TweetOrm.created_at >= since_dt)
-                if until_dt:
-                    conds.append(TweetOrm.created_at < until_dt)
-                return conds
-
             if action == "preview":
+                # 反连接 count 走 summarization 读门面(file 模式忽略 session)
                 async with session_maker() as session:
-                    result = await session.execute(
-                        select(func.count())
-                        .select_from(TweetOrm)
-                        .outerjoin(
-                            SummaryOrm, TweetOrm.tweet_id == SummaryOrm.tweet_id
-                        )
-                        .where(*_time_conditions())
+                    read_repo = get_summarization_read_repo(session)
+                    count = await read_repo.count_unsummarized(
+                        since=since_dt, until=until_dt
                     )
-                    count = result.scalar() or 0
                 return success_response({
                     "action": "preview",
                     "pending_count": count,
@@ -503,18 +487,13 @@ def register(mcp: FastMCP) -> None:
                 queue = SummarizationQueue.get_instance()
                 await queue.start()  # 幂等：已启动则立即返回
 
-                # 查询待摘要推文 ID
+                # 查询待摘要推文 ID(反连接 DESC limit,走读门面取 tweet_id)
                 async with session_maker() as session:
-                    result = await session.execute(
-                        select(TweetOrm.tweet_id)
-                        .outerjoin(
-                            SummaryOrm, TweetOrm.tweet_id == SummaryOrm.tweet_id
-                        )
-                        .where(*_time_conditions())
-                        .order_by(TweetOrm.created_at.desc())
-                        .limit(batch_size)
+                    read_repo = get_summarization_read_repo(session)
+                    rows = await read_repo.get_unsummarized_tweets(
+                        since=since_dt, until=until_dt, limit=batch_size
                     )
-                    tweet_ids = [row[0] for row in result.fetchall()]
+                    tweet_ids = [r["tweet_id"] for r in rows]
 
                 if not tweet_ids:
                     return success_response({
@@ -544,17 +523,12 @@ def register(mcp: FastMCP) -> None:
                         "reset 操作需要 since 和 until 参数", "validation"
                     )
 
-                # 查询范围内推文数
+                # 时间窗全部推文数(含已摘要)走读门面 count_tweets_in_window
                 async with session_maker() as session:
-                    result = await session.execute(
-                        select(func.count())
-                        .select_from(TweetOrm)
-                        .where(
-                            TweetOrm.created_at >= since_dt,
-                            TweetOrm.created_at < until_dt,
-                        )
+                    read_repo = get_summarization_read_repo(session)
+                    tweet_count = await read_repo.count_tweets_in_window(
+                        since_dt, until_dt
                     )
-                    tweet_count = result.scalar() or 0
 
                 audit_log("batch_summarize", "reset", params={"since": since, "until": until, "tweet_count": tweet_count})
                 return success_response({
@@ -598,107 +572,102 @@ def register(mcp: FastMCP) -> None:
             )
 
         try:
-            from sqlalchemy import func, select
-
+            from src.data_layer.provider import (
+                get_follows_repo,
+                get_profile_repo,
+                get_scraper_stats_repo,
+            )
             from src.database.async_session import get_async_session_maker
-            from src.database.models import ScraperFollow
-            from src.scraper.infrastructure.models import TweetOrm
 
             session_maker = get_async_session_maker()
 
             if info_type == "profiles":
+                # 档案走 profile 门面(file 模式忽略 session)。领域模型携 fetched_at
+                # (无 updated_at 列),沿用 router 既有约定以 fetched_at 充 updated_at 键;
+                # 保 username 升序(逐档案排序,复刻原 order_by(username))。
                 async with session_maker() as session:
-                    from src.database.x_user_profile_model import XUserProfileOrm
-
-                    result = await session.execute(
-                        select(
-                            XUserProfileOrm.username,
-                            XUserProfileOrm.display_name,
-                            XUserProfileOrm.description,
-                            XUserProfileOrm.followers_count,
-                            XUserProfileOrm.following_count,
-                            XUserProfileOrm.statuses_count,
-                            XUserProfileOrm.updated_at,
-                        ).order_by(XUserProfileOrm.username)
-                    )
-                    rows = result.fetchall()
-                    profiles = [
-                        {
-                            "username": r.username,
-                            "display_name": r.display_name,
-                            "bio": r.description,
-                            "followers_count": r.followers_count,
-                            "following_count": r.following_count,
-                            "tweet_count": r.statuses_count,
-                            "updated_at": r.updated_at,
-                        }
-                        for r in rows
-                    ]
+                    repo = get_profile_repo(session)
+                    domain_profiles = await repo.get_all_profiles()
+                domain_profiles = sorted(
+                    domain_profiles, key=lambda p: p.username
+                )
+                profiles = [
+                    {
+                        "username": p.username,
+                        "display_name": p.display_name,
+                        "bio": p.description,
+                        "followers_count": p.followers_count,
+                        "following_count": p.following_count,
+                        "tweet_count": p.statuses_count,
+                        "updated_at": p.fetched_at,
+                    }
+                    for p in domain_profiles
+                ]
                 return success_response({
                     "profiles": profiles,
                     "count": len(profiles),
                 })
 
             elif info_type == "stats":
+                # 活跃账号走 follows 门面;每账号总推文走 tweet 聚合门面
+                # tweet_time_range 的 count 槽(大小写不敏感 lower 键匹配)。
                 async with session_maker() as session:
-                    # 获取活跃账号
-                    follows_result = await session.execute(
-                        select(
-                            ScraperFollow.username,
-                            ScraperFollow.manual_limit,
-                        ).where(ScraperFollow.is_active == True)  # noqa: E712
+                    follows = await get_follows_repo(session).get_all_follows(
+                        include_inactive=False
                     )
-                    follows = follows_result.fetchall()
-
-                    stats = []
-                    for f in follows:
-                        # 最近推文统计
-                        count_result = await session.execute(
-                            select(func.count())
-                            .select_from(TweetOrm)
-                            .where(
-                                func.lower(TweetOrm.author_username)
-                                == f.username.lower()
-                            )
+                    usernames = [f.username for f in follows]
+                    ranges = (
+                        await get_scraper_stats_repo(session).tweet_time_range(
+                            usernames
                         )
-                        total = count_result.scalar() or 0
-                        stats.append({
-                            "username": f.username,
-                            "manual_limit": f.manual_limit,
-                            "total_tweets": total,
-                        })
+                        if usernames
+                        else {}
+                    )
 
+                stats = [
+                    {
+                        "username": f.username,
+                        "manual_limit": f.manual_limit,
+                        "total_tweets": (
+                            ranges[f.username.lower()][2]
+                            if f.username.lower() in ranges
+                            else 0
+                        ),
+                    }
+                    for f in follows
+                ]
                 return success_response({"stats": stats, "count": len(stats)})
 
             elif info_type == "tweet_time_range":
+                # 活跃账号 min/max/count 走 tweet 聚合门面(lower 键匹配)。
                 async with session_maker() as session:
-                    follows_result = await session.execute(
-                        select(ScraperFollow.username).where(
-                            ScraperFollow.is_active == True  # noqa: E712
-                        )
+                    follows = await get_follows_repo(session).get_all_follows(
+                        include_inactive=False
                     )
-                    usernames = [r.username for r in follows_result.fetchall()]
-
-                    ranges = []
-                    for uname in usernames:
-                        result = await session.execute(
-                            select(
-                                func.min(TweetOrm.created_at).label("earliest"),
-                                func.max(TweetOrm.created_at).label("latest"),
-                                func.count().label("count"),
-                            ).where(
-                                func.lower(TweetOrm.author_username)
-                                == uname.lower()
-                            )
+                    usernames = [f.username for f in follows]
+                    rows = (
+                        await get_scraper_stats_repo(session).tweet_time_range(
+                            usernames
                         )
-                        row = result.first()
-                        ranges.append({
-                            "username": uname,
-                            "earliest_tweet_at": row.earliest if row else None,
-                            "latest_tweet_at": row.latest if row else None,
-                            "tweet_count": row.count if row else 0,
-                        })
+                        if usernames
+                        else {}
+                    )
 
+                ranges = [
+                    {
+                        "username": u,
+                        "earliest_tweet_at": (
+                            rows[u.lower()][0] if u.lower() in rows else None
+                        ),
+                        "latest_tweet_at": (
+                            rows[u.lower()][1] if u.lower() in rows else None
+                        ),
+                        "tweet_count": (
+                            rows[u.lower()][2] if u.lower() in rows else 0
+                        ),
+                    }
+                    for u in usernames
+                ]
                 return success_response({
                     "time_ranges": ranges,
                     "count": len(ranges),
@@ -710,32 +679,21 @@ def register(mcp: FastMCP) -> None:
                         "analysis 类型需要 username 参数", "validation"
                     )
 
-                from datetime import timedelta
-
+                # 逐周期 count 走 tweet 聚合门面(12h × 14 周期)。门面正序(最早在前),
+                # 此处 reverse 成最近在前,复刻原 i=0 最新逐周期追加的 DESC 输出。
                 async with session_maker() as session:
-                    # 按 12 小时周期统计最近 14 个周期
-                    now = datetime.now(timezone.utc)
-                    periods_data = []
-                    for i in range(14):
-                        end = now - timedelta(hours=12 * i)
-                        start = end - timedelta(hours=12)
-                        result = await session.execute(
-                            select(func.count())
-                            .select_from(TweetOrm)
-                            .where(
-                                func.lower(TweetOrm.author_username)
-                                == username.lower(),
-                                TweetOrm.created_at >= start,
-                                TweetOrm.created_at < end,
-                            )
-                        )
-                        count = result.scalar() or 0
-                        periods_data.append({
-                            "period_start": start,
-                            "period_end": end,
-                            "new_tweets": count,
-                        })
+                    windows = await get_scraper_stats_repo(session).period_analysis(
+                        username, 12, 14
+                    )
 
+                periods_data = [
+                    {
+                        "period_start": period_start,
+                        "period_end": period_end,
+                        "new_tweets": count,
+                    }
+                    for (period_start, period_end, count) in reversed(windows)
+                ]
                 return success_response({
                     "username": username,
                     "interval_hours": 12,
