@@ -1,6 +1,7 @@
 """MCP Feed & 搜索工具。
 
-提供 get_feed 和 search_tweets 两个 MCP 工具，映射到 FeedService 和 SearchService。
+提供 get_feed 和 search_tweets 两个 MCP 工具：get_feed 走 get_feed_repo（feed 读门面，
+按 XWATCHER_DATA_LAYER 切 file/sqlalchemy），search_tweets 映射到 SearchService（deferred 未接文件层）。
 """
 
 import logging
