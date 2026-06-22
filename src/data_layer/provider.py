@@ -16,6 +16,11 @@ def _data_layer() -> str:
     return os.environ.get("XWATCHER_DATA_LAYER", "sqlalchemy").strip().lower()
 
 
+def is_file_mode() -> bool:
+    """当前是否文件数据层模式(XWATCHER_DATA_LAYER=file)。pg 下线守卫用。"""
+    return _data_layer() == "file"
+
+
 def _data_root() -> Path:
     return Path(os.environ.get("XWATCHER_DATA_ROOT", "data"))
 
