@@ -369,7 +369,7 @@ class TestAdminToolsIntegration:
                 "src.database.async_session.get_async_session_maker",
                 return_value=test_session_factory,
             ),
-            patch("src.mcp.auth.require_admin", return_value=None),
+            patch("src.mcp.tools.admin_tools.require_admin", return_value=None),
         ):
             result = await tool_funcs["manage_follows"](action="list")
 
@@ -391,7 +391,7 @@ class TestAdminToolsIntegration:
                 "src.database.async_session.get_async_session_maker",
                 return_value=test_session_factory,
             ),
-            patch("src.mcp.auth.require_admin", return_value=None),
+            patch("src.mcp.tools.admin_tools.require_admin", return_value=None),
         ):
             result = await tool_funcs["manage_follows"](
                 action="list", include_inactive=True
@@ -472,7 +472,7 @@ class TestFollowAccountsInfoIntegration:
                 "src.database.async_session.get_async_session_maker",
                 return_value=test_session_factory,
             ),
-            patch("src.mcp.auth.require_admin", return_value=None),
+            patch("src.mcp.tools.admin_tools.require_admin", return_value=None),
         ):
             result = await tool_funcs["get_follow_accounts_info"](
                 info_type="profiles"
