@@ -37,9 +37,11 @@ class FileBrowseReadStore:
             "referenced_tweet_id": tw.referenced_tweet_id,
             "referenced_tweet_text": tw.referenced_tweet_text,
             "referenced_tweet_author_username": tw.referenced_tweet_author_username,
-            "media": [m.model_dump(mode="json") for m in tw.media] if tw.media else None,
+            # exclude_none 匹配生产 pg:TweetOrm.from_domain 以 exclude_none 持久化 media,
+            # 旧 BrowseService 返存储 JSON(省略 None 键)。不加会多出 preview_image_url/alt_text:null 偏离 pg。
+            "media": [m.model_dump(mode="json", exclude_none=True) for m in tw.media] if tw.media else None,
             "referenced_tweet_media": (
-                [m.model_dump(mode="json") for m in tw.referenced_tweet_media]
+                [m.model_dump(mode="json", exclude_none=True) for m in tw.referenced_tweet_media]
                 if tw.referenced_tweet_media else None
             ),
         }

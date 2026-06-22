@@ -93,6 +93,9 @@ async def test_get_tweets_file_mode_media_shape(monkeypatch, tmp_path):
 
     items, _ = await get_browse_repo().get_tweets(base.strftime("%Y-%m-%d"), None, page=1, page_size=20, tz_offset=0)
     assert isinstance(items[0]["media"], list) and isinstance(items[0]["media"][0], dict)
+    # exclude_none 匹配生产 pg(from_domain 以 exclude_none 持久化 media):只含已设字段,
+    # 不含 preview_image_url/alt_text:null。Media(media_key,type) 其余 None → 恰 2 键。
+    assert items[0]["media"][0] == {"media_key": "k1", "type": "photo"}
     # MCP 路径经 success_response 的 json.dumps(default=_default_serializer);datetime→isoformat
     # 兜底,其余必须已是 plain JSON 类型(media→dict)。逐字复刻该契约,而非裸 json.dumps。
     from src.mcp.helpers import _default_serializer
