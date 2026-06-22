@@ -75,34 +75,28 @@ def register(mcp: FastMCP) -> None:
     async def follows_resource() -> str:
         """正在监控的 X 账号列表。"""
         try:
-            from sqlalchemy import select
-
+            from src.data_layer.provider import get_follows_repo
             from src.database.async_session import get_async_session_maker
-            from src.database.models import ScraperFollow
 
             session_maker = get_async_session_maker()
             async with session_maker() as session:
-                result = await session.execute(
-                    select(
-                        ScraperFollow.username,
-                        ScraperFollow.reason,
-                        ScraperFollow.is_active,
-                        ScraperFollow.added_at,
-                        ScraperFollow.brief_intro,
-                    ).order_by(ScraperFollow.username)
+                # 源无 is_active 过滤=返全部 → include_inactive=True
+                all_follows = await get_follows_repo(session).get_all_follows(
+                    include_inactive=True
                 )
-                rows = result.fetchall()
 
-                follows = [
-                    {
-                        "username": r.username,
-                        "reason": r.reason,
-                        "is_active": r.is_active,
-                        "added_at": r.added_at,
-                        "brief_intro": r.brief_intro,
-                    }
-                    for r in rows
-                ]
+            # 保留源行为:按 username 升序(repo 默认 added_at DESC)
+            all_follows = sorted(all_follows, key=lambda f: f.username)
+            follows = [
+                {
+                    "username": f.username,
+                    "reason": f.reason,
+                    "is_active": f.is_active,
+                    "added_at": f.added_at,
+                    "brief_intro": f.brief_intro,
+                }
+                for f in all_follows
+            ]
 
             return json.dumps(
                 {"follows": follows, "count": len(follows)},
@@ -116,40 +110,26 @@ def register(mcp: FastMCP) -> None:
     async def topics_resource() -> str:
         """配置的监控主题及账号关联。"""
         try:
-            from sqlalchemy import func, select
-
+            from src.data_layer.provider import get_topic_store
             from src.database.async_session import get_async_session_maker
-            from src.topic.infrastructure.models import TopicAccountOrm, TopicOrm
 
             session_maker = get_async_session_maker()
             async with session_maker() as session:
-                result = await session.execute(
-                    select(
-                        TopicOrm.id,
-                        TopicOrm.name,
-                        TopicOrm.description,
-                        TopicOrm.created_at,
-                    ).order_by(TopicOrm.name)
-                )
-                topics_rows = result.fetchall()
+                # list_all 返 TopicWithCountDomain(内含 account_count),消除 per-topic count 查询
+                all_topics = await get_topic_store(session).list_all()
 
-                topics = []
-                for t in topics_rows:
-                    # 查询每个主题的账号数
-                    acc_count_r = await session.execute(
-                        select(func.count())
-                        .select_from(TopicAccountOrm)
-                        .where(TopicAccountOrm.topic_id == t.id)
-                    )
-                    acc_count = acc_count_r.scalar() or 0
-
-                    topics.append({
-                        "id": t.id,
-                        "name": t.name,
-                        "description": t.description,
-                        "created_at": t.created_at,
-                        "account_count": acc_count,
-                    })
+            # 保留源行为:按 name 升序(list_all 默认 created_at DESC)
+            all_topics = sorted(all_topics, key=lambda t: t.name)
+            topics = [
+                {
+                    "id": t.id,
+                    "name": t.name,
+                    "description": t.description,
+                    "created_at": t.created_at,
+                    "account_count": t.account_count,
+                }
+                for t in all_topics
+            ]
 
             return json.dumps(
                 {"topics": topics, "count": len(topics)},
