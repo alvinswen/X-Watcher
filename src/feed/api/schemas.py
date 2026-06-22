@@ -19,7 +19,7 @@ class FeedTweetItem(UTCDatetimeModel):
     author_username: str = Field(..., description="作者用户名")
     author_display_name: str | None = Field(None, description="作者显示名称")
     created_at: datetime = Field(..., description="推文原始发布时间")
-    db_created_at: datetime = Field(..., description="入库时间")
+    db_created_at: datetime | None = Field(None, description="入库时间(file 模式无来源返 None)")
     reference_type: str | None = Field(None, description="引用类型")
     referenced_tweet_id: str | None = Field(None, description="引用推文 ID")
     media: list[dict] | None = Field(None, description="媒体附件")

@@ -397,3 +397,18 @@ def get_browse_repo(session=None):
     from src.browse.services.browse_service import BrowseService
 
     return BrowseService(session)
+
+
+def get_feed_repo(session=None):
+    """返回 feed 读门面(get_feed 时间窗增量 + author/keyword + summary JOIN)。
+
+    file 模式:FileFeedReadStore(_data_root())(组合 file store + summary JOIN;db_created_at→None)。
+    sqlalchemy 模式:FeedService(session)(现有服务不动,零行为变化)。
+    """
+    if _data_layer() == "file":
+        from src.feed.infrastructure.file_feed_read_repository import FileFeedReadStore
+
+        return FileFeedReadStore(_data_root())
+    from src.feed.services.feed_service import FeedService
+
+    return FeedService(session)
