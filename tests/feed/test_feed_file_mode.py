@@ -178,6 +178,27 @@ async def test_feed_tweet_item_accepts_none_db_created_at():
 
 
 @pytest.mark.asyncio
+async def test_get_feed_file_mode_reference_type(monkeypatch, tmp_path):
+    """reference_type enum→.value(str)+ referenced_tweet_id 透传(非 None 路径,锁 _item enum 分支)。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    from src.scraper.domain.models import ReferenceType, Tweet
+    now = datetime.now(timezone.utc)
+    base = now - timedelta(days=1)
+    tw = Tweet(tweet_id="r1", text="reply tweet", created_at=base + timedelta(minutes=1),
+               author_username="alice", author_display_name="alice disp",
+               reference_type=ReferenceType.replied_to, referenced_tweet_id="orig99")
+    await _seed_file(tmp_path, [tw])
+    from src.data_layer.provider import get_feed_repo
+
+    result = await get_feed_repo().get_feed(since=base - timedelta(hours=1),
+                                            until=base + timedelta(hours=1), limit=10)
+    item = result.items[0]
+    assert item["reference_type"] == "replied_to" and isinstance(item["reference_type"], str)  # enum→str
+    assert item["referenced_tweet_id"] == "orig99"
+
+
+@pytest.mark.asyncio
 async def test_cross_mode_feed_equivalence(monkeypatch, tmp_path):
     """同数据 file vs sqlalchemy(SQLite)产同 (items 除 db_created_at, count, total, has_more)。
     ASCII keyword;distinct created_at 避 tie-break;created_at 按 instant 比 + 单独钉 file aware;
@@ -226,6 +247,8 @@ async def test_cross_mode_feed_equivalence(monkeypatch, tmp_path):
 
     cases = [dict(since=since, until=until, limit=10),
              dict(since=since, until=until, limit=10, keyword="gpt"),
+             dict(since=since, until=until, limit=10, keyword="gpt", include_summary=False),
+             dict(since=since, until=until, limit=10, authors=["bob"]),
              dict(since=since, until=until, limit=10, author="alice")]
     for kw in cases:
         monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
