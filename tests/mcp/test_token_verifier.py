@@ -94,3 +94,31 @@ async def test_verify_token_sqlalchemy_mode(monkeypatch):
     assert ok is not None and ok.client_id == "Bob" and ok.scopes == ["user"]
     assert await XWatcherTokenVerifier().verify_token("nope") is None
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_verify_token_file_mode_orphaned_key_rejected(monkeypatch, tmp_path):
+    """孤儿 key(active key 存在但其 user 不存在)→ 拒绝。
+
+    锁定原 inner-join 语义:`get_active_key_by_hash` 命中但 `get_user_by_id` 返 None
+    时 fall through 到 return None。这是未来重构最易被静默破坏的认证边界。
+    """
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    monkeypatch.delenv("ADMIN_API_KEY", raising=False)
+    from src.config import clear_settings_cache
+
+    clear_settings_cache()
+
+    from src.user.infrastructure.file_user_repository import FileUserStore
+
+    store = FileUserStore(tmp_path)
+    token = "orphan-token"
+    key_hash = hashlib.sha256(token.encode()).hexdigest()
+    # 不创建任何 user,直接造一个指向不存在 user_id 的 active key
+    await store.create_api_key(999, key_hash, key_prefix="orphan-t")
+
+    from src.mcp.token_verifier import XWatcherTokenVerifier
+
+    # key active 且命中,但 user_id=999 无对应 user → get_user_by_id None → 拒绝
+    assert await XWatcherTokenVerifier().verify_token(token) is None
