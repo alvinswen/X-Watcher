@@ -182,8 +182,15 @@ class TestSchedulerScrapingFlow:
 
         from src.scraper.scheduled_job import scheduled_scrape_job as _scheduled_scrape_job
 
-        # Mock registry
-        with patch("src.scraper.scheduled_job.TaskRegistry") as mock_registry_cls:
+        # Mock 数据源:让"无用户列表 → 跳过"路径与实际数据库/文件层内容解耦(hermetic)。
+        # 否则真实数据源(sqlalchemy 模式的 pg，或 .env 默认 file 模式指向的 data_migrated)
+        # 中的活跃关注会让 usernames 非空、任务不跳过 → 触发真实抓取并在
+        # scheduled_job.py 的 service.close() 处报 RuntimeError。
+        with (
+            patch("src.scraper.scheduled_job.get_active_follows_from_db", return_value=[]),
+            patch("src.scraper.scheduled_job.get_pending_backfill_users_from_db", return_value=[]),
+            patch("src.scraper.scheduled_job.TaskRegistry") as mock_registry_cls,
+        ):
             mock_registry = MagicMock()
             mock_registry_cls.get_instance.return_value = mock_registry
 

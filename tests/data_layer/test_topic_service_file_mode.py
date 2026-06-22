@@ -1,5 +1,6 @@
 """topic_service 在 XWATCHER_DATA_LAYER=file 下走文件层(topic 自有数据)。
-跨域校验 _validate_username_in_scraper_follows 用真 session 预置 ScraperFollow。"""
+跨域校验 _validate_username_in_scraper_follows 现走 get_follows_repo(file 模式=
+FileFollowStore),故关注列表种子预置进文件层而非 DB session。"""
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -16,10 +17,9 @@ async def session(monkeypatch, tmp_path):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     s = async_sessionmaker(engine, expire_on_commit=False)()
-    # 跨域校验依赖 scraper_follows(走 session,与 topic 文件层无关)
-    # ScraperFollow.reason / added_by 非空无默认 → 补最小必填字段使 commit 成功
-    s.add(ScraperFollow(username="alice", reason="test", added_by="test"))
-    await s.commit()
+    # 跨域校验现走文件层(get_follows_repo file 模式=FileFollowStore)→ 种子进文件层
+    from src.preference.infrastructure.file_follow_repository import FileFollowStore
+    await FileFollowStore(tmp_path).create_scraper_follow("alice", "test", "test")
     yield s
     await s.close()
     await engine.dispose()
@@ -54,3 +54,31 @@ async def test_add_account_rejects_unknown_username_file_mode(session):
     t = await svc.create_topic(session, name="AI")
     with pytest.raises(ValueError, match="未在系统抓取列表中注册"):
         await svc.add_account(session, t.id, "ghost")             # 跨域校验仍生效
+
+
+@pytest.mark.asyncio
+async def test_validate_username_reads_file_layer_not_session(monkeypatch, tmp_path):
+    """file 模式:_validate 走文件层。反向种子证非假绿——
+    follow 只进 DB session 时应被拒,只进文件层时应通过。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    s = async_sessionmaker(engine, expire_on_commit=False)()
+    # 反向种子:DB session 有 in_db_only,文件层有 in_file_only
+    s.add(ScraperFollow(username="in_db_only", reason="t", added_by="t"))
+    await s.commit()
+    from src.preference.infrastructure.file_follow_repository import FileFollowStore
+    await FileFollowStore(tmp_path).create_scraper_follow("in_file_only", "t", "t")
+
+    svc = TopicService()
+    t = await svc.create_topic(s, name="AI")
+    # 文件层的 in_file_only 通过(证走文件层)
+    acct = await svc.add_account(s, t.id, "in_file_only")
+    assert acct.username == "in_file_only"
+    # DB session 的 in_db_only 被拒(证不再读 session)
+    with pytest.raises(ValueError, match="未在系统抓取列表中注册"):
+        await svc.add_account(s, t.id, "in_db_only")
+    await s.close()
+    await engine.dispose()
