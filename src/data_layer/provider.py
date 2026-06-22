@@ -384,6 +384,21 @@ def get_import_repo(session=None, dry_run=False):
     return ImportRepository(session)
 
 
+def get_analytics_repo(session=None):
+    """返回 analytics 读门面(get_posting_frequency)。
+
+    file 模式:FileAnalyticsStore(_data_root())(忽略 session,Python 槽聚合)。
+    sqlalchemy 模式:AnalyticsService(session)(现有 SQL 不动,零行为变化)。
+    """
+    if _data_layer() == "file":
+        from src.analytics.infrastructure.file_analytics_repository import FileAnalyticsStore
+
+        return FileAnalyticsStore(_data_root())
+    from src.analytics.services.analytics_service import AnalyticsService
+
+    return AnalyticsService(session)
+
+
 def get_browse_repo(session=None):
     """返回 browse 读门面(get_tweets / get_author_timeline 列表面)。
 
