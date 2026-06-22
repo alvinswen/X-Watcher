@@ -454,6 +454,26 @@ def get_search_repo(session=None):
     return SearchService(session)
 
 
+def get_scraper_stats_repo(session=None):
+    """返回 scraper_config 账号聚合读门面(max_period_counts / tweet_time_range / period_analysis)。
+
+    file 模式:FileScraperStatsReadStore(_data_root())(组合 FileTweetStore Python 槽聚合;
+      ⚠️ max_period_counts 用 round-half-up 整数分桶复刻生产 PG cast 进位,非 floor)。
+    sqlalchemy 模式:SqlalchemyScraperStatsReadStore(session)(转调与原端点等价内联 SQL,SQL 零变化)。
+    """
+    if _data_layer() == "file":
+        from src.preference.infrastructure.scraper_stats_read_repository import (
+            FileScraperStatsReadStore,
+        )
+
+        return FileScraperStatsReadStore(_data_root())
+    from src.preference.infrastructure.scraper_stats_read_repository import (
+        SqlalchemyScraperStatsReadStore,
+    )
+
+    return SqlalchemyScraperStatsReadStore(session)
+
+
 def get_status_repo(session=None):
     """返回 status 统计读门面(get_tweet_stats / get_follow_stats / get_summary_stats / get_topic_stats)。
 
