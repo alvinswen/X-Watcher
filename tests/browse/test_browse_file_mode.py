@@ -430,3 +430,43 @@ async def test_get_authors_empty_day(monkeypatch, tmp_path):
     from src.data_layer.provider import get_browse_repo
     authors = await get_browse_repo().get_authors("2026-05-11", tz_offset=0)  # 11 日无推文
     assert authors == []
+
+
+@pytest.mark.asyncio
+async def test_mcp_get_daily_stats_file_mode(monkeypatch, tmp_path):
+    import json
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    await _seed_file(tmp_path, [
+        _tweet("md1", "alice", datetime(2026, 5, 2, 3, 0, tzinfo=timezone.utc)),
+        _tweet("md2", "bob", datetime(2026, 5, 2, 9, 0, tzinfo=timezone.utc)),
+    ])
+    from mcp.server.fastmcp import FastMCP
+    from src.mcp.tools import browse_tools
+    mcp = FastMCP("test"); browse_tools.register(mcp)
+    fn = mcp._tool_manager._tools["get_daily_stats"].fn
+    data = json.loads(await fn(year=2026, month=5, tz_offset=0))
+    assert data["success"] is True
+    assert data["data"]["daily_stats"] == [{"date": "2026-05-02", "count": 2}]
+
+
+@pytest.mark.asyncio
+async def test_mcp_get_authors_for_date_file_mode(monkeypatch, tmp_path):
+    import json
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    day = datetime(2026, 5, 10, 3, 0, tzinfo=timezone.utc)
+    await _seed_file(tmp_path, [
+        _tweet("ma1", "alice", day), _tweet("ma2", "bob", day.replace(hour=8)),
+    ], follows=[("alice", "AI 研究者")])
+    from mcp.server.fastmcp import FastMCP
+    from src.mcp.tools import browse_tools
+    mcp = FastMCP("test"); browse_tools.register(mcp)
+    fn = mcp._tool_manager._tools["get_authors_for_date"].fn
+    data = json.loads(await fn(date="2026-05-10", tz_offset=0))
+    assert data["success"] is True
+    assert data["data"]["count"] == 2
+    assert [a["author_username"] for a in data["data"]["authors"]] == ["bob", "alice"]
+    alice = next(a for a in data["data"]["authors"] if a["author_username"] == "alice")
+    assert alice["reason"] == "AI 研究者"
+    assert alice["last_tweet_at"].endswith("+00:00")   # MCP isoformat 出 aware,匹配生产 pg

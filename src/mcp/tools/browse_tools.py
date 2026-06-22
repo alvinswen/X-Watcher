@@ -36,13 +36,12 @@ def register(mcp: FastMCP) -> None:
             return error_response("月份必须在 1-12 之间", "validation")
 
         try:
-            from src.browse.services.browse_service import BrowseService
+            from src.data_layer.provider import get_browse_repo
             from src.database.async_session import get_async_session_maker
 
             session_maker = get_async_session_maker()
             async with session_maker() as session:
-                service = BrowseService(session)
-                stats = await service.get_daily_stats(
+                stats = await get_browse_repo(session).get_daily_stats(
                     year=year,
                     month=month,
                     tz_offset=tz_offset,
@@ -72,13 +71,12 @@ def register(mcp: FastMCP) -> None:
             min_text_length: 最小推文文本长度过滤（可选）
         """
         try:
-            from src.browse.services.browse_service import BrowseService
+            from src.data_layer.provider import get_browse_repo
             from src.database.async_session import get_async_session_maker
 
             session_maker = get_async_session_maker()
             async with session_maker() as session:
-                service = BrowseService(session)
-                authors = await service.get_authors(
+                authors = await get_browse_repo(session).get_authors(
                     date=date,
                     tz_offset=tz_offset,
                     min_text_length=min_text_length,
