@@ -228,3 +228,24 @@ async def test_cross_mode_search_equivalence(monkeypatch, tmp_path):
         assert all(i["db_created_at"] is not None for i in s.items)
 
     await session.close(); await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_mcp_search_tweets_file_mode(monkeypatch, tmp_path):
+    import json
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    now = datetime.now(timezone.utc)
+    base = now - timedelta(days=1)
+    await _seed_file(tmp_path, [_tweet("ms1", "alice", base + timedelta(minutes=1), text="needle here"),
+                                _tweet("ms2", "alice", base + timedelta(minutes=2), text="other")])
+    from mcp.server.fastmcp import FastMCP
+    from src.mcp.tools import feed_tools
+    mcp = FastMCP("test"); feed_tools.register(mcp)
+    fn = mcp._tool_manager._tools["search_tweets"].fn
+    raw = await fn(q="needle")
+    data = json.loads(raw)
+    assert data["success"] is True
+    assert data["data"]["total"] == 1 and data["data"]["count"] == 1
+    assert {i["tweet_id"] for i in data["data"]["items"]} == {"ms1"}
+    assert all(i["db_created_at"] is None for i in data["data"]["items"])
