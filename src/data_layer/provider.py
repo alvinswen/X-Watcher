@@ -382,3 +382,18 @@ def get_import_repo(session=None, dry_run=False):
     from src.sync.infrastructure.import_repository import ImportRepository
 
     return ImportRepository(session)
+
+
+def get_browse_repo(session=None):
+    """返回 browse 读门面(get_tweets / get_author_timeline 列表面)。
+
+    file 模式:FileBrowseReadStore(_data_root())(组合 file store + summary JOIN)。
+    sqlalchemy 模式:BrowseService(session)(现有服务不动;聚合两法 deferred 由其 route 直调)。
+    """
+    if _data_layer() == "file":
+        from src.browse.infrastructure.file_browse_read_repository import FileBrowseReadStore
+
+        return FileBrowseReadStore(_data_root())
+    from src.browse.services.browse_service import BrowseService
+
+    return BrowseService(session)
