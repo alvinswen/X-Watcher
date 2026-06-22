@@ -3,13 +3,15 @@
 组合 FileTweetStore(窗口取推文)+ FileSummaryStore(全量摘要建 map 左连接)+ FollowStore(reason)。
 复刻旧 BrowseService 的 2 列表方法形态(13 字段 item dict);不做聚合两法(deferred)。
 
-created_at 形态对齐 oracle:旧 BrowseService 走 SQLite,DateTime(timezone=True) 经 aiosqlite
-回读为 naive(UTC 语义);文件层 _to_domain 回读为 aware(+00:00)。二者同一时刻、经
-UTCDatetimeModel 序列化等价,但跨模式 dict 级对账要求逐字相等,故 _item 统一归一到 naive-UTC。
+⚠️ created_at 保 aware(+00:00):实测生产 pg(timestamptz)返 aware、data_migrated 存
+"...+00:00"、文件层 _to_domain 回读 aware → file 与生产 pg 一致(MCP 路径 isoformat 均出
+"+00:00")。**不可归一到 naive 去迎合 SQLite 测试**(aiosqlite 回读 DateTime(tz) 为 naive
+是测试 oracle 工件,非生产语义——同 A1-1 SQLite-vs-PG 陷阱)。跨模式对账对 created_at 按
+instant 比对 + 单独钉 file 为 aware "+00:00"。
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 
@@ -24,17 +26,9 @@ class FileBrowseReadStore:
         return {r.tweet_id: r for r in recs}
 
     @staticmethod
-    def _naive_utc(dt):
-        # oracle(SQLite/aiosqlite)回读 created_at 为 naive-UTC;文件层为 aware-UTC。
-        # 归一到 naive-UTC 使跨模式 item dict 逐字相等(同一时刻、API 层 UTCDatetimeModel 等价处理)。
-        if dt is not None and dt.tzinfo is not None:
-            return dt.astimezone(timezone.utc).replace(tzinfo=None)
-        return dt
-
-    @classmethod
-    def _item(cls, tw, rec) -> dict:
+    def _item(tw, rec) -> dict:
         return {
-            "tweet_id": tw.tweet_id, "created_at": cls._naive_utc(tw.created_at),
+            "tweet_id": tw.tweet_id, "created_at": tw.created_at,   # aware +00:00,匹配生产 pg
             "author_username": tw.author_username, "author_display_name": tw.author_display_name,
             "summary_text": rec.summary_text if rec else None,
             "translation_text": rec.translation_text if rec else None,

@@ -138,6 +138,23 @@ async def test_cross_mode_browse_equivalence(monkeypatch, tmp_path):
     s_meta, s_ti, s_tt = await get_browse_repo(session).get_author_timeline("alice", base, base+timedelta(days=1), 1, 20)
     await session.close(); await engine.dispose()
 
+    # ⚠️ SQLite(aiosqlite)回读 created_at 为 naive,生产 pg 为 aware → 对 created_at 的 tz 表示
+    # 不可对 SQLite 逐字比(SQLite≠pg,同 A1-1 oracle 陷阱)。按 instant 归一比其余等价;
+    # created_at 的生产语义(aware +00:00)由下方单独钉。
+    def _norm(items):
+        out = []
+        for it in items:
+            d = dict(it)
+            ca = d["created_at"]
+            if ca is not None and ca.tzinfo is not None:
+                d["created_at"] = ca.astimezone(timezone.utc).replace(tzinfo=None)
+            out.append(d)
+        return out
+
     assert f_total == s_total == 3
-    assert f_items == s_items, f"get_tweets 不等\nfile={f_items}\nsql={s_items}"
-    assert (f_meta, f_tt) == (s_meta, s_tt) and f_ti == s_ti
+    assert _norm(f_items) == _norm(s_items), f"get_tweets 不等\nfile={f_items}\nsql={s_items}"
+    assert f_meta == s_meta and f_tt == s_tt
+    assert _norm(f_ti) == _norm(s_ti), f"timeline 不等\nfile={f_ti}\nsql={s_ti}"
+    # 钉生产语义:file created_at 必须 aware "+00:00"(匹配生产 pg,非 SQLite naive)
+    assert all(i["created_at"].tzinfo is not None for i in f_items + f_ti)
+    assert f_items[0]["created_at"].isoformat().endswith("+00:00")
