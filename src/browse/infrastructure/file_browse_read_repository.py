@@ -14,6 +14,8 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
+_NO_LIMIT = 10**12  # FileTweetStore.get_feed 无 unlimited 参;大 limit 取窗口内全部(复用 feed/search 范式)
+
 
 class FileBrowseReadStore:
     def __init__(self, data_root: Path) -> None:
@@ -77,3 +79,27 @@ class FileBrowseReadStore:
                        if f.username.lower() == wanted), None)
         author_meta = {"author_username": author, "author_display_name": display_name, "reason": reason}
         return author_meta, items, page_obj.total
+
+    async def get_daily_stats(self, year, month, tz_offset=0, min_text_length=None):
+        """按用户本地时区分组的每日推文数量。复刻 BrowseService.get_daily_stats:
+        月窗 UTC 算术 + get_feed 窗口读 + 按本地日分组计数(date cast=截断,无 round 陷阱)。"""
+        from collections import Counter
+        from datetime import datetime, timedelta, timezone
+        from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
+
+        local_start = datetime(year, month, 1)
+        local_end = datetime(year + 1, 1, 1) if month == 12 else datetime(year, month + 1, 1)
+        utc_start = (local_start + timedelta(minutes=tz_offset)).replace(tzinfo=timezone.utc)
+        utc_end = (local_end + timedelta(minutes=tz_offset)).replace(tzinfo=timezone.utc)
+
+        feed = await FileTweetStore(self._root).get_feed(utc_start, utc_end, limit=_NO_LIMIT)
+        min_len = min_text_length or 0
+        counter: Counter = Counter()
+        for tw in feed.items:
+            if len(tw.text or "") < min_len:
+                continue
+            created = tw.created_at if tw.created_at.tzinfo else tw.created_at.replace(tzinfo=timezone.utc)
+            # 复刻 sql_date_with_offset(col, -tz_offset)::DATE:local=UTC+(-tz_offset)分,取日(截断)
+            local_date = (created + timedelta(minutes=-tz_offset)).date()
+            counter[local_date.isoformat()] += 1
+        return [{"date": d, "count": counter[d]} for d in sorted(counter)]

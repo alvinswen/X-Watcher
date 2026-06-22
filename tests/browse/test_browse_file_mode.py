@@ -208,3 +208,82 @@ async def test_mcp_browse_tweets_file_mode(monkeypatch, tmp_path):
     assert data["success"] is True
     assert data["data"]["total"] == 2 and data["data"]["count"] == 2
     assert {i["tweet_id"] for i in data["data"]["items"]} == {"mb1", "mb2"}
+
+
+@pytest.mark.asyncio
+async def test_get_daily_stats_file_mode_basic(monkeypatch, tmp_path):
+    """月窗按本地日分组计数,升序;空日不出现。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    # tz_offset=0(UTC):2026-05-02 两条 / 2026-05-04 一条
+    await _seed_file(tmp_path, [
+        _tweet("d1", "alice", datetime(2026, 5, 2, 3, 0, tzinfo=timezone.utc)),
+        _tweet("d2", "bob", datetime(2026, 5, 2, 9, 0, tzinfo=timezone.utc)),
+        _tweet("d3", "alice", datetime(2026, 5, 4, 1, 0, tzinfo=timezone.utc)),
+    ])
+    from src.data_layer.provider import get_browse_repo
+    days = await get_browse_repo().get_daily_stats(2026, 5, tz_offset=0)
+    assert days == [{"date": "2026-05-02", "count": 2}, {"date": "2026-05-04", "count": 1}]
+
+
+@pytest.mark.asyncio
+async def test_get_daily_stats_tz_offset_boundary(monkeypatch, tmp_path):
+    """tz_offset 把跨 UTC 午夜的推文归到正确本地日(故障注入:偏移符号反向则归错日)。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    # tz_offset=-480(China UTC+8):local=UTC+8h
+    # UTC 2026-05-01 15:00 → local 2026-05-01 23:00 → 本地日 05-01
+    # UTC 2026-05-01 17:00 → local 2026-05-02 01:00 → 本地日 05-02
+    await _seed_file(tmp_path, [
+        _tweet("b1", "alice", datetime(2026, 5, 1, 15, 0, tzinfo=timezone.utc)),
+        _tweet("b2", "alice", datetime(2026, 5, 1, 17, 0, tzinfo=timezone.utc)),
+    ])
+    from src.data_layer.provider import get_browse_repo
+    days = await get_browse_repo().get_daily_stats(2026, 5, tz_offset=-480)
+    assert days == [{"date": "2026-05-01", "count": 1}, {"date": "2026-05-02", "count": 1}]
+
+
+@pytest.mark.asyncio
+async def test_get_daily_stats_min_text_length(monkeypatch, tmp_path):
+    """min_text_length 过滤短文本(故障注入:不过滤则短文本计入)。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    await _seed_file(tmp_path, [
+        _tweet("s1", "alice", datetime(2026, 5, 2, 3, 0, tzinfo=timezone.utc), text="hi"),       # len 2
+        _tweet("s2", "alice", datetime(2026, 5, 2, 4, 0, tzinfo=timezone.utc), text="hello!!"),  # len 7
+    ])
+    from src.data_layer.provider import get_browse_repo
+    days = await get_browse_repo().get_daily_stats(2026, 5, tz_offset=0, min_text_length=5)
+    assert days == [{"date": "2026-05-02", "count": 1}]
+
+
+@pytest.mark.asyncio
+async def test_get_daily_stats_cross_mode(monkeypatch, tmp_path):
+    """file vs sqlalchemy(SQLite)产同 daily_stats。SQLite 是有效 oracle(日期截断无 div/cast)。"""
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    specs = [("c1", "alice", datetime(2026, 5, 2, 3, 0, tzinfo=timezone.utc)),
+             ("c2", "bob", datetime(2026, 5, 2, 9, 0, tzinfo=timezone.utc)),
+             ("c3", "alice", datetime(2026, 5, 4, 1, 0, tzinfo=timezone.utc))]
+    await _seed_file(tmp_path, [_tweet(t, a, c) for (t, a, c) in specs])
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from src.database.models import Base
+    from src.scraper.infrastructure.models import TweetOrm
+    now = datetime.now(timezone.utc)
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    session = async_sessionmaker(engine, expire_on_commit=False)()
+    for (t, a, c) in specs:
+        session.add(TweetOrm(tweet_id=t, text="hello world", created_at=c, db_created_at=now,
+                             author_username=a, author_display_name=f"{a} disp", media=None))
+    await session.commit()
+
+    from src.data_layer.provider import get_browse_repo
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    f_days = await get_browse_repo().get_daily_stats(2026, 5, tz_offset=0)
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
+    s_days = await get_browse_repo(session).get_daily_stats(2026, 5, tz_offset=0)
+    await session.close(); await engine.dispose()
+    assert f_days == s_days, f"daily_stats 跨模式不等\nfile={f_days}\nsql={s_days}"
+    assert f_days == [{"date": "2026-05-02", "count": 2}, {"date": "2026-05-04", "count": 1}]
