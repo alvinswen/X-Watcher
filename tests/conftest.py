@@ -48,6 +48,14 @@ from src.topic.infrastructure.models import TopicOrm, TopicAccountOrm, TopicSumm
 from dotenv import load_dotenv
 load_dotenv()
 
+# ⚠️ 测试套件默认钉 sqlalchemy 模式,中和本机 gitignored .env 的 XWATCHER_DATA_LAYER=file 污染。
+# .env 经 load_dotenv 灌入 os.environ;pg 下线接线后(analytics/browse/preference/scraper/...)
+# route/MCP/集成测试若未显式钉模式,会在 file 模式下走文件层 data_migrated 而非测试种的 sqlite/内存库
+# → 漂移失败(本机无前缀跑出现、CI/干净检出 sqlalchemy 默认则不出现)。统一在此钉 sqlalchemy 基线
+# 使套件 env-无关;file 模式测试自行 monkeypatch.setenv("XWATCHER_DATA_LAYER","file") opt-in(覆盖
+# 本默认 + 测试后还原)。注:运行全套 file 模式非受支持场景(各测试假设 sqlalchemy ORM patch/种子)。
+os.environ["XWATCHER_DATA_LAYER"] = "sqlalchemy"
+
 
 # 全局同步测试引擎 - 所有通过 get_engine() 获取引擎的代码路径都将被重定向到此处
 _sync_test_engine = create_engine(
