@@ -56,8 +56,8 @@ def register(mcp: FastMCP) -> None:
 
         try:
             from src.config import get_settings
+            from src.data_layer.provider import get_feed_repo
             from src.database.async_session import get_async_session_maker
-            from src.feed.services.feed_service import FeedService
 
             # 钳制 limit 到配置上限，防止 OOM
             max_limit = get_settings().feed_max_tweets
@@ -65,8 +65,7 @@ def register(mcp: FastMCP) -> None:
 
             session_maker = get_async_session_maker()
             async with session_maker() as session:
-                service = FeedService(session)
-                result = await service.get_feed(
+                result = await get_feed_repo(session).get_feed(
                     since=since_dt,
                     until=until_dt,
                     limit=clamped_limit,

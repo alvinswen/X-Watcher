@@ -263,3 +263,26 @@ async def test_cross_mode_feed_equivalence(monkeypatch, tmp_path):
         assert all(i["db_created_at"] is not None for i in s.items)
 
     await session.close(); await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_mcp_get_feed_file_mode(monkeypatch, tmp_path):
+    import json
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    now = datetime.now(timezone.utc)
+    base = now - timedelta(days=1)
+    await _seed_file(tmp_path, [_tweet("mf1", "alice", base + timedelta(minutes=1)),
+                                _tweet("mf2", "alice", base + timedelta(minutes=2))],
+                     summaries=[_summary("mf2")])
+    from mcp.server.fastmcp import FastMCP
+    from src.mcp.tools import feed_tools
+    mcp = FastMCP("test"); feed_tools.register(mcp)
+    fn = mcp._tool_manager._tools["get_feed"].fn
+    raw = await fn(since=(base - timedelta(hours=1)).isoformat(),
+                   until=(base + timedelta(hours=1)).isoformat())
+    data = json.loads(raw)
+    assert data["success"] is True
+    assert data["data"]["total"] == 2 and data["data"]["count"] == 2
+    assert {i["tweet_id"] for i in data["data"]["items"]} == {"mf1", "mf2"}
+    assert all(i["db_created_at"] is None for i in data["data"]["items"])
