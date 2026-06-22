@@ -1,5 +1,6 @@
 """topic_service 在 XWATCHER_DATA_LAYER=file 下走文件层(topic 自有数据)。
-跨域校验 _validate_username_in_scraper_follows 用真 session 预置 ScraperFollow。"""
+跨域校验 _validate_username_in_scraper_follows 现走 get_follows_repo(file 模式=
+FileFollowStore),故关注列表种子预置进文件层而非 DB session。"""
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
