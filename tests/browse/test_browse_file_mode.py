@@ -312,3 +312,110 @@ async def test_get_daily_stats_empty_month(monkeypatch, tmp_path):
     from src.data_layer.provider import get_browse_repo
     days = await get_browse_repo().get_daily_stats(2026, 7, tz_offset=0)  # 7 月无推文
     assert days == []
+
+
+@pytest.mark.asyncio
+async def test_get_authors_file_mode_basic(monkeypatch, tmp_path):
+    """按作者分组(count+max),按 max DESC 排序,last_tweet_at aware,reason 命中 active follow。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    day = datetime(2026, 5, 10, 3, 0, tzinfo=timezone.utc)
+    await _seed_file(tmp_path, [
+        _tweet("g1", "alice", day),                          # alice max 03:00
+        _tweet("g2", "alice", day.replace(hour=5)),          # alice max→05:00 count 2
+        _tweet("g3", "bob", day.replace(hour=8)),            # bob max 08:00 count 1(最新→排第一)
+    ], follows=[("alice", "AI 研究者")])  # bob 无 follow
+    from src.data_layer.provider import get_browse_repo
+    authors = await get_browse_repo().get_authors("2026-05-10", tz_offset=0)
+    assert [a["author_username"] for a in authors] == ["bob", "alice"]   # max DESC:bob 08:00 > alice 05:00
+    alice = next(a for a in authors if a["author_username"] == "alice")
+    assert alice["tweet_count"] == 2
+    assert alice["last_tweet_at"] == day.replace(hour=5)                  # aware max
+    assert alice["last_tweet_at"].tzinfo is not None                     # 钉 aware(MCP isoformat +00:00)
+    assert alice["author_display_name"] == "alice disp"
+    assert alice["reason"] == "AI 研究者"
+    bob = next(a for a in authors if a["author_username"] == "bob")
+    assert bob["reason"] is None                                         # 无 follow→None
+    assert set(alice) == {"author_username", "author_display_name", "tweet_count", "last_tweet_at", "reason"}
+
+
+@pytest.mark.asyncio
+async def test_get_authors_display_name_latest_and_min_len(monkeypatch, tmp_path):
+    """display_name 取当日最新一条;min_text_length 过滤(故障注入:取最早 / 不过滤则翻红)。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    from src.scraper.domain.models import Tweet
+    day = datetime(2026, 5, 10, 3, 0, tzinfo=timezone.utc)
+    await _seed_file(tmp_path, [
+        Tweet(tweet_id="n1", text="hello world", created_at=day, author_username="alice",
+              author_display_name="OLD NAME"),
+        Tweet(tweet_id="n2", text="hello world", created_at=day.replace(hour=6), author_username="alice",
+              author_display_name="NEW NAME"),                            # 最新→display_name 取此
+        Tweet(tweet_id="n3", text="hi", created_at=day.replace(hour=7), author_username="alice"),  # len 2 被过滤
+    ])
+    from src.data_layer.provider import get_browse_repo
+    authors = await get_browse_repo().get_authors("2026-05-10", tz_offset=0, min_text_length=5)
+    assert len(authors) == 1
+    assert authors[0]["tweet_count"] == 2                                # n3 被 min_len 过滤
+    assert authors[0]["author_display_name"] == "NEW NAME"               # 当日最新(n2),非最早(n1)
+    assert authors[0]["last_tweet_at"] == day.replace(hour=6)            # n3 过滤后最新=n2
+
+
+@pytest.mark.asyncio
+async def test_get_authors_reason_exact_username(monkeypatch, tmp_path):
+    """reason 精确 username 匹配(复刻旧 ScraperFollow.username.in_(usernames));follow 大小写不同
+    →不匹配(故障注入:reason 改 lower 则误匹配返 "大写关注" 翻红)。FileFollowStore 精确 username 保 case。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    day = datetime(2026, 5, 10, 3, 0, tzinfo=timezone.utc)
+    await _seed_file(tmp_path, [_tweet("e1", "alice", day)], follows=[("Alice", "大写关注")])
+    from src.data_layer.provider import get_browse_repo
+    authors = await get_browse_repo().get_authors("2026-05-10", tz_offset=0)
+    assert len(authors) == 1 and authors[0]["author_username"] == "alice"
+    assert authors[0]["reason"] is None   # follow "Alice" ≠ author "alice"(精确匹配,非 lower)
+
+
+@pytest.mark.asyncio
+async def test_get_authors_cross_mode(monkeypatch, tmp_path):
+    """file vs sqlalchemy(SQLite)产同 authors。SQLite 有效 oracle(COUNT/MAX 无 div/cast)。
+    last_tweet_at 按 instant 比(SQLite naive vs file aware),单独钉 file aware "+00:00"。"""
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    day = datetime(2026, 5, 10, 3, 0, tzinfo=timezone.utc)
+    specs = [("x1", "alice", day), ("x2", "alice", day.replace(hour=5)), ("x3", "bob", day.replace(hour=8))]
+    await _seed_file(tmp_path, [_tweet(t, a, c) for (t, a, c) in specs], follows=[("alice", "AI")])
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from src.database.models import Base, ScraperFollow
+    from src.scraper.infrastructure.models import TweetOrm
+    now = datetime.now(timezone.utc)
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    session = async_sessionmaker(engine, expire_on_commit=False)()
+    session.add(ScraperFollow(username="alice", reason="AI", added_by="admin", is_active=True))
+    for (t, a, c) in specs:
+        session.add(TweetOrm(tweet_id=t, text="hello world", created_at=c, db_created_at=now,
+                             author_username=a, author_display_name=f"{a} disp", media=None))
+    await session.commit()
+
+    def _norm_authors(rows):
+        out = []
+        for r in rows:
+            d = dict(r)
+            lt = d["last_tweet_at"]
+            if lt is not None and lt.tzinfo is not None:
+                d["last_tweet_at"] = lt.astimezone(timezone.utc).replace(tzinfo=None)
+            out.append(d)
+        return out
+
+    from src.data_layer.provider import get_browse_repo
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    f_authors = await get_browse_repo().get_authors("2026-05-10", tz_offset=0)
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
+    s_authors = await get_browse_repo(session).get_authors("2026-05-10", tz_offset=0)
+    await session.close(); await engine.dispose()
+    assert _norm_authors(f_authors) == _norm_authors(s_authors), \
+        f"authors 跨模式不等\nfile={f_authors}\nsql={s_authors}"
+    assert [a["author_username"] for a in f_authors] == ["bob", "alice"]
+    assert all(a["last_tweet_at"].tzinfo is not None for a in f_authors)
+    assert f_authors[0]["last_tweet_at"].isoformat().endswith("+00:00")
