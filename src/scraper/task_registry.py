@@ -216,6 +216,11 @@ class TaskRegistry:
         Args:
             task_data: 任务数据字典
         """
+        from src.data_layer.provider import is_file_mode
+
+        if is_file_mode():
+            # file 模式:任务历史仅内存,不写 pg(owner 定 accept-no-persist)
+            return
         try:
             from sqlalchemy import select
             from sqlalchemy.orm import Session as SyncSession
@@ -403,6 +408,11 @@ class TaskRegistry:
             logger.warning(f"僵尸任务恢复: {task_id} (内存中超时)")
 
         # 2. 检查数据库中残留的 RUNNING 记录（进程崩溃遗留）
+        from src.data_layer.provider import is_file_mode
+
+        if is_file_mode():
+            # file 模式:无 pg 持久化跨进程僵尸记录,DB 残留段跳过(内存段已工作)
+            return recovered
         try:
             from sqlalchemy import select, update
             from sqlalchemy.orm import Session as SyncSession

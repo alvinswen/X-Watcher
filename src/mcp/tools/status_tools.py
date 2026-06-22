@@ -202,6 +202,16 @@ def register(mcp: FastMCP) -> None:
             until: 截止时间（不含），ISO 8601 格式
         """
         try:
+            from src.data_layer.provider import is_file_mode
+
+            if is_file_mode():
+                # file 模式:审计仅文件日志,无 DB 持久化可查 → 返空结构(沿现有形态)
+                return success_response({
+                    "logs": [],
+                    "count": 0,
+                    "note": "file 模式审计仅文件日志,无 DB 查询",
+                })
+
             import json
 
             from sqlalchemy import select

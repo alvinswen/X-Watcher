@@ -249,6 +249,11 @@ def _write_env(path: str, content: str) -> None:
 
 def _init_database() -> None:
     """初始化数据库表。"""
+    from src.data_layer.provider import is_file_mode
+
+    if is_file_mode():
+        click.echo("  file 模式:跳过建表(数据层为文件)")
+        return
     from src.database.models import Base, get_engine
 
     engine = get_engine()
@@ -263,8 +268,13 @@ def _create_admin(email: str, password: str) -> str | None:
     """
     from scripts.seed_admin import _hash_password
 
-    from src.database.models import ApiKey, User, get_engine
+    from src.data_layer.provider import is_file_mode
     from src.user.services.auth_service import AuthService
+
+    if is_file_mode():
+        return _create_admin_file(email, password, _hash_password, AuthService)
+
+    from src.database.models import ApiKey, User, get_engine
 
     from sqlalchemy.orm import Session
 
@@ -299,3 +309,49 @@ def _create_admin(email: str, password: str) -> str | None:
         ))
         session.commit()
         return raw_key
+
+
+def _create_admin_file(email, password, hash_password, auth_service_cls) -> str | None:
+    """file 模式创建管理员:经 FileUserStore 文件层(async,asyncio.run 桥接)。
+
+    映射 sqlalchemy 分支:存在 → echo + 设 is_admin(经 update_user)返 None;
+    不存在 → create_user(password_hash) + update_user(is_admin=True) + 生成默认 API Key 返 raw_key。
+    FileUserStore.create_user 仅收 name/email/password_hash(is_admin 硬置 False),
+    故 admin 标志经 update_user(is_admin=True) 落盘(UserDomain/盘面均有 is_admin 字段)。
+
+    CLI 同步上下文无 running loop → asyncio.run 安全。
+    """
+    import asyncio
+
+    from src.data_layer.provider import get_user_repo
+
+    store = get_user_repo()
+
+    async def _run() -> str | None:
+        existing = await store.get_user_by_email(email)
+        if existing is not None:
+            click.echo(f"  管理员账户已存在: {email}")
+            if not existing.is_admin:
+                await store.update_user(existing.id, is_admin=True)
+                click.echo("  已将现有账户设置为管理员")
+            return None
+
+        user = await store.create_user(
+            name="System Administrator",
+            email=email,
+            password_hash=hash_password(password),
+        )
+        await store.update_user(user.id, is_admin=True)
+
+        # 生成默认 API Key
+        auth_svc = auth_service_cls()
+        raw_key, key_hash, key_prefix = auth_svc.generate_api_key()
+        await store.create_api_key(
+            user_id=user.id,
+            key_hash=key_hash,
+            key_prefix=key_prefix,
+            name="default",
+        )
+        return raw_key
+
+    return asyncio.run(_run())
