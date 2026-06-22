@@ -427,3 +427,18 @@ def get_feed_repo(session=None):
     from src.feed.services.feed_service import FeedService
 
     return FeedService(session)
+
+
+def get_search_repo(session=None):
+    """返回 search 读门面(search_tweets 多词 AND 全文 + 时间窗/author + summary JOIN)。
+
+    file 模式:FileSearchReadStore(_data_root())(窗口快路径/全扫 + 多词 AND;db_created_at→None)。
+    sqlalchemy 模式:SearchService(session)(现有服务不动,零行为变化)。
+    """
+    if _data_layer() == "file":
+        from src.search.infrastructure.file_search_read_repository import FileSearchReadStore
+
+        return FileSearchReadStore(_data_root())
+    from src.search.services.search_service import SearchService
+
+    return SearchService(session)
