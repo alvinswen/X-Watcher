@@ -5,10 +5,9 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.data_layer.provider import get_topic_store
 from src.database.models import ScraperFollow
 from src.topic.domain.models import TopicAccountDomain, TopicDetailDomain, TopicDomain, TopicWithCountDomain
-from src.topic.infrastructure.models import TopicAccountOrm, TopicOrm
-from src.topic.infrastructure.repository import TopicRepository
 
 logger = logging.getLogger(__name__)
 
@@ -16,21 +15,16 @@ logger = logging.getLogger(__name__)
 class TopicService:
     """主题 CRUD 和账号管理业务服务。"""
 
-    def __init__(self) -> None:
-        self._repo = TopicRepository()
-
     async def create_topic(
         self, session: AsyncSession, name: str, description: str | None = None, user_id: int | None = None
     ) -> TopicDomain:
         """创建主题。同一用户下名称重复时抛出 ValueError。"""
-        existing = await self._repo.get_by_name(session, name, user_id=user_id)
-        if existing:
+        store = get_topic_store(session)
+        if await store.get_by_name(name, user_id=user_id):
             raise ValueError(f"主题名称 '{name}' 已存在")
-
-        topic = TopicOrm.from_domain(name=name, description=description, user_id=user_id)
-        created = await self._repo.create(session, topic)
+        created = await store.create(name=name, description=description, user_id=user_id)
         await session.commit()
-        return created.to_domain()
+        return created
 
     async def list_topics(self, session: AsyncSession, user_id: int | None = None) -> list[TopicWithCountDomain]:
         """列出主题（按创建时间倒序），包含关联账号数量。
@@ -38,41 +32,34 @@ class TopicService:
         Args:
             user_id: 非 None 时只返回该用户的主题，None 时返回全部。
         """
-        results = await self._repo.list_all(session, user_id=user_id)
-        return [topic.to_domain_with_count(count) for topic, count in results]
+        return await get_topic_store(session).list_all(user_id=user_id)
 
     async def get_topic(self, session: AsyncSession, topic_id: int) -> TopicDetailDomain | None:
         """获取主题详情（含账号列表）。不存在返回 None。"""
-        topic = await self._repo.get_by_id(session, topic_id)
-        if not topic:
-            return None
-        return topic.to_detail_domain()
+        return await get_topic_store(session).get_by_id(topic_id)
 
     async def update_topic(
         self, session: AsyncSession, topic_id: int,
         name: str | None = None, description: str | None = None
     ) -> TopicDomain | None:
         """更新主题。不存在返回 None，名称重复抛出 ValueError。"""
-        topic = await self._repo.get_by_id(session, topic_id)
+        store = get_topic_store(session)
+        topic = await store.get_by_id(topic_id)        # TopicDetailDomain
         if not topic:
             return None
-
         if name is not None and name != topic.name:
-            existing = await self._repo.get_by_name(session, name, user_id=topic.user_id)
-            if existing:
+            if await store.get_by_name(name, user_id=topic.user_id):
                 raise ValueError(f"主题名称 '{name}' 已存在")
             topic.name = name
-
         if description is not None:
             topic.description = description
-
-        await self._repo.update(session, topic)
+        result = await store.update(topic)             # adapter 读 .id/.name/.description/.user_id
         await session.commit()
-        return topic.to_domain()
+        return result
 
     async def delete_topic(self, session: AsyncSession, topic_id: int) -> bool:
         """删除主题（级联删除）。不存在返回 False。"""
-        result = await self._repo.delete(session, topic_id)
+        result = await get_topic_store(session).delete(topic_id)
         if result:
             await session.commit()
         return result
@@ -83,29 +70,21 @@ class TopicService:
         self, session: AsyncSession, topic_id: int, username: str
     ) -> TopicAccountDomain:
         """添加账号到主题。验证 scraper_follows 存在性和账号唯一性。"""
-        # 验证主题存在
-        topic = await self._repo.get_by_id(session, topic_id)
-        if not topic:
+        store = get_topic_store(session)
+        if not await store.get_by_id(topic_id):
             raise ValueError(f"主题 ID {topic_id} 不存在")
-
-        # 验证账号存在于 scraper_follows
         await self._validate_username_in_scraper_follows(session, username)
-
-        # 检查账号是否已关联
-        existing = await self._repo.get_account(session, topic_id, username)
-        if existing:
+        if await store.get_account(topic_id, username):
             raise ValueError(f"账号 '{username}' 已关联到该主题")
-
-        account = TopicAccountOrm(topic_id=topic_id, username=username)
-        created = await self._repo.add_account(session, account)
+        created = await store.add_account(topic_id, username)
         await session.commit()
-        return created.to_domain()
+        return created
 
     async def remove_account(
         self, session: AsyncSession, topic_id: int, username: str
     ) -> bool:
         """从主题移除账号。不存在返回 False。"""
-        result = await self._repo.delete_account(session, topic_id, username)
+        result = await get_topic_store(session).delete_account(topic_id, username)
         if result:
             await session.commit()
         return result
@@ -114,19 +93,14 @@ class TopicService:
         self, session: AsyncSession, topic_id: int, usernames: list[str]
     ) -> list[TopicAccountDomain]:
         """批量设置主题账号（替换模式）。验证所有用户名存在于 scraper_follows。"""
-        # 验证主题存在
-        topic = await self._repo.get_by_id(session, topic_id)
-        if not topic:
+        store = get_topic_store(session)
+        if not await store.get_by_id(topic_id):
             raise ValueError(f"主题 ID {topic_id} 不存在")
-
-        # 验证所有用户名
         for username in usernames:
             await self._validate_username_in_scraper_follows(session, username)
-
-        accounts = [TopicAccountOrm(topic_id=topic_id, username=u) for u in usernames]
-        result = await self._repo.replace_accounts(session, topic_id, accounts)
+        result = await store.replace_accounts(topic_id, usernames)
         await session.commit()
-        return [a.to_domain() for a in result]
+        return result
 
     async def _validate_username_in_scraper_follows(
         self, session: AsyncSession, username: str

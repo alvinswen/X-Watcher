@@ -194,6 +194,38 @@ def get_user_repo(session=None):
     return UserRepository(session)
 
 
+def get_topic_store(session=None):
+    """返回 TopicStore 形态 repo(11 契约方法)。
+
+    file 模式:FileTopicStore(data_root),忽略 session。
+    sqlalchemy 模式:SqlalchemyTopicStore(session)(包旧 TopicRepository,延迟 commit)。
+    """
+    if _data_layer() == "file":
+        from src.topic.infrastructure.file_topic_repository import FileTopicStore
+
+        return FileTopicStore(_data_root())
+    from src.data_layer._topic_sqlalchemy import SqlalchemyTopicStore
+
+    return SqlalchemyTopicStore(session)
+
+
+def get_topic_summary_task_store(session=None):
+    """返回 TopicTaskStore 形态 repo(8 契约方法)。
+
+    file 模式:FileTopicSummaryTaskStore(data_root),忽略 session。
+    sqlalchemy 模式:SqlalchemyTopicSummaryTaskStore(session)。
+    """
+    if _data_layer() == "file":
+        from src.topic.infrastructure.file_topic_summary_task_repository import (
+            FileTopicSummaryTaskStore,
+        )
+
+        return FileTopicSummaryTaskStore(_data_root())
+    from src.data_layer._topic_sqlalchemy import SqlalchemyTopicSummaryTaskStore
+
+    return SqlalchemyTopicSummaryTaskStore(session)
+
+
 class _FileExportSyncAdapter:
     """file 模式 export 同步门面:asyncio.run 桥 async FileExportStore.export_*,统一返 dict。
 
