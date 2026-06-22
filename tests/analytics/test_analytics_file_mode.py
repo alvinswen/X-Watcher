@@ -104,3 +104,28 @@ async def test_cross_mode_equivalence(monkeypatch, tmp_path):
 
     await session.close()
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_mcp_tool_file_mode(monkeypatch, tmp_path):
+    """MCP get_posting_frequency 工具 file 模式走文件层(路径可证)。"""
+    import json
+
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    now = datetime.now(timezone.utc)
+    topic_id = await _seed_file(tmp_path, ["analyst_a"], [
+        ("mt_1", "analyst_a", now - timedelta(minutes=5)),
+        ("mt_2", "analyst_a", now - timedelta(minutes=10)),
+    ])
+    from mcp.server.fastmcp import FastMCP
+
+    from src.mcp.tools import analytics_tools
+
+    mcp = FastMCP("test")
+    analytics_tools.register(mcp)
+    fn = mcp._tool_manager._tools["get_posting_frequency"].fn
+    raw = await fn(topic_id=topic_id, tz_offset=0, slots=50)
+    data = json.loads(raw)
+    assert data["success"] is True
+    assert data["data"]["total_tweets"] == 2

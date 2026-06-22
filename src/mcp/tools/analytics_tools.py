@@ -1,6 +1,6 @@
 """MCP 分析工具。
 
-提供 get_posting_frequency 工具，映射到 AnalyticsService。
+提供 get_posting_frequency 工具，经 provider get_analytics_repo 路由（file/sqlalchemy）。
 """
 
 import logging
@@ -34,13 +34,13 @@ def register(mcp: FastMCP) -> None:
             return error_response("slots 必须在 1-500 之间", "validation")
 
         try:
-            from src.analytics.services.analytics_service import AnalyticsService
+            from src.data_layer.provider import get_analytics_repo
             from src.database.async_session import get_async_session_maker
 
             session_maker = get_async_session_maker()
             async with session_maker() as session:
-                service = AnalyticsService(session)
-                result = await service.get_posting_frequency(
+                repo = get_analytics_repo(session)
+                result = await repo.get_posting_frequency(
                     topic_id=topic_id,
                     tz_offset=tz_offset,
                     slots=slots,
