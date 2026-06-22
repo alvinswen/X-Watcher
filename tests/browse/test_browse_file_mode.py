@@ -103,6 +103,32 @@ async def test_get_tweets_file_mode_media_shape(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_pagination_and_empty_file_mode(monkeypatch, tmp_path):
+    """应用层分页(offset 切片)≡ 预期 + total 全量计数 + 空结果分支(M3 钉 off-by-one)。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    now = datetime.now(timezone.utc)
+    base = now.replace(hour=12, minute=0, second=0, microsecond=0) - timedelta(days=1)
+    date_str = base.strftime("%Y-%m-%d")
+    await _seed_file(tmp_path, [_tweet(f"p{i}", "alice", base + timedelta(minutes=i)) for i in range(1, 4)],
+                     follows=[("alice", "r")])
+    from src.data_layer.provider import get_browse_repo
+
+    p1, t1 = await get_browse_repo().get_tweets(date_str, None, page=1, page_size=2, tz_offset=0)
+    p2, t2 = await get_browse_repo().get_tweets(date_str, None, page=2, page_size=2, tz_offset=0)
+    assert t1 == t2 == 3                       # total 全量计数不随页变
+    assert [i["tweet_id"] for i in p1] == ["p1", "p2"]   # ASC 第 1 页
+    assert [i["tweet_id"] for i in p2] == ["p3"]          # 第 2 页(offset=2 切片正确,无 off-by-one)
+    # 空结果:无推文日期
+    empty, et = await get_browse_repo().get_tweets("1999-01-01", None, page=1, page_size=20, tz_offset=0)
+    assert empty == [] and et == 0
+    # author_timeline 空 → display_name=None / items=[]
+    meta, items, total = await get_browse_repo().get_author_timeline(
+        "ghost", base - timedelta(days=1), base + timedelta(days=1), page=1, page_size=20)
+    assert items == [] and total == 0 and meta["author_display_name"] is None
+
+
+@pytest.mark.asyncio
 async def test_cross_mode_browse_equivalence(monkeypatch, tmp_path):
     now = datetime.now(timezone.utc)
     base = now.replace(hour=12, minute=0, second=0, microsecond=0) - timedelta(days=1)
