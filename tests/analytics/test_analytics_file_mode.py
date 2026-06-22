@@ -1,5 +1,6 @@
 """analytics get_posting_frequency 在 XWATCHER_DATA_LAYER=file 下走文件层。
-路径可证:种子只进文件层;跨模式等价:同数据 file vs sqlalchemy 同 distribution(替代无 se oracle)。"""
+路径可证:种子只进文件层;槽语义钉死生产 PG round-half-up(非 SQLite floor,见
+test_slot_rounds_to_nearest_like_pg——analytics 无 se oracle,以 PG 语义钉值为等价证据)。"""
 import re
 from datetime import datetime, timedelta, timezone
 
@@ -60,50 +61,35 @@ async def test_file_mode_empty_topic(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_cross_mode_equivalence(monkeypatch, tmp_path):
-    now = datetime.now(timezone.utc)
-    accounts = ["analyst_a", "ANALYST_B"]
-    specs = [
-        ("at_1", "analyst_a", now - timedelta(minutes=5)),
-        ("at_2", "analyst_a", now - timedelta(minutes=35)),
-        ("at_3", "analyst_b", now - timedelta(minutes=40)),
-        ("at_4", "analyst_b", now - timedelta(minutes=95)),
-        ("at_5", "analyst_b", now - timedelta(minutes=600)),
-    ]
+async def test_slot_rounds_to_nearest_like_pg(monkeypatch, tmp_path):
+    """槽边界 = 四舍五入到最近 30 分钟(复刻生产 PG `cast(local_epoch/1800,int)*1800` 进位语义),
+    非截断。⚠️ SQLite 整数除法=floor≠PG,故不能用 SQLite-sqlalchemy 当等价 oracle
+    (实测 PG vs SQLite:E%1800>=900 时 PG 进位/SQLite floor)——本测试用同一 30 分钟槽内
+    前半段/半点/后半段三条推文钉死 round-half-up:floor bug 会把三条都归前一槽 → 翻红。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    topic_id = await _seed_file(tmp_path, accounts, specs)
-
-    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
-    from src.database.models import Base
-    from src.scraper.infrastructure.models import TweetOrm
-    from src.topic.infrastructure.models import TopicAccountOrm, TopicOrm
-
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    session = async_sessionmaker(engine, expire_on_commit=False)()
-    session.add(TopicOrm(id=topic_id, name="t", user_id=0))
-    await session.flush()
-    for acc in accounts:
-        session.add(TopicAccountOrm(topic_id=topic_id, username=acc))
-    for (t, a, c) in specs:
-        session.add(TweetOrm(tweet_id=t, text="x", created_at=c, db_created_at=now,
-                             author_username=a, author_display_name=None, media=None))
-    await session.commit()
-
+    now = datetime.now(timezone.utc)
+    # 基准对齐到 30 分钟槽边界(:00 或 :30,second=0 → epoch%1800==0),取 2h 前确保在窗内
+    base = (now - timedelta(hours=2)).replace(second=0, microsecond=0)
+    base = base - timedelta(minutes=base.minute % 30)
+    t_down = base + timedelta(minutes=10)   # %1800=600 <900 → 归 base 槽(floor/round 一致)
+    t_half = base + timedelta(minutes=15)   # %1800=900 → PG round-half-up → 归 base+30min 槽
+    t_up = base + timedelta(minutes=20)     # %1800=1200 >=900 → 归 base+30min 槽
+    topic_id = await _seed_file(tmp_path, ["analyst_a"], [
+        ("rd_1", "analyst_a", t_down),
+        ("rd_2", "analyst_a", t_half),
+        ("rd_3", "analyst_a", t_up),
+    ])
     from src.data_layer.provider import get_analytics_repo
 
-    for tz in (0, -480):
-        monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
-        file_res = await get_analytics_repo().get_posting_frequency(topic_id=topic_id, tz_offset=tz, slots=50)
-        monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
-        sql_res = await get_analytics_repo(session).get_posting_frequency(topic_id=topic_id, tz_offset=tz, slots=50)
-        assert file_res["distribution"] == sql_res["distribution"], f"tz={tz} 不等"
-        assert file_res["total_tweets"] == sql_res["total_tweets"]
-
-    await session.close()
-    await engine.dispose()
+    res = await get_analytics_repo().get_posting_frequency(topic_id=topic_id, tz_offset=0, slots=50)
+    label_down = base.strftime("%Y-%m-%d %H:%M")
+    label_up = (base + timedelta(minutes=30)).strftime("%Y-%m-%d %H:%M")
+    slots = {d["slot"]: d["count"] for d in res["distribution"]}
+    # round-half-up:t_down 归 base 槽,t_half+t_up 进位归 base+30min 槽。
+    # floor bug 会得 {label_down: 3} → 本断言翻红。
+    assert slots == {label_down: 1, label_up: 2}, f"得到 {slots}(floor bug 会是 {{{label_down}: 3}})"
+    assert res["total_tweets"] == 3
 
 
 @pytest.mark.asyncio

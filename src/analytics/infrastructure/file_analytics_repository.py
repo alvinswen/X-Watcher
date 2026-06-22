@@ -1,8 +1,10 @@
 """文件版 analytics 读门面:posting_frequency 30 分钟槽聚合。
 
-复刻 src/analytics/services/analytics_service.py 的 SQL 槽聚合(dialect epoch//1800 +
--tz_offset 偏移 + UTC 标签),组合 FileTopicStore(取账号)+ FileTweetStore(per-account
-翻页取窗内推文)。无 summary 联结(本聚合只需 tweet)。
+复刻 src/analytics/services/analytics_service.py 的 SQL 槽聚合(epoch→30 分钟槽 PG
+round-half-up + -tz_offset 偏移 + UTC 标签),组合 FileTopicStore(取账号)+ FileTweetStore
+(per-account 翻页取窗内推文)。无 summary 联结(本聚合只需 tweet)。
+保真要点:槽边界是「四舍五入到最近 30 分钟」(复刻生产 PG cast(/1800,int) 进位语义),
+非截断;SQLite 截断≠PG,不可作等价 oracle(实测确证)。
 """
 from __future__ import annotations
 
@@ -54,7 +56,12 @@ class FileAnalyticsStore:
             if created.tzinfo is None:
                 created = created.replace(tzinfo=timezone.utc)
             local_epoch = int((created + timedelta(minutes=-tz_offset)).timestamp())
-            slot_ts = (local_epoch // 1800) * 1800
+            # ⚠️ 源 SQL `cast(local_epoch / 1800, Integer) * 1800` 在生产 PG 上是
+            # 四舍五入(round-half-up)非截断——SQLAlchemy 把 `/` 编为非整数除法,
+            # PG cast(... AS integer) 进位(实测 PG vs SQLite:E%1800>=900 PG 进位/SQLite floor)。
+            # 整数复刻 round-half-up(避浮点精度风险):(local_epoch + 900) // 1800。
+            # SQLite 是整数除法=floor,故不可作 file 的等价 oracle(见 tests 的确定性钉值)。
+            slot_ts = ((local_epoch + 900) // 1800) * 1800
             label = datetime.fromtimestamp(slot_ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
             counter[label] += 1
 
