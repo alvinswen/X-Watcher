@@ -1,7 +1,7 @@
 """MCP 浏览工具。
 
 提供 get_daily_stats、get_authors_for_date、browse_tweets 三个 MCP 工具，
-映射到 BrowseService。
+映射到 browse 读门面（get_browse_repo，file/sqlalchemy 双模）。
 """
 
 import logging

@@ -400,10 +400,10 @@ def get_analytics_repo(session=None):
 
 
 def get_browse_repo(session=None):
-    """返回 browse 读门面(get_tweets / get_author_timeline 列表面)。
+    """返回 browse 读门面(get_tweets / get_author_timeline 列表面 + get_daily_stats / get_authors 聚合两法)。
 
-    file 模式:FileBrowseReadStore(_data_root())(组合 file store + summary JOIN)。
-    sqlalchemy 模式:BrowseService(session)(现有服务不动;聚合两法 deferred 由其 route 直调)。
+    file 模式:FileBrowseReadStore(_data_root())(组合 file store;列表面 summary JOIN,聚合两法纯 tweet 计数/分组)。
+    sqlalchemy 模式:BrowseService(session)(现有服务不动)。
     """
     if _data_layer() == "file":
         from src.browse.infrastructure.file_browse_read_repository import FileBrowseReadStore
