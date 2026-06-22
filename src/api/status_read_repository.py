@@ -20,9 +20,9 @@ from pathlib import Path
 
 from src.storage import paths
 
-# 注:status 统计模型(TweetStats/FollowStats/SummaryStats/TopicStats)在方法内延迟 import,
-# 因 src.api.routes.status 顶层 import src.main → 模块加载期回引 status.router 形成循环;
-# provider 延迟 import 本门面,故方法内再延迟 import 模型即可避环(承本仓 lazy import 纪律)。
+# 注:status 统计模型已抽到 src/api/status_schemas.py(无 main 依赖),file 门面从那 import
+# 断 status→main→status 循环(冷 import/MCP/CLI 上下文安全);仍方法内延迟 import(承 lazy 纪律)。
+# sqlalchemy wrapper 转调的 _get_*_stats 仍在 status.py,仅 sqlalchemy 模式(main-first)用,无环。
 
 
 class FileStatusReadStore:
@@ -30,7 +30,7 @@ class FileStatusReadStore:
         self._root = Path(data_root)
 
     async def get_tweet_stats(self):
-        from src.api.routes.status import TweetStats
+        from src.api.status_schemas import TweetStats
         from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
 
         tweets = await FileTweetStore(self._root).get_all_tweets()
@@ -56,7 +56,7 @@ class FileStatusReadStore:
         )
 
     async def get_follow_stats(self):
-        from src.api.routes.status import FollowStats
+        from src.api.status_schemas import FollowStats
         from src.data_layer.provider import get_follows_repo
 
         # 源无 is_active 过滤=全部 → include_inactive=True;active 在 Python 槽数
@@ -66,7 +66,7 @@ class FileStatusReadStore:
         return FollowStats(total=total, active=active, inactive=total - active)
 
     async def get_summary_stats(self):
-        from src.api.routes.status import SummaryStats
+        from src.api.status_schemas import SummaryStats
         from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
         from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
 
@@ -82,7 +82,7 @@ class FileStatusReadStore:
         return SummaryStats(total=total, pending_tweets=pending_tweets)
 
     async def get_topic_stats(self):
-        from src.api.routes.status import TopicStats
+        from src.api.status_schemas import TopicStats
         from src.data_layer.provider import get_topic_store, get_topic_summary_task_store
 
         topics = await get_topic_store().list_all()
