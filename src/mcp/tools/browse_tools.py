@@ -121,13 +121,12 @@ def register(mcp: FastMCP) -> None:
         clamped_page_size = min(max(page_size, 1), 100)
 
         try:
-            from src.browse.services.browse_service import BrowseService
+            from src.data_layer.provider import get_browse_repo
             from src.database.async_session import get_async_session_maker
 
             session_maker = get_async_session_maker()
             async with session_maker() as session:
-                service = BrowseService(session)
-                items, total = await service.get_tweets(
+                items, total = await get_browse_repo(session).get_tweets(
                     date=date,
                     author=author,
                     page=page,

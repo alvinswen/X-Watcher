@@ -187,3 +187,24 @@ async def test_cross_mode_browse_equivalence(monkeypatch, tmp_path):
     # 钉生产语义:file created_at 必须 aware "+00:00"(匹配生产 pg,非 SQLite naive)
     assert all(i["created_at"].tzinfo is not None for i in f_items + f_ti)
     assert f_items[0]["created_at"].isoformat().endswith("+00:00")
+
+
+@pytest.mark.asyncio
+async def test_mcp_browse_tweets_file_mode(monkeypatch, tmp_path):
+    import json
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    now = datetime.now(timezone.utc)
+    base = now.replace(hour=12, minute=0, second=0, microsecond=0) - timedelta(days=1)
+    await _seed_file(tmp_path, [_tweet("mb1", "alice", base + timedelta(minutes=1)),
+                                _tweet("mb2", "alice", base + timedelta(minutes=2))],
+                     summaries=[_summary("mb2")])
+    from mcp.server.fastmcp import FastMCP
+    from src.mcp.tools import browse_tools
+    mcp = FastMCP("test"); browse_tools.register(mcp)
+    fn = mcp._tool_manager._tools["browse_tweets"].fn
+    raw = await fn(date=base.strftime("%Y-%m-%d"), tz_offset=0)
+    data = json.loads(raw)
+    assert data["success"] is True
+    assert data["data"]["total"] == 2 and data["data"]["count"] == 2
+    assert {i["tweet_id"] for i in data["data"]["items"]} == {"mb1", "mb2"}
