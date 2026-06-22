@@ -210,9 +210,9 @@ async def _run_scraping_task_async(task_id: str, usernames: list[str], limit: in
     registry = get_task_registry()
 
     # 读取 DB 中的 manual_limit 配置（与 scheduled_job.py 一致）
-    from src.scraper.scheduled_job import get_active_follows_from_db
+    from src.scraper.scheduled_job import get_active_follows_async
 
-    follows_data = get_active_follows_from_db()
+    follows_data = await get_active_follows_async()
     manual_limits = {
         f["username"]: f["manual_limit"]
         for f in follows_data
@@ -260,7 +260,7 @@ async def _run_backfill_all_async(task_id: str, max_tweets: int) -> None:
     """
     import time
 
-    from src.scraper.scheduled_job import get_active_follows_from_db
+    from src.scraper.scheduled_job import get_active_follows_async
 
     service = get_scraping_service()
     registry = get_task_registry()
@@ -272,7 +272,7 @@ async def _run_backfill_all_async(task_id: str, max_tweets: int) -> None:
     )
 
     try:
-        follows = get_active_follows_from_db()
+        follows = await get_active_follows_async()
         total = len(follows)
         details: list[dict] = []
         summary = {"total_checked": 0, "total_found": 0, "total_skipped": 0, "total_errors": 0}
