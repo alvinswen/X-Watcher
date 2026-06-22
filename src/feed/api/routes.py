@@ -11,8 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_settings
 from src.database.async_session import get_db_session
+from src.data_layer.provider import get_feed_repo
 from src.feed.api.schemas import FeedResponse, FeedTweetItem
-from src.feed.services.feed_service import FeedService
 from src.user.api.auth import get_current_user
 from src.user.domain.models import UserDomain
 
@@ -90,8 +90,7 @@ async def get_feed(
             )
 
         # 执行查询
-        service = FeedService(session)
-        result = await service.get_feed(
+        result = await get_feed_repo(session).get_feed(
             since=since,
             until=actual_until,
             limit=actual_limit,

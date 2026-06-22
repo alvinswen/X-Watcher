@@ -122,8 +122,9 @@ async def get_tweets(
         )
 
     try:
-        service = BrowseService(session)
-        items, total = await service.get_tweets(date, author, page, page_size, tz_offset, min_text_length)
+        from src.data_layer.provider import get_browse_repo
+
+        items, total = await get_browse_repo(session).get_tweets(date, author, page, page_size, tz_offset, min_text_length)
         total_pages = math.ceil(total / page_size) if total > 0 else 0
 
         return BrowseTweetListResponse(
@@ -172,8 +173,9 @@ async def get_author_timeline(
     until_utc, _ = BrowseService._local_date_to_utc_range(until, tz_offset)
 
     try:
-        service = BrowseService(session)
-        author_meta, items, total = await service.get_author_timeline(
+        from src.data_layer.provider import get_browse_repo
+
+        author_meta, items, total = await get_browse_repo(session).get_author_timeline(
             author, since_utc, until_utc, page, page_size, min_text_length
         )
         total_pages = math.ceil(total / page_size) if total > 0 else 0

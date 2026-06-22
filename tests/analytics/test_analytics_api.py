@@ -13,6 +13,17 @@ from src.scraper.infrastructure.models import TweetOrm
 from src.topic.infrastructure.models import TopicAccountOrm, TopicOrm
 
 
+@pytest.fixture(autouse=True)
+def _pin_sqlalchemy_layer(monkeypatch):
+    """钉 sqlalchemy 模式:本组 route 集成测试 seed 进 sqlite 测试库。
+
+    A1-1 接线后 route 遵从 XWATCHER_DATA_LAYER(get_topic_store/get_analytics_repo
+    走 provider),若本机 .env 含 XWATCHER_DATA_LAYER=file,route 会走 FileTopicStore/
+    data_migrated 查不到测试种的 topic → 404,使本组测试随 .env 漂移。钉 sqlalchemy
+    使其确定(沿 3aa66d2 article 测试范式)。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
+
+
 async def _seed_analytics_data(session):
     """创建分析测试数据：主题 + 账号 + 推文。"""
     # scraper_follows

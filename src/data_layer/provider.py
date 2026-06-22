@@ -382,3 +382,48 @@ def get_import_repo(session=None, dry_run=False):
     from src.sync.infrastructure.import_repository import ImportRepository
 
     return ImportRepository(session)
+
+
+def get_analytics_repo(session=None):
+    """返回 analytics 读门面(get_posting_frequency)。
+
+    file 模式:FileAnalyticsStore(_data_root())(忽略 session,Python 槽聚合)。
+    sqlalchemy 模式:AnalyticsService(session)(现有 SQL 不动,零行为变化)。
+    """
+    if _data_layer() == "file":
+        from src.analytics.infrastructure.file_analytics_repository import FileAnalyticsStore
+
+        return FileAnalyticsStore(_data_root())
+    from src.analytics.services.analytics_service import AnalyticsService
+
+    return AnalyticsService(session)
+
+
+def get_browse_repo(session=None):
+    """返回 browse 读门面(get_tweets / get_author_timeline 列表面)。
+
+    file 模式:FileBrowseReadStore(_data_root())(组合 file store + summary JOIN)。
+    sqlalchemy 模式:BrowseService(session)(现有服务不动;聚合两法 deferred 由其 route 直调)。
+    """
+    if _data_layer() == "file":
+        from src.browse.infrastructure.file_browse_read_repository import FileBrowseReadStore
+
+        return FileBrowseReadStore(_data_root())
+    from src.browse.services.browse_service import BrowseService
+
+    return BrowseService(session)
+
+
+def get_feed_repo(session=None):
+    """返回 feed 读门面(get_feed 时间窗增量 + author/keyword + summary JOIN)。
+
+    file 模式:FileFeedReadStore(_data_root())(组合 file store + summary JOIN;db_created_at→None)。
+    sqlalchemy 模式:FeedService(session)(现有服务不动,零行为变化)。
+    """
+    if _data_layer() == "file":
+        from src.feed.infrastructure.file_feed_read_repository import FileFeedReadStore
+
+        return FileFeedReadStore(_data_root())
+    from src.feed.services.feed_service import FeedService
+
+    return FeedService(session)

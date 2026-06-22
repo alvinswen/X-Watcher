@@ -101,9 +101,6 @@ class User(Base):
     )
 
     # 关系
-    news_items: Mapped[list["NewsItem"]] = relationship(
-        "NewsItem", back_populates="user", cascade="all, delete-orphan"
-    )
     api_keys: Mapped[list["ApiKey"]] = relationship(
         "ApiKey", back_populates="user", cascade="all, delete-orphan"
     )
@@ -135,25 +132,6 @@ class ApiKey(Base):
         Index("idx_api_keys_key_hash", "key_hash"),
         Index("idx_api_keys_user_id", "user_id"),
     )
-
-
-class NewsItem(Base):
-    """新闻项模型。"""
-
-    __tablename__ = "news_items"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
-    )
-    content: Mapped[str] = mapped_column(Text, nullable=False)
-    source: Mapped[str] = mapped_column(String(100), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), nullable=False
-    )
-
-    # 关系
-    user: Mapped["User"] = relationship("User", back_populates="news_items")
 
 
 class ScraperFollow(Base):

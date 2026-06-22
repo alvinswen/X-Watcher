@@ -2,11 +2,9 @@
 
 import logging
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.data_layer.provider import get_topic_store
-from src.database.models import ScraperFollow
+from src.data_layer.provider import get_follows_repo, get_topic_store
 from src.topic.domain.models import TopicAccountDomain, TopicDetailDomain, TopicDomain, TopicWithCountDomain
 
 logger = logging.getLogger(__name__)
@@ -105,8 +103,11 @@ class TopicService:
     async def _validate_username_in_scraper_follows(
         self, session: AsyncSession, username: str
     ) -> None:
-        """验证用户名存在于 scraper_follows 表。不存在时抛出 ValueError。"""
-        stmt = select(ScraperFollow).where(ScraperFollow.username == username)
-        result = await session.execute(stmt)
-        if result.scalar_one_or_none() is None:
+        """验证用户名存在于 scraper 关注列表。不存在时抛出 ValueError。
+
+        走 data-layer provider:默认 sqlalchemy 查 DB session,
+        XWATCHER_DATA_LAYER=file 时查文件层。get_follow_by_username 无 is_active
+        过滤,与原 select(ScraperFollow).where(username==) 语义精确一致。
+        """
+        if await get_follows_repo(session).get_follow_by_username(username) is None:
             raise ValueError(f"账号 '{username}' 未在系统抓取列表中注册")

@@ -6,7 +6,6 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.analytics.api.schemas import (
@@ -14,9 +13,7 @@ from src.analytics.api.schemas import (
     PostingFrequencyResponse,
     TimeRangeResponse,
 )
-from src.analytics.services.analytics_service import AnalyticsService
 from src.database.async_session import get_db_session
-from src.topic.infrastructure.models import TopicOrm
 from src.user.api.auth import get_current_user
 from src.user.domain.models import UserDomain
 
@@ -40,11 +37,10 @@ async def get_posting_frequency(
     current_user: UserDomain = Depends(get_current_user),
 ):
     """获取主题下所有关联账号的发文频次分布。"""
-    # 1. 查询主题
-    result = await session.execute(
-        select(TopicOrm).where(TopicOrm.id == topic_id)
-    )
-    topic = result.scalar_one_or_none()
+    from src.data_layer.provider import get_analytics_repo, get_topic_store
+
+    # 1. 查询主题(走 provider topic store,消灭 select(TopicOrm) 直查)
+    topic = await get_topic_store(session).get_by_id(topic_id)
     if not topic:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="主题不存在"
@@ -56,9 +52,8 @@ async def get_posting_frequency(
             status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该主题"
         )
 
-    # 3. 调用 Service 获取数据
-    service = AnalyticsService(session)
-    data = await service.get_posting_frequency(
+    # 3. 走 provider 获取数据
+    data = await get_analytics_repo(session).get_posting_frequency(
         topic_id=topic_id, tz_offset=tz_offset, slots=slots
     )
 

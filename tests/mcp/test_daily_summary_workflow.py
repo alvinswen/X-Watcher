@@ -209,7 +209,7 @@ class TestManageSchedulerLastExecution:
         mock_repo.get_recent_logs = AsyncMock(return_value=[mock_log])
 
         with (
-            patch("src.mcp.auth.require_admin", return_value=None),
+            patch("src.mcp.tools.admin_tools.require_admin", return_value=None),
             patch(
                 "src.preference.services.schedule_service.ScraperScheduleService.get_schedule_config",
                 new_callable=AsyncMock,
@@ -248,7 +248,7 @@ class TestManageSchedulerLastExecution:
         mock_repo.get_recent_logs = AsyncMock(return_value=[])
 
         with (
-            patch("src.mcp.auth.require_admin", return_value=None),
+            patch("src.mcp.tools.admin_tools.require_admin", return_value=None),
             patch(
                 "src.preference.services.schedule_service.ScraperScheduleService.get_schedule_config",
                 new_callable=AsyncMock,
@@ -286,7 +286,7 @@ class TestManageSchedulerLastExecution:
         mock_sm.return_value.__aexit__ = AsyncMock(return_value=False)
 
         with (
-            patch("src.mcp.auth.require_admin", return_value=None),
+            patch("src.mcp.tools.admin_tools.require_admin", return_value=None),
             patch(
                 "src.preference.services.schedule_service.ScraperScheduleService.get_schedule_config",
                 new_callable=AsyncMock,
@@ -361,7 +361,7 @@ class TestBatchSummarizeBackfill:
         mock_sm = _mock_session_maker(mock_session)
 
         with (
-            patch("src.mcp.auth.require_admin", return_value=None),
+            patch("src.mcp.tools.admin_tools.require_admin", return_value=None),
             patch(
                 "src.database.async_session.get_async_session_maker",
                 return_value=mock_sm,
@@ -412,7 +412,7 @@ class TestBatchSummarizeBackfill:
         mock_sm = _mock_session_maker(mock_session)
 
         with (
-            patch("src.mcp.auth.require_admin", return_value=None),
+            patch("src.mcp.tools.admin_tools.require_admin", return_value=None),
             patch(
                 "src.database.async_session.get_async_session_maker",
                 return_value=mock_sm,
@@ -444,7 +444,7 @@ class TestBatchSummarizeBackfill:
         mock_sm = _mock_session_maker(mock_session)
 
         with (
-            patch("src.mcp.auth.require_admin", return_value=None),
+            patch("src.mcp.tools.admin_tools.require_admin", return_value=None),
             patch(
                 "src.database.async_session.get_async_session_maker",
                 return_value=mock_sm,
@@ -480,7 +480,7 @@ class TestBatchSummarizeBackfill:
         mock_sm = _mock_session_maker(mock_session)
 
         with (
-            patch("src.mcp.auth.require_admin", return_value=None),
+            patch("src.mcp.tools.admin_tools.require_admin", return_value=None),
             patch(
                 "src.database.async_session.get_async_session_maker",
                 return_value=mock_sm,
