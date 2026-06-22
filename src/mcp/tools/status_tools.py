@@ -24,108 +24,44 @@ def register(mcp: FastMCP) -> None:
         返回推文数、关注列表、摘要统计、主题统计、调度器状态、系统信息等关键指标。
         """
         try:
-            from sqlalchemy import func, select
-
+            from src.data_layer.provider import get_status_repo
             from src.database.async_session import get_async_session_maker
-            from src.database.models import ScraperFollow
-            from src.scraper.infrastructure.models import TweetOrm
-            from src.summarization.infrastructure.models import SummaryOrm
-            from src.topic.infrastructure.models import TopicOrm, TopicSummaryTaskOrm
 
             session_maker = get_async_session_maker()
 
             async def _tweet_stats():
                 async with session_maker() as s:
-                    total_r = await s.execute(
-                        select(func.count()).select_from(TweetOrm)
-                    )
-                    total = total_r.scalar() or 0
-
-                    latest_r = await s.execute(
-                        select(func.max(TweetOrm.created_at))
-                    )
-                    latest = latest_r.scalar()
-
-                    today_start = datetime.now(timezone.utc).replace(
-                        hour=0, minute=0, second=0, microsecond=0
-                    )
-                    today_r = await s.execute(
-                        select(func.count())
-                        .select_from(TweetOrm)
-                        .where(TweetOrm.created_at >= today_start)
-                    )
-                    today = today_r.scalar() or 0
-
+                    stats = await get_status_repo(s).get_tweet_stats()
                     return {
-                        "total": total,
-                        "latest_tweet_at": latest,
-                        "today_count": today,
+                        "total": stats.total,
+                        "latest_tweet_at": stats.latest_tweet_at,
+                        "today_count": stats.today_count,
                     }
 
             async def _follow_stats():
                 async with session_maker() as s:
-                    total_r = await s.execute(
-                        select(func.count()).select_from(ScraperFollow)
-                    )
-                    total = total_r.scalar() or 0
-
-                    active_r = await s.execute(
-                        select(func.count())
-                        .select_from(ScraperFollow)
-                        .where(ScraperFollow.is_active == True)  # noqa: E712
-                    )
-                    active = active_r.scalar() or 0
-
+                    stats = await get_status_repo(s).get_follow_stats()
                     return {
-                        "total": total,
-                        "active": active,
-                        "inactive": total - active,
+                        "total": stats.total,
+                        "active": stats.active,
+                        "inactive": stats.inactive,
                     }
 
             async def _summary_stats():
                 async with session_maker() as s:
-                    total_r = await s.execute(
-                        select(func.count()).select_from(SummaryOrm)
-                    )
-                    total = total_r.scalar() or 0
-
-                    pending_r = await s.execute(
-                        select(func.count())
-                        .select_from(TweetOrm)
-                        .outerjoin(
-                            SummaryOrm, TweetOrm.tweet_id == SummaryOrm.tweet_id
-                        )
-                        .where(SummaryOrm.summary_id == None)  # noqa: E711
-                    )
-                    pending = pending_r.scalar() or 0
-
-                    return {"total": total, "pending_tweets": pending}
+                    stats = await get_status_repo(s).get_summary_stats()
+                    return {
+                        "total": stats.total,
+                        "pending_tweets": stats.pending_tweets,
+                    }
 
             async def _topic_stats():
                 async with session_maker() as s:
-                    total_r = await s.execute(
-                        select(func.count()).select_from(TopicOrm)
-                    )
-                    total = total_r.scalar() or 0
-
-                    latest_r = await s.execute(
-                        select(
-                            TopicSummaryTaskOrm.completed_at,
-                            TopicSummaryTaskOrm.status,
-                        )
-                        .order_by(TopicSummaryTaskOrm.created_at.desc())
-                        .limit(1)
-                    )
-                    latest = latest_r.first()
-
+                    stats = await get_status_repo(s).get_topic_stats()
                     return {
-                        "total": total,
-                        "latest_summary_at": (
-                            latest.completed_at if latest else None
-                        ),
-                        "latest_summary_status": (
-                            latest.status if latest else None
-                        ),
+                        "total": stats.total,
+                        "latest_summary_at": stats.latest_summary_at,
+                        "latest_summary_status": stats.latest_summary_status,
                     }
 
             tweets, follows, summaries, topics = await asyncio.gather(

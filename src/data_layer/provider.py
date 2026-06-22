@@ -452,3 +452,18 @@ def get_search_repo(session=None):
     from src.search.services.search_service import SearchService
 
     return SearchService(session)
+
+
+def get_status_repo(session=None):
+    """返回 status 统计读门面(get_tweet_stats / get_follow_stats / get_summary_stats / get_topic_stats)。
+
+    file 模式:FileStatusReadStore(_data_root())(组合 file store 在 Python 槽 count/max/反连接,忽略 session)。
+    sqlalchemy 模式:SqlalchemyStatusReadStore(session)(薄 wrapper 转调旧 _get_*_stats,SQL 字节零变化)。
+    """
+    if _data_layer() == "file":
+        from src.api.status_read_repository import FileStatusReadStore
+
+        return FileStatusReadStore(_data_root())
+    from src.api.status_read_repository import SqlalchemyStatusReadStore
+
+    return SqlalchemyStatusReadStore(session)
