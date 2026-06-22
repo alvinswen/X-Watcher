@@ -919,6 +919,14 @@ class TestArticleFetching:
         TaskRegistry._instance = None
         TaskRegistry._initialized = False
 
+    @pytest.fixture(autouse=True)
+    def _pin_sqlalchemy_layer(self, monkeypatch):
+        """钉 sqlalchemy 模式:本组按 ArticleRepository + get_async_session_maker 的
+        mock 编写,走真 session 路径,不受本地 .env 的 XWATCHER_DATA_LAYER=file 污染
+        (否则 get_article_repo 经 provider 返回 FileArticleStore、绕过 patch →
+        article_exists 落到真仓返回真值 → fetch_article 永不触发)。"""
+        monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
+
     @pytest.fixture
     def mock_client(self):
         """Mock TwitterClient。"""
@@ -1145,6 +1153,13 @@ class TestBackfillArticlesForUser:
         """每个测试方法前执行：重置单例。"""
         TaskRegistry._instance = None
         TaskRegistry._initialized = False
+
+    @pytest.fixture(autouse=True)
+    def _pin_sqlalchemy_layer(self, monkeypatch):
+        """钉 sqlalchemy 模式:本组按 ArticleRepository + get_async_session_maker 的
+        mock 编写,走真 session 路径,不受本地 .env 的 XWATCHER_DATA_LAYER=file 污染
+        (否则 get_article_repo 经 provider 返回 FileArticleStore、绕过 patch)。"""
+        monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
 
     @pytest.fixture
     def mock_client(self):
