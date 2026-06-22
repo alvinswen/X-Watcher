@@ -129,7 +129,7 @@ class FileBrowseReadStore:
             cur = latest_by_lower.get(lu)
             if cur is None or tw.created_at > cur[0]:
                 latest_by_lower[lu] = (tw.created_at, tw.author_display_name)
-        # max DESC(Python 稳定排序:tie 保插入序;旧 SQL 无次级 tie-break=PG 未定义序,承 A1-2 caveat)
+        # max DESC(Python 稳定排序:tie 保 groups 首现作者序;旧 SQL 无次级 tie-break=PG 未定义序,承 A1-2 caveat)
         ordered = sorted(groups.items(), key=lambda kv: kv[1]["max"], reverse=True)
         # reason:active follow 精确 username 匹配(复刻 ScraperFollow.username.in_(usernames)+is_active)
         active = await get_follows_repo(None).get_active_follows()

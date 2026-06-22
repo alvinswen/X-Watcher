@@ -419,3 +419,14 @@ async def test_get_authors_cross_mode(monkeypatch, tmp_path):
     assert [a["author_username"] for a in f_authors] == ["bob", "alice"]
     assert all(a["last_tweet_at"].tzinfo is not None for a in f_authors)
     assert f_authors[0]["last_tweet_at"].isoformat().endswith("+00:00")
+
+
+@pytest.mark.asyncio
+async def test_get_authors_empty_day(monkeypatch, tmp_path):
+    """无推文日返回 [](与 get_daily_stats 空月对称)。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    await _seed_file(tmp_path, [_tweet("z1", "alice", datetime(2026, 5, 10, 3, 0, tzinfo=timezone.utc))])
+    from src.data_layer.provider import get_browse_repo
+    authors = await get_browse_repo().get_authors("2026-05-11", tz_offset=0)  # 11 日无推文
+    assert authors == []
