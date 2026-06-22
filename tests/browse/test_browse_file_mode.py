@@ -287,3 +287,28 @@ async def test_get_daily_stats_cross_mode(monkeypatch, tmp_path):
     await session.close(); await engine.dispose()
     assert f_days == s_days, f"daily_stats 跨模式不等\nfile={f_days}\nsql={s_days}"
     assert f_days == [{"date": "2026-05-02", "count": 2}, {"date": "2026-05-04", "count": 1}]
+
+
+@pytest.mark.asyncio
+async def test_get_daily_stats_december_cross_year(monkeypatch, tmp_path):
+    """12 月跨年分支(month==12→local_end=次年1月);次年 1 月推文不计入。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    await _seed_file(tmp_path, [
+        _tweet("dc1", "alice", datetime(2026, 12, 31, 3, 0, tzinfo=timezone.utc)),
+        _tweet("dc2", "alice", datetime(2027, 1, 1, 3, 0, tzinfo=timezone.utc)),  # 次年,不计入
+    ])
+    from src.data_layer.provider import get_browse_repo
+    days = await get_browse_repo().get_daily_stats(2026, 12, tz_offset=0)
+    assert days == [{"date": "2026-12-31", "count": 1}]
+
+
+@pytest.mark.asyncio
+async def test_get_daily_stats_empty_month(monkeypatch, tmp_path):
+    """空月返回 [](窗口排除其它月推文)。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    await _seed_file(tmp_path, [_tweet("x", "alice", datetime(2026, 5, 2, 3, 0, tzinfo=timezone.utc))])
+    from src.data_layer.provider import get_browse_repo
+    days = await get_browse_repo().get_daily_stats(2026, 7, tz_offset=0)  # 7 月无推文
+    assert days == []

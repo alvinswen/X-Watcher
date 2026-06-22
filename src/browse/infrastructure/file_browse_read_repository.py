@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
-_NO_LIMIT = 10**12  # FileTweetStore.get_feed 无 unlimited 参;大 limit 取窗口内全部(复用 feed/search 范式)
+_NO_LIMIT = 10**12  # FileTweetStore.get_feed 无 unlimited 参;大 limit 取窗口内全部(复用 feed 范式)
 
 
 class FileBrowseReadStore:
