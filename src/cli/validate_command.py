@@ -51,14 +51,11 @@ def validate() -> None:
 
 def _check_database() -> dict:
     """检查数据库连接。"""
-    from src.data_layer.provider import is_file_mode
+    from src.data_layer.provider import data_root, is_file_mode
 
     if is_file_mode():
         # file 模式(pg 下线守卫):不连 pg,改探数据目录存在性
-        import os
-        from pathlib import Path
-
-        root = Path(os.environ.get("XWATCHER_DATA_ROOT", "data"))
+        root = data_root()
         if root.exists():
             return {"name": "database", "status": "healthy", "mode": "file", "data_root": str(root)}
         return {"name": "database", "status": "unhealthy", "error": f"data_root 不存在: {root}"}

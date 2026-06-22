@@ -127,12 +127,10 @@ def get_database_size_mb() -> float | None:
     file 模式(pg 下线守卫):递归 sum data_root 目录体积,不连 pg。
     SQLite 读文件大小,PostgreSQL 用 pg_database_size()。
     """
-    from src.data_layer.provider import is_file_mode
+    from src.data_layer.provider import data_root, is_file_mode
 
     if is_file_mode():
-        from pathlib import Path
-
-        root = Path(os.environ.get("XWATCHER_DATA_ROOT", "data"))
+        root = data_root()
         if not root.exists():
             return None
         try:

@@ -25,6 +25,11 @@ def _data_root() -> Path:
     return Path(os.environ.get("XWATCHER_DATA_ROOT", "data"))
 
 
+def data_root() -> Path:
+    """文件数据层根目录(XWATCHER_DATA_ROOT,默认 data)。pg 下线守卫的单一真值源。"""
+    return _data_root()
+
+
 logger = logging.getLogger(__name__)
 
 # 模块级:串化跨线程同步写,规避 asyncio.Lock 跨 loop/跨线程复用(file 模式同步桥接专用)

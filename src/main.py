@@ -352,10 +352,9 @@ async def health_check():
     # 1. 数据库连接检查
     if is_file_mode():
         # file 模式(pg 下线守卫):不连 pg,改探数据目录存在性
-        import os
-        from pathlib import Path
+        from src.data_layer.provider import data_root
 
-        root = Path(os.environ.get("XWATCHER_DATA_ROOT", "data"))
+        root = data_root()
         if root.exists():
             components["database"] = {
                 "status": "healthy",
