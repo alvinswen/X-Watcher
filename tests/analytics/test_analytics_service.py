@@ -28,15 +28,45 @@ async def analytics_topic(async_session: AsyncSession):
 
 
 @pytest.fixture
-async def analytics_tweets(async_session: AsyncSession, analytics_topic):
+def _frozen_now(monkeypatch):
+    """把 AnalyticsService 与种子推文共用的 now 钉到 30 分钟桶中心（相位 +15min）。
+
+    get_posting_frequency 按绝对时钟 30 分钟桶（epoch // 1800）聚合，而种子推文按
+    now 相对偏移生成。真实 now 的相位会让 :00/:30 桶边界偶发落在 -35min 与 -40min
+    两条推文之间（约 1/6 概率），把本应同桶的两条拆成两桶 → distribution 多出一个桶，
+    test_posting_frequency_normal_distribution 的 len==3 断言偶发翻红（与 pytest-randomly
+    随机序无关，纯 wall-clock 相位）。钉到桶中心（距任意 :00/:30 边界 15min）消除该
+    相位依赖，使测试 hermetic。仅 patch 测试侧 datetime，零生产代码改动。
+    """
+    real = datetime.now(timezone.utc)
+    bucket_start = datetime.fromtimestamp(
+        (int(real.timestamp()) // 1800) * 1800, tz=timezone.utc
+    )
+    fixed = bucket_start + timedelta(minutes=15)
+
+    class _FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed if tz is None else fixed.astimezone(tz)
+
+    monkeypatch.setattr(
+        "src.analytics.services.analytics_service.datetime", _FrozenDateTime
+    )
+    return fixed
+
+
+@pytest.fixture
+async def analytics_tweets(
+    async_session: AsyncSession, analytics_topic, _frozen_now: datetime
+):
     """创建分布在不同 30 分钟时段的推文。
 
-    以 now 为基准，在不同 slot 中插入推文：
+    以 now 为基准（钉到桶中心，见 _frozen_now），在不同 slot 中插入推文：
     - slot 0 (now - 5min): 1 条 (analyst_a)
-    - slot 1 (now - 35min): 2 条 (analyst_a + analyst_b)
+    - slot 1 (now - 35min / -40min): 2 条 (analyst_a + analyst_b，同一时钟桶)
     - slot 3 (now - 95min): 1 条 (analyst_b)
     """
-    now = datetime.now(timezone.utc)
+    now = _frozen_now
 
     tweets = [
         # slot 0: 当前半小时
