@@ -103,6 +103,21 @@ def get_article_repo(session=None):
     return ArticleRepository(session)
 
 
+def get_article_read_repo(session=None):
+    """返回 article 反连接读门面(get_unarticled_tweets:找无 article 记录的作者推文)。
+
+    file 模式:FileArticleReadStore(_data_root())(组合 FileTweetStore+FileArticleStore 集合差,忽略 session)。
+    sqlalchemy 模式:SqlalchemyArticleReadStore(session)(逐字复刻原内联反连接 SQL,SQL 零变化)。
+    """
+    if _data_layer() == "file":
+        from src.scraper.infrastructure.article_read_repository import FileArticleReadStore
+
+        return FileArticleReadStore(_data_root())
+    from src.scraper.infrastructure.article_read_repository import SqlalchemyArticleReadStore
+
+    return SqlalchemyArticleReadStore(session)
+
+
 def get_fetch_stats_repo(session=None):
     """返回 FetchStatsStore 形态 repo。file:FileFetchStatsStore;sqlalchemy:FetchStatsRepository(session)。"""
     if _data_layer() == "file":

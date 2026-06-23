@@ -852,28 +852,24 @@ class ScrapingService:
         try:
             from src.database.async_session import get_async_session_maker
             from src.scraper.domain.models import Article
-            from src.data_layer.provider import get_article_repo
+            from src.data_layer.provider import (
+                get_article_read_repo,
+                get_article_repo,
+                is_file_mode,
+            )
 
             session_maker = get_async_session_maker()
 
-            # 1. 查询该用户尚无 article 记录的推文 ID
-            async with session_maker() as session:
-                from sqlalchemy import select
-                from src.scraper.infrastructure.models import TweetOrm
-                from src.scraper.infrastructure.article_models import ArticleOrm
-
-                stmt = (
-                    select(TweetOrm.tweet_id)
-                    .outerjoin(ArticleOrm, TweetOrm.tweet_id == ArticleOrm.tweet_id)
-                    .where(
-                        TweetOrm.author_username == username,
-                        ArticleOrm.tweet_id.is_(None),
-                    )
-                    .order_by(TweetOrm.created_at.desc())
-                    .limit(max_tweets)
+            # 1. 查询该用户尚无 article 记录的推文 ID(file 模式走文件层反连接门面)
+            if is_file_mode():
+                tweet_ids = await get_article_read_repo().get_unarticled_tweets(
+                    username, max_tweets=max_tweets
                 )
-                rows = await session.execute(stmt)
-                tweet_ids = [row[0] for row in rows]
+            else:
+                async with session_maker() as session:
+                    tweet_ids = await get_article_read_repo(session).get_unarticled_tweets(
+                        username, max_tweets=max_tweets
+                    )
 
             if not tweet_ids:
                 logger.info("用户 %s 无需回溯的推文", username)
