@@ -25,10 +25,13 @@ parity 要点:
 - 分页 tie-order:同 created_at 在 page 边界,file(确定性 tie-break:created_at DESC 后按
   tweet_id DESC)vs PG(引擎任意)可能取不同子集。跨模式对账测试用互异 created_at 规避(同
   browse-agg tie-order 限制)。
-- ⚠️ list 的 outerjoin fan-out:schema 上 summaries.tweet_id 无 unique 约束,一个 tweet 可能有
-  多条 summary;原 list SQL 的 outerjoin 会 fan-out(每条 summary 一行 item),但 count 单独算
-  (无 join)→ 一个多 summary 的 tweet 在 items 里出现多次、total 只计一次。两侧门面忠实复刻该
-  行为(file 对每条 tweet 按其 summary 数产行);跨模式对账测试用 1:≤1 summary 规避 fan-out。
+- ⚠️ list 的 outerjoin fan-out(两模式此处**不一致**,诚实标注):schema 上 summaries.tweet_id
+  无 unique 约束,理论上一个 tweet 可有多条 summary。**sqlalchemy 模式**逐字复刻原 outerjoin SQL,
+  对多 summary 的 tweet fan-out(每条 summary 一行 item、total 单独 count 只计一次);**file 模式**
+  用 set 化 has_summary 判定,**对每个 tweet 只产 1 行(去重,不复刻 fan-out)**。
+  **真实数据零影响**:PG 实测 summaries 数 == distinct tweet 数(完美 1:1),且"1 tweet 多 summary"
+  已是 get_summary_by_tweet(scalar_one_or_none)在两模式都会 MultipleResultsFound 的不支持态。
+  跨模式对账测试用 1:≤1 summary(故不覆盖此分歧——分歧仅存在于 real data 永不触及的多 summary 态)。
 """
 from __future__ import annotations
 
