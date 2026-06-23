@@ -13,6 +13,7 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
 from src.config import clear_settings_cache, get_settings
@@ -65,6 +66,21 @@ _sync_test_engine = create_engine(
 Base.metadata.create_all(bind=_sync_test_engine)
 
 
+# 全局异步测试引擎 - 所有通过 get_async_engine()/get_async_session_maker() 的代码路径
+# 都将被重定向到此处,杜绝任何测试经异步路径碰真实 pg(DATABASE_URL)。
+# ⚠️ 建表需事件循环,而本模块级 + autouse fixture 是同步上下文 → 用"同步 sqlite 连接预建表
+# + 异步引擎读同一文件"避开 loop。用 file-based sqlite(而非 :memory:),因 :memory: 跨连接
+# 不共享、且异步建表要 loop;file 共享 + 同步预建表最稳。
+_async_test_db_path = tempfile.mktemp(suffix="-conftest-async-test.sqlite")
+_async_table_creator = create_engine(f"sqlite:///{_async_test_db_path}")
+Base.metadata.create_all(bind=_async_table_creator)  # 同步建表,无需 loop
+_async_table_creator.dispose()
+_async_test_engine = create_async_engine(f"sqlite+aiosqlite:///{_async_test_db_path}")
+_async_test_maker = async_sessionmaker(
+    _async_test_engine, class_=AsyncSession, expire_on_commit=False
+)
+
+
 @pytest.fixture(autouse=True)
 def _isolate_database_singletons():
     """隔离数据库单例，防止测试泄漏写入生产数据库。
@@ -73,14 +89,25 @@ def _isolate_database_singletons():
     SchedulerExecutionLogSyncWriter.write_log、get_active_follows_from_db 等）
     使用内存测试数据库而非生产 news_agent.db。
 
+    同时 patch get_async_engine()/get_async_session_maker() 使所有异步数据库代码路径
+    (route/MCP/集成测试在默认 sqlalchemy 模式下的 get_async_session_maker() 调用)使用
+    隔离的 sqlite 异步引擎,而非连接真实 pg(DATABASE_URL)。镜像同步引擎的隔离方式。
+
     同时在测试前后重置引擎单例，确保测试之间完全隔离。
     """
     # 重置单例，防止上一个测试的引擎被复用
     reset_engine()
     reset_async_engine()
 
-    # Patch get_engine 使所有 lazy import 路径都返回测试引擎
-    with patch("src.database.models.get_engine", return_value=_sync_test_engine):
+    # Patch get_engine 使所有 lazy import(函数内 import)路径都返回测试引擎。
+    # ⚠️ src.main 在模块级 `from src.database.models import get_engine as engine` 绑定了原函数
+    # 引用(import 时定型),patch 源模块的 get_engine 覆盖不到该绑定名 → main.py 的 lifespan
+    # 启动期 _init_db_if_needed() 会用未被 patch 的真实 pg sync engine 对真实 pg create_all
+    # 重建表。故必须额外 patch src.main.engine 这一绑定名,堵住该同步路径的 pg 泄漏。
+    with patch("src.database.models.get_engine", return_value=_sync_test_engine), \
+         patch("src.main.engine", return_value=_sync_test_engine), \
+         patch("src.database.async_session.get_async_engine", return_value=_async_test_engine), \
+         patch("src.database.async_session.get_async_session_maker", return_value=_async_test_maker):
         yield
 
     # 测试后再次重置单例
