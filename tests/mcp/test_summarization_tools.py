@@ -338,6 +338,10 @@ class TestSaveSummaries:
             ),
             "referenced_tweet_text": None,
             "reference_type": None,
+            # CR-023:get_tweet_origins 扩为 6 列读,mock 行须随 SELECT 列同步补 3 键
+            "referenced_tweet_id": None,
+            "author_username": "alice",
+            "referenced_tweet_author_username": None,
         }
         mock_session = AsyncMock()
         mock_session.commit = AsyncMock()

@@ -31,27 +31,14 @@ router = APIRouter(prefix="/api/status", tags=["status"])
 # ── 响应模型 ──────────────────────────────────────────────
 
 
-class TweetStats(BaseModel):
-    total: int
-    latest_tweet_at: datetime | None
-    today_count: int
-
-
-class FollowStats(BaseModel):
-    total: int
-    active: int
-    inactive: int
-
-
-class SummaryStats(BaseModel):
-    total: int
-    pending_tweets: int
-
-
-class TopicStats(BaseModel):
-    total: int
-    latest_summary_at: datetime | None
-    latest_summary_status: str | None
+# TweetStats/FollowStats/SummaryStats/TopicStats 抽到 src/api/status_schemas.py(断 status→main 循环,
+# 供文件层 status 门面共享);此处 re-import 保持本模块引用不变。
+from src.api.status_schemas import (  # noqa: E402
+    FollowStats,
+    SummaryStats,
+    TopicStats,
+    TweetStats,
+)
 
 
 class SchedulerStats(BaseModel):
@@ -96,25 +83,26 @@ async def get_status_overview(
     current_user: UserDomain = Depends(get_current_user),
 ) -> StatusOverviewResponse:
     """获取系统状态概览。"""
+    from src.data_layer.provider import get_status_repo
     from src.database.async_session import get_async_session_maker
 
     session_maker = get_async_session_maker()
 
     async def _tweets():
         async with session_maker() as s:
-            return await _get_tweet_stats(s)
+            return await get_status_repo(s).get_tweet_stats()
 
     async def _follows():
         async with session_maker() as s:
-            return await _get_follow_stats(s)
+            return await get_status_repo(s).get_follow_stats()
 
     async def _summaries():
         async with session_maker() as s:
-            return await _get_summary_stats(s)
+            return await get_status_repo(s).get_summary_stats()
 
     async def _topics():
         async with session_maker() as s:
-            return await _get_topic_stats(s)
+            return await get_status_repo(s).get_topic_stats()
 
     tweets, follows, summaries, topics = await asyncio.gather(
         _tweets(), _follows(), _summaries(), _topics(),

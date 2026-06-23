@@ -5,13 +5,10 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from returns.result import Success
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.data_layer.provider import get_topic_store, get_topic_summary_task_store
-from src.scraper.infrastructure.models import TweetOrm
 from src.summarization.domain.models import LLMResponse
-from src.summarization.infrastructure.models import SummaryOrm
 from src.summarization.llm.base import LLMProvider
 from src.summarization.llm.config import LLMProviderConfig
 from src.summarization.services.summarization_service import _get_global_llm_semaphore
@@ -506,40 +503,16 @@ class TopicSummaryService:
         同时取出 referenced_tweet_text/referenced_tweet_author_username，
         便于 RT/quote 类推文（外壳 ~140 字符、本体常达 2000+ 字符）把
         真正的信息体投放进 prompt，避免 LLM 只能看到"RT @x: ..."外壳。
-        """
-        stmt = (
-            select(
-                TweetOrm.tweet_id,
-                TweetOrm.text,
-                TweetOrm.author_username,
-                TweetOrm.created_at,
-                SummaryOrm.translation_text,
-                TweetOrm.referenced_tweet_text,
-                TweetOrm.referenced_tweet_author_username,
-            )
-            .outerjoin(SummaryOrm, TweetOrm.tweet_id == SummaryOrm.tweet_id)
-            .where(
-                func.lower(TweetOrm.author_username).in_([u.lower() for u in usernames]),
-                TweetOrm.created_at >= start_time,
-                TweetOrm.created_at <= end_time,
-            )
-            .order_by(TweetOrm.created_at.asc())
-        )
-        result = await session.execute(stmt)
-        rows = result.all()
 
-        return [
-            {
-                "tweet_id": row[0],
-                "text": row[1],
-                "author": row[2],
-                "created_at": row[3],
-                "translation": row[4],
-                "referenced_tweet_text": row[5],
-                "referenced_tweet_author_username": row[6],
-            }
-            for row in rows
-        ]
+        跨域读(tweet+summary outerjoin)经 provider 门面:file 模式走文件层组合 store
+        (session 被忽略);sqlalchemy 模式逐字复刻原内联 SQL(零行为变化)。created_at 两模式
+        均为 naive-UTC 裸 datetime,与下游 _build_prompt 的 str() 插值/跨域排序契约一致。
+        """
+        from src.data_layer.provider import get_topic_query_repo
+
+        return await get_topic_query_repo(session).query_tweets(
+            usernames, start_time, end_time
+        )
 
     @staticmethod
     def _format_coverage_period(

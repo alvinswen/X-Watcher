@@ -146,6 +146,11 @@ def _persist_audit_log(
     timestamp: datetime,
 ) -> None:
     """将审计日志持久化到数据库（静默失败）。"""
+    from src.data_layer.provider import is_file_mode
+
+    if is_file_mode():
+        # file 模式:审计仅文件 logger(audit_log 主函数已写),不写 pg(owner 定 accept-no-persist)
+        return
     try:
         import json
 

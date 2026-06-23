@@ -46,8 +46,9 @@ async def get_daily_stats(
 ) -> DailyStatsResponse:
     """按年月查询该月内每天的推文数量（按用户本地时区分组）。"""
     try:
-        service = BrowseService(session)
-        days = await service.get_daily_stats(year, month, tz_offset, min_text_length)
+        from src.data_layer.provider import get_browse_repo
+
+        days = await get_browse_repo(session).get_daily_stats(year, month, tz_offset, min_text_length)
         return DailyStatsResponse(
             year=year,
             month=month,
@@ -83,8 +84,9 @@ async def get_authors(
         )
 
     try:
-        service = BrowseService(session)
-        authors = await service.get_authors(date, tz_offset, min_text_length)
+        from src.data_layer.provider import get_browse_repo
+
+        authors = await get_browse_repo(session).get_authors(date, tz_offset, min_text_length)
         return AuthorListResponse(
             authors=[AuthorInfo(**a) for a in authors],
             total=len(authors),

@@ -25,39 +25,16 @@ def register(mcp: FastMCP) -> None:
     async def status_resource() -> str:
         """当前系统健康状态和关键统计。"""
         try:
-            from sqlalchemy import func, select
-
+            from src.data_layer.provider import get_status_repo
             from src.database.async_session import get_async_session_maker
-            from src.database.models import ScraperFollow
-            from src.scraper.infrastructure.models import TweetOrm
-            from src.summarization.infrastructure.models import SummaryOrm
-            from src.topic.infrastructure.models import TopicOrm
 
             session_maker = get_async_session_maker()
             async with session_maker() as session:
-                tweet_count = (
-                    await session.execute(
-                        select(func.count()).select_from(TweetOrm)
-                    )
-                ).scalar() or 0
-
-                follow_count = (
-                    await session.execute(
-                        select(func.count()).select_from(ScraperFollow)
-                    )
-                ).scalar() or 0
-
-                summary_count = (
-                    await session.execute(
-                        select(func.count()).select_from(SummaryOrm)
-                    )
-                ).scalar() or 0
-
-                topic_count = (
-                    await session.execute(
-                        select(func.count()).select_from(TopicOrm)
-                    )
-                ).scalar() or 0
+                repo = get_status_repo(session)
+                tweet_count = (await repo.get_tweet_stats()).total
+                follow_count = (await repo.get_follow_stats()).total
+                summary_count = (await repo.get_summary_stats()).total
+                topic_count = (await repo.get_topic_stats()).total
 
             return json.dumps(
                 {

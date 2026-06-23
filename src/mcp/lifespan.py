@@ -63,7 +63,17 @@ def init_database() -> None:
 
     从 src/main.py 的 lifespan() 中提取的 DB 初始化逻辑，
     不启动 APScheduler、SummarizationQueue、CORS/SPA 中间件。
+
+    file 模式(pg 下线守卫):整体早返——跳过 create_all + 迁移 +
+    async engine 预热。预热仅为 stdio 模式 stdout handler 副作用注册,
+    file 模式不使用 pg async engine,无需预热(不连 pg)。
     """
+    from src.data_layer.provider import is_file_mode
+
+    if is_file_mode():
+        logger.info("file 模式:跳过 MCP init_database(create_all + 迁移 + async engine 预热,pg 下线守卫)")
+        return
+
     from sqlalchemy import text
 
     from src.database.models import Base, get_engine

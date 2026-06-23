@@ -64,6 +64,23 @@ async def _get_schedule_config_from_db() -> tuple[int | None, datetime | None, b
         return (None, None, False)
 
 
+def _init_db_if_needed():
+    """启动期 DB 初始化:建表 + 内联迁移。
+
+    file 模式(pg 下线守卫):跳过 create_all + 内联迁移,避免重建已 DROP 的 pg 表。
+    sqlalchemy 模式:零行为变化(原 create_all + 两处迁移)。
+    """
+    from src.data_layer.provider import is_file_mode
+
+    if is_file_mode():
+        logger.info("file 模式:跳过 create_all + 内联迁移(pg 下线守卫)")
+        return
+
+    Base.metadata.create_all(engine())
+    _migrate_schedule_config_table()
+    _migrate_scheduler_execution_log_table()
+
+
 def _migrate_schedule_config_table():
     """为 scraper_schedule_config 表添加 is_enabled 列（如果不存在）。
 
@@ -201,13 +218,8 @@ async def lifespan(app: FastAPI):  # noqa: ARG001 - app 参数是 FastAPI 要求
     # （分散在各子模块的模型需显式导入，否则 create_all 不会建表）
     from src.scraper.infrastructure.article_models import ArticleOrm  # noqa: F401
 
-    # 启动时创建数据库表
-    Base.metadata.create_all(engine())
-
-    # 迁移：确保 is_enabled 列存在
-    _migrate_schedule_config_table()
-    # 迁移：确保 scheduler_execution_log 表存在
-    _migrate_scheduler_execution_log_table()
+    # 启动时创建数据库表 + 内联迁移（file 模式跳过，pg 下线守卫）
+    _init_db_if_needed()
 
     # 初始化调度器
     if settings.scraper_enabled:
@@ -331,19 +343,37 @@ async def health_check():
     """
     from sqlalchemy import text
 
+    from src.data_layer.provider import is_file_mode
     from src.database.async_session import get_async_session_maker
     from src.scheduler_accessor import get_scheduler
 
     components = {}
 
     # 1. 数据库连接检查
-    try:
-        session_maker = get_async_session_maker()
-        async with session_maker() as session:
-            await session.execute(text("SELECT 1"))
-        components["database"] = {"status": "healthy"}
-    except Exception as e:
-        components["database"] = {"status": "unhealthy", "error": str(e)}
+    if is_file_mode():
+        # file 模式(pg 下线守卫):不连 pg,改探数据目录存在性
+        from src.data_layer.provider import data_root
+
+        root = data_root()
+        if root.exists():
+            components["database"] = {
+                "status": "healthy",
+                "mode": "file",
+                "data_root": str(root),
+            }
+        else:
+            components["database"] = {
+                "status": "unhealthy",
+                "error": f"data_root 不存在: {root}",
+            }
+    else:
+        try:
+            session_maker = get_async_session_maker()
+            async with session_maker() as session:
+                await session.execute(text("SELECT 1"))
+            components["database"] = {"status": "healthy"}
+        except Exception as e:
+            components["database"] = {"status": "unhealthy", "error": str(e)}
 
     # 2. 调度器状态检查
     scheduler = get_scheduler()

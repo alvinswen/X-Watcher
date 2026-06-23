@@ -10,33 +10,12 @@
 """
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from src.feed.api.schemas import FeedResult
+from src.shared.like_match import ilike_contains
 
 _NO_LIMIT = 10**12  # FileTweetStore.get_feed 无 unlimited 参;大 limit 取窗口内全部
-
-
-def _like_to_regex(like_pattern: str) -> str:
-    """SQL LIKE pattern → 等价 regex:% → .*,_ → 任意单字符,其余字面 re.escape。oracle 无 ESCAPE 故 \\ 字面。"""
-    out = []
-    for ch in like_pattern:
-        if ch == "%":
-            out.append(".*")
-        elif ch == "_":
-            out.append(".")
-        else:
-            out.append(re.escape(ch))
-    return "".join(out)
-
-
-def _ilike_contains(haystack: str | None, keyword: str) -> bool:
-    """复刻 col.ilike(f"%{kw}%"):大小写不敏感 + kw 内 %/_ 作通配。haystack None → 不匹配(LEFT JOIN NULL)。"""
-    if haystack is None:
-        return False
-    pattern = _like_to_regex(f"%{keyword}%")
-    return re.search(pattern, haystack, re.IGNORECASE | re.DOTALL) is not None
 
 
 class FileFeedReadStore:
@@ -83,12 +62,12 @@ class FileFeedReadStore:
         # 4. keyword 过滤(复刻 ilike %kw%;include_summary 时 OR 搜 summary/translation)
         if keyword:
             def _match(t):
-                if _ilike_contains(t.text, keyword):
+                if ilike_contains(t.text, keyword):
                     return True
                 if include_summary:
                     rec = smap.get(t.tweet_id)
-                    if rec and (_ilike_contains(rec.summary_text, keyword)
-                                or _ilike_contains(rec.translation_text, keyword)):
+                    if rec and (ilike_contains(rec.summary_text, keyword)
+                                or ilike_contains(rec.translation_text, keyword)):
                         return True
                 return False
             tweets = [t for t in tweets if _match(t)]

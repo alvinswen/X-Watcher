@@ -651,6 +651,12 @@ async def get_task_history(
     Returns:
         list[dict]: 任务历史记录列表
     """
+    from src.data_layer.provider import is_file_mode
+
+    if is_file_mode():
+        # file 模式:任务历史无 pg 持久化(仅内存 TaskRegistry),无可查记录返空
+        return []
+
     import json
 
     from src.database.async_session import get_async_session_maker

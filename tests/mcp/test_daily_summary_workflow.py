@@ -354,17 +354,27 @@ class TestBatchSummarizeBackfill:
         mock_queue.enqueue = AsyncMock(return_value="task-abc-123")
 
         mock_session = AsyncMock()
-        # 模拟查询返回待摘要推文 ID
-        mock_result = MagicMock()
-        mock_result.fetchall.return_value = [("tw1",), ("tw2",), ("tw3",)]
-        mock_session.execute = AsyncMock(return_value=mock_result)
         mock_sm = _mock_session_maker(mock_session)
+        # 接缝迁移:backfill 改走 get_summarization_read_repo.get_unsummarized_tweets
+        # (返回 dict 列表),patch 读门面而非裸 session.execute(同型契约保持)。
+        mock_read_repo = MagicMock()
+        mock_read_repo.get_unsummarized_tweets = AsyncMock(
+            return_value=[
+                {"tweet_id": "tw1"},
+                {"tweet_id": "tw2"},
+                {"tweet_id": "tw3"},
+            ]
+        )
 
         with (
             patch("src.mcp.tools.admin_tools.require_admin", return_value=None),
             patch(
                 "src.database.async_session.get_async_session_maker",
                 return_value=mock_sm,
+            ),
+            patch(
+                "src.data_layer.provider.get_summarization_read_repo",
+                return_value=mock_read_repo,
             ),
             patch(
                 "src.summarization.services.summarization_queue.SummarizationQueue.get_instance",
@@ -406,16 +416,21 @@ class TestBatchSummarizeBackfill:
         mock_queue.enqueue = mock_enqueue
 
         mock_session = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.fetchall.return_value = [("tw1",)]
-        mock_session.execute = AsyncMock(return_value=mock_result)
         mock_sm = _mock_session_maker(mock_session)
+        mock_read_repo = MagicMock()
+        mock_read_repo.get_unsummarized_tweets = AsyncMock(
+            return_value=[{"tweet_id": "tw1"}]
+        )
 
         with (
             patch("src.mcp.tools.admin_tools.require_admin", return_value=None),
             patch(
                 "src.database.async_session.get_async_session_maker",
                 return_value=mock_sm,
+            ),
+            patch(
+                "src.data_layer.provider.get_summarization_read_repo",
+                return_value=mock_read_repo,
             ),
             patch(
                 "src.summarization.services.summarization_queue.SummarizationQueue.get_instance",
@@ -438,16 +453,21 @@ class TestBatchSummarizeBackfill:
         mock_queue.enqueue = AsyncMock(return_value="task-return-id-456")
 
         mock_session = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.fetchall.return_value = [("tw1",), ("tw2",)]
-        mock_session.execute = AsyncMock(return_value=mock_result)
         mock_sm = _mock_session_maker(mock_session)
+        mock_read_repo = MagicMock()
+        mock_read_repo.get_unsummarized_tweets = AsyncMock(
+            return_value=[{"tweet_id": "tw1"}, {"tweet_id": "tw2"}]
+        )
 
         with (
             patch("src.mcp.tools.admin_tools.require_admin", return_value=None),
             patch(
                 "src.database.async_session.get_async_session_maker",
                 return_value=mock_sm,
+            ),
+            patch(
+                "src.data_layer.provider.get_summarization_read_repo",
+                return_value=mock_read_repo,
             ),
             patch(
                 "src.summarization.services.summarization_queue.SummarizationQueue.get_instance",

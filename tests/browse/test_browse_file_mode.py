@@ -208,3 +208,265 @@ async def test_mcp_browse_tweets_file_mode(monkeypatch, tmp_path):
     assert data["success"] is True
     assert data["data"]["total"] == 2 and data["data"]["count"] == 2
     assert {i["tweet_id"] for i in data["data"]["items"]} == {"mb1", "mb2"}
+
+
+@pytest.mark.asyncio
+async def test_get_daily_stats_file_mode_basic(monkeypatch, tmp_path):
+    """月窗按本地日分组计数,升序;空日不出现。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    # tz_offset=0(UTC):2026-05-02 两条 / 2026-05-04 一条
+    await _seed_file(tmp_path, [
+        _tweet("d1", "alice", datetime(2026, 5, 2, 3, 0, tzinfo=timezone.utc)),
+        _tweet("d2", "bob", datetime(2026, 5, 2, 9, 0, tzinfo=timezone.utc)),
+        _tweet("d3", "alice", datetime(2026, 5, 4, 1, 0, tzinfo=timezone.utc)),
+    ])
+    from src.data_layer.provider import get_browse_repo
+    days = await get_browse_repo().get_daily_stats(2026, 5, tz_offset=0)
+    assert days == [{"date": "2026-05-02", "count": 2}, {"date": "2026-05-04", "count": 1}]
+
+
+@pytest.mark.asyncio
+async def test_get_daily_stats_tz_offset_boundary(monkeypatch, tmp_path):
+    """tz_offset 把跨 UTC 午夜的推文归到正确本地日(故障注入:偏移符号反向则归错日)。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    # tz_offset=-480(China UTC+8):local=UTC+8h
+    # UTC 2026-05-01 15:00 → local 2026-05-01 23:00 → 本地日 05-01
+    # UTC 2026-05-01 17:00 → local 2026-05-02 01:00 → 本地日 05-02
+    await _seed_file(tmp_path, [
+        _tweet("b1", "alice", datetime(2026, 5, 1, 15, 0, tzinfo=timezone.utc)),
+        _tweet("b2", "alice", datetime(2026, 5, 1, 17, 0, tzinfo=timezone.utc)),
+    ])
+    from src.data_layer.provider import get_browse_repo
+    days = await get_browse_repo().get_daily_stats(2026, 5, tz_offset=-480)
+    assert days == [{"date": "2026-05-01", "count": 1}, {"date": "2026-05-02", "count": 1}]
+
+
+@pytest.mark.asyncio
+async def test_get_daily_stats_min_text_length(monkeypatch, tmp_path):
+    """min_text_length 过滤短文本(故障注入:不过滤则短文本计入)。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    await _seed_file(tmp_path, [
+        _tweet("s1", "alice", datetime(2026, 5, 2, 3, 0, tzinfo=timezone.utc), text="hi"),       # len 2
+        _tweet("s2", "alice", datetime(2026, 5, 2, 4, 0, tzinfo=timezone.utc), text="hello!!"),  # len 7
+    ])
+    from src.data_layer.provider import get_browse_repo
+    days = await get_browse_repo().get_daily_stats(2026, 5, tz_offset=0, min_text_length=5)
+    assert days == [{"date": "2026-05-02", "count": 1}]
+
+
+@pytest.mark.asyncio
+async def test_get_daily_stats_cross_mode(monkeypatch, tmp_path):
+    """file vs sqlalchemy(SQLite)产同 daily_stats。SQLite 是有效 oracle(日期截断无 div/cast)。"""
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    specs = [("c1", "alice", datetime(2026, 5, 2, 3, 0, tzinfo=timezone.utc)),
+             ("c2", "bob", datetime(2026, 5, 2, 9, 0, tzinfo=timezone.utc)),
+             ("c3", "alice", datetime(2026, 5, 4, 1, 0, tzinfo=timezone.utc))]
+    await _seed_file(tmp_path, [_tweet(t, a, c) for (t, a, c) in specs])
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from src.database.models import Base
+    from src.scraper.infrastructure.models import TweetOrm
+    now = datetime.now(timezone.utc)
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    session = async_sessionmaker(engine, expire_on_commit=False)()
+    for (t, a, c) in specs:
+        session.add(TweetOrm(tweet_id=t, text="hello world", created_at=c, db_created_at=now,
+                             author_username=a, author_display_name=f"{a} disp", media=None))
+    await session.commit()
+
+    from src.data_layer.provider import get_browse_repo
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    f_days = await get_browse_repo().get_daily_stats(2026, 5, tz_offset=0)
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
+    s_days = await get_browse_repo(session).get_daily_stats(2026, 5, tz_offset=0)
+    await session.close(); await engine.dispose()
+    assert f_days == s_days, f"daily_stats 跨模式不等\nfile={f_days}\nsql={s_days}"
+    assert f_days == [{"date": "2026-05-02", "count": 2}, {"date": "2026-05-04", "count": 1}]
+
+
+@pytest.mark.asyncio
+async def test_get_daily_stats_december_cross_year(monkeypatch, tmp_path):
+    """12 月跨年分支(month==12→local_end=次年1月);次年 1 月推文不计入。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    await _seed_file(tmp_path, [
+        _tweet("dc1", "alice", datetime(2026, 12, 31, 3, 0, tzinfo=timezone.utc)),
+        _tweet("dc2", "alice", datetime(2027, 1, 1, 3, 0, tzinfo=timezone.utc)),  # 次年,不计入
+    ])
+    from src.data_layer.provider import get_browse_repo
+    days = await get_browse_repo().get_daily_stats(2026, 12, tz_offset=0)
+    assert days == [{"date": "2026-12-31", "count": 1}]
+
+
+@pytest.mark.asyncio
+async def test_get_daily_stats_empty_month(monkeypatch, tmp_path):
+    """空月返回 [](窗口排除其它月推文)。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    await _seed_file(tmp_path, [_tweet("x", "alice", datetime(2026, 5, 2, 3, 0, tzinfo=timezone.utc))])
+    from src.data_layer.provider import get_browse_repo
+    days = await get_browse_repo().get_daily_stats(2026, 7, tz_offset=0)  # 7 月无推文
+    assert days == []
+
+
+@pytest.mark.asyncio
+async def test_get_authors_file_mode_basic(monkeypatch, tmp_path):
+    """按作者分组(count+max),按 max DESC 排序,last_tweet_at aware,reason 命中 active follow。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    day = datetime(2026, 5, 10, 3, 0, tzinfo=timezone.utc)
+    await _seed_file(tmp_path, [
+        _tweet("g1", "alice", day),                          # alice max 03:00
+        _tweet("g2", "alice", day.replace(hour=5)),          # alice max→05:00 count 2
+        _tweet("g3", "bob", day.replace(hour=8)),            # bob max 08:00 count 1(最新→排第一)
+    ], follows=[("alice", "AI 研究者")])  # bob 无 follow
+    from src.data_layer.provider import get_browse_repo
+    authors = await get_browse_repo().get_authors("2026-05-10", tz_offset=0)
+    assert [a["author_username"] for a in authors] == ["bob", "alice"]   # max DESC:bob 08:00 > alice 05:00
+    alice = next(a for a in authors if a["author_username"] == "alice")
+    assert alice["tweet_count"] == 2
+    assert alice["last_tweet_at"] == day.replace(hour=5)                  # aware max
+    assert alice["last_tweet_at"].tzinfo is not None                     # 钉 aware(MCP isoformat +00:00)
+    assert alice["author_display_name"] == "alice disp"
+    assert alice["reason"] == "AI 研究者"
+    bob = next(a for a in authors if a["author_username"] == "bob")
+    assert bob["reason"] is None                                         # 无 follow→None
+    assert set(alice) == {"author_username", "author_display_name", "tweet_count", "last_tweet_at", "reason"}
+
+
+@pytest.mark.asyncio
+async def test_get_authors_display_name_latest_and_min_len(monkeypatch, tmp_path):
+    """display_name 取当日最新一条;min_text_length 过滤(故障注入:取最早 / 不过滤则翻红)。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    from src.scraper.domain.models import Tweet
+    day = datetime(2026, 5, 10, 3, 0, tzinfo=timezone.utc)
+    await _seed_file(tmp_path, [
+        Tweet(tweet_id="n1", text="hello world", created_at=day, author_username="alice",
+              author_display_name="OLD NAME"),
+        Tweet(tweet_id="n2", text="hello world", created_at=day.replace(hour=6), author_username="alice",
+              author_display_name="NEW NAME"),                            # 最新→display_name 取此
+        Tweet(tweet_id="n3", text="hi", created_at=day.replace(hour=7), author_username="alice"),  # len 2 被过滤
+    ])
+    from src.data_layer.provider import get_browse_repo
+    authors = await get_browse_repo().get_authors("2026-05-10", tz_offset=0, min_text_length=5)
+    assert len(authors) == 1
+    assert authors[0]["tweet_count"] == 2                                # n3 被 min_len 过滤
+    assert authors[0]["author_display_name"] == "NEW NAME"               # 当日最新(n2),非最早(n1)
+    assert authors[0]["last_tweet_at"] == day.replace(hour=6)            # n3 过滤后最新=n2
+
+
+@pytest.mark.asyncio
+async def test_get_authors_reason_exact_username(monkeypatch, tmp_path):
+    """reason 精确 username 匹配(复刻旧 ScraperFollow.username.in_(usernames));follow 大小写不同
+    →不匹配(故障注入:reason 改 lower 则误匹配返 "大写关注" 翻红)。FileFollowStore 精确 username 保 case。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    day = datetime(2026, 5, 10, 3, 0, tzinfo=timezone.utc)
+    await _seed_file(tmp_path, [_tweet("e1", "alice", day)], follows=[("Alice", "大写关注")])
+    from src.data_layer.provider import get_browse_repo
+    authors = await get_browse_repo().get_authors("2026-05-10", tz_offset=0)
+    assert len(authors) == 1 and authors[0]["author_username"] == "alice"
+    assert authors[0]["reason"] is None   # follow "Alice" ≠ author "alice"(精确匹配,非 lower)
+
+
+@pytest.mark.asyncio
+async def test_get_authors_cross_mode(monkeypatch, tmp_path):
+    """file vs sqlalchemy(SQLite)产同 authors。SQLite 有效 oracle(COUNT/MAX 无 div/cast)。
+    last_tweet_at 按 instant 比(SQLite naive vs file aware),单独钉 file aware "+00:00"。"""
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    day = datetime(2026, 5, 10, 3, 0, tzinfo=timezone.utc)
+    specs = [("x1", "alice", day), ("x2", "alice", day.replace(hour=5)), ("x3", "bob", day.replace(hour=8))]
+    await _seed_file(tmp_path, [_tweet(t, a, c) for (t, a, c) in specs], follows=[("alice", "AI")])
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from src.database.models import Base, ScraperFollow
+    from src.scraper.infrastructure.models import TweetOrm
+    now = datetime.now(timezone.utc)
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    session = async_sessionmaker(engine, expire_on_commit=False)()
+    session.add(ScraperFollow(username="alice", reason="AI", added_by="admin", is_active=True))
+    for (t, a, c) in specs:
+        session.add(TweetOrm(tweet_id=t, text="hello world", created_at=c, db_created_at=now,
+                             author_username=a, author_display_name=f"{a} disp", media=None))
+    await session.commit()
+
+    def _norm_authors(rows):
+        out = []
+        for r in rows:
+            d = dict(r)
+            lt = d["last_tweet_at"]
+            if lt is not None and lt.tzinfo is not None:
+                d["last_tweet_at"] = lt.astimezone(timezone.utc).replace(tzinfo=None)
+            out.append(d)
+        return out
+
+    from src.data_layer.provider import get_browse_repo
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    f_authors = await get_browse_repo().get_authors("2026-05-10", tz_offset=0)
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
+    s_authors = await get_browse_repo(session).get_authors("2026-05-10", tz_offset=0)
+    await session.close(); await engine.dispose()
+    assert _norm_authors(f_authors) == _norm_authors(s_authors), \
+        f"authors 跨模式不等\nfile={f_authors}\nsql={s_authors}"
+    assert [a["author_username"] for a in f_authors] == ["bob", "alice"]
+    assert all(a["last_tweet_at"].tzinfo is not None for a in f_authors)
+    assert f_authors[0]["last_tweet_at"].isoformat().endswith("+00:00")
+
+
+@pytest.mark.asyncio
+async def test_get_authors_empty_day(monkeypatch, tmp_path):
+    """无推文日返回 [](与 get_daily_stats 空月对称)。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    await _seed_file(tmp_path, [_tweet("z1", "alice", datetime(2026, 5, 10, 3, 0, tzinfo=timezone.utc))])
+    from src.data_layer.provider import get_browse_repo
+    authors = await get_browse_repo().get_authors("2026-05-11", tz_offset=0)  # 11 日无推文
+    assert authors == []
+
+
+@pytest.mark.asyncio
+async def test_mcp_get_daily_stats_file_mode(monkeypatch, tmp_path):
+    import json
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    await _seed_file(tmp_path, [
+        _tweet("md1", "alice", datetime(2026, 5, 2, 3, 0, tzinfo=timezone.utc)),
+        _tweet("md2", "bob", datetime(2026, 5, 2, 9, 0, tzinfo=timezone.utc)),
+    ])
+    from mcp.server.fastmcp import FastMCP
+    from src.mcp.tools import browse_tools
+    mcp = FastMCP("test"); browse_tools.register(mcp)
+    fn = mcp._tool_manager._tools["get_daily_stats"].fn
+    data = json.loads(await fn(year=2026, month=5, tz_offset=0))
+    assert data["success"] is True
+    assert data["data"]["daily_stats"] == [{"date": "2026-05-02", "count": 2}]
+
+
+@pytest.mark.asyncio
+async def test_mcp_get_authors_for_date_file_mode(monkeypatch, tmp_path):
+    import json
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    day = datetime(2026, 5, 10, 3, 0, tzinfo=timezone.utc)
+    await _seed_file(tmp_path, [
+        _tweet("ma1", "alice", day), _tweet("ma2", "bob", day.replace(hour=8)),
+    ], follows=[("alice", "AI 研究者")])
+    from mcp.server.fastmcp import FastMCP
+    from src.mcp.tools import browse_tools
+    mcp = FastMCP("test"); browse_tools.register(mcp)
+    fn = mcp._tool_manager._tools["get_authors_for_date"].fn
+    data = json.loads(await fn(date="2026-05-10", tz_offset=0))
+    assert data["success"] is True
+    assert data["data"]["count"] == 2
+    assert [a["author_username"] for a in data["data"]["authors"]] == ["bob", "alice"]
+    alice = next(a for a in data["data"]["authors"] if a["author_username"] == "alice")
+    assert alice["reason"] == "AI 研究者"
+    assert alice["last_tweet_at"].endswith("+00:00")   # MCP isoformat 出 aware,匹配生产 pg

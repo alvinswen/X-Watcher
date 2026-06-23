@@ -122,7 +122,25 @@ def sql_date_with_offset(col, minutes: int, *, bind=None):
 
 
 def get_database_size_mb() -> float | None:
-    """获取当前数据库大小（MB）。SQLite 读文件大小，PostgreSQL 用 pg_database_size()。"""
+    """获取当前数据库大小（MB）。
+
+    file 模式(pg 下线守卫):递归 sum data_root 目录体积,不连 pg。
+    SQLite 读文件大小,PostgreSQL 用 pg_database_size()。
+    """
+    from src.data_layer.provider import data_root, is_file_mode
+
+    if is_file_mode():
+        root = data_root()
+        if not root.exists():
+            return None
+        try:
+            total = sum(
+                p.stat().st_size for p in root.rglob("*") if p.is_file()
+            )
+            return round(total / (1024 * 1024), 2)
+        except OSError:
+            return None
+
     settings = get_settings()
     db_url = settings.database_url
     if is_sqlite():

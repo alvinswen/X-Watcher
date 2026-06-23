@@ -52,6 +52,13 @@ def _update_db_metrics() -> None:
 
 def _start_metrics_collection() -> None:
     """启动数据库指标收集线程。"""
+    from src.data_layer.provider import is_file_mode
+
+    # file 模式(pg 下线守卫):不启动 metrics 线程。
+    # 该线程每 5s 访问 engine.pool,file 模式无 pg engine,启动即持续报错。
+    if is_file_mode():
+        return
+
     from src.config import get_settings
 
     settings = get_settings()

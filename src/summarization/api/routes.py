@@ -7,12 +7,10 @@ import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.async_session import get_async_session_maker, get_db_session
 from src.scraper import TaskRegistry, TaskStatus
-from src.scraper.infrastructure.models import TweetOrm
 from src.summarization.api.schemas import (
     BatchSummaryRequest,
     BatchSummaryResponse,
@@ -25,11 +23,10 @@ from src.summarization.api.schemas import (
     SummaryResetResponse,
     SummaryResponse,
 )
-from src.summarization.infrastructure.models import SummaryOrm
 from src.user.api.auth import get_current_admin_user
 from src.user.domain.models import UserDomain
 from src.summarization.domain.models import PromptConfig
-from src.data_layer.provider import get_summary_repo
+from src.data_layer.provider import get_summary_repo, get_summarization_read_repo
 from src.summarization.llm.config import LLMProviderConfig
 from src.summarization.services.summarization_service import (
     create_summarization_service,
@@ -392,77 +389,6 @@ async def delete_summarization_task(
     )
 
 
-# ========== 辅助查询函数 ==========
-
-
-async def _count_tweets_without_summary(
-    session: AsyncSession,
-    since: datetime | None = None,
-    until: datetime | None = None,
-) -> int:
-    """统计没有摘要的推文数量。"""
-    stmt = (
-        select(func.count(TweetOrm.tweet_id))
-        .outerjoin(SummaryOrm, TweetOrm.tweet_id == SummaryOrm.tweet_id)
-        .where(SummaryOrm.tweet_id.is_(None))
-    )
-    if since is not None:
-        stmt = stmt.where(TweetOrm.created_at >= since)
-    if until is not None:
-        stmt = stmt.where(TweetOrm.created_at < until)
-    result = await session.execute(stmt)
-    return result.scalar() or 0
-
-
-async def _query_tweets_without_summary(
-    session: AsyncSession,
-    since: datetime | None = None,
-    until: datetime | None = None,
-) -> list[str]:
-    """查询没有摘要的推文 ID 列表。"""
-    stmt = (
-        select(TweetOrm.tweet_id)
-        .outerjoin(SummaryOrm, TweetOrm.tweet_id == SummaryOrm.tweet_id)
-        .where(SummaryOrm.tweet_id.is_(None))
-    )
-    if since is not None:
-        stmt = stmt.where(TweetOrm.created_at >= since)
-    if until is not None:
-        stmt = stmt.where(TweetOrm.created_at < until)
-    result = await session.execute(stmt)
-    return [row[0] for row in result.fetchall()]
-
-
-async def _count_tweets_in_range(
-    session: AsyncSession,
-    since: datetime,
-    until: datetime,
-) -> int:
-    """统计时间范围内的推文数量。"""
-    stmt = (
-        select(func.count(TweetOrm.tweet_id))
-        .where(TweetOrm.created_at >= since)
-        .where(TweetOrm.created_at < until)
-    )
-    result = await session.execute(stmt)
-    return result.scalar() or 0
-
-
-async def _query_tweets_in_range(
-    session: AsyncSession,
-    since: datetime,
-    until: datetime,
-) -> list[str]:
-    """查询时间范围内的推文 ID 列表。"""
-    stmt = (
-        select(TweetOrm.tweet_id)
-        .where(TweetOrm.created_at >= since)
-        .where(TweetOrm.created_at < until)
-    )
-    result = await session.execute(stmt)
-    return [row[0] for row in result.fetchall()]
-
-
 # ========== 摘要修复端点 ==========
 
 
@@ -477,7 +403,9 @@ async def preview_backfill(
     _admin: UserDomain = Depends(get_current_admin_user),
 ) -> SummaryPreviewResponse:
     """预览摘要补缺：查询缺少摘要的推文数量。"""
-    count = await _count_tweets_without_summary(session, since, until)
+    count = await get_summarization_read_repo(session).count_unsummarized(
+        since=since, until=until
+    )
     return SummaryPreviewResponse(tweet_count=count)
 
 
@@ -498,8 +426,8 @@ async def start_backfill(
 
     通过集中式摘要队列异步处理，支持优先级和背压。
     """
-    tweet_ids = await _query_tweets_without_summary(
-        session, request.since, request.until
+    tweet_ids = await get_summarization_read_repo(session).list_unsummarized_ids(
+        since=request.since, until=request.until
     )
 
     if not tweet_ids:
@@ -544,7 +472,9 @@ async def preview_reset(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="until 必须晚于 since",
         )
-    count = await _count_tweets_in_range(session, since, until)
+    count = await get_summarization_read_repo(session).count_tweets_in_window(
+        since, until
+    )
     return SummaryPreviewResponse(tweet_count=count)
 
 
@@ -566,8 +496,8 @@ async def start_reset(
 
     通过集中式摘要队列异步处理，支持优先级和背压。
     """
-    tweet_ids = await _query_tweets_in_range(
-        session, request.since, request.until
+    tweet_ids = await get_summarization_read_repo(session).list_tweet_ids_in_window(
+        request.since, request.until
     )
 
     if not tweet_ids:

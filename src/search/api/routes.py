@@ -6,9 +6,9 @@ import math
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.data_layer.provider import get_search_repo
 from src.database.async_session import get_db_session
 from src.search.api.schemas import SearchResponse, SearchTweetItem
-from src.search.services.search_service import SearchService
 from src.user.api.auth import get_current_user
 from src.user.domain.models import UserDomain
 
@@ -79,8 +79,7 @@ async def search_tweets(
         )
 
     try:
-        service = SearchService(session)
-        result = await service.search_tweets(
+        result = await get_search_repo(session).search_tweets(
             q=q,
             page=page,
             page_size=page_size,

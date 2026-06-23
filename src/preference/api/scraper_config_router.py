@@ -5,10 +5,9 @@
 """
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.async_session import get_async_session
@@ -209,8 +208,7 @@ async def get_follows_stats(
     Returns:
         list[FollowStatsResponse]: 各账号的运行时统计
     """
-    from src.data_layer.provider import get_fetch_stats_repo
-    from src.scraper.infrastructure.models import TweetOrm
+    from src.data_layer.provider import get_fetch_stats_repo, get_scraper_stats_repo
     from src.scraper.services.limit_calculator import LimitCalculator
 
     try:
@@ -227,59 +225,13 @@ async def get_follows_stats(
         stats_map = await stats_repo.batch_get_stats(usernames)
         calculator = LimitCalculator()
 
-        # 3. 高效批量查询：用单条 SQL 按 (username, period_bucket) 分组
-        #    再在 Python 中按 username 聚合 max
-        now = datetime.now(timezone.utc)
+        # 3. 各账号近 14 个周期(12h / 24h)的最大新推文数。
+        #    tweet 聚合走 provider:sqlalchemy 路径转调原 (username, period_bucket) 分组 SQL;
+        #    file 路径用 round-half-up 整数分桶复刻生产 PG cast 进位(⚠️ #7 round 陷阱,见门面)。
         num_periods = 14
-
-        async def _batch_max_counts(
-            interval_hours: int,
-        ) -> dict[str, int]:
-            """单条 SQL 查所有用户在指定间隔下的最大周期推文数。"""
-            interval = timedelta(hours=interval_hours)
-            cutoff = now - (num_periods * interval)
-
-            # 一次查出所有用户在 cutoff 之后的推文，按 (username, period_bucket) 分组
-            # period_bucket = floor((now - created_at) / interval)
-            # SQLite 不支持 FLOOR 对 interval，用秒数计算
-            interval_secs = int(interval.total_seconds())
-
-            from sqlalchemy import cast, Integer
-
-            from src.database.dialect import sql_epoch
-
-            now_epoch = int(now.timestamp())
-            bucket_expr = cast(
-                (now_epoch - sql_epoch(TweetOrm.created_at, bind=session)) / interval_secs,
-                Integer,
-            )
-
-            stmt = (
-                select(
-                    func.lower(TweetOrm.author_username).label("username_lower"),
-                    func.count().label("cnt"),
-                )
-                .where(
-                    func.lower(TweetOrm.author_username).in_([u.lower() for u in usernames]),
-                    TweetOrm.created_at >= cutoff,
-                    TweetOrm.created_at < now,
-                )
-                .group_by(func.lower(TweetOrm.author_username), bucket_expr)
-            )
-
-            result = await session.execute(stmt)
-            rows = result.all()
-
-            # 按 username 聚合 max(cnt)
-            max_map: dict[str, int] = {}
-            for username_val, cnt in rows:
-                if username_val not in max_map or cnt > max_map[username_val]:
-                    max_map[username_val] = cnt
-            return max_map
-
-        # 并行查 12h 和 24h（实际是顺序 await，但只有 2 条 SQL）
-        max_12h_map = await _batch_max_counts(12)
-        max_24h_map = await _batch_max_counts(24)
+        scraper_stats = get_scraper_stats_repo(session)
+        max_12h_map = await scraper_stats.max_period_counts(usernames, 12, num_periods)
+        max_24h_map = await scraper_stats.max_period_counts(usernames, 24, num_periods)
 
         # 4. 组装结果
         results = []
@@ -326,7 +278,7 @@ async def get_follows_tweet_time_range(
     Returns:
         list[TweetTimeRangeResponse]: 各账号的推文时间范围
     """
-    from src.scraper.infrastructure.models import TweetOrm
+    from src.data_layer.provider import get_scraper_stats_repo
 
     try:
         # 1. 获取所有活跃账号
@@ -337,22 +289,9 @@ async def get_follows_tweet_time_range(
         if not usernames:
             return []
 
-        # 2. 单条 SQL：按 author_username 分组查 min/max/count
-        #    使用 lower() 进行大小写不敏感匹配，因为 Twitter API 返回的
-        #    用户名大小写可能与 scraper_follows 中配置的不一致
-        lower_usernames = [u.lower() for u in usernames]
-        stmt = (
-            select(
-                func.lower(TweetOrm.author_username).label("username_lower"),
-                func.min(TweetOrm.created_at).label("earliest"),
-                func.max(TweetOrm.created_at).label("latest"),
-                func.count().label("cnt"),
-            )
-            .where(func.lower(TweetOrm.author_username).in_(lower_usernames))
-            .group_by(func.lower(TweetOrm.author_username))
-        )
-        result = await session.execute(stmt)
-        rows = {r[0]: (r[1], r[2], r[3]) for r in result.all()}
+        # 2. 按 author 聚合 min/max/count(走 provider:sqlalchemy 转调原 group_by min/max/count SQL;
+        #    file 组合 FileTweetStore Python 聚合)。大小写不敏感匹配(lower),无 round 陷阱。
+        rows = await get_scraper_stats_repo(session).tweet_time_range(usernames)
 
         # 3. 组装结果（包括无推文的账号），通过 lower() 键匹配
         return [
@@ -972,40 +911,24 @@ async def get_follow_analysis(
         session: 数据库会话
         admin: 管理员用户
     """
-    from src.scraper.infrastructure.models import TweetOrm
+    from src.data_layer.provider import get_scraper_stats_repo
 
     try:
-        now = datetime.now(timezone.utc)
-        interval = timedelta(hours=interval_hours)
+        # 显式窗口逐周期 count 走 provider(sqlalchemy 转调原 per-period count SQL;
+        # file 组合 FileTweetStore Python 计数)。已正序(最早在前),无 round 陷阱。
+        windows = await get_scraper_stats_repo(session).period_analysis(
+            username, interval_hours, periods
+        )
 
-        period_stats = []
-        total = 0
-
-        for i in range(periods):
-            period_end = now - (i * interval)
-            period_start = period_end - interval
-
-            stmt = (
-                select(func.count())
-                .select_from(TweetOrm)
-                .where(
-                    func.lower(TweetOrm.author_username) == username.lower(),
-                    TweetOrm.created_at >= period_start,
-                    TweetOrm.created_at < period_end,
-                )
-            )
-            result = await session.execute(stmt)
-            count = result.scalar() or 0
-
-            period_stats.append(PeriodStats(
+        period_stats = [
+            PeriodStats(
                 period_start=period_start,
                 period_end=period_end,
                 new_tweet_count=count,
-            ))
-            total += count
-
-        # 按时间正序排列（最早的在前）
-        period_stats.reverse()
+            )
+            for (period_start, period_end, count) in windows
+        ]
+        total = sum(count for (_ps, _pe, count) in windows)
 
         return FetchAnalysisResponse(
             username=username,

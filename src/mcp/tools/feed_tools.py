@@ -1,7 +1,7 @@
 """MCP Feed & 搜索工具。
 
-提供 get_feed 和 search_tweets 两个 MCP 工具：get_feed 走 get_feed_repo（feed 读门面，
-按 XWATCHER_DATA_LAYER 切 file/sqlalchemy），search_tweets 映射到 SearchService（deferred 未接文件层）。
+提供 get_feed 和 search_tweets 两个 MCP 工具：均走 provider（get_feed_repo / get_search_repo），
+按 XWATCHER_DATA_LAYER 切 file/sqlalchemy。
 """
 
 import logging
@@ -126,16 +126,15 @@ def register(mcp: FastMCP) -> None:
             return error_response(f"参数解析失败: {e}", "validation")
 
         try:
+            from src.data_layer.provider import get_search_repo
             from src.database.async_session import get_async_session_maker
-            from src.search.services.search_service import SearchService
 
             # 钳制 page_size 到合理范围
             clamped_page_size = min(max(page_size, 1), 100)
 
             session_maker = get_async_session_maker()
             async with session_maker() as session:
-                service = SearchService(session)
-                result = await service.search_tweets(
+                result = await get_search_repo(session).search_tweets(
                     q=q.strip(),
                     page=page,
                     page_size=clamped_page_size,
