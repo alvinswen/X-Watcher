@@ -57,6 +57,13 @@ load_dotenv()
 # 本默认 + 测试后还原)。注:运行全套 file 模式非受支持场景(各测试假设 sqlalchemy ORM patch/种子)。
 os.environ["XWATCHER_DATA_LAYER"] = "sqlalchemy"
 
+# ⚠️ 同时钉 DATABASE_URL=sqlite,防"未被隔离 patch 命中的引擎路径"落到真实 pg。
+# 典型漏点:module/class 作用域的 TestClient fixture 会在 **function 作用域** 的引擎隔离 patch
+# 生效前触发 app lifespan 的 create_all(engine()),该 engine 由 settings.database_url 懒建 →
+# 此前落到真实 pg、把已 DROP 的表重建出来。钉 sqlite 后即便 patch 时序没赶上,也只建到 sqlite。
+os.environ["DATABASE_URL"] = "sqlite:///:memory:"
+clear_settings_cache()  # 让上面的 DATABASE_URL 覆盖对懒建的 get_engine/get_settings 即时生效
+
 
 # 全局同步测试引擎 - 所有通过 get_engine() 获取引擎的代码路径都将被重定向到此处
 _sync_test_engine = create_engine(
