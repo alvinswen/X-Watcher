@@ -9,11 +9,9 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import Select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.async_session import get_db_session
-from src.scraper.infrastructure.models import TweetOrm
 from src.shared.schemas import UTCDatetimeModel
 from src.user.api.auth import get_current_admin_user
 from src.user.domain.models import UserDomain
@@ -74,23 +72,6 @@ def _ensure_utc(dt: datetime) -> datetime:
     return dt
 
 
-def _apply_filters(
-    stmt: Select,
-    *,
-    author: str | None,
-    created_after: datetime | None,
-    created_before: datetime | None,
-) -> Select:
-    """根据非 None 参数条件追加 WHERE 子句。"""
-    if author:
-        stmt = stmt.where(func.lower(TweetOrm.author_username) == author.lower())
-    if created_after is not None:
-        stmt = stmt.where(TweetOrm.created_at >= created_after)
-    if created_before is not None:
-        stmt = stmt.where(TweetOrm.created_at < created_before)
-    return stmt
-
-
 # ========== API 端点 ==========
 
 
@@ -141,65 +122,20 @@ async def list_tweets(
             )
 
     try:
-        # 导入 SQLAlchemy 组件
-        from sqlalchemy import case, func, select
+        # 经数据层 provider 取 tweet 读门面(file/sqlalchemy 切换;pg 下线后 file-safe)
+        from src.data_layer.provider import get_tweet_read_repo
 
-        from src.summarization.infrastructure.models import SummaryOrm
-
-        # 构建 ORM 查询，使用 LEFT JOIN 检查摘要存在性
-        stmt = (
-            select(
-                TweetOrm.tweet_id,
-                TweetOrm.text,
-                TweetOrm.created_at,
-                TweetOrm.author_username,
-                TweetOrm.author_display_name,
-                TweetOrm.referenced_tweet_id,
-                TweetOrm.reference_type,
-                TweetOrm.media,
-                TweetOrm.db_created_at,
-                TweetOrm.db_updated_at,
-                # 使用 CASE 语句检查摘要是否存在
-                case((SummaryOrm.summary_id.isnot(None), True), else_=False).label(
-                    "has_summary"
-                ),
-            )
-            .outerjoin(SummaryOrm, TweetOrm.tweet_id == SummaryOrm.tweet_id)
+        rows, total = await get_tweet_read_repo(session).list_tweets(
+            page=page,
+            page_size=page_size,
+            author=author,
+            created_after=created_after,
+            created_before=created_before,
         )
-
-        # 添加筛选条件
-        stmt = _apply_filters(
-            stmt, author=author, created_after=created_after, created_before=created_before
-        )
-
-        # 计算总数
-        count_stmt = select(func.count()).select_from(TweetOrm)
-        count_stmt = _apply_filters(
-            count_stmt, author=author, created_after=created_after, created_before=created_before
-        )
-
-        count_result = await session.execute(count_stmt)
-        total = count_result.scalar() or 0
-
-        # 添加排序和分页
-        stmt = stmt.order_by(TweetOrm.created_at.desc())
-        stmt = stmt.offset((page - 1) * page_size).limit(page_size)
-
-        # 执行查询
-        result = await session.execute(stmt)
-        rows = result.fetchall()
 
         # 构建响应
         items = []
-        for row in rows:
-            tweet_dict = dict(row._mapping)
-            # 统计媒体数量
-            media = tweet_dict.get("media")
-            media_count = len(media) if media else 0
-
-            # 从查询结果获取 has_summary（EXISTS 子查询的结果）
-            has_summary = bool(tweet_dict.get("has_summary", False))
-
+        for tweet_dict in rows:
             items.append(
                 TweetListItem(
                     tweet_id=tweet_dict["tweet_id"],
@@ -210,8 +146,8 @@ async def list_tweets(
                     db_created_at=tweet_dict["db_created_at"],
                     reference_type=tweet_dict.get("reference_type"),
                     referenced_tweet_id=tweet_dict.get("referenced_tweet_id"),
-                    has_summary=has_summary,
-                    media_count=media_count,
+                    has_summary=bool(tweet_dict.get("has_summary", False)),
+                    media_count=tweet_dict.get("media_count", 0),
                 )
             )
 
@@ -262,43 +198,16 @@ async def get_tweet_detail(
         HTTPException: 404 推文不存在
     """
     try:
-        # 查询推文 - 只选择必要的列
-        from sqlalchemy import select
+        # 经数据层 provider 取 tweet 读门面(file/sqlalchemy 切换;pg 下线后 file-safe)
+        from src.data_layer.provider import get_tweet_read_repo
 
-        stmt = select(
-            TweetOrm.tweet_id,
-            TweetOrm.text,
-            TweetOrm.created_at,
-            TweetOrm.db_created_at,
-            TweetOrm.author_username,
-            TweetOrm.author_display_name,
-            TweetOrm.referenced_tweet_id,
-            TweetOrm.reference_type,
-            TweetOrm.media,
-        ).where(TweetOrm.tweet_id == tweet_id)
+        tweet_dict = await get_tweet_read_repo(session).get_tweet_detail(tweet_id)
 
-        result = await session.execute(stmt)
-        row = result.first()
-
-        if row is None:
+        if tweet_dict is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"推文不存在: {tweet_id}",
             )
-
-        tweet_dict = {
-            "tweet_id": row.tweet_id,
-            "text": row.text,
-            "author_username": row.author_username,
-            "author_display_name": row.author_display_name,
-            "created_at": row.created_at,
-            "db_created_at": row.db_created_at,
-            "reference_type": row.reference_type,
-            "referenced_tweet_id": row.referenced_tweet_id,
-            "media": row.media,
-            "has_summary": False,
-            "media_count": len(row.media) if row.media else 0,
-        }
 
         # 查询摘要信息
         summary = None

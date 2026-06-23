@@ -92,6 +92,23 @@ def get_tweet_repo(session=None):
     return TweetRepository(session)
 
 
+def get_tweet_read_repo(session=None):
+    """返回 tweet 读门面(list_tweets / get_tweet_detail,供 /api/tweets 两端点)。
+
+    file 模式:FileTweetReadStore(_data_root())(组合 FileTweetStore + FileSummaryStore;
+      author 大小写不敏感 / created 窗 [after, before) / has_summary / DESC 分页;
+      ⚠️ db_created_at 降级返 created_at),忽略 session。
+    sqlalchemy 模式:SqlalchemyTweetReadStore(session)(逐字复刻两端点原 SQL,SQL 零变化)。
+    """
+    if _data_layer() == "file":
+        from src.scraper.infrastructure.tweet_read_repository import FileTweetReadStore
+
+        return FileTweetReadStore(_data_root())
+    from src.scraper.infrastructure.tweet_read_repository import SqlalchemyTweetReadStore
+
+    return SqlalchemyTweetReadStore(session)
+
+
 def get_article_repo(session=None):
     """返回 ArticleStore 形态 repo。file:FileArticleStore;sqlalchemy:ArticleRepository(session)。"""
     if _data_layer() == "file":
