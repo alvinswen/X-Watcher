@@ -251,6 +251,22 @@ def get_topic_summary_task_store(session=None):
     return SqlalchemyTopicSummaryTaskStore(session)
 
 
+def get_topic_query_repo(session=None):
+    """返回 topic 跨域读门面(query_tweets:取指定账号在时间窗内的推文 outerjoin 翻译)。
+
+    file 模式:FileTopicQueryStore(_data_root())(组合 FileTweetStore+FileSummaryStore;
+      作者大小写不敏感 + 闭区间时间窗 + outerjoin translation + ASC;created_at 归一 naive-UTC),忽略 session。
+    sqlalchemy 模式:SqlalchemyTopicQueryStore(session)(逐字复刻原内联 outerjoin SQL,SQL 零变化)。
+    """
+    if _data_layer() == "file":
+        from src.topic.infrastructure.topic_query_read_repository import FileTopicQueryStore
+
+        return FileTopicQueryStore(_data_root())
+    from src.topic.infrastructure.topic_query_read_repository import SqlalchemyTopicQueryStore
+
+    return SqlalchemyTopicQueryStore(session)
+
+
 class _FileExportSyncAdapter:
     """file 模式 export 同步门面:asyncio.run 桥 async FileExportStore.export_*,统一返 dict。
 
