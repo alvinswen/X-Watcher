@@ -1,1 +1,39 @@
-/Users/sunxi/development/x-watcher-se/src/preference/infrastructure/follow_store.py
+"""FollowStore 契约(12 方法)+ 异常。两实现共享:oracle(vendored 旧 repo)与文件 candidate。"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Protocol, runtime_checkable
+
+from src.preference.domain.models import ScraperFollow
+
+
+class RepositoryError(Exception):
+    """仓库操作错误。"""
+
+
+class NotFoundError(RepositoryError):
+    """资源未找到。"""
+
+
+class DuplicateError(RepositoryError):
+    """重复记录。"""
+
+
+@runtime_checkable
+class FollowStore(Protocol):
+    async def create_scraper_follow(self, username: str, reason: str, added_by: str) -> ScraperFollow: ...
+    async def get_all_follows(self, include_inactive: bool = False) -> list[ScraperFollow]: ...
+    async def get_active_follows(self) -> list[ScraperFollow]: ...
+    async def get_follow_by_username(self, username: str) -> ScraperFollow | None: ...
+    async def update_scraper_follow(self, username: str, reason: str | None = None,
+                                    is_active: bool | None = None, manual_limit: int | None = None,
+                                    brief_intro: str | None = None) -> ScraperFollow: ...
+    async def deactivate_follow(self, username: str) -> None: ...
+    async def update_platform_user_id(self, username: str, platform_user_id: str) -> None: ...
+    async def update_username(self, old_username: str, new_username: str) -> None: ...
+    async def get_follow_by_platform_user_id(self, platform_user_id: str) -> ScraperFollow | None: ...
+    async def get_pending_backfill_users(self) -> list[ScraperFollow]: ...
+    async def update_backfill_status(self, username: str, status: str,
+                                     completed_at: datetime | None = None) -> None: ...
+    async def is_username_in_follows(self, username: str, active_only: bool = True) -> bool: ...
