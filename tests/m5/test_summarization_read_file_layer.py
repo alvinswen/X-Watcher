@@ -14,7 +14,7 @@
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -412,6 +412,262 @@ async def test_default_mode_zero_change_vs_original_raw_query(tmp_path):
         assert json.loads(adapter_json)["data"]["count"] == 2  # tweet2 被反连接排除
     finally:
         await cleanup()
+
+
+# ---- D-1: id-list 两新方法 file 路径 + 跨模式集合对账 + 故障注入 -----------
+
+
+@pytest.mark.asyncio
+async def test_list_unsummarized_ids_file_path(monkeypatch, tmp_path):
+    """file 路径:list_unsummarized_ids 排除已摘要 + since/until 半开窗(无 author 无 limit)。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path / "filestore"))
+    from src.data_layer.provider import get_summarization_read_repo
+
+    tweets = [
+        _tweet("1", "alice", created=datetime(2050, 1, 1, tzinfo=timezone.utc)),
+        _tweet("2", "alice", created=datetime(2050, 5, 1, tzinfo=timezone.utc)),  # 已摘要
+        _tweet("3", "bob", created=datetime(2050, 3, 1, tzinfo=timezone.utc)),
+        _tweet("4", "bob", created=datetime(2050, 2, 1, tzinfo=timezone.utc)),
+    ]
+    store = get_summarization_read_repo()
+    await store.seed_tweets(tweets)
+    await store.seed_summaries([_summary("s2", "2")])  # tweet2 已摘要 → 反连接排除
+
+    # 无窗:反连接去掉 tweet2 → {1,3,4}(file 端确定性升序)
+    ids = await store.list_unsummarized_ids()
+    assert ids == ["1", "3", "4"]
+
+    # since 半开 [since,):tweet3(3月)恰在端点纳入,tweet4(2月)排除,tweet1(1月)排除
+    ids_since = await store.list_unsummarized_ids(since=datetime(2050, 3, 1, tzinfo=timezone.utc))
+    assert set(ids_since) == {"3"}
+
+    # until 半开 [,until):tweet3(3月)恰在 until 排除 → {1,4}
+    ids_until = await store.list_unsummarized_ids(until=datetime(2050, 3, 1, tzinfo=timezone.utc))
+    assert set(ids_until) == {"1", "4"}
+
+    # count 与 id-list 同谓词:长度一致
+    assert len(ids) == await store.count_unsummarized()
+
+
+@pytest.mark.asyncio
+async def test_list_tweet_ids_in_window_file_path(monkeypatch, tmp_path):
+    """file 路径:list_tweet_ids_in_window 半开 [since,until)(含已摘要,无反连接,无 limit)。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path / "filestore"))
+    from src.data_layer.provider import get_summarization_read_repo
+
+    tweets = [
+        _tweet("1", "alice", created=datetime(2050, 1, 1, tzinfo=timezone.utc)),
+        _tweet("2", "alice", created=datetime(2050, 3, 1, tzinfo=timezone.utc)),  # 已摘要但窗内仍计
+        _tweet("3", "bob", created=datetime(2050, 5, 1, tzinfo=timezone.utc)),
+    ]
+    store = get_summarization_read_repo()
+    await store.seed_tweets(tweets)
+    await store.seed_summaries([_summary("s2", "2")])
+
+    # 半开 [3月, 5月):tweet2(3月)纳入、tweet3(5月)恰在 until 排除、tweet1(1月)排除
+    ids = await store.list_tweet_ids_in_window(
+        datetime(2050, 3, 1, tzinfo=timezone.utc),
+        datetime(2050, 5, 1, tzinfo=timezone.utc),
+    )
+    assert set(ids) == {"2"}  # 含已摘要 tweet2(无反连接)
+
+    # 宽窗覆盖全部 3 条(含已摘要)
+    ids_all = await store.list_tweet_ids_in_window(
+        datetime(2049, 1, 1, tzinfo=timezone.utc),
+        datetime(2051, 1, 1, tzinfo=timezone.utc),
+    )
+    assert set(ids_all) == {"1", "2", "3"}
+    # count 与 id-list 同谓词:长度一致
+    assert len(ids_all) == await store.count_tweets_in_window(
+        datetime(2049, 1, 1, tzinfo=timezone.utc),
+        datetime(2051, 1, 1, tzinfo=timezone.utc),
+    )
+
+
+@pytest.mark.asyncio
+async def test_list_ids_file_vs_sqlalchemy_set_equal(monkeypatch, tmp_path):
+    """跨模式对账:同份 seed 数据,file 与 sqlalchemy 两 store 的 id-list 返回 **集合相等**
+    (路由原 SQL 无 order_by → 无顺序契约,无 limit → 按集合比)。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path / "filestore"))
+    from src.data_layer.provider import get_summarization_read_repo
+
+    tweets = [
+        _tweet("1", "alice", created=datetime(2050, 1, 1, tzinfo=timezone.utc)),
+        _tweet("2", "alice", created=datetime(2050, 5, 1, tzinfo=timezone.utc)),  # 已摘要
+        _tweet("3", "bob", created=datetime(2050, 3, 1, tzinfo=timezone.utc)),
+        _tweet("4", "bob", created=datetime(2050, 2, 1, tzinfo=timezone.utc)),
+    ]
+    summaries = [_summary("s2", "2")]
+
+    file_store = get_summarization_read_repo()
+    await file_store.seed_tweets(tweets)
+    await file_store.seed_summaries(summaries)
+
+    sa_store, session, cleanup = await _make_sqlite_sa_store(tmp_path)
+    try:
+        await _sa_seed_tweets(session, tweets)
+        await _sa_seed_summaries(session, summaries)
+
+        # list_unsummarized_ids:集合相等(无窗 / since / until 三组)
+        assert set(await file_store.list_unsummarized_ids()) == set(
+            await sa_store.list_unsummarized_ids()
+        )
+        win = dict(since=datetime(2050, 2, 1, tzinfo=timezone.utc))
+        assert set(await file_store.list_unsummarized_ids(**win)) == set(
+            await sa_store.list_unsummarized_ids(**win)
+        )
+        win2 = dict(until=datetime(2050, 3, 1, tzinfo=timezone.utc))
+        assert set(await file_store.list_unsummarized_ids(**win2)) == set(
+            await sa_store.list_unsummarized_ids(**win2)
+        )
+
+        # list_tweet_ids_in_window:集合相等(半开窗)
+        s = datetime(2050, 2, 1, tzinfo=timezone.utc)
+        u = datetime(2050, 5, 1, tzinfo=timezone.utc)
+        assert set(await file_store.list_tweet_ids_in_window(s, u)) == set(
+            await sa_store.list_tweet_ids_in_window(s, u)
+        )
+        # 实证非空(防 empty-vs-empty 假绿):窗 [2月,5月) 含 tweet4(2月)/tweet3(3月);
+        # tweet2(5月=until 端点)被半开窗排除,tweet1(1月)在窗前排除
+        assert set(await file_store.list_tweet_ids_in_window(s, u)) == {"3", "4"}
+    finally:
+        await cleanup()
+
+
+@pytest.mark.asyncio
+async def test_list_ids_fault_injection_closed_window_caught(monkeypatch, tmp_path):
+    """故障注入:把 list_tweet_ids_in_window 的半开 until< 改成闭区间 until<= 会让
+    端点边界 tweet 被错误纳入,跨模式集合对账翻红 —— 证测试有牙(此处用 monkeypatch 注入缺陷版)。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path / "filestore"))
+    from src.data_layer.provider import get_summarization_read_repo
+    from src.summarization.infrastructure import file_summarization_read_repository as mod
+
+    tweets = [
+        _tweet("1", "alice", created=datetime(2050, 1, 1, tzinfo=timezone.utc)),
+        _tweet("2", "bob", created=datetime(2050, 5, 1, tzinfo=timezone.utc)),  # 恰在 until 边界
+    ]
+    file_store = get_summarization_read_repo()
+    await file_store.seed_tweets(tweets)
+
+    sa_store, session, cleanup = await _make_sqlite_sa_store(tmp_path)
+    try:
+        await _sa_seed_tweets(session, tweets)
+        s = datetime(2050, 1, 1, tzinfo=timezone.utc)
+        u = datetime(2050, 5, 1, tzinfo=timezone.utc)
+
+        # 正确半开:tweet2(=until)排除 → 两侧 {1} 相等(基线绿)
+        assert set(await file_store.list_tweet_ids_in_window(s, u)) == set(
+            await sa_store.list_tweet_ids_in_window(s, u)
+        ) == {"1"}
+
+        # 注入缺陷:把 file 端窗写成闭区间(ts > hi 才排除),边界 tweet2 被误纳入
+        async def _buggy_list_in_window(self, since, until):
+            lo = mod._as_utc(since)
+            hi = mod._as_utc(until)
+            kept = []
+            for t in await self._tweets.get_all_tweets():
+                ts = mod._as_utc(t.created_at) if t.created_at else None
+                if ts is None or ts < lo or ts > hi:  # BUG: > 而非 >=(闭区间)
+                    continue
+                kept.append(t.tweet_id)
+            return sorted(kept)
+
+        monkeypatch.setattr(mod.FileSummarizationReadStore, "list_tweet_ids_in_window", _buggy_list_in_window)
+        buggy = set(await file_store.list_tweet_ids_in_window(s, u))
+        # 缺陷版多纳入边界 tweet2 → 与 sqlalchemy 集合不再相等(测试翻红判据)
+        assert buggy == {"1", "2"}
+        assert buggy != set(await sa_store.list_tweet_ids_in_window(s, u))
+    finally:
+        await cleanup()
+
+
+@pytest.mark.asyncio
+async def test_repair_endpoints_file_mode_no_crash(monkeypatch, tmp_path):
+    """4 admin 端点 file 模式可跑(DROP 后不裸查 ORM、不崩):用 ASGI client + 文件层 seed,
+    覆盖 preview_backfill / start_backfill / preview_reset / start_reset。"""
+    from unittest.mock import AsyncMock, Mock, patch
+
+    from httpx import ASGITransport, AsyncClient
+
+    from src.database.async_session import get_db_session
+    from src.main import app
+    from src.scraper import TaskRegistry
+    from src.user.api.auth import get_current_admin_user
+    from src.user.domain.models import BOOTSTRAP_ADMIN
+
+    TaskRegistry.get_instance().clear_all()
+
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path / "filestore"))
+    from src.data_layer.provider import get_summarization_read_repo
+
+    # 文件层 seed:t4/t5 无摘要;t1-t3 有摘要(同 sqlalchemy 端点测试的数据形状)
+    now = datetime.now(timezone.utc)
+    tweets = [
+        _tweet(f"t{i}", "testuser", created=now - timedelta(hours=i)) for i in range(1, 6)
+    ]
+    store = get_summarization_read_repo()
+    await store.seed_tweets(tweets)
+    await store.seed_summaries([_summary(f"s{i}", f"t{i}") for i in range(1, 4)])
+
+    # file 模式 session 被门面忽略,但端点签名仍 Depends(get_db_session) → 给个哑 override
+    async def _dummy_session():
+        yield None
+
+    async def _admin():
+        return BOOTSTRAP_ADMIN
+
+    app.dependency_overrides[get_db_session] = _dummy_session
+    app.dependency_overrides[get_current_admin_user] = _admin
+
+    mock_queue = Mock()
+    mock_queue.enqueue = AsyncMock(return_value="file-mode-task")
+    try:
+        with patch(
+            "src.summarization.services.summarization_queue.SummarizationQueue.get_instance",
+            return_value=mock_queue,
+        ):
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as ac:
+                # preview_backfill:无窗 → t4/t5 无摘要 = 2
+                r = await ac.get("/api/summaries/backfill/preview")
+                assert r.status_code == 200
+                assert r.json()["tweet_count"] == 2
+
+                # start_backfill:同上 → 202 + 2 条
+                r = await ac.post("/api/summaries/backfill", json={})
+                assert r.status_code == 202
+                assert r.json()["tweet_count"] == 2
+
+                # preview_reset:宽窗覆盖全 5 条
+                r = await ac.get(
+                    "/api/summaries/reset/preview",
+                    params={
+                        "since": (now - timedelta(hours=6)).isoformat(),
+                        "until": (now + timedelta(hours=1)).isoformat(),
+                    },
+                )
+                assert r.status_code == 200
+                assert r.json()["tweet_count"] == 5
+
+                # start_reset:宽窗 → 202 + 5 条
+                r = await ac.post(
+                    "/api/summaries/reset",
+                    json={
+                        "since": (now - timedelta(hours=6)).isoformat(),
+                        "until": (now + timedelta(hours=1)).isoformat(),
+                    },
+                )
+                assert r.status_code == 202
+                assert r.json()["tweet_count"] == 5
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+        app.dependency_overrides.pop(get_current_admin_user, None)
+        TaskRegistry.get_instance().clear_all()
 
 
 @pytest.mark.asyncio

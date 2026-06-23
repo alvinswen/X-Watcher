@@ -87,6 +87,31 @@ class SqlalchemySummarizationReadStore:
         )
         return (await self._session.execute(stmt)).scalar() or 0
 
+    async def list_unsummarized_ids(self, since=None, until=None):
+        # 逐字复刻路由原 _query_tweets_without_summary(反连接 SummaryOrm.tweet_id.is_(None)、
+        # since>= / until<,无 limit、无 order_by)。
+        stmt = (
+            select(TweetOrm.tweet_id)
+            .outerjoin(SummaryOrm, TweetOrm.tweet_id == SummaryOrm.tweet_id)
+            .where(SummaryOrm.tweet_id.is_(None))
+        )
+        if since is not None:
+            stmt = stmt.where(TweetOrm.created_at >= since)
+        if until is not None:
+            stmt = stmt.where(TweetOrm.created_at < until)
+        rows = (await self._session.execute(stmt)).fetchall()
+        return [row[0] for row in rows]
+
+    async def list_tweet_ids_in_window(self, since, until):
+        # 逐字复刻路由原 _query_tweets_in_range(半开 since>= / until<,无 limit、无 order_by)。
+        stmt = (
+            select(TweetOrm.tweet_id)
+            .where(TweetOrm.created_at >= since)
+            .where(TweetOrm.created_at < until)
+        )
+        rows = (await self._session.execute(stmt)).fetchall()
+        return [row[0] for row in rows]
+
     async def get_tweet_origins(self, tweet_ids):
         if not tweet_ids:
             return {}
