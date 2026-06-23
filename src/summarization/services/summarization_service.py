@@ -220,40 +220,30 @@ class SummarizationService:
         tweet_ids: list[str],
         session: AsyncSession | None = None,
     ) -> dict[str, dict[str, str | None]]:
-        """从数据库加载推文文本和元数据。
+        """从数据层加载推文文本和元数据(经 provider 门面,消除直查 ORM)。
+
+        委派 get_summarization_read_repo().get_tweet_origins(tweet_ids),返回每条 6 字段
+        dict(text/referenced_tweet_text/reference_type/referenced_tweet_id/author_username/
+        referenced_tweet_author_username),reference_type 为字符串,与原内联查询同形。
+
+        - file 模式:走文件层门面(忽略 session)。
+        - sqlalchemy 模式:保留 session=None 回退语义(不提供时创建临时 session)。
 
         Args:
             tweet_ids: 推文 ID 列表
-            session: 可选的已有 session（不提供时创建临时 session）
+            session: 可选的已有 session（不提供时创建临时 session；file 模式忽略）
 
         Returns:
             推文 ID 到 {"text": ..., "reference_type": ..., ...} 的映射字典
         """
-        from sqlalchemy import select
-        from src.scraper.infrastructure.models import TweetOrm
+        from src.data_layer.provider import get_summarization_read_repo, is_file_mode
 
-        async def _do_load(sess: AsyncSession) -> dict[str, dict[str, str | None]]:
-            stmt = select(TweetOrm).where(TweetOrm.tweet_id.in_(tweet_ids))
-            result = await sess.execute(stmt)
-            orm_tweets = result.scalars().all()
-
-            return {
-                tweet.tweet_id: {
-                    "text": tweet.text,
-                    "reference_type": tweet.reference_type,
-                    "referenced_tweet_id": tweet.referenced_tweet_id,
-                    "referenced_tweet_text": tweet.referenced_tweet_text,
-                    "author_username": tweet.author_username,
-                    "referenced_tweet_author_username": tweet.referenced_tweet_author_username,
-                }
-                for tweet in orm_tweets
-            }
-
+        if is_file_mode():
+            return await get_summarization_read_repo().get_tweet_origins(tweet_ids)
         if session is not None:
-            return await _do_load(session)
-        else:
-            async with self._session_factory() as new_session:
-                return await _do_load(new_session)
+            return await get_summarization_read_repo(session).get_tweet_origins(tweet_ids)
+        async with self._session_factory() as new_session:
+            return await get_summarization_read_repo(new_session).get_tweet_origins(tweet_ids)
 
     async def _process_independent_tweets_concurrent(
         self,

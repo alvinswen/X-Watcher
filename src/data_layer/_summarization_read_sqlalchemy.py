@@ -97,6 +97,9 @@ class SqlalchemySummarizationReadStore:
                     TweetOrm.text,
                     TweetOrm.referenced_tweet_text,
                     TweetOrm.reference_type,
+                    TweetOrm.referenced_tweet_id,
+                    TweetOrm.author_username,
+                    TweetOrm.referenced_tweet_author_username,
                 ).where(TweetOrm.tweet_id.in_(tweet_ids))
             )
         ).fetchall()
@@ -105,6 +108,9 @@ class SqlalchemySummarizationReadStore:
                 "text": r._mapping["text"],
                 "referenced_tweet_text": r._mapping["referenced_tweet_text"],
                 "reference_type": r._mapping["reference_type"],
+                "referenced_tweet_id": r._mapping["referenced_tweet_id"],
+                "author_username": r._mapping["author_username"],
+                "referenced_tweet_author_username": r._mapping["referenced_tweet_author_username"],
             }
             for r in rows
         }

@@ -167,6 +167,99 @@ async def test_unsummarized_file_vs_sqlalchemy_controlled(monkeypatch, tmp_path)
         await cleanup()
 
 
+# ---- read path ② get_tweet_origins: 6 字段(CR-023)file vs sqlalchemy(controlled) -
+
+@pytest.mark.asyncio
+async def test_origins_six_fields_file_vs_sqlalchemy_controlled(monkeypatch, tmp_path):
+    """同一 seed 数据,file 与 sqlalchemy 两实现的 get_tweet_origins 返回 6 字段 dict 逐字一致
+    (CR-023:text/referenced_tweet_text/reference_type/referenced_tweet_id/author_username/
+    referenced_tweet_author_username),reference_type 为字符串。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path / "filestore"))
+    from src.data_layer.provider import get_summarization_read_repo
+
+    tweets = [
+        # 转推:6 字段全非空,reference_type=retweeted
+        _tweet("1", "bob", text="t1", reference_type=ReferenceType.retweeted,
+               referenced_tweet_text="orig", referenced_tweet_id="999",
+               referenced_tweet_author_username="orig_a"),
+        # 原创:referenced_* 为 None,reference_type None,author_username 仍带出
+        _tweet("2", "alice", text="t2"),
+    ]
+
+    # file 侧
+    file_store = get_summarization_read_repo()
+    await file_store.seed_tweets(tweets)
+    file_origins = await file_store.get_tweet_origins(["1", "2", "404"])
+
+    # sqlalchemy 侧(temp sqlite)
+    sa_store, session, cleanup = await _make_sqlite_sa_store(tmp_path)
+    try:
+        await _sa_seed_tweets(session, tweets)
+        sa_origins = await sa_store.get_tweet_origins(["1", "2", "404"])
+
+        # 缺失 id(404)不在 map;两侧逐字一致
+        assert set(file_origins) == {"1", "2"}
+        assert file_origins == sa_origins
+
+        # 转推条 6 字段全保真
+        assert file_origins["1"] == {
+            "text": "t1",
+            "referenced_tweet_text": "orig",
+            "reference_type": "retweeted",
+            "referenced_tweet_id": "999",
+            "author_username": "bob",
+            "referenced_tweet_author_username": "orig_a",
+        }
+        # 原创条:新增 3 字段中 author_username 带出、其余 None
+        assert file_origins["2"] == {
+            "text": "t2",
+            "referenced_tweet_text": None,
+            "reference_type": None,
+            "referenced_tweet_id": None,
+            "author_username": "alice",
+            "referenced_tweet_author_username": None,
+        }
+    finally:
+        await cleanup()
+
+
+@pytest.mark.asyncio
+async def test_load_tweets_file_mode_returns_six_fields(monkeypatch, tmp_path):
+    """接线后:file 模式下 SummarizationService._load_tweets 经 provider 门面返回 6 字段 dict,
+    与 _process_single_tweet 消费方(text/reference_type/referenced_tweet_id/referenced_tweet_text/
+    author_username/referenced_tweet_author_username)对齐 → file 模式可跑、6 字段齐全。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path / "filestore"))
+
+    # 先经文件层 store 播种一条转推
+    from src.data_layer.provider import get_summarization_read_repo
+
+    seeder = get_summarization_read_repo()
+    await seeder.seed_tweets([
+        _tweet("t1", "bob", text="hello", reference_type=ReferenceType.retweeted,
+               referenced_tweet_text="orig", referenced_tweet_id="rt999",
+               referenced_tweet_author_username="orig_a"),
+    ])
+
+    # 构造 SummarizationService(_load_tweets 在 file 模式忽略 session/session_factory)
+    from src.summarization.services.summarization_service import SummarizationService
+
+    service = SummarizationService(session_factory=None, providers=[])  # type: ignore[arg-type]
+    out = await service._load_tweets(["t1"])
+
+    assert set(out) == {"t1"}
+    # 消费方(_process_single_tweet 约 405-470)用到的 6 键全部存在且正确
+    assert out["t1"] == {
+        "text": "hello",
+        "referenced_tweet_text": "orig",
+        "reference_type": "retweeted",          # 字符串,_determine_tweet_type 比较 == "retweeted"
+        "referenced_tweet_id": "rt999",
+        "author_username": "bob",
+        "referenced_tweet_author_username": "orig_a",
+    }
+
+
 # ---- read path ② get_tweet_origins: file(data_migrated) vs sqlalchemy(pg) -
 
 _DATA_MIGRATED = Path(__file__).resolve().parents[2] / "data_migrated"
