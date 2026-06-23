@@ -14,7 +14,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_settings
 from src.database.models import ScraperFollow
-from src.main import get_server_start_time
 from src.scheduler_accessor import get_scheduler
 from src.scraper.infrastructure.models import TweetOrm
 from src.shared.schemas import UTCDatetimeModel
@@ -258,6 +257,14 @@ def _get_scheduler_stats() -> SchedulerStats:
         next_run_time=next_run_time,
         interval_seconds=interval_seconds,
     )
+
+
+def get_server_start_time():
+    """惰性委派 src.main，避免 status↔main 模块级循环（python -m src.main 双载触发）；
+    保留为本模块级属性，以兼容测试对 src.api.routes.status.get_server_start_time 的 patch。"""
+    from src.main import get_server_start_time as _impl
+
+    return _impl()
 
 
 def _get_system_stats() -> SystemStats:

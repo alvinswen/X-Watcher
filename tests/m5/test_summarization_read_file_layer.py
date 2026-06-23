@@ -266,9 +266,11 @@ _DATA_MIGRATED = Path(__file__).resolve().parents[2] / "data_migrated"
 
 
 async def _pg_available_async():
-    """真实 pg 可达 + data_migrated 存在 → 跑真实 apples-to-apples,否则 skip。
+    """真实 pg 可达 + tweets 表有数据 + data_migrated 存在 → 跑真实 apples-to-apples,否则 skip。
 
     在测试 loop 内 inline ping(不用 asyncio.run,避开 running-loop 冲突)。
+    取 tweets 一行(非仅 SELECT 1):pg 下线 DROP 后 server 仍连得上、且测试套件 create_all 可能
+    重建空表,二者都须 skip——故以"是否真有数据行"为准,而非表是否存在。
     """
     if not _DATA_MIGRATED.exists():
         return False
@@ -280,9 +282,9 @@ async def _pg_available_async():
         reset_async_engine()
         sm = get_async_session_maker()
         async with sm() as s:
-            await s.execute(text("SELECT 1"))
+            row = (await s.execute(text("SELECT 1 FROM tweets LIMIT 1"))).first()
         reset_async_engine()
-        return True
+        return row is not None
     except Exception:
         return False
 
