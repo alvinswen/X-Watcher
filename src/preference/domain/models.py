@@ -11,29 +11,6 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 
-class ScraperScheduleConfig(BaseModel):
-    """调度配置领域模型。"""
-
-    id: int
-    interval_seconds: int
-    next_run_time: datetime | None
-    is_enabled: bool
-    updated_at: datetime
-    updated_by: str
-
-    @classmethod
-    def from_orm(cls, orm_obj) -> "ScraperScheduleConfig":
-        """从 ORM 模型转换为领域模型。"""
-        return cls(
-            id=orm_obj.id,
-            interval_seconds=orm_obj.interval_seconds,
-            next_run_time=orm_obj.next_run_time,
-            is_enabled=orm_obj.is_enabled,
-            updated_at=orm_obj.updated_at,
-            updated_by=orm_obj.updated_by,
-        )
-
-
 class ScraperFollow(BaseModel):
     """抓取账号领域模型。
 
@@ -49,11 +26,13 @@ class ScraperFollow(BaseModel):
     manual_limit: int | None = Field(None, description="手动推文数量限制")
     platform_user_id: str | None = Field(None, description="X 平台永久 user_id")
     brief_intro: str | None = Field(None, description="极简介绍（≤10汉字）")
-    backfill_status: str = Field("pending", description="回溯状态: pending/running/completed/skipped")
+    backfill_status: str = Field(
+        "pending", description="回溯状态: pending/running/completed/skipped"
+    )
     backfill_completed_at: datetime | None = Field(None, description="回溯完成时间")
 
     @classmethod
-    def from_orm(cls, orm_obj: ScraperFollowORM) -> ScraperFollow:
+    def from_orm(cls, orm_obj) -> "ScraperFollow":
         """从 ORM 模型转换为领域模型。
 
         Args:

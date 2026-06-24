@@ -1,19 +1,16 @@
 """MCP Admin 管理工具。
 
-提供 manage_follows、trigger_scrape、get_task_status、manage_scheduler、
+提供 manage_follows、trigger_scrape、trigger_backfill、get_task_status、
 batch_summarize、get_follow_accounts_info 六个 Admin 级工具。
 """
 
-import asyncio
 import logging
-from datetime import datetime, timezone
 
 from mcp.server.fastmcp import FastMCP
 
 from src.mcp.auth import require_admin
 from src.mcp.helpers import (
     error_response,
-    parse_datetime,
     parse_datetime_optional,
     resolve_user_list,
     success_response,
@@ -76,25 +73,25 @@ def register(mcp: FastMCP) -> None:
                 service = ScraperConfigService(repo)
 
                 if action == "list":
-                    follows = await service.get_all_follows(
-                        include_inactive=include_inactive
+                    follows = await service.get_all_follows(include_inactive=include_inactive)
+                    return success_response(
+                        {
+                            "follows": [
+                                {
+                                    "username": f.username,
+                                    "reason": f.reason,
+                                    "is_active": f.is_active,
+                                    "added_at": f.added_at,
+                                    "added_by": f.added_by,
+                                    "manual_limit": f.manual_limit,
+                                    "brief_intro": f.brief_intro,
+                                    "backfill_status": f.backfill_status,
+                                }
+                                for f in follows
+                            ],
+                            "count": len(follows),
+                        }
                     )
-                    return success_response({
-                        "follows": [
-                            {
-                                "username": f.username,
-                                "reason": f.reason,
-                                "is_active": f.is_active,
-                                "added_at": f.added_at,
-                                "added_by": f.added_by,
-                                "manual_limit": f.manual_limit,
-                                "brief_intro": f.brief_intro,
-                                "backfill_status": f.backfill_status,
-                            }
-                            for f in follows
-                        ],
-                        "count": len(follows),
-                    })
 
                 elif action == "add":
                     if not username:
@@ -106,22 +103,28 @@ def register(mcp: FastMCP) -> None:
                     )
                     await session.commit()
                     audit_log("manage_follows", "add", params={"username": username})
-                    return success_response({
-                        "action": "added",
-                        "username": follow.username,
-                    })
+                    return success_response(
+                        {
+                            "action": "added",
+                            "username": follow.username,
+                        }
+                    )
 
                 elif action == "update":
                     if not username:
                         return error_response("更新时 username 必填", "validation")
                     # 记录变更前状态
                     old_follow = await repo.get_follow_by_username(username)
-                    old_values = {
-                        "reason": old_follow.reason,
-                        "is_active": old_follow.is_active,
-                        "manual_limit": old_follow.manual_limit,
-                        "brief_intro": old_follow.brief_intro,
-                    } if old_follow else None
+                    old_values = (
+                        {
+                            "reason": old_follow.reason,
+                            "is_active": old_follow.is_active,
+                            "manual_limit": old_follow.manual_limit,
+                            "brief_intro": old_follow.brief_intro,
+                        }
+                        if old_follow
+                        else None
+                    )
 
                     follow = await service.update_follow(
                         username=username,
@@ -131,15 +134,26 @@ def register(mcp: FastMCP) -> None:
                         brief_intro=brief_intro,
                     )
                     await session.commit()
-                    audit_log("manage_follows", "update", params={
-                        "username": username,
-                        "old": old_values,
-                        "new": {"reason": reason, "is_active": is_active, "manual_limit": manual_limit, "brief_intro": brief_intro},
-                    })
-                    return success_response({
-                        "action": "updated",
-                        "username": follow.username,
-                    })
+                    audit_log(
+                        "manage_follows",
+                        "update",
+                        params={
+                            "username": username,
+                            "old": old_values,
+                            "new": {
+                                "reason": reason,
+                                "is_active": is_active,
+                                "manual_limit": manual_limit,
+                                "brief_intro": brief_intro,
+                            },
+                        },
+                    )
+                    return success_response(
+                        {
+                            "action": "updated",
+                            "username": follow.username,
+                        }
+                    )
 
                 elif action == "deactivate":
                     if not username:
@@ -150,14 +164,20 @@ def register(mcp: FastMCP) -> None:
 
                     await service.deactivate_follow(username=username)
                     await session.commit()
-                    audit_log("manage_follows", "deactivate", params={
-                        "username": username,
-                        "old": {"is_active": old_active},
-                    })
-                    return success_response({
-                        "action": "deactivated",
-                        "username": username,
-                    })
+                    audit_log(
+                        "manage_follows",
+                        "deactivate",
+                        params={
+                            "username": username,
+                            "old": {"is_active": old_active},
+                        },
+                    )
+                    return success_response(
+                        {
+                            "action": "deactivated",
+                            "username": username,
+                        }
+                    )
 
         except Exception as e:
             audit_log("manage_follows", action, result="failure", error=str(e))
@@ -213,15 +233,29 @@ def register(mcp: FastMCP) -> None:
                 limit=limit,
             )
 
-            audit_log("trigger_scrape", "scrape", params={"usernames": user_list, "limit": limit, "skip_summarization": skip_summarization})
-            msg = "抓取任务已完成（摘要生成已跳过，等待外部翻译）" if skip_summarization else "抓取任务已完成（含摘要生成）"
-            return success_response({
-                "task_id": task_id,
-                "usernames": user_list,
-                "limit": limit,
-                "skip_summarization": skip_summarization,
-                "message": msg,
-            })
+            audit_log(
+                "trigger_scrape",
+                "scrape",
+                params={
+                    "usernames": user_list,
+                    "limit": limit,
+                    "skip_summarization": skip_summarization,
+                },
+            )
+            msg = (
+                "抓取任务已完成（摘要生成已跳过，等待外部翻译）"
+                if skip_summarization
+                else "抓取任务已完成（含摘要生成）"
+            )
+            return success_response(
+                {
+                    "task_id": task_id,
+                    "usernames": user_list,
+                    "limit": limit,
+                    "skip_summarization": skip_summarization,
+                    "message": msg,
+                }
+            )
         except Exception as e:
             audit_log("trigger_scrape", "scrape", result="failure", error=str(e))
             logger.error("trigger_scrape 失败: %s", e, exc_info=True)
@@ -272,18 +306,21 @@ def register(mcp: FastMCP) -> None:
                 total_fetched += r["fetched"]
 
             audit_log(
-                "trigger_backfill", "scrape",
+                "trigger_backfill",
+                "scrape",
                 params={"usernames": user_list, "max_pages": max_pages, "min_pages": min_pages},
             )
-            return success_response({
-                "usernames": user_list,
-                "count": len(user_list),
-                "max_pages": max_pages,
-                "total_fetched": total_fetched,
-                "total_new": total_new,
-                "results": results,
-                "message": f"回溯完成：{len(user_list)} 个账号，新增 {total_new} 条推文",
-            })
+            return success_response(
+                {
+                    "usernames": user_list,
+                    "count": len(user_list),
+                    "max_pages": max_pages,
+                    "total_fetched": total_fetched,
+                    "total_new": total_new,
+                    "results": results,
+                    "message": f"回溯完成：{len(user_list)} 个账号，新增 {total_new} 条推文",
+                }
+            )
         except Exception as e:
             audit_log("trigger_backfill", "scrape", result="failure", error=str(e))
             logger.error("trigger_backfill 失败: %s", e, exc_info=True)
@@ -306,122 +343,11 @@ def register(mcp: FastMCP) -> None:
             registry = TaskRegistry.get_instance()
             status = registry.get_task_status(task_id)
             if status is None:
-                return error_response(
-                    f"任务 {task_id} 不存在", "not_found"
-                )
+                return error_response(f"任务 {task_id} 不存在", "not_found")
             return success_response(status)
         except Exception as e:
             logger.error("get_task_status 失败: %s", e, exc_info=True)
             return error_response(f"查询失败: {e}")
-
-    @mcp.tool()
-    async def manage_scheduler(
-        action: str,
-        interval_seconds: int | None = None,
-    ) -> str:
-        """调度器控制（status/update_interval/enable/disable）。需要管理员权限。
-
-        注意：MCP 进程不运行调度器，此工具仅修改数据库中的调度配置。
-        实际调度器在 FastAPI 服务进程中运行，配置更改会在下次调度循环时生效。
-
-        Args:
-            action: 操作类型，可选 "status"、"update_interval"、"enable"、"disable"
-            interval_seconds: 新的调度间隔（秒），仅 update_interval 时需要
-        """
-        perm_err = require_admin()
-        if perm_err:
-            return perm_err
-
-        if action not in ("status", "update_interval", "enable", "disable"):
-            return error_response(
-                f"无效的 action: {action}，可选值: status, update_interval, enable, disable",
-                "validation",
-            )
-
-        from src.mcp.security import audit_log, check_action_guard
-
-        guard_err = check_action_guard("manage_scheduler", action)
-        if guard_err:
-            return guard_err
-
-        try:
-            from src.preference.services.schedule_service import (
-                ScraperScheduleService,
-            )
-
-            service = ScraperScheduleService()
-
-            if action == "status":
-                config = await service.get_schedule_config()
-
-                # 查询最近执行记录
-                last_execution = None
-                try:
-                    from src.database.async_session import get_async_session_maker
-                    from src.data_layer.provider import get_scheduler_log_repo
-
-                    session_maker = get_async_session_maker()
-                    async with session_maker() as session:
-                        repo = get_scheduler_log_repo(session)
-                        logs = await repo.get_recent_logs(limit=1)
-                        if logs:
-                            log = logs[0]
-                            last_execution = {
-                                "executed_at": log.executed_at,
-                                "event_type": log.event_type.value,
-                                "duration_seconds": log.duration_seconds,
-                            }
-                except Exception:
-                    pass
-
-                return success_response({
-                    "action": "status",
-                    "config": {
-                        "interval_seconds": config.interval_seconds,
-                        "is_enabled": config.is_enabled,
-                        "next_run_time": config.next_run_time,
-                        "updated_at": config.updated_at,
-                        "updated_by": config.updated_by,
-                    },
-                    "last_execution": last_execution,
-                    "note": "调度器在 FastAPI 服务中运行，MCP 仅显示/修改配置",
-                })
-
-            elif action == "update_interval":
-                if interval_seconds is None or interval_seconds < 60:
-                    return error_response(
-                        "interval_seconds 必填且不能小于 60 秒", "validation"
-                    )
-                config = await service.update_interval(
-                    interval_seconds=interval_seconds, updated_by="mcp_admin"
-                )
-                audit_log("manage_scheduler", "update_interval", params={"interval_seconds": interval_seconds})
-                return success_response({
-                    "action": "interval_updated",
-                    "interval_seconds": config.interval_seconds,
-                })
-
-            elif action == "enable":
-                config = await service.enable_schedule(updated_by="mcp_admin")
-                audit_log("manage_scheduler", "enable")
-                return success_response({
-                    "action": "enabled",
-                    "is_enabled": config.is_enabled,
-                })
-
-            elif action == "disable":
-                config = await service.disable_schedule(updated_by="mcp_admin")
-                audit_log("manage_scheduler", "disable")
-                return success_response({
-                    "action": "disabled",
-                    "is_enabled": config.is_enabled,
-                })
-
-        except Exception as e:
-            if action != "status":
-                audit_log("manage_scheduler", action, result="failure", error=str(e))
-            logger.error("manage_scheduler 失败: %s", e, exc_info=True)
-            return error_response(f"操作失败: {e}")
 
     @mcp.tool()
     async def batch_summarize(
@@ -469,13 +395,13 @@ def register(mcp: FastMCP) -> None:
                 # 反连接 count 走 summarization 读门面(file 模式忽略 session)
                 async with session_maker() as session:
                     read_repo = get_summarization_read_repo(session)
-                    count = await read_repo.count_unsummarized(
-                        since=since_dt, until=until_dt
-                    )
-                return success_response({
-                    "action": "preview",
-                    "pending_count": count,
-                })
+                    count = await read_repo.count_unsummarized(since=since_dt, until=until_dt)
+                return success_response(
+                    {
+                        "action": "preview",
+                        "pending_count": count,
+                    }
+                )
 
             elif action == "backfill":
                 # 启动后台 backfill 任务
@@ -496,11 +422,13 @@ def register(mcp: FastMCP) -> None:
                     tweet_ids = [r["tweet_id"] for r in rows]
 
                 if not tweet_ids:
-                    return success_response({
-                        "action": "backfill",
-                        "message": "没有待摘要的推文",
-                        "count": 0,
-                    })
+                    return success_response(
+                        {
+                            "action": "backfill",
+                            "message": "没有待摘要的推文",
+                            "count": 0,
+                        }
+                    )
 
                 # 入队（队列在 FastAPI 进程中运行，MCP 需要自行启动）
                 task_id = await queue.enqueue(
@@ -510,34 +438,38 @@ def register(mcp: FastMCP) -> None:
                 )
 
                 audit_log("batch_summarize", "backfill", params={"tweet_count": len(tweet_ids)})
-                return success_response({
-                    "action": "backfill",
-                    "task_id": task_id,
-                    "tweet_count": len(tweet_ids),
-                    "note": "摘要任务已入队，worker 正在处理",
-                })
+                return success_response(
+                    {
+                        "action": "backfill",
+                        "task_id": task_id,
+                        "tweet_count": len(tweet_ids),
+                        "note": "摘要任务已入队，worker 正在处理",
+                    }
+                )
 
             elif action == "reset":
                 if not since_dt or not until_dt:
-                    return error_response(
-                        "reset 操作需要 since 和 until 参数", "validation"
-                    )
+                    return error_response("reset 操作需要 since 和 until 参数", "validation")
 
                 # 时间窗全部推文数(含已摘要)走读门面 count_tweets_in_window
                 async with session_maker() as session:
                     read_repo = get_summarization_read_repo(session)
-                    tweet_count = await read_repo.count_tweets_in_window(
-                        since_dt, until_dt
-                    )
+                    tweet_count = await read_repo.count_tweets_in_window(since_dt, until_dt)
 
-                audit_log("batch_summarize", "reset", params={"since": since, "until": until, "tweet_count": tweet_count})
-                return success_response({
-                    "action": "reset_preview",
-                    "since": since,
-                    "until": until,
-                    "tweet_count": tweet_count,
-                    "note": "请通过 FastAPI API 执行实际的 reset 操作",
-                })
+                audit_log(
+                    "batch_summarize",
+                    "reset",
+                    params={"since": since, "until": until, "tweet_count": tweet_count},
+                )
+                return success_response(
+                    {
+                        "action": "reset_preview",
+                        "since": since,
+                        "until": until,
+                        "tweet_count": tweet_count,
+                        "note": "请通过 FastAPI API 执行实际的 reset 操作",
+                    }
+                )
 
         except (ValueError, TypeError) as e:
             return error_response(f"参数解析失败: {e}", "validation")
@@ -588,9 +520,7 @@ def register(mcp: FastMCP) -> None:
                 async with session_maker() as session:
                     repo = get_profile_repo(session)
                     domain_profiles = await repo.get_all_profiles()
-                domain_profiles = sorted(
-                    domain_profiles, key=lambda p: p.username
-                )
+                domain_profiles = sorted(domain_profiles, key=lambda p: p.username)
                 profiles = [
                     {
                         "username": p.username,
@@ -603,10 +533,12 @@ def register(mcp: FastMCP) -> None:
                     }
                     for p in domain_profiles
                 ]
-                return success_response({
-                    "profiles": profiles,
-                    "count": len(profiles),
-                })
+                return success_response(
+                    {
+                        "profiles": profiles,
+                        "count": len(profiles),
+                    }
+                )
 
             elif info_type == "stats":
                 # 活跃账号走 follows 门面;每账号总推文走 tweet 聚合门面
@@ -617,9 +549,7 @@ def register(mcp: FastMCP) -> None:
                     )
                     usernames = [f.username for f in follows]
                     ranges = (
-                        await get_scraper_stats_repo(session).tweet_time_range(
-                            usernames
-                        )
+                        await get_scraper_stats_repo(session).tweet_time_range(usernames)
                         if usernames
                         else {}
                     )
@@ -629,9 +559,7 @@ def register(mcp: FastMCP) -> None:
                         "username": f.username,
                         "manual_limit": f.manual_limit,
                         "total_tweets": (
-                            ranges[f.username.lower()][2]
-                            if f.username.lower() in ranges
-                            else 0
+                            ranges[f.username.lower()][2] if f.username.lower() in ranges else 0
                         ),
                     }
                     for f in follows
@@ -646,9 +574,7 @@ def register(mcp: FastMCP) -> None:
                     )
                     usernames = [f.username for f in follows]
                     rows = (
-                        await get_scraper_stats_repo(session).tweet_time_range(
-                            usernames
-                        )
+                        await get_scraper_stats_repo(session).tweet_time_range(usernames)
                         if usernames
                         else {}
                     )
@@ -656,28 +582,22 @@ def register(mcp: FastMCP) -> None:
                 ranges = [
                     {
                         "username": u,
-                        "earliest_tweet_at": (
-                            rows[u.lower()][0] if u.lower() in rows else None
-                        ),
-                        "latest_tweet_at": (
-                            rows[u.lower()][1] if u.lower() in rows else None
-                        ),
-                        "tweet_count": (
-                            rows[u.lower()][2] if u.lower() in rows else 0
-                        ),
+                        "earliest_tweet_at": (rows[u.lower()][0] if u.lower() in rows else None),
+                        "latest_tweet_at": (rows[u.lower()][1] if u.lower() in rows else None),
+                        "tweet_count": (rows[u.lower()][2] if u.lower() in rows else 0),
                     }
                     for u in usernames
                 ]
-                return success_response({
-                    "time_ranges": ranges,
-                    "count": len(ranges),
-                })
+                return success_response(
+                    {
+                        "time_ranges": ranges,
+                        "count": len(ranges),
+                    }
+                )
 
             elif info_type == "analysis":
                 if not username:
-                    return error_response(
-                        "analysis 类型需要 username 参数", "validation"
-                    )
+                    return error_response("analysis 类型需要 username 参数", "validation")
 
                 # 逐周期 count 走 tweet 聚合门面(12h × 14 周期)。门面正序(最早在前),
                 # 此处 reverse 成最近在前,复刻原 i=0 最新逐周期追加的 DESC 输出。
@@ -694,11 +614,13 @@ def register(mcp: FastMCP) -> None:
                     }
                     for (period_start, period_end, count) in reversed(windows)
                 ]
-                return success_response({
-                    "username": username,
-                    "interval_hours": 12,
-                    "periods": periods_data,
-                })
+                return success_response(
+                    {
+                        "username": username,
+                        "interval_hours": 12,
+                        "periods": periods_data,
+                    }
+                )
 
         except Exception as e:
             logger.error("get_follow_accounts_info 失败: %s", e, exc_info=True)

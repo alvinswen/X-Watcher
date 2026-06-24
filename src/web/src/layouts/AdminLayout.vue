@@ -6,16 +6,11 @@ import {
   Document,
   Reading,
   User,
-  Monitor,
-  Timer,
   UserFilled,
   Fold,
   Expand,
   FullScreen,
-  Collection,
-  DataAnalysis,
   Search,
-  Histogram,
   Refresh,
   Moon,
   Sunny,
@@ -56,16 +51,11 @@ const apiKeyInput = ref("")
 const menuItems = [
   // —— 日常使用 ——
   { index: "/dashboard", title: "仪表盘", icon: Odometer },
-  { index: "/topic-summaries", title: "主题摘要", icon: DataAnalysis },
   { index: "/browse", title: "推文浏览", icon: Reading },
   { index: "/search", title: "推文搜索", icon: Search },
-  { index: "/analytics", title: "发文分析", icon: Histogram },
   // —— 管理功能 ——
-  { index: "/topics", title: "主题管理", icon: Collection },
   { index: "/tweets", title: "推文管理", icon: Document },
   { index: "/follows", title: "关注管理", icon: User },
-  { index: "/scraping", title: "抓取管理", icon: Timer },
-  { index: "/tasks", title: "任务监控", icon: Monitor },
   { index: "/users", title: "用户管理", icon: UserFilled },
   { index: "/sync", title: "数据同步", icon: Refresh },
 ]

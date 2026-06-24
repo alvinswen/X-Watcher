@@ -50,22 +50,6 @@ const routes: RouteRecordRaw[] = [
     },
   },
   {
-    path: "/tasks",
-    name: "tasks",
-    component: () => import("@/views/TasksView.vue"),
-    meta: {
-      title: "任务监控",
-    },
-  },
-  {
-    path: "/scraping",
-    name: "scraping",
-    component: () => import("@/views/SchedulerView.vue"),
-    meta: {
-      title: "抓取管理",
-    },
-  },
-  {
     path: "/users",
     name: "users",
     component: () => import("@/views/UsersView.vue"),
@@ -74,35 +58,11 @@ const routes: RouteRecordRaw[] = [
     },
   },
   {
-    path: "/topics",
-    name: "topics",
-    component: () => import("@/views/TopicsView.vue"),
-    meta: {
-      title: "主题管理",
-    },
-  },
-  {
-    path: "/topic-summaries",
-    name: "topic-summaries",
-    component: () => import("@/views/TopicSummariesView.vue"),
-    meta: {
-      title: "主题摘要",
-    },
-  },
-{
     path: "/search",
     name: "search",
     component: () => import("@/views/SearchView.vue"),
     meta: {
       title: "推文搜索",
-    },
-  },
-  {
-    path: "/analytics",
-    name: "analytics",
-    component: () => import("@/views/AnalyticsView.vue"),
-    meta: {
-      title: "发文分析",
     },
   },
   {
@@ -112,6 +72,11 @@ const routes: RouteRecordRaw[] = [
     meta: {
       title: "数据同步",
     },
+  },
+  {
+    path: "/:pathMatch(.*)*",
+    name: "not-found",
+    redirect: "/dashboard",
   },
 ]
 

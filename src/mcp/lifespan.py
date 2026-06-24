@@ -1,6 +1,6 @@
 """MCP 服务轻量级生命周期管理。
 
-仅初始化数据库（建表 + 迁移），不启动调度器和摘要队列。
+仅初始化数据库，不启动后台队列。
 """
 
 import logging
@@ -59,22 +59,20 @@ def init_mcp_logging(*, stderr_only: bool = True) -> None:
 
 
 def init_database() -> None:
-    """初始化数据库：建表 + 迁移。
+    """初始化数据库：建表。
 
     从 src/main.py 的 lifespan() 中提取的 DB 初始化逻辑，
-    不启动 APScheduler、SummarizationQueue、CORS/SPA 中间件。
+    不启动 SummarizationQueue、CORS/SPA 中间件。
 
-    file 模式(pg 下线守卫):整体早返——跳过 create_all + 迁移 +
-    async engine 预热。预热仅为 stdio 模式 stdout handler 副作用注册,
+    file 模式(pg 下线守卫):整体早返——跳过 create_all + async engine 预热。
+    预热仅为 stdio 模式 stdout handler 副作用注册,
     file 模式不使用 pg async engine,无需预热(不连 pg)。
     """
     from src.data_layer.provider import is_file_mode
 
     if is_file_mode():
-        logger.info("file 模式:跳过 MCP init_database(create_all + 迁移 + async engine 预热,pg 下线守卫)")
+        logger.info("file 模式:跳过 MCP init_database(create_all + async engine 预热,pg 下线守卫)")
         return
-
-    from sqlalchemy import text
 
     from src.database.models import Base, get_engine
 
@@ -82,11 +80,6 @@ def init_database() -> None:
     from src.scraper.infrastructure.article_models import ArticleOrm  # noqa: F401
     from src.scraper.infrastructure.models import TweetOrm  # noqa: F401
     from src.summarization.infrastructure.models import SummaryOrm  # noqa: F401
-    from src.topic.infrastructure.models import (  # noqa: F401
-        TopicAccountOrm,
-        TopicOrm,
-        TopicSummaryTaskOrm,
-    )
     from src.database.x_user_profile_model import XUserProfileOrm  # noqa: F401
 
     eng = get_engine()
@@ -99,85 +92,13 @@ def init_database() -> None:
     Base.metadata.create_all(eng)
     logger.info("数据库表已创建/验证")
 
-    # 迁移：确保 is_enabled 列存在
-    from sqlalchemy import inspect as sa_inspect
-
-    inspector = sa_inspect(eng)
-
-    try:
-        columns = [c["name"] for c in inspector.get_columns("scraper_schedule_config")]
-        if "is_enabled" not in columns:
-            with eng.connect() as conn:
-                conn.execute(
-                    text(
-                        "ALTER TABLE scraper_schedule_config "
-                        "ADD COLUMN is_enabled BOOLEAN NOT NULL DEFAULT TRUE"
-                    )
-                )
-                conn.commit()
-                logger.info("数据库迁移：已添加 scraper_schedule_config.is_enabled 列")
-    except Exception:
-        pass  # 表不存在
-
-    # 迁移：确保 scheduler_execution_log 表存在
-    if "scheduler_execution_log" not in inspector.get_table_names():
-        table = Base.metadata.tables.get("scheduler_execution_log")
-        if table is not None:
-            table.create(eng, checkfirst=True)
-            logger.info("数据库迁移：已创建 scheduler_execution_log 表")
-        else:
-            from src.database.dialect import is_sqlite
-
-            if is_sqlite():
-                pk_clause = "id INTEGER PRIMARY KEY AUTOINCREMENT"
-            else:
-                pk_clause = "id SERIAL PRIMARY KEY"
-
-            try:
-                with eng.connect() as conn:
-                    conn.execute(
-                        text(
-                            f"CREATE TABLE IF NOT EXISTS scheduler_execution_log ("
-                            f"{pk_clause},"
-                            f"job_id VARCHAR(100) NOT NULL,"
-                            f"event_type VARCHAR(20) NOT NULL,"
-                            f"executed_at TIMESTAMP NOT NULL,"
-                            f"duration_seconds FLOAT,"
-                            f"error_type VARCHAR(200),"
-                            f"error_message TEXT,"
-                            f"next_run_time TIMESTAMP,"
-                            f"created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP"
-                            f")"
-                        )
-                    )
-                    conn.execute(
-                        text(
-                            "CREATE INDEX IF NOT EXISTS idx_scheduler_log_job_id "
-                            "ON scheduler_execution_log(job_id)"
-                        )
-                    )
-                    conn.execute(
-                        text(
-                            "CREATE INDEX IF NOT EXISTS idx_scheduler_log_event_type "
-                            "ON scheduler_execution_log(event_type)"
-                        )
-                    )
-                    conn.execute(
-                        text(
-                            "CREATE INDEX IF NOT EXISTS idx_scheduler_log_executed_at "
-                            "ON scheduler_execution_log(executed_at)"
-                        )
-                    )
-                    conn.commit()
-            except Exception:
-                pass
-
     # 预热异步引擎：stdio 模式下必须在 redirect 前强制初始化异步引擎。
     # 所有 MCP 工具通过 get_async_session_maker() 使用异步引擎，该引擎默认懒初始化。
     # 若不预热，第一次工具调用时引擎才被创建，此时 echo=True 会添加 StreamHandler(stdout)，
     # 而 _redirect 已经运行完毕，新 handler 无法被拦截，导致 MCP 协议被污染。
     if _stdio_mode:
         from src.database.async_session import get_async_engine
+
         get_async_engine()  # 触发懒初始化，此时 SQLAlchemy 注册 stdout handler
 
     # 引擎创建后（同步 + 异步），统一拦截所有 stdout handler 重定向到 stderr

@@ -1,10 +1,9 @@
 """集成测试。
 
-测试完整的抓取流程，包括手动触发、定时调度和错误恢复。
+测试完整的抓取流程，包括手动触发和错误恢复。
 """
 
-from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -47,19 +46,9 @@ class TestManualScrapingFlow:
         2. GET 查询状态
         3. 验证数据库存储
         """
-        # Mock 抓取服务
-        mock_result = {
-            "total_users": 1,
-            "successful_users": 1,
-            "failed_users": 0,
-            "total_tweets": 10,
-            "new_tweets": 10,
-            "skipped_tweets": 0,
-            "total_errors": 0,
-            "elapsed_seconds": 1.5,
-        }
-
-        with patch("src.scraper.scraping_service.ScrapingService.scrape_users", new_callable=AsyncMock) as mock_scrape:
+        with patch(
+            "src.scraper.scraping_service.ScrapingService.scrape_users", new_callable=AsyncMock
+        ) as mock_scrape:
             mock_scrape.return_value = "test-task-id"
 
             # 1. POST 触发抓取
@@ -140,89 +129,6 @@ class TestManualScrapingFlow:
         task_ids = {t["task_id"] for t in tasks}
         assert task1 in task_ids
         assert task2 in task_ids
-
-
-class TestSchedulerScrapingFlow:
-    """测试定时抓取流程。"""
-
-    def test_scheduler_job_skips_when_disabled(self):
-        """测试禁用时调度器跳过任务。"""
-        from src.config import clear_settings_cache
-        import os
-
-        clear_settings_cache()
-        os.environ["SCRAPER_ENABLED"] = "false"
-        os.environ["SCRAPER_USERNAMES"] = "user1,user2"
-        os.environ["TWITTER_BEARER_TOKEN"] = "test-token"
-
-        # 导入调度器任务函数
-        from src.scraper.scheduled_job import scheduled_scrape_job as _scheduled_scrape_job
-
-        # Mock registry
-        with patch("src.scraper.scheduled_job.TaskRegistry") as mock_registry_cls:
-            mock_registry = MagicMock()
-            mock_registry_cls.get_instance.return_value = mock_registry
-            mock_registry.get_all_tasks.return_value = []
-
-            # 执行调度任务
-            _scheduled_scrape_job()
-
-            # 验证没有创建任务（因为被禁用）
-            mock_registry.create_task.assert_not_called()
-
-    def test_scheduler_job_skips_when_no_usernames(self):
-        """测试没有配置用户时跳过任务。"""
-        from src.config import clear_settings_cache
-        import os
-
-        clear_settings_cache()
-        os.environ["SCRAPER_ENABLED"] = "true"
-        os.environ["SCRAPER_USERNAMES"] = ""
-        os.environ["TWITTER_BEARER_TOKEN"] = "test-token"
-
-        from src.scraper.scheduled_job import scheduled_scrape_job as _scheduled_scrape_job
-
-        # Mock 数据源:让"无用户列表 → 跳过"路径与实际数据库/文件层内容解耦(hermetic)。
-        # 否则真实数据源(sqlalchemy 模式的 pg，或 .env 默认 file 模式指向的 data_migrated)
-        # 中的活跃关注会让 usernames 非空、任务不跳过 → 触发真实抓取并在
-        # scheduled_job.py 的 service.close() 处报 RuntimeError。
-        with (
-            patch("src.scraper.scheduled_job.get_active_follows_from_db", return_value=[]),
-            patch("src.scraper.scheduled_job.get_pending_backfill_users_from_db", return_value=[]),
-            patch("src.scraper.scheduled_job.TaskRegistry") as mock_registry_cls,
-        ):
-            mock_registry = MagicMock()
-            mock_registry_cls.get_instance.return_value = mock_registry
-
-            _scheduled_scrape_job()
-
-            # 验证没有创建任务
-            mock_registry.create_task.assert_not_called()
-
-    def test_scheduler_job_skips_when_task_running(self):
-        """测试有任务运行时跳过本次执行。"""
-        from src.config import clear_settings_cache
-        import os
-
-        clear_settings_cache()
-        os.environ["SCRAPER_ENABLED"] = "true"
-        os.environ["SCRAPER_USERNAMES"] = "user1,user2"
-        os.environ["TWITTER_BEARER_TOKEN"] = "test-token"
-
-        from src.scraper.scheduled_job import scheduled_scrape_job as _scheduled_scrape_job
-
-        # Mock registry 返回运行中的任务
-        with patch("src.scraper.scheduled_job.TaskRegistry") as mock_registry_cls:
-            mock_registry = MagicMock()
-            mock_registry_cls.get_instance.return_value = mock_registry
-            mock_registry.get_all_tasks.return_value = [
-                {"task_id": "running-task", "status": TaskStatus.RUNNING}
-            ]
-
-            _scheduled_scrape_job()
-
-            # 验证没有创建新任务
-            mock_registry.create_task.assert_not_called()
 
 
 class TestTaskCleanup:

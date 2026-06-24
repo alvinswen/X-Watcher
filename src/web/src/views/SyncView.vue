@@ -13,7 +13,19 @@ import type {
 
 // ── 导出状态 ──
 
-const exportCategories = ref<SyncCategory[]>(["config", "content", "topics"])
+const syncCategoryOptions: Array<{ value: SyncCategory; label: string }> = [
+  { value: "config", label: "配置数据" },
+  { value: "content", label: "内容数据" },
+]
+const supportedCategoryValues = new Set<string>(
+  syncCategoryOptions.map((option) => option.value),
+)
+
+function isSupportedSyncCategory(category: string): category is SyncCategory {
+  return supportedCategoryValues.has(category)
+}
+
+const exportCategories = ref<SyncCategory[]>(["config", "content"])
 const exportSince = ref("")
 const exportUntil = ref("")
 const exportAuthors = ref("")
@@ -84,6 +96,10 @@ const previewResult = ref<ImportPreviewResponse | null>(null)
 const importResult = ref<ImportExecuteResponse | null>(null)
 const fileMetadata = ref<ExportMetadata | null>(null)
 
+const importableCategories = computed(() =>
+  fileMetadata.value?.categories.filter(isSupportedSyncCategory) ?? [],
+)
+
 /** 文件选择变更 */
 function handleFileChange(uploadFile: { raw: File }) {
   const file = uploadFile.raw
@@ -103,7 +119,7 @@ function handleFileChange(uploadFile: { raw: File }) {
         // 自动选中文件中包含的分类
         if (data.metadata.categories?.length) {
           importCategories.value = data.metadata.categories.filter(
-            (c: string) => ["config", "content", "topics"].includes(c),
+            isSupportedSyncCategory,
           ) as SyncCategory[]
         }
       }
@@ -204,11 +220,9 @@ function formatDate(value: string | null | undefined): string {
 }
 
 /** 分类显示名 */
-const categoryLabels: Record<string, string> = {
-  config: "配置数据",
-  content: "内容数据",
-  topics: "主题数据",
-}
+const categoryLabels: Record<SyncCategory, string> = Object.fromEntries(
+  syncCategoryOptions.map((option) => [option.value, option.label]),
+) as Record<SyncCategory, string>
 
 /** 策略显示名 */
 const strategyLabels: Record<ConflictStrategy, string> = {
@@ -232,9 +246,13 @@ const strategyLabels: Record<ConflictStrategy, string> = {
             <!-- 分类选择 -->
             <el-form-item label="导出分类">
               <el-checkbox-group v-model="exportCategories">
-                <el-checkbox value="config">配置数据</el-checkbox>
-                <el-checkbox value="content">内容数据</el-checkbox>
-                <el-checkbox value="topics">主题数据</el-checkbox>
+                <el-checkbox
+                  v-for="option in syncCategoryOptions"
+                  :key="option.value"
+                  :value="option.value"
+                >
+                  {{ option.label }}
+                </el-checkbox>
               </el-checkbox-group>
             </el-form-item>
 
@@ -343,7 +361,7 @@ const strategyLabels: Record<ConflictStrategy, string> = {
                   {{ formatDate(fileMetadata.exported_at) }}
                 </el-descriptions-item>
                 <el-descriptions-item label="包含分类">
-                  {{ fileMetadata.categories.map(c => categoryLabels[c] || c).join("、") }}
+                  {{ importableCategories.map(c => categoryLabels[c]).join("、") || "-" }}
                 </el-descriptions-item>
                 <el-descriptions-item
                   v-for="(count, table) in fileMetadata.counts"
@@ -360,11 +378,11 @@ const strategyLabels: Record<ConflictStrategy, string> = {
               <el-form-item label="导入分类" style="margin-top: 16px">
                 <el-checkbox-group v-model="importCategories">
                   <el-checkbox
-                    v-for="cat in fileMetadata.categories"
+                    v-for="cat in importableCategories"
                     :key="cat"
                     :value="cat"
                   >
-                    {{ categoryLabels[cat] || cat }}
+                    {{ categoryLabels[cat] }}
                   </el-checkbox>
                 </el-checkbox-group>
               </el-form-item>

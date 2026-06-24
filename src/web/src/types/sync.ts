@@ -1,7 +1,7 @@
 /** 数据同步类型定义。 */
 
 /** 可同步的数据分类 */
-export type SyncCategory = "config" | "content" | "topics"
+export type SyncCategory = "config" | "content"
 
 /** 导入冲突解决策略 */
 export type ConflictStrategy = "skip" | "overwrite" | "merge"

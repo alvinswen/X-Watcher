@@ -4,6 +4,16 @@
       <h1>抓取账号管理</h1>
       <div class="header-actions">
         <el-button
+          v-if="authStore.isAuthenticated"
+          type="primary"
+          :icon="VideoPlay"
+          :loading="scrapeSubmitting"
+          :disabled="loading"
+          @click="handleTriggerScraping"
+        >
+          立即抓取
+        </el-button>
+        <el-button
           :icon="Refresh"
           @click="handleSyncProfiles"
           :loading="syncing"
@@ -268,11 +278,14 @@
 
 <script setup lang="ts">
 import { ref, onMounted, reactive, computed } from "vue"
-import { Plus, Refresh } from "@element-plus/icons-vue"
+import { Plus, Refresh, VideoPlay } from "@element-plus/icons-vue"
 import { ElMessageBox, ElMessage, type FormInstance, type FormRules } from "element-plus"
-import { followsApi } from "@/api"
+import { followsApi, tasksApi } from "@/api"
+import { useAuthStore } from "@/stores/auth"
 import { formatLocalizedDateTime } from "@/utils/format"
 import type { ScrapingFollow, XUserProfile } from "@/types"
+
+const authStore = useAuthStore()
 
 /** 抓取账号列表 */
 const follows = ref<ScrapingFollow[]>([])
@@ -288,6 +301,9 @@ const submitting = ref(false)
 
 /** 同步状态 */
 const syncing = ref(false)
+
+/** 立即抓取提交状态 */
+const scrapeSubmitting = ref(false)
 
 /** 对话框显示状态 */
 const dialogVisible = ref(false)
@@ -428,6 +444,28 @@ async function handleSyncProfiles() {
     console.error("同步档案失败:", error)
   } finally {
     syncing.value = false
+  }
+}
+
+/** 触发全部活跃关注账号抓取 */
+async function handleTriggerScraping() {
+  const activeFollows = follows.value.filter((follow) => follow.is_active)
+  if (activeFollows.length === 0) {
+    ElMessage.warning("没有活跃的关注账号，无法抓取")
+    return
+  }
+
+  scrapeSubmitting.value = true
+  try {
+    await tasksApi.triggerScraping({
+      usernames: activeFollows.map((follow) => follow.username).join(","),
+      limit: 100,
+    })
+    ElMessage.success("已提交抓取任务")
+  } catch (error) {
+    console.error("提交抓取任务失败:", error)
+  } finally {
+    scrapeSubmitting.value = false
   }
 }
 

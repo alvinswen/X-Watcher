@@ -1,6 +1,6 @@
 """系统状态概览 API 路由。
 
-提供 GET /api/status/overview 端点，聚合返回推文、关注、摘要、主题、调度器和系统维度的关键指标。
+提供 GET /api/status/overview 端点，聚合返回推文、关注、摘要和系统维度的关键指标。
 """
 
 import asyncio
@@ -14,11 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_settings
 from src.database.models import ScraperFollow
-from src.scheduler_accessor import get_scheduler
 from src.scraper.infrastructure.models import TweetOrm
 from src.shared.schemas import UTCDatetimeModel
 from src.summarization.infrastructure.models import SummaryOrm
-from src.topic.infrastructure.models import TopicOrm, TopicSummaryTaskOrm
 from src.user.api.auth import get_current_user
 from src.user.domain.models import UserDomain
 
@@ -35,15 +33,8 @@ router = APIRouter(prefix="/api/status", tags=["status"])
 from src.api.status_schemas import (  # noqa: E402
     FollowStats,
     SummaryStats,
-    TopicStats,
     TweetStats,
 )
-
-
-class SchedulerStats(BaseModel):
-    status: str
-    next_run_time: datetime | None
-    interval_seconds: int
 
 
 class SystemStats(UTCDatetimeModel):
@@ -55,8 +46,6 @@ class StatusOverviewResponse(BaseModel):
     tweets: TweetStats
     follows: FollowStats
     summaries: SummaryStats
-    topics: TopicStats
-    scheduler: SchedulerStats
     system: SystemStats
 
 
@@ -76,7 +65,7 @@ class TwitterBalanceResponse(UTCDatetimeModel):
     "/overview",
     response_model=StatusOverviewResponse,
     summary="系统状态概览",
-    description="聚合返回推文、关注、摘要、主题、调度器和系统维度的关键指标。",
+    description="聚合返回推文、关注、摘要和系统维度的关键指标。",
 )
 async def get_status_overview(
     current_user: UserDomain = Depends(get_current_user),
@@ -99,22 +88,17 @@ async def get_status_overview(
         async with session_maker() as s:
             return await get_status_repo(s).get_summary_stats()
 
-    async def _topics():
-        async with session_maker() as s:
-            return await get_status_repo(s).get_topic_stats()
-
-    tweets, follows, summaries, topics = await asyncio.gather(
-        _tweets(), _follows(), _summaries(), _topics(),
+    tweets, follows, summaries = await asyncio.gather(
+        _tweets(),
+        _follows(),
+        _summaries(),
     )
-    scheduler = _get_scheduler_stats()
     system = _get_system_stats()
 
     return StatusOverviewResponse(
         tweets=tweets,
         follows=follows,
         summaries=summaries,
-        topics=topics,
-        scheduler=scheduler,
         system=system,
     )
 
@@ -160,13 +144,9 @@ async def _get_tweet_stats(session: AsyncSession) -> TweetStats:
     latest_result = await session.execute(select(func.max(TweetOrm.created_at)))
     latest_tweet_at = latest_result.scalar()
 
-    today_start = datetime.now(timezone.utc).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    )
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     today_result = await session.execute(
-        select(func.count())
-        .select_from(TweetOrm)
-        .where(TweetOrm.created_at >= today_start)
+        select(func.count()).select_from(TweetOrm).where(TweetOrm.created_at >= today_start)
     )
     today_count = today_result.scalar() or 0
 
@@ -179,9 +159,7 @@ async def _get_tweet_stats(session: AsyncSession) -> TweetStats:
 
 async def _get_follow_stats(session: AsyncSession) -> FollowStats:
     """关注账号统计。"""
-    total_result = await session.execute(
-        select(func.count()).select_from(ScraperFollow)
-    )
+    total_result = await session.execute(select(func.count()).select_from(ScraperFollow))
     total = total_result.scalar() or 0
 
     active_result = await session.execute(
@@ -196,9 +174,7 @@ async def _get_follow_stats(session: AsyncSession) -> FollowStats:
 
 async def _get_summary_stats(session: AsyncSession) -> SummaryStats:
     """摘要统计。"""
-    total_result = await session.execute(
-        select(func.count()).select_from(SummaryOrm)
-    )
+    total_result = await session.execute(select(func.count()).select_from(SummaryOrm))
     total = total_result.scalar() or 0
 
     # 使用 LEFT JOIN + IS NULL 查找待摘要推文
@@ -211,52 +187,6 @@ async def _get_summary_stats(session: AsyncSession) -> SummaryStats:
     pending_tweets = pending_result.scalar() or 0
 
     return SummaryStats(total=total, pending_tweets=pending_tweets)
-
-
-async def _get_topic_stats(session: AsyncSession) -> TopicStats:
-    """主题统计。"""
-    total_result = await session.execute(select(func.count()).select_from(TopicOrm))
-    total = total_result.scalar() or 0
-
-    # 最近一次主题摘要任务
-    latest_task_result = await session.execute(
-        select(TopicSummaryTaskOrm.completed_at, TopicSummaryTaskOrm.status)
-        .order_by(TopicSummaryTaskOrm.created_at.desc())
-        .limit(1)
-    )
-    latest_task = latest_task_result.first()
-
-    latest_summary_at = latest_task.completed_at if latest_task else None
-    latest_summary_status = latest_task.status if latest_task else None
-
-    return TopicStats(
-        total=total,
-        latest_summary_at=latest_summary_at,
-        latest_summary_status=latest_summary_status,
-    )
-
-
-def _get_scheduler_stats() -> SchedulerStats:
-    """调度器统计。"""
-    scheduler = get_scheduler()
-
-    if scheduler is not None and scheduler.running:
-        status = "running"
-        job = scheduler.get_job("scraper_job")
-        next_run_time = job.next_run_time if job else None
-    else:
-        status = "stopped"
-        next_run_time = None
-
-    # 从 settings 获取默认间隔
-    settings = get_settings()
-    interval_seconds = settings.scraper_interval
-
-    return SchedulerStats(
-        status=status,
-        next_run_time=next_run_time,
-        interval_seconds=interval_seconds,
-    )
 
 
 def get_server_start_time():

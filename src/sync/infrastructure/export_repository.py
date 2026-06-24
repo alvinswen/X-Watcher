@@ -6,18 +6,12 @@
 from datetime import datetime
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session
 
-from src.database.models import ScraperFollow, ScraperScheduleConfig
+from src.database.models import ScraperFollow
 from src.scraper.infrastructure.article_models import ArticleOrm
 from src.scraper.infrastructure.models import TweetOrm
 from src.summarization.infrastructure.models import SummaryOrm
-from src.topic.infrastructure.models import (
-    TopicAccountOrm,
-    TopicOrm,
-    TopicSummaryOrm,
-    TopicSummaryTaskOrm,
-)
 
 
 class ExportRepository:
@@ -28,11 +22,6 @@ class ExportRepository:
 
     def get_follows(self) -> list[ScraperFollow]:
         return list(self._session.execute(select(ScraperFollow)).scalars().all())
-
-    def get_schedule_config(self) -> ScraperScheduleConfig | None:
-        return self._session.execute(
-            select(ScraperScheduleConfig).where(ScraperScheduleConfig.id == 1)
-        ).scalar_one_or_none()
 
     def get_tweets(
         self,
@@ -61,16 +50,3 @@ class ExportRepository:
         if tweet_ids is not None:
             stmt = stmt.where(ArticleOrm.tweet_id.in_(tweet_ids))
         return list(self._session.execute(stmt).scalars().all())
-
-    def get_topics(self) -> list[TopicOrm]:
-        """读取所有 topics 及其关联的 accounts 和 summary_tasks（含 summary）。"""
-        stmt = (
-            select(TopicOrm)
-            .options(
-                joinedload(TopicOrm.accounts),
-                joinedload(TopicOrm.summary_tasks).joinedload(
-                    TopicSummaryTaskOrm.summary
-                ),
-            )
-        )
-        return list(self._session.execute(stmt).unique().scalars().all())

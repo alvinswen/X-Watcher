@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from click.testing import CliRunner
 from sqlalchemy import create_engine, select
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session
 
 from src.cli.main import cli
 from src.database.models import Base, ScraperFollow
@@ -33,22 +33,32 @@ class TestExportCommand:
         engine = _make_test_engine()
 
         with Session(engine) as session:
-            session.add(ScraperFollow(
-                username="alice", reason="KOL", added_by="admin",
-                added_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
-            ))
+            session.add(
+                ScraperFollow(
+                    username="alice",
+                    reason="KOL",
+                    added_by="admin",
+                    added_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                )
+            )
             session.commit()
 
         output_path = str(tmp_path / "test-export.json")
 
         with patch("src.database.models.get_engine", return_value=engine):
             runner = CliRunner()
-            result = runner.invoke(cli, [
-                "export",
-                "--output", output_path,
-                "--categories", "config",
-                "--instance-id", "test-server",
-            ])
+            result = runner.invoke(
+                cli,
+                [
+                    "export",
+                    "--output",
+                    output_path,
+                    "--categories",
+                    "config",
+                    "--instance-id",
+                    "test-server",
+                ],
+            )
 
         assert result.exit_code == 0, f"Failed: {result.output}"
         assert "导出完成" in result.output
@@ -66,9 +76,15 @@ class TestExportCommand:
 
         with patch("src.database.models.get_engine", return_value=engine):
             runner = CliRunner()
-            result = runner.invoke(cli, [
-                "export", "--output", output_path, "--pretty",
-            ])
+            result = runner.invoke(
+                cli,
+                [
+                    "export",
+                    "--output",
+                    output_path,
+                    "--pretty",
+                ],
+            )
 
         assert result.exit_code == 0
         content = open(output_path, "r", encoding="utf-8").read()
@@ -78,25 +94,40 @@ class TestExportCommand:
         engine = _make_test_engine()
 
         with Session(engine) as session:
-            session.add(TweetOrm(
-                tweet_id="tw_old", text="Old tweet", author_username="alice",
-                created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
-            ))
-            session.add(TweetOrm(
-                tweet_id="tw_new", text="New tweet", author_username="alice",
-                created_at=datetime(2026, 2, 15, tzinfo=timezone.utc),
-            ))
+            session.add(
+                TweetOrm(
+                    tweet_id="tw_old",
+                    text="Old tweet",
+                    author_username="alice",
+                    created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                )
+            )
+            session.add(
+                TweetOrm(
+                    tweet_id="tw_new",
+                    text="New tweet",
+                    author_username="alice",
+                    created_at=datetime(2026, 2, 15, tzinfo=timezone.utc),
+                )
+            )
             session.commit()
 
         output_path = str(tmp_path / "filtered.json")
 
         with patch("src.database.models.get_engine", return_value=engine):
             runner = CliRunner()
-            result = runner.invoke(cli, [
-                "export", "--output", output_path,
-                "--categories", "content",
-                "--since", "2026-02-01",
-            ])
+            result = runner.invoke(
+                cli,
+                [
+                    "export",
+                    "--output",
+                    output_path,
+                    "--categories",
+                    "content",
+                    "--since",
+                    "2026-02-01",
+                ],
+            )
 
         assert result.exit_code == 0
         with open(output_path, "r", encoding="utf-8") as f:
@@ -138,7 +169,6 @@ class TestImportDataCommand:
                             "is_active": True,
                         },
                     ],
-                    "scraper_schedule_config": None,
                 },
             },
         }
@@ -148,9 +178,13 @@ class TestImportDataCommand:
 
         with patch("src.database.models.get_engine", return_value=engine):
             runner = CliRunner()
-            result = runner.invoke(cli, [
-                "import-data", str(file_path),
-            ])
+            result = runner.invoke(
+                cli,
+                [
+                    "import-data",
+                    str(file_path),
+                ],
+            )
 
         assert result.exit_code == 0, f"Failed: {result.output}"
         assert "导入完成" in result.output
@@ -178,7 +212,6 @@ class TestImportDataCommand:
                     "scraper_follows": [
                         {"username": "alice", "reason": "KOL", "added_by": "admin"},
                     ],
-                    "scraper_schedule_config": None,
                 },
             },
         }
@@ -188,9 +221,14 @@ class TestImportDataCommand:
 
         with patch("src.database.models.get_engine", return_value=engine):
             runner = CliRunner()
-            result = runner.invoke(cli, [
-                "import-data", str(file_path), "--dry-run",
-            ])
+            result = runner.invoke(
+                cli,
+                [
+                    "import-data",
+                    str(file_path),
+                    "--dry-run",
+                ],
+            )
 
         assert result.exit_code == 0
         assert "预览模式" in result.output
@@ -226,20 +264,36 @@ class TestEndToEnd:
         # 源数据库
         src_engine = _make_test_engine()
         with Session(src_engine) as session:
-            session.add(ScraperFollow(
-                username="alice", reason="KOL", added_by="admin",
-                added_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
-            ))
-            session.add(TweetOrm(
-                tweet_id="tw_001", text="Hello", author_username="alice",
-                created_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
-            ))
-            session.add(SummaryOrm(
-                summary_id="sum_001", tweet_id="tw_001", summary_text="摘要",
-                model_provider="openrouter", model_name="gpt-4",
-                prompt_tokens=100, completion_tokens=50, total_tokens=150,
-                cost_usd=0.01, content_hash="hash1",
-            ))
+            session.add(
+                ScraperFollow(
+                    username="alice",
+                    reason="KOL",
+                    added_by="admin",
+                    added_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                )
+            )
+            session.add(
+                TweetOrm(
+                    tweet_id="tw_001",
+                    text="Hello",
+                    author_username="alice",
+                    created_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
+                )
+            )
+            session.add(
+                SummaryOrm(
+                    summary_id="sum_001",
+                    tweet_id="tw_001",
+                    summary_text="摘要",
+                    model_provider="openrouter",
+                    model_name="gpt-4",
+                    prompt_tokens=100,
+                    completion_tokens=50,
+                    total_tokens=150,
+                    cost_usd=0.01,
+                    content_hash="hash1",
+                )
+            )
             session.commit()
 
         # Export

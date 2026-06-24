@@ -4,11 +4,11 @@
 - 文件层 store 已实体化 vendoring 进 src.* 命名空间（早期曾用符号链接，见 754c0be）。
 - import 延迟到函数内,使 env 变更逐调用生效(测试可 monkeypatch)。
 """
+
 from __future__ import annotations
 
 import logging
 import os
-import threading
 from pathlib import Path
 
 
@@ -31,24 +31,6 @@ def data_root() -> Path:
 
 
 logger = logging.getLogger(__name__)
-
-# 模块级:串化跨线程同步写,规避 asyncio.Lock 跨 loop/跨线程复用(file 模式同步桥接专用)
-_SCHEDULER_LOG_SYNC_LOCK = threading.Lock()
-
-
-def get_schedule_repo(session=None):
-    """返回 ScheduleStore 形态 repo(get_schedule_config / upsert_schedule_config)。
-
-    file 模式:FileScheduleStore(data_root),忽略 session。
-    sqlalchemy 模式:ScraperScheduleRepository(session)。
-    """
-    if _data_layer() == "file":
-        from src.preference.infrastructure.file_schedule_repository import FileScheduleStore
-
-        return FileScheduleStore(_data_root())
-    from src.preference.infrastructure.schedule_repository import ScraperScheduleRepository
-
-    return ScraperScheduleRepository(session)
 
 
 def get_follows_repo(session=None):
@@ -146,53 +128,6 @@ def get_fetch_stats_repo(session=None):
     return FetchStatsRepository(session)
 
 
-def get_scheduler_log_repo(session=None):
-    """返回 SchedulerLogStore 形态 repo(async 读/cleanup)。file:FileSchedulerLogStore;sqlalchemy:SchedulerExecutionLogRepository(session)。"""
-    if _data_layer() == "file":
-        from src.scraper.infrastructure.file_scheduler_log_repository import FileSchedulerLogStore
-
-        return FileSchedulerLogStore(_data_root())
-    from src.scraper.infrastructure.scheduler_log_repository import SchedulerExecutionLogRepository
-
-    return SchedulerExecutionLogRepository(session)
-
-
-class _FileSchedulerLogSyncWriter:
-    """file 模式同步桥接:把 async 文件层 write_log 桥到同步调用点。
-
-    BackgroundScheduler 回调线程无 running loop → asyncio.run 安全。
-    threading.Lock 串化跨线程并发(多 job 同刻完成);整体 try/except 吞异常仅 log,
-    镜像旧 SchedulerExecutionLogSyncWriter「写失败不影响调度器运行」契约。
-    """
-
-    def __init__(self, data_root: Path) -> None:
-        self._data_root = data_root
-
-    def write_log(self, log) -> None:
-        try:
-            import asyncio
-
-            from src.scraper.infrastructure.file_scheduler_log_repository import FileSchedulerLogStore
-
-            with _SCHEDULER_LOG_SYNC_LOCK:
-                asyncio.run(FileSchedulerLogStore(self._data_root).write_log(log))
-        except Exception as e:  # noqa: BLE001
-            logger.error("file 模式同步写入调度器执行日志失败: %s", e, exc_info=True)
-
-
-def get_scheduler_log_sync_writer():
-    """返回带 write_log(log) 的同步写入器(鸭子兼容旧静态调用 `.write_log(log_entry)`)。
-
-    file 模式:_FileSchedulerLogSyncWriter 实例(asyncio.run 桥接 async 文件层)。
-    sqlalchemy 模式:旧 SchedulerExecutionLogSyncWriter 类本身(静态 write_log,零行为变化)。
-    """
-    if _data_layer() == "file":
-        return _FileSchedulerLogSyncWriter(_data_root())
-    from src.scraper.infrastructure.scheduler_log_repository import SchedulerExecutionLogSyncWriter
-
-    return SchedulerExecutionLogSyncWriter
-
-
 def get_summary_repo(session=None):
     """返回 SummaryStore 形态 repo。file:FileSummaryStore(忽略 session);sqlalchemy:SummarizationRepository(session)。"""
     if _data_layer() == "file":
@@ -236,54 +171,6 @@ def get_user_repo(session=None):
     return UserRepository(session)
 
 
-def get_topic_store(session=None):
-    """返回 TopicStore 形态 repo(11 契约方法)。
-
-    file 模式:FileTopicStore(data_root),忽略 session。
-    sqlalchemy 模式:SqlalchemyTopicStore(session)(包旧 TopicRepository,延迟 commit)。
-    """
-    if _data_layer() == "file":
-        from src.topic.infrastructure.file_topic_repository import FileTopicStore
-
-        return FileTopicStore(_data_root())
-    from src.data_layer._topic_sqlalchemy import SqlalchemyTopicStore
-
-    return SqlalchemyTopicStore(session)
-
-
-def get_topic_summary_task_store(session=None):
-    """返回 TopicTaskStore 形态 repo(8 契约方法)。
-
-    file 模式:FileTopicSummaryTaskStore(data_root),忽略 session。
-    sqlalchemy 模式:SqlalchemyTopicSummaryTaskStore(session)。
-    """
-    if _data_layer() == "file":
-        from src.topic.infrastructure.file_topic_summary_task_repository import (
-            FileTopicSummaryTaskStore,
-        )
-
-        return FileTopicSummaryTaskStore(_data_root())
-    from src.data_layer._topic_sqlalchemy import SqlalchemyTopicSummaryTaskStore
-
-    return SqlalchemyTopicSummaryTaskStore(session)
-
-
-def get_topic_query_repo(session=None):
-    """返回 topic 跨域读门面(query_tweets:取指定账号在时间窗内的推文 outerjoin 翻译)。
-
-    file 模式:FileTopicQueryStore(_data_root())(组合 FileTweetStore+FileSummaryStore;
-      作者大小写不敏感 + 闭区间时间窗 + outerjoin translation + ASC;created_at 归一 naive-UTC),忽略 session。
-    sqlalchemy 模式:SqlalchemyTopicQueryStore(session)(逐字复刻原内联 outerjoin SQL,SQL 零变化)。
-    """
-    if _data_layer() == "file":
-        from src.topic.infrastructure.topic_query_read_repository import FileTopicQueryStore
-
-        return FileTopicQueryStore(_data_root())
-    from src.topic.infrastructure.topic_query_read_repository import SqlalchemyTopicQueryStore
-
-    return SqlalchemyTopicQueryStore(session)
-
-
 class _FileExportSyncAdapter:
     """file 模式 export 同步门面:asyncio.run 桥 async FileExportStore.export_*,统一返 dict。
 
@@ -296,27 +183,23 @@ class _FileExportSyncAdapter:
 
     def get_follows(self):
         import asyncio
-        return asyncio.run(self._store.export_follows())
 
-    def get_schedule_config(self):
-        import asyncio
-        return asyncio.run(self._store.export_schedule_config())
+        return asyncio.run(self._store.export_follows())
 
     def get_tweets(self, since=None, until=None, authors=None):
         import asyncio
+
         return asyncio.run(self._store.export_tweets(since=since, until=until, authors=authors))
 
     def get_summaries(self, tweet_ids=None):
         import asyncio
+
         return asyncio.run(self._store.export_summaries(tweet_ids=tweet_ids))
 
     def get_articles(self, tweet_ids=None):
         import asyncio
-        return asyncio.run(self._store.export_articles(tweet_ids=tweet_ids))
 
-    def get_topics(self):
-        import asyncio
-        return asyncio.run(self._store.export_topics())
+        return asyncio.run(self._store.export_articles(tweet_ids=tweet_ids))
 
 
 class _SqlalchemyExportDictAdapter:
@@ -330,32 +213,30 @@ class _SqlalchemyExportDictAdapter:
 
     def get_follows(self):
         from src.sync.infrastructure.serializers import follow_to_dict
-        return [follow_to_dict(f) for f in self._repo.get_follows()]
 
-    def get_schedule_config(self):
-        from src.sync.infrastructure.serializers import schedule_config_to_dict
-        c = self._repo.get_schedule_config()
-        return schedule_config_to_dict(c) if c is not None else None
+        return [follow_to_dict(f) for f in self._repo.get_follows()]
 
     def get_tweets(self, since=None, until=None, authors=None):
         from src.sync.infrastructure.serializers import tweet_to_dict
-        return [tweet_to_dict(t) for t in self._repo.get_tweets(since=since, until=until, authors=authors)]
+
+        return [
+            tweet_to_dict(t)
+            for t in self._repo.get_tweets(since=since, until=until, authors=authors)
+        ]
 
     def get_summaries(self, tweet_ids=None):
         from src.sync.infrastructure.serializers import summary_to_dict
+
         return [summary_to_dict(s) for s in self._repo.get_summaries(tweet_ids=tweet_ids)]
 
     def get_articles(self, tweet_ids=None):
         from src.sync.infrastructure.serializers import article_to_dict
-        return [article_to_dict(a) for a in self._repo.get_articles(tweet_ids=tweet_ids)]
 
-    def get_topics(self):
-        from src.sync.infrastructure.serializers import topic_to_dict
-        return [topic_to_dict(t) for t in self._repo.get_topics()]
+        return [article_to_dict(a) for a in self._repo.get_articles(tweet_ids=tweet_ids)]
 
 
 def get_export_repo(session=None):
-    """返回 export 门面(统一 6 方法返 dict)。file:_FileExportSyncAdapter;sqlalchemy:_SqlalchemyExportDictAdapter。"""
+    """返回 export 门面。file:_FileExportSyncAdapter;sqlalchemy:_SqlalchemyExportDictAdapter。"""
     if _data_layer() == "file":
         from src.sync.infrastructure.file_export_repository import FileExportStore
 
@@ -400,13 +281,11 @@ class _FileImportSyncAdapter:
 
     def _run(self, coro):
         import asyncio
+
         return asyncio.run(coro)
 
     def import_follows(self, items, strategy):
         return self._run(self._store.import_follows(items, strategy))
-
-    def import_schedule_config(self, item, strategy):
-        return self._run(self._store.import_schedule_config(item, strategy))
 
     def import_tweets(self, items, strategy):
         return self._run(self._store.import_tweets(items, strategy))
@@ -416,9 +295,6 @@ class _FileImportSyncAdapter:
 
     def import_articles(self, items, strategy):
         return self._run(self._store.import_articles(items, strategy))
-
-    def import_topics(self, items, strategy):
-        return self._run(self._store.import_topics(items, strategy))
 
     def close(self) -> None:
         """清理 dry_run temp 副本(非 dry_run 无副本,no-op)。"""
@@ -430,7 +306,7 @@ class _FileImportSyncAdapter:
 
 
 def get_import_repo(session=None, dry_run=False):
-    """返回 import 门面(6 方法同名同形 import_*→ImportStats)。
+    """返回 import 门面(import_*→ImportStats)。
 
     file 模式:_FileImportSyncAdapter(asyncio.run 桥;dry_run=True copytree 隔离写,真数据未动)。
     sqlalchemy 模式:旧 ImportRepository(session)(dry_run 由 import_service session.rollback 处理)。
@@ -440,21 +316,6 @@ def get_import_repo(session=None, dry_run=False):
     from src.sync.infrastructure.import_repository import ImportRepository
 
     return ImportRepository(session)
-
-
-def get_analytics_repo(session=None):
-    """返回 analytics 读门面(get_posting_frequency)。
-
-    file 模式:FileAnalyticsStore(_data_root())(忽略 session,Python 槽聚合)。
-    sqlalchemy 模式:AnalyticsService(session)(现有 SQL 不动,零行为变化)。
-    """
-    if _data_layer() == "file":
-        from src.analytics.infrastructure.file_analytics_repository import FileAnalyticsStore
-
-        return FileAnalyticsStore(_data_root())
-    from src.analytics.services.analytics_service import AnalyticsService
-
-    return AnalyticsService(session)
 
 
 def get_browse_repo(session=None):
@@ -523,7 +384,7 @@ def get_scraper_stats_repo(session=None):
 
 
 def get_status_repo(session=None):
-    """返回 status 统计读门面(get_tweet_stats / get_follow_stats / get_summary_stats / get_topic_stats)。
+    """返回 status 统计读门面(get_tweet_stats / get_follow_stats / get_summary_stats)。
 
     file 模式:FileStatusReadStore(_data_root())(组合 file store 在 Python 槽 count/max/反连接,忽略 session)。
     sqlalchemy 模式:SqlalchemyStatusReadStore(session)(薄 wrapper 转调旧 _get_*_stats,SQL 字节零变化)。

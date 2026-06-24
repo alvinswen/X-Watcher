@@ -60,11 +60,6 @@ class ExportService:
             data["content"] = content_data
             counts.update(content_counts)
 
-        if SyncCategory.topics in categories:
-            topics_data, topics_counts = self._export_topics()
-            data["topics"] = topics_data
-            counts.update(topics_counts)
-
         metadata = ExportMetadata(
             exported_at=datetime.now(timezone.utc),
             source_instance_id=instance_id,
@@ -77,19 +72,11 @@ class ExportService:
 
     def _export_config(self) -> tuple[dict, dict[str, int]]:
         follows = self._repo.get_follows()
-        schedule = self._repo.get_schedule_config()
 
         config_data: dict = {
             "scraper_follows": follows,
         }
         counts = {"scraper_follows": len(follows)}
-
-        if schedule:
-            config_data["scraper_schedule_config"] = schedule
-            counts["scraper_schedule_config"] = 1
-        else:
-            config_data["scraper_schedule_config"] = None
-            counts["scraper_schedule_config"] = 0
 
         return config_data, counts
 
@@ -116,11 +103,3 @@ class ExportService:
             "articles": len(articles),
         }
         return content_data, counts
-
-    def _export_topics(self) -> tuple[dict, dict[str, int]]:
-        topics = self._repo.get_topics()
-        topics_data = {
-            "topics": topics,
-        }
-        counts = {"topics": len(topics)}
-        return topics_data, counts

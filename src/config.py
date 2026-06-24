@@ -23,37 +23,24 @@ class Settings(BaseSettings):
     # 注意：LLM_*_API_KEY / LLM_*_MODEL 等变量由 LLMProviderConfig.from_env() 独立处理，
     # 不经过 Settings 类。旧格式（OPENROUTER_API_KEY 等）由各 provider Config.from_env() 读取。
     llm_providers: str = Field(
-        default="",
-        description="LLM 提供商优先级列表（逗号分隔，如 openrouter,deepseek）"
+        default="", description="LLM 提供商优先级列表（逗号分隔，如 openrouter,deepseek）"
     )
 
     # X 平台 API 配置
     twitter_api_key: str = Field(..., description="X 平台 API 密钥")
     twitter_bearer_token: str = Field(..., description="X 平台 Bearer 令牌")
     twitter_base_url: str = Field(
-        default="https://api.twitterapi.io/twitter",
-        description="TwitterAPI.io 基础地址"
+        default="https://api.twitterapi.io/twitter", description="TwitterAPI.io 基础地址"
     )
 
     # 抓取器配置
-    scraper_enabled: bool = Field(
-        default=True, description="是否启用定时抓取"
-    )
-    scraper_interval: int = Field(
-        default=43200, description="抓取间隔（秒），默认 12 小时"
-    )
-    scraper_usernames: str = Field(
-        default="", description="关注用户列表（逗号分隔）"
-    )
-    scraper_limit: int = Field(
-        default=30, ge=1, le=1000, description="单次抓取推文数量限制"
-    )
+    scraper_enabled: bool = Field(default=True, description="是否启用定时抓取")
+    scraper_interval: int = Field(default=43200, description="抓取间隔（秒），默认 12 小时")
+    scraper_usernames: str = Field(default="", description="关注用户列表（逗号分隔）")
+    scraper_limit: int = Field(default=30, ge=1, le=1000, description="单次抓取推文数量限制")
 
     # 数据库配置
-    database_url: str = Field(
-        default="sqlite:///./news_agent.db",
-        description="数据库连接地址"
-    )
+    database_url: str = Field(default="sqlite:///./news_agent.db", description="数据库连接地址")
 
     # 日志配置
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
@@ -74,105 +61,75 @@ class Settings(BaseSettings):
         description="单个日志文件最大字节数（默认 50MB）",
     )
     log_file_backup_count: int = Field(
-        default=5, ge=0, le=20,
+        default=5,
+        ge=0,
+        le=20,
         description="日志文件备份数量",
     )
 
     # 监控配置
-    prometheus_enabled: bool = Field(
-        default=True, description="是否启用 Prometheus 监控"
-    )
+    prometheus_enabled: bool = Field(default=True, description="是否启用 Prometheus 监控")
 
     # 管理员 API 配置
     admin_api_key: str | None = Field(
-        default=None,
-        description="管理员 API Key，用于管理员 API 认证"
+        default=None, description="管理员 API Key，用于管理员 API 认证"
     )
 
     # JWT 认证配置
-    jwt_secret_key: str = Field(
-        default="change-me-in-production",
-        description="JWT 签名密钥"
-    )
-    jwt_expire_hours: int = Field(
-        default=24,
-        description="JWT 过期时间（小时）"
-    )
+    jwt_secret_key: str = Field(default="change-me-in-production", description="JWT 签名密钥")
+    jwt_expire_hours: int = Field(default=24, description="JWT 过期时间（小时）")
 
     # Claude Code 翻译/摘要接管模型名（写入 provenance 元数据）
     claude_code_model_name: str = Field(
         default="claude-opus-4-7",
-        description="Claude Code 翻译/摘要接管时写入数据库的模型名（model_name / llm_model 字段）"
+        description="Claude Code 翻译/摘要接管时写入数据库的模型名（model_name / llm_model 字段）",
     )
 
     # 自动摘要配置
-    auto_summarization_enabled: bool = Field(
-        default=True,
-        description="是否在抓取后自动生成摘要"
-    )
+    auto_summarization_enabled: bool = Field(default=True, description="是否在抓取后自动生成摘要")
     auto_summarization_wait_for_completion: bool = Field(
-        default=False,
-        description="是否等待摘要完成再标记抓取任务完成（False 为后台模式）"
+        default=False, description="是否等待摘要完成再标记抓取任务完成（False 为后台模式）"
     )
     auto_summarization_batch_size: int = Field(
-        default=50,
-        ge=1,
-        le=500,
-        description="自动摘要批次大小"
+        default=50, ge=1, le=500, description="自动摘要批次大小"
     )
 
     # 动态 limit 配置
     scraper_min_limit: int = Field(
-        default=5, ge=1, le=100,
-        description="动态 limit 最小值（退避下限）"
+        default=5, ge=1, le=100, description="动态 limit 最小值（退避下限）"
     )
     scraper_max_limit: int = Field(
-        default=300, ge=100, le=1000,
-        description="动态 limit 最大值（上限保护）"
+        default=300, ge=100, le=1000, description="动态 limit 最大值（上限保护）"
     )
     scraper_ema_alpha: float = Field(
-        default=0.3, ge=0.1, le=0.9,
-        description="EMA 平滑系数，越大越重视近期数据"
+        default=0.3, ge=0.1, le=0.9, description="EMA 平滑系数，越大越重视近期数据"
     )
     scraper_early_stop_threshold: int = Field(
-        default=5, ge=0, le=50,
-        description="连续已存在推文阈值，达到后提前终止（0 禁用）"
+        default=5, ge=0, le=50, description="连续已存在推文阈值，达到后提前终止（0 禁用）"
     )
     scraper_max_extra_pages: int = Field(
-        default=3, ge=0, le=20,
-        description="增量抓取满页时自动翻页的最大额外页数（0 禁用）"
-    )
-
-    # 调度器日志配置
-    scheduler_log_retention_days: int = Field(
-        default=30, ge=1, le=365,
-        description="调度器执行日志保留天数"
+        default=3, ge=0, le=20, description="增量抓取满页时自动翻页的最大额外页数（0 禁用）"
     )
 
     # 任务超时配置
     task_max_running_seconds: int = Field(
-        default=1800, ge=60, le=7200,
-        description="任务最大运行时长（秒），超时后自动标记为失败。默认 30 分钟"
+        default=1800,
+        ge=60,
+        le=7200,
+        description="任务最大运行时长（秒），超时后自动标记为失败。默认 30 分钟",
     )
 
     # Feed API 配置
     feed_max_tweets: int = Field(
-        default=200,
-        ge=1,
-        le=1000,
-        description="Feed API 单次最大返回推文数量"
+        default=200, ge=1, le=1000, description="Feed API 单次最大返回推文数量"
     )
 
     # TwitterAPI.io 余额告警阈值（按 recharge_credits 数值，默认每次抓取约 100 credits）
     twitter_balance_warning_threshold: int = Field(
-        default=50000,
-        ge=0,
-        description="余额低于此值时前端显示黄色告警（默认约 2 天用量）"
+        default=50000, ge=0, description="余额低于此值时前端显示黄色告警（默认约 2 天用量）"
     )
     twitter_balance_danger_threshold: int = Field(
-        default=10000,
-        ge=0,
-        description="余额低于此值时前端显示红色告警（默认约半天用量）"
+        default=10000, ge=0, description="余额低于此值时前端显示红色告警（默认约半天用量）"
     )
 
     model_config = SettingsConfigDict(

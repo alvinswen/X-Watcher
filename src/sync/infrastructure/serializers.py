@@ -7,8 +7,8 @@
 from datetime import datetime, timezone
 from typing import Any
 
-
 # ── 工具函数 ──────────────────────────────────────────────────
+
 
 def _dt_to_iso(dt: datetime | None) -> str | None:
     """datetime → ISO 8601 字符串。"""
@@ -39,6 +39,7 @@ def _iso_to_naive_dt(s: str | None) -> datetime | None:
 
 # ── ScraperFollow ─────────────────────────────────────────────
 
+
 def follow_to_dict(orm) -> dict[str, Any]:
     return {
         "username": orm.username,
@@ -58,7 +59,8 @@ def dict_to_follow(d: dict[str, Any]) -> dict[str, Any]:
     """dict → ScraperFollow 构造参数。"""
     return {
         "username": d["username"],
-        "added_at": _iso_to_naive_dt(d.get("added_at")) or datetime.now(timezone.utc).replace(tzinfo=None),
+        "added_at": _iso_to_naive_dt(d.get("added_at"))
+        or datetime.now(timezone.utc).replace(tzinfo=None),
         "reason": d.get("reason", ""),
         "added_by": d.get("added_by", "import"),
         "is_active": d.get("is_active", True),
@@ -70,29 +72,8 @@ def dict_to_follow(d: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-# ── ScraperScheduleConfig ────────────────────────────────────
-
-def schedule_config_to_dict(orm) -> dict[str, Any]:
-    return {
-        "interval_seconds": orm.interval_seconds,
-        "next_run_time": _dt_to_iso(orm.next_run_time),
-        "is_enabled": orm.is_enabled,
-        "updated_at": _dt_to_iso(orm.updated_at),
-        "updated_by": orm.updated_by,
-    }
-
-
-def dict_to_schedule_config(d: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "interval_seconds": d.get("interval_seconds", 43200),
-        "next_run_time": _iso_to_naive_dt(d.get("next_run_time")),
-        "is_enabled": d.get("is_enabled", True),
-        "updated_at": _iso_to_naive_dt(d.get("updated_at")) or datetime.now(timezone.utc).replace(tzinfo=None),
-        "updated_by": d.get("updated_by", "import"),
-    }
-
-
 # ── TweetOrm ─────────────────────────────────────────────────
+
 
 def tweet_to_dict(orm) -> dict[str, Any]:
     return {
@@ -129,6 +110,7 @@ def dict_to_tweet(d: dict[str, Any]) -> dict[str, Any]:
 
 
 # ── SummaryOrm ────────────────────────────────────────────────
+
 
 def summary_to_dict(orm) -> dict[str, Any]:
     return {
@@ -170,6 +152,7 @@ def dict_to_summary(d: dict[str, Any]) -> dict[str, Any]:
 
 # ── ArticleOrm ────────────────────────────────────────────────
 
+
 def article_to_dict(orm) -> dict[str, Any]:
     return {
         "tweet_id": orm.tweet_id,
@@ -193,62 +176,4 @@ def dict_to_article(d: dict[str, Any]) -> dict[str, Any]:
         "content_html": d.get("content_html"),
         "author_username": d.get("author_username"),
         "fetched_at": _iso_to_dt(d.get("fetched_at")),
-    }
-
-
-# ── Topics（嵌套结构）────────────────────────────────────────
-
-def topic_to_dict(orm) -> dict[str, Any]:
-    """将 TopicOrm 及其关联的 accounts、summary_tasks 转为嵌套 dict。
-
-    注意：调用方需确保 accounts 和 summary_tasks 关系已加载。
-    """
-    accounts = [a.username for a in orm.accounts] if orm.accounts else []
-
-    summary_tasks = []
-    if orm.summary_tasks:
-        for task in orm.summary_tasks:
-            task_dict: dict[str, Any] = {
-                "time_span_hours": task.time_span_hours,
-                "deadline": _dt_to_iso(task.deadline),
-                "custom_prompt": task.custom_prompt,
-                "tz_offset": task.tz_offset,
-                "status": task.status,
-                "error_message": task.error_message,
-                "created_at": _dt_to_iso(task.created_at),
-                "started_at": _dt_to_iso(task.started_at),
-                "completed_at": _dt_to_iso(task.completed_at),
-            }
-            if task.summary:
-                task_dict["summary"] = {
-                    "content": task.summary.content,
-                    "llm_provider": task.summary.llm_provider,
-                    "llm_model": task.summary.llm_model,
-                    "prompt_tokens": task.summary.prompt_tokens,
-                    "completion_tokens": task.summary.completion_tokens,
-                    "total_tokens": task.summary.total_tokens,
-                    "cost_usd": task.summary.cost_usd,
-                    "tweet_count": task.summary.tweet_count,
-                    "account_count": task.summary.account_count,
-                    "created_at": _dt_to_iso(task.summary.created_at),
-                }
-            else:
-                task_dict["summary"] = None
-            summary_tasks.append(task_dict)
-
-    return {
-        "name": orm.name,
-        "description": orm.description,
-        "accounts": accounts,
-        "summary_tasks": summary_tasks,
-    }
-
-
-def dict_to_topic(d: dict[str, Any]) -> dict[str, Any]:
-    """嵌套 dict → topic 构造参数（不含关联对象，由 import_repository 处理）。"""
-    return {
-        "name": d["name"],
-        "description": d.get("description"),
-        "accounts": d.get("accounts", []),
-        "summary_tasks": d.get("summary_tasks", []),
     }

@@ -15,7 +15,6 @@ class SyncCategory(str, Enum):
 
     config = "config"
     content = "content"
-    topics = "topics"
 
 
 class ConflictStrategy(str, Enum):

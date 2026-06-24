@@ -29,7 +29,7 @@ def test_health_endpoint(client):
     assert data["status"] in ("healthy", "degraded")
     assert "components" in data
     assert "database" in data["components"]
-    assert "scheduler" in data["components"]
+    assert "scheduler" not in data["components"]
 
 
 def test_cors_middleware_configured():

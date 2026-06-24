@@ -15,8 +15,6 @@ from src.database.models import ScraperFollow
 from src.database.x_user_profile_model import XUserProfileOrm
 from src.scraper.infrastructure.models import TweetOrm
 from src.summarization.infrastructure.models import SummaryOrm
-from src.topic.infrastructure.models import TopicOrm, TopicAccountOrm
-
 
 # ── 辅助 ──────────────────────────────────────────────────────────
 
@@ -149,30 +147,12 @@ async def seed_follows(async_session: AsyncSession):
     return follows
 
 
-@pytest.fixture
-async def seed_topics(async_session: AsyncSession):
-    """准备主题数据。"""
-    topic = TopicOrm(name="Crypto Watch", description="Monitor crypto KOLs")
-    async_session.add(topic)
-    await async_session.flush()
-
-    accounts = [
-        TopicAccountOrm(topic_id=topic.id, username="alice"),
-        TopicAccountOrm(topic_id=topic.id, username="bob"),
-    ]
-    async_session.add_all(accounts)
-    await async_session.commit()
-    return topic
-
-
 # ── get_feed 集成测试 ─────────────────────────────────────────────
 
 
 class TestGetFeedIntegration:
     @pytest.mark.asyncio
-    async def test_feed_returns_real_tweets(
-        self, tool_funcs, test_session_factory, seed_tweets
-    ):
+    async def test_feed_returns_real_tweets(self, tool_funcs, test_session_factory, seed_tweets):
         """测试 get_feed 从真实数据库查询推文。"""
         with patch(
             "src.database.async_session.get_async_session_maker",
@@ -188,9 +168,7 @@ class TestGetFeedIntegration:
         assert data["data"]["total"] >= 3  # 至少有 3 条在这个范围内
 
     @pytest.mark.asyncio
-    async def test_feed_filter_by_author(
-        self, tool_funcs, test_session_factory, seed_tweets
-    ):
+    async def test_feed_filter_by_author(self, tool_funcs, test_session_factory, seed_tweets):
         """测试按作者过滤 feed。"""
         with patch(
             "src.database.async_session.get_async_session_maker",
@@ -230,9 +208,7 @@ class TestSearchTweetsIntegration:
         assert data["data"]["q"] == "Bitcoin"
 
     @pytest.mark.asyncio
-    async def test_search_no_results(
-        self, tool_funcs, test_session_factory, seed_tweets
-    ):
+    async def test_search_no_results(self, tool_funcs, test_session_factory, seed_tweets):
         """测试搜索无结果时的返回。"""
         with patch(
             "src.database.async_session.get_async_session_maker",
@@ -250,18 +226,14 @@ class TestSearchTweetsIntegration:
 
 class TestBrowseIntegration:
     @pytest.mark.asyncio
-    async def test_daily_stats_with_real_data(
-        self, tool_funcs, test_session_factory, seed_tweets
-    ):
+    async def test_daily_stats_with_real_data(self, tool_funcs, test_session_factory, seed_tweets):
         """测试真实数据的每日统计。"""
         with patch(
             "src.database.async_session.get_async_session_maker",
             return_value=test_session_factory,
         ):
             # 使用 tz_offset=0 (UTC) 简化测试
-            result = await tool_funcs["get_daily_stats"](
-                year=2026, month=2, tz_offset=0
-            )
+            result = await tool_funcs["get_daily_stats"](year=2026, month=2, tz_offset=0)
 
         data = json.loads(result)
         assert data["success"] is True
@@ -279,9 +251,7 @@ class TestBrowseIntegration:
             "src.database.async_session.get_async_session_maker",
             return_value=test_session_factory,
         ):
-            result = await tool_funcs["browse_tweets"](
-                date="2026-02-20", tz_offset=0
-            )
+            result = await tool_funcs["browse_tweets"](date="2026-02-20", tz_offset=0)
 
         data = json.loads(result)
         assert data["success"] is True
@@ -289,80 +259,12 @@ class TestBrowseIntegration:
         assert data["data"]["date"] == "2026-02-20"
 
 
-# ── topic 集成测试 ────────────────────────────────────────────────
-
-
-class TestTopicIntegration:
-    @pytest.mark.asyncio
-    async def test_list_topics_with_real_data(
-        self, tool_funcs, test_session_factory, seed_topics
-    ):
-        """测试列出真实主题。"""
-        with patch(
-            "src.database.async_session.get_async_session_maker",
-            return_value=test_session_factory,
-        ):
-            result = await tool_funcs["list_topics"]()
-
-        data = json.loads(result)
-        assert data["success"] is True
-        assert data["data"]["count"] >= 1
-        topic_names = [t["name"] for t in data["data"]["topics"]]
-        assert "Crypto Watch" in topic_names
-
-    @pytest.mark.asyncio
-    async def test_get_topic_detail(
-        self, tool_funcs, test_session_factory, seed_topics
-    ):
-        """测试获取主题详情。"""
-        with patch(
-            "src.database.async_session.get_async_session_maker",
-            return_value=test_session_factory,
-        ):
-            result = await tool_funcs["get_topic"](topic_id=seed_topics.id)
-
-        data = json.loads(result)
-        assert data["success"] is True
-        assert data["data"]["name"] == "Crypto Watch"
-        assert len(data["data"]["accounts"]) == 2
-
-    @pytest.mark.asyncio
-    async def test_manage_topic_create_and_delete(
-        self, tool_funcs, test_session_factory, seed_topics
-    ):
-        """测试创建和删除主题的完整流程。"""
-        with patch(
-            "src.database.async_session.get_async_session_maker",
-            return_value=test_session_factory,
-        ):
-            # 创建新主题
-            create_result = await tool_funcs["manage_topic"](
-                action="create",
-                name="AI Research",
-                description="Monitor AI researchers",
-            )
-            create_data = json.loads(create_result)
-            assert create_data["success"] is True
-            assert create_data["data"]["action"] == "created"
-            new_id = create_data["data"]["topic"]["id"]
-
-            # 删除
-            delete_result = await tool_funcs["manage_topic"](
-                action="delete", topic_id=new_id
-            )
-            delete_data = json.loads(delete_result)
-            assert delete_data["success"] is True
-            assert delete_data["data"]["action"] == "deleted"
-
-
 # ── admin 工具集成测试 ────────────────────────────────────────────
 
 
 class TestAdminToolsIntegration:
     @pytest.mark.asyncio
-    async def test_manage_follows_list(
-        self, tool_funcs, test_session_factory, seed_follows
-    ):
+    async def test_manage_follows_list(self, tool_funcs, test_session_factory, seed_follows):
         """测试列出关注列表。"""
         with (
             patch(
@@ -393,9 +295,7 @@ class TestAdminToolsIntegration:
             ),
             patch("src.mcp.tools.admin_tools.require_admin", return_value=None),
         ):
-            result = await tool_funcs["manage_follows"](
-                action="list", include_inactive=True
-            )
+            result = await tool_funcs["manage_follows"](action="list", include_inactive=True)
 
         data = json.loads(result)
         assert data["success"] is True
@@ -474,9 +374,7 @@ class TestFollowAccountsInfoIntegration:
             ),
             patch("src.mcp.tools.admin_tools.require_admin", return_value=None),
         ):
-            result = await tool_funcs["get_follow_accounts_info"](
-                info_type="profiles"
-            )
+            result = await tool_funcs["get_follow_accounts_info"](info_type="profiles")
 
         data = json.loads(result)
         assert data["success"] is True, f"profiles 查询失败: {data.get('error')}"
@@ -509,29 +407,20 @@ class TestToolRegistration:
             "browse_tweets",
             "get_system_status",
             "get_audit_log",
-            # Phase 2: Topic + Analytics (6)
-            "list_topics",
-            "get_topic",
-            "manage_topic",
-            "manage_topic_accounts",
-            "get_topic_summary",
-            "get_posting_frequency",
-            # Phase 3: Admin (7)
+            # Admin
             "manage_follows",
             "trigger_scrape",
             "trigger_backfill",
             "get_task_status",
-            "manage_scheduler",
             "batch_summarize",
             "get_follow_accounts_info",
-            # Phase 3: Summarization (2)
+            # Summarization
             "get_unsummarized_tweets",
             "save_summaries",
-            # Claude Code topic summary (2)
-            "get_topic_tweets_for_summary",
-            "save_topic_summary",
         }
-        assert expected == tool_names, f"差异: 多余={tool_names - expected}, 缺少={expected - tool_names}"
+        assert (
+            expected == tool_names
+        ), f"差异: 多余={tool_names - expected}, 缺少={expected - tool_names}"
 
     def test_all_resources_registered(self):
         """验证全部资源已注册。"""
@@ -542,11 +431,10 @@ class TestToolRegistration:
         expected = {
             "xwatcher://status",
             "xwatcher://follows",
-            "xwatcher://topics",
             "xwatcher://config",
             "xwatcher://recipes/daily-summary",
             "xwatcher://recipes/claude-code-summarize",
-            "xwatcher://recipes/claude-code-topic-summary",
-            "xwatcher://recipes/claude-code-topic-review",
         }
-        assert expected == resource_uris, f"差异: 多余={resource_uris - expected}, 缺少={expected - resource_uris}"
+        assert (
+            expected == resource_uris
+        ), f"差异: 多余={resource_uris - expected}, 缺少={expected - resource_uris}"

@@ -14,23 +14,21 @@ def test_get_export_repo_default_is_sqlalchemy_dict_adapter(monkeypatch):
     monkeypatch.delenv("XWATCHER_DATA_LAYER", raising=False)
     from src.data_layer.provider import get_export_repo, _SqlalchemyExportDictAdapter
 
-    repo = get_export_repo(session=None)   # 套 ExportRepository(None),不触 DB
+    repo = get_export_repo(session=None)  # 套 ExportRepository(None),不触 DB
     assert isinstance(repo, _SqlalchemyExportDictAdapter)
 
 
 def test_file_export_adapter_returns_dicts(monkeypatch, tmp_path):
-    """file 适配器 get_* 返 dict(空 data_root→空 list / schedule None)。"""
+    """file 适配器 get_* 返 dict(空 data_root→空 list)。"""
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     from src.data_layer.provider import get_export_repo
 
     repo = get_export_repo(session=None)
     assert repo.get_follows() == []
-    assert repo.get_schedule_config() is None
     assert repo.get_tweets(since=None, until=None, authors=None) == []
     assert repo.get_summaries(tweet_ids=None) == []
     assert repo.get_articles(tweet_ids=None) == []
-    assert repo.get_topics() == []
 
 
 def test_get_import_repo_file_mode(monkeypatch, tmp_path):
@@ -47,7 +45,7 @@ def test_get_import_repo_default_is_sqlalchemy(monkeypatch):
     from src.data_layer.provider import get_import_repo
     from src.sync.infrastructure.import_repository import ImportRepository
 
-    repo = get_import_repo(session=None, dry_run=False)   # ImportRepository(None),不触 DB
+    repo = get_import_repo(session=None, dry_run=False)  # ImportRepository(None),不触 DB
     assert isinstance(repo, ImportRepository)
 
 
@@ -76,6 +74,6 @@ def test_file_import_adapter_dry_run_does_not_persist(monkeypatch, tmp_path):
     repo = get_import_repo(session=None, dry_run=True)
     item = {"username": "bob", "is_active": True, "added_by": "t", "reason": "r"}
     stats = repo.import_follows([item], ConflictStrategy.skip)
-    assert stats.inserted == 1          # 真实 stats
+    assert stats.inserted == 1  # 真实 stats
     repo.close()
-    assert not (tmp_path / "follows" / "follows.json").exists()   # 真 data_root 未落地
+    assert not (tmp_path / "follows" / "follows.json").exists()  # 真 data_root 未落地

@@ -5,16 +5,10 @@ from datetime import datetime, timezone
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from src.database.models import Base, ScraperFollow, ScraperScheduleConfig
+from src.database.models import Base, ScraperFollow
 from src.scraper.infrastructure.article_models import ArticleOrm
 from src.scraper.infrastructure.models import TweetOrm
 from src.summarization.infrastructure.models import SummaryOrm
-from src.topic.infrastructure.models import (
-    TopicAccountOrm,
-    TopicOrm,
-    TopicSummaryOrm,
-    TopicSummaryTaskOrm,
-)
 from src.sync.domain.models import SyncCategory
 from src.sync.services.export_service import ExportService
 
@@ -44,16 +38,6 @@ def _seed_data(session: Session) -> None:
             added_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
         )
     )
-    session.add(
-        ScraperScheduleConfig(
-            id=1,
-            interval_seconds=43200,
-            is_enabled=True,
-            updated_by="admin",
-            updated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
-        )
-    )
-
     # Content
     session.add(
         TweetOrm(
@@ -94,29 +78,6 @@ def _seed_data(session: Session) -> None:
         )
     )
 
-    # Topics
-    topic = TopicOrm(name="AI", description="AI Research")
-    session.add(topic)
-    session.flush()
-
-    session.add(TopicAccountOrm(topic_id=topic.id, username="alice"))
-    task = TopicSummaryTaskOrm(
-        topic_id=topic.id,
-        time_span_hours=24,
-        deadline=datetime(2026, 2, 2, tzinfo=timezone.utc),
-        status="completed",
-    )
-    session.add(task)
-    session.flush()
-
-    session.add(
-        TopicSummaryOrm(
-            task_id=task.id,
-            content="AI summary content",
-            llm_provider="openrouter",
-            llm_model="gpt-4",
-        )
-    )
     session.commit()
 
 
@@ -131,25 +92,19 @@ class TestExportService:
             pkg = svc.export(instance_id="test-server")
 
         assert pkg.metadata.source_instance_id == "test-server"
-        assert set(pkg.metadata.categories) == {"config", "content", "topics"}
+        assert set(pkg.metadata.categories) == {"config", "content"}
 
         # Config
         assert len(pkg.data["config"]["scraper_follows"]) == 2
-        assert pkg.data["config"]["scraper_schedule_config"] is not None
 
         # Content
         assert len(pkg.data["content"]["tweets"]) == 2
         assert len(pkg.data["content"]["summaries"]) == 1
         assert len(pkg.data["content"]["articles"]) == 1
 
-        # Topics
-        assert len(pkg.data["topics"]["topics"]) == 1
-        assert pkg.data["topics"]["topics"][0]["accounts"] == ["alice"]
-
         # Counts
         assert pkg.metadata.counts["scraper_follows"] == 2
         assert pkg.metadata.counts["tweets"] == 2
-        assert pkg.metadata.counts["topics"] == 1
 
     def test_export_single_category(self):
         engine = _make_engine()
@@ -163,7 +118,6 @@ class TestExportService:
         assert pkg.metadata.categories == ["config"]
         assert "config" in pkg.data
         assert "content" not in pkg.data
-        assert "topics" not in pkg.data
 
     def test_export_content_with_since_filter(self):
         engine = _make_engine()
@@ -204,9 +158,7 @@ class TestExportService:
         engine = _make_engine()
         with Session(engine) as session:
             svc = ExportService(session)
-            pkg = svc.export()
+        pkg = svc.export()
 
         assert len(pkg.data["config"]["scraper_follows"]) == 0
-        assert pkg.data["config"]["scraper_schedule_config"] is None
         assert len(pkg.data["content"]["tweets"]) == 0
-        assert len(pkg.data["topics"]["topics"]) == 0

@@ -13,7 +13,6 @@ from src.sync.domain.models import (
     ConflictStrategy,
     ExportPackage,
     ImportResult,
-    ImportStats,
     SyncCategory,
 )
 from src.data_layer.provider import get_import_repo
@@ -34,7 +33,7 @@ class ImportService:
     ) -> ImportResult:
         """执行导入。
 
-        按 FK 顺序处理：config → tweets → summaries → articles → topics。
+        按 FK 顺序处理：config → tweets → summaries → articles。
         每个 category 使用独立事务，单个 category 失败不影响已提交的 category。
         """
         if categories is None:
@@ -46,19 +45,10 @@ class ImportService:
 
         # 按 FK 顺序处理
         if SyncCategory.config in categories and "config" in package.data:
-            self._import_category(
-                "config", package.data["config"], strategy, dry_run, result
-            )
+            self._import_category("config", package.data["config"], strategy, dry_run, result)
 
         if SyncCategory.content in categories and "content" in package.data:
-            self._import_category(
-                "content", package.data["content"], strategy, dry_run, result
-            )
-
-        if SyncCategory.topics in categories and "topics" in package.data:
-            self._import_category(
-                "topics", package.data["topics"], strategy, dry_run, result
-            )
+            self._import_category("content", package.data["content"], strategy, dry_run, result)
 
         return result
 
@@ -78,8 +68,6 @@ class ImportService:
                 self._import_config(repo, data, strategy, result)
             elif category == "content":
                 self._import_content(repo, data, strategy, result)
-            elif category == "topics":
-                self._import_topics(repo, data, strategy, result)
 
             if dry_run:
                 session.rollback()
@@ -96,7 +84,7 @@ class ImportService:
 
     def _import_config(
         self,
-        repo: ImportRepository,
+        repo: Any,
         data: dict[str, Any],
         strategy: ConflictStrategy,
         result: ImportResult,
@@ -105,15 +93,9 @@ class ImportService:
         if follows:
             result.stats["scraper_follows"] = repo.import_follows(follows, strategy)
 
-        schedule = data.get("scraper_schedule_config")
-        if schedule is not None:
-            result.stats["scraper_schedule_config"] = repo.import_schedule_config(
-                schedule, strategy
-            )
-
     def _import_content(
         self,
-        repo: ImportRepository,
+        repo: Any,
         data: dict[str, Any],
         strategy: ConflictStrategy,
         result: ImportResult,
@@ -130,14 +112,3 @@ class ImportService:
         articles = data.get("articles", [])
         if articles:
             result.stats["articles"] = repo.import_articles(articles, strategy)
-
-    def _import_topics(
-        self,
-        repo: ImportRepository,
-        data: dict[str, Any],
-        strategy: ConflictStrategy,
-        result: ImportResult,
-    ) -> None:
-        topics = data.get("topics", [])
-        if topics:
-            result.stats["topics"] = repo.import_topics(topics, strategy)

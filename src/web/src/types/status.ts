@@ -20,20 +20,6 @@ export interface SummariesStatus {
   pending_tweets: number
 }
 
-/** 主题统计 */
-export interface TopicsStatus {
-  total: number
-  latest_summary_at: string | null
-  latest_summary_status: string | null
-}
-
-/** 调度器状态 */
-export interface SchedulerStatus {
-  status: string
-  next_run_time: string | null
-  interval_seconds: number
-}
-
 /** 系统信息 */
 export interface SystemStatus {
   server_start_time: string | null
@@ -45,8 +31,6 @@ export interface StatusOverviewResponse {
   tweets: TweetsStatus
   follows: FollowsStatus
   summaries: SummariesStatus
-  topics: TopicsStatus
-  scheduler: SchedulerStatus
   system: SystemStatus
 }
 

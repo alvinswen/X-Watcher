@@ -5,7 +5,6 @@
 
 import asyncio
 import logging
-from datetime import datetime, timezone
 
 from mcp.server.fastmcp import FastMCP
 
@@ -21,7 +20,7 @@ def register(mcp: FastMCP) -> None:
     async def get_system_status() -> str:
         """获取系统全局状态概览。
 
-        返回推文数、关注列表、摘要统计、主题统计、调度器状态、系统信息等关键指标。
+        返回推文数、关注列表、摘要统计、系统信息等关键指标。
         """
         try:
             from src.data_layer.provider import get_status_repo
@@ -55,39 +54,11 @@ def register(mcp: FastMCP) -> None:
                         "pending_tweets": stats.pending_tweets,
                     }
 
-            async def _topic_stats():
-                async with session_maker() as s:
-                    stats = await get_status_repo(s).get_topic_stats()
-                    return {
-                        "total": stats.total,
-                        "latest_summary_at": stats.latest_summary_at,
-                        "latest_summary_status": stats.latest_summary_status,
-                    }
-
-            tweets, follows, summaries, topics = await asyncio.gather(
+            tweets, follows, summaries = await asyncio.gather(
                 _tweet_stats(),
                 _follow_stats(),
                 _summary_stats(),
-                _topic_stats(),
             )
-
-            # 调度器状态（MCP 进程不启动调度器，查询 DB 配置）
-            scheduler_info = {"status": "not_running_in_mcp"}
-            try:
-                from src.data_layer.provider import get_schedule_repo
-
-                async with session_maker() as s:
-                    repo = get_schedule_repo(s)
-                    config = await repo.get_schedule_config()
-                    if config:
-                        scheduler_info = {
-                            "status": "enabled" if config.is_enabled else "disabled",
-                            "interval_seconds": config.interval_seconds,
-                            "next_run_time": config.next_run_time,
-                            "note": "调度器在 FastAPI 服务中运行，MCP 仅显示配置",
-                        }
-            except Exception:
-                pass
 
             # 系统信息
             from src.database.dialect import get_database_size_mb
@@ -104,18 +75,18 @@ def register(mcp: FastMCP) -> None:
             except Exception:
                 external_deps["twitter_api"] = {"state": "unknown"}
 
-            return success_response({
-                "tweets": tweets,
-                "follows": follows,
-                "summaries": summaries,
-                "topics": topics,
-                "scheduler": scheduler_info,
-                "external_dependencies": external_deps,
-                "system": {
-                    "database_size_mb": database_size_mb,
-                    "mcp_mode": True,
-                },
-            })
+            return success_response(
+                {
+                    "tweets": tweets,
+                    "follows": follows,
+                    "summaries": summaries,
+                    "external_dependencies": external_deps,
+                    "system": {
+                        "database_size_mb": database_size_mb,
+                        "mcp_mode": True,
+                    },
+                }
+            )
         except Exception as e:
             logger.error("get_system_status 失败: %s", e, exc_info=True)
             return error_response(f"获取系统状态失败: {e}")
@@ -142,11 +113,13 @@ def register(mcp: FastMCP) -> None:
 
             if is_file_mode():
                 # file 模式:审计仅文件日志,无 DB 持久化可查 → 返空结构(沿现有形态)
-                return success_response({
-                    "logs": [],
-                    "count": 0,
-                    "note": "file 模式审计仅文件日志,无 DB 查询",
-                })
+                return success_response(
+                    {
+                        "logs": [],
+                        "count": 0,
+                        "note": "file 模式审计仅文件日志,无 DB 查询",
+                    }
+                )
 
             import json
 
@@ -177,23 +150,25 @@ def register(mcp: FastMCP) -> None:
                 result = await session.execute(query)
                 logs = result.scalars().all()
 
-                return success_response({
-                    "logs": [
-                        {
-                            "id": log.id,
-                            "timestamp": log.timestamp.isoformat() if log.timestamp else None,
-                            "tool": log.tool,
-                            "action": log.action,
-                            "user": log.user,
-                            "params": json.loads(log.params_json) if log.params_json else None,
-                            "result": log.result,
-                            "error": log.error,
-                            "source": log.source,
-                        }
-                        for log in logs
-                    ],
-                    "count": len(logs),
-                })
+                return success_response(
+                    {
+                        "logs": [
+                            {
+                                "id": log.id,
+                                "timestamp": log.timestamp.isoformat() if log.timestamp else None,
+                                "tool": log.tool,
+                                "action": log.action,
+                                "user": log.user,
+                                "params": json.loads(log.params_json) if log.params_json else None,
+                                "result": log.result,
+                                "error": log.error,
+                                "source": log.source,
+                            }
+                            for log in logs
+                        ],
+                        "count": len(logs),
+                    }
+                )
         except Exception as e:
             logger.error("get_audit_log 失败: %s", e, exc_info=True)
             return error_response(f"查询审计日志失败: {e}")

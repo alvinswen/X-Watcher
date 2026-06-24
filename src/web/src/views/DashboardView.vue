@@ -17,31 +17,13 @@
       <el-col :xs="24" :sm="12" :lg="6">
         <el-card shadow="hover" class="stat-card">
           <el-skeleton v-if="overviewLoading" :rows="1" animated />
-          <template v-else>
-            <div class="scheduler-stat">
-              <div class="stat-label">调度器状态</div>
-              <div class="stat-value">
-                <el-tag
-                  :type="overview?.scheduler.status === 'running' ? 'success' : 'danger'"
-                  size="large"
-                >
-                  {{ overview?.scheduler.status === 'running' ? '运行中' : '已停止' }}
-                </el-tag>
-              </div>
-              <div class="stat-extra" v-if="overview?.scheduler.next_run_time">
-                下次运行: {{ formatFullDateTime(overview.scheduler.next_run_time) }}
-              </div>
-              <div class="stat-extra" v-else-if="overview?.scheduler.interval_seconds">
-                间隔: {{ formatDuration(overview.scheduler.interval_seconds) }}
-              </div>
-            </div>
-          </template>
+          <el-statistic v-else title="摘要总数" :value="overview?.summaries.total ?? 0" />
         </el-card>
       </el-col>
       <el-col :xs="24" :sm="12" :lg="6">
         <el-card shadow="hover" class="stat-card">
           <el-skeleton v-if="overviewLoading" :rows="1" animated />
-          <el-statistic v-else title="摘要总数" :value="overview?.summaries.total ?? 0" />
+          <el-statistic v-else title="今日新增" :value="overview?.tweets.today_count ?? 0" />
         </el-card>
       </el-col>
     </el-row>
@@ -51,19 +33,7 @@
       <el-col :xs="24" :sm="12" :lg="6">
         <el-card shadow="hover" class="stat-card">
           <el-skeleton v-if="overviewLoading" :rows="1" animated />
-          <el-statistic v-else title="今日新增" :value="overview?.tweets.today_count ?? 0" />
-        </el-card>
-      </el-col>
-      <el-col :xs="24" :sm="12" :lg="6">
-        <el-card shadow="hover" class="stat-card">
-          <el-skeleton v-if="overviewLoading" :rows="1" animated />
           <el-statistic v-else title="待摘要推文" :value="overview?.summaries.pending_tweets ?? 0" />
-        </el-card>
-      </el-col>
-      <el-col :xs="24" :sm="12" :lg="6">
-        <el-card shadow="hover" class="stat-card">
-          <el-skeleton v-if="overviewLoading" :rows="1" animated />
-          <el-statistic v-else title="主题数量" :value="overview?.topics.total ?? 0" />
         </el-card>
       </el-col>
       <el-col :xs="24" :sm="12" :lg="6">
@@ -221,7 +191,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue"
 import { statusApi, configApi, tasksApi } from "@/api"
-import { formatRelativeTime, formatDuration, formatFullDateTime } from "@/utils/format"
+import { formatRelativeTime, formatFullDateTime } from "@/utils/format"
 import type { StatusOverviewResponse, ConfigValidateResponse } from "@/types/status"
 import type { TaskListItem } from "@/types"
 
@@ -335,25 +305,6 @@ onMounted(() => {
 
 .stat-card :deep(.el-card__body) {
   width: 100%;
-}
-
-.scheduler-stat {
-  text-align: center;
-}
-
-.stat-label {
-  font-size: 12px;
-  color: var(--el-text-color-regular);
-  margin-bottom: 4px;
-}
-
-.stat-value {
-  margin: 8px 0;
-}
-
-.stat-extra {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
 }
 
 .section-card {
