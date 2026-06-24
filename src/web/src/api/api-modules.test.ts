@@ -1,10 +1,10 @@
-/** 5 个新增 API 模块的集成测试。 */
+/** API 模块集成测试。 */
 
 import { describe, it, expect, beforeEach, vi } from "vitest"
 import type { Mocked } from "vitest"
 import type { AxiosInstance } from "axios"
 
-// --- Mock 策略 1: client（scheduler / users / summaries 共用） ---
+// --- Mock 策略 1: client（users / summaries 共用） ---
 vi.mock("./client", () => {
   const client = {
     get: vi.fn(),
@@ -25,129 +25,12 @@ vi.mock("axios", () => {
 // 导入被测模块（必须在 vi.mock 之后）
 import { client } from "./client"
 import axios from "axios"
-import { schedulerApi } from "./scheduler"
 import { usersApi } from "./users"
 import { healthApi } from "./health"
 import { summariesApi } from "./summaries"
 
 const mockedClient = client as Mocked<Pick<AxiosInstance, "get" | "post" | "put">>
 const mockedAxios = axios as Mocked<Pick<typeof axios, "get">>
-
-// ============================================================
-// schedulerApi
-// ============================================================
-describe("schedulerApi - 调度管理 API", () => {
-  beforeEach(() => {
-    vi.resetAllMocks()
-  })
-
-  it("getConfig 应发送 GET 请求到 /admin/scraping/schedule", async () => {
-    const mockData = {
-      interval_seconds: 3600,
-      next_run_time: "2025-01-01T00:00:00Z",
-      scheduler_running: true,
-      job_active: true,
-      is_enabled: true,
-      updated_at: null,
-      updated_by: null,
-      message: null,
-    }
-    mockedClient.get.mockResolvedValueOnce({ data: mockData })
-
-    const result = await schedulerApi.getConfig()
-
-    expect(mockedClient.get).toHaveBeenCalledWith("/admin/scraping/schedule")
-    expect(result).toEqual(mockData)
-  })
-
-  it("updateInterval 应发送 PUT 请求到 /admin/scraping/schedule/interval 并携带请求体", async () => {
-    const requestData = { interval_seconds: 3600 }
-    const mockData = {
-      interval_seconds: 3600,
-      next_run_time: null,
-      scheduler_running: true,
-      job_active: true,
-      is_enabled: true,
-      updated_at: "2025-01-01T00:00:00Z",
-      updated_by: "admin",
-      message: null,
-    }
-    mockedClient.put.mockResolvedValueOnce({ data: mockData })
-
-    const result = await schedulerApi.updateInterval(requestData)
-
-    expect(mockedClient.put).toHaveBeenCalledWith(
-      "/admin/scraping/schedule/interval",
-      requestData,
-    )
-    expect(result).toEqual(mockData)
-  })
-
-  it("updateNextRun 应发送 PUT 请求到 /admin/scraping/schedule/next-run 并携带请求体", async () => {
-    const requestData = { next_run_time: "2025-06-01T12:00:00Z" }
-    const mockData = {
-      interval_seconds: 3600,
-      next_run_time: "2025-06-01T12:00:00Z",
-      scheduler_running: true,
-      job_active: true,
-      is_enabled: true,
-      updated_at: "2025-01-01T00:00:00Z",
-      updated_by: "admin",
-      message: null,
-    }
-    mockedClient.put.mockResolvedValueOnce({ data: mockData })
-
-    const result = await schedulerApi.updateNextRun(requestData)
-
-    expect(mockedClient.put).toHaveBeenCalledWith(
-      "/admin/scraping/schedule/next-run",
-      requestData,
-    )
-    expect(result).toEqual(mockData)
-  })
-
-  it("enable 应发送 POST 请求到 /admin/scraping/schedule/enable", async () => {
-    const mockData = {
-      interval_seconds: 3600,
-      next_run_time: "2025-01-01T01:00:00Z",
-      scheduler_running: true,
-      job_active: true,
-      is_enabled: true,
-      updated_at: "2025-01-01T00:00:00Z",
-      updated_by: "admin",
-      message: "调度已启用",
-    }
-    mockedClient.post.mockResolvedValueOnce({ data: mockData })
-
-    const result = await schedulerApi.enable()
-
-    expect(mockedClient.post).toHaveBeenCalledWith(
-      "/admin/scraping/schedule/enable",
-    )
-    expect(result).toEqual(mockData)
-  })
-
-  it("disable 应发送 POST 请求到 /admin/scraping/schedule/disable", async () => {
-    const mockData = {
-      interval_seconds: 3600,
-      next_run_time: null,
-      scheduler_running: true,
-      job_active: false,
-      is_enabled: false,
-      updated_at: "2025-01-01T00:00:00Z",
-      updated_by: "admin",
-      message: "调度已禁用",
-    }
-    mockedClient.post.mockResolvedValueOnce({ data: mockData })
-
-    const result = await schedulerApi.disable()
-
-    expect(mockedClient.post).toHaveBeenCalledWith(
-      "/admin/scraping/schedule/disable",
-    )
-    expect(result).toEqual(mockData)
-  })
-})
 
 // ============================================================
 // usersApi
@@ -228,7 +111,6 @@ describe("healthApi - 健康检查 API", () => {
       status: "healthy" as const,
       components: {
         database: { status: "healthy" as const },
-        scheduler: { status: "healthy" as const },
       },
     }
     mockedAxios.get.mockResolvedValueOnce({ data: mockData })
@@ -316,4 +198,3 @@ describe("summariesApi - 摘要 API", () => {
     expect(result).toEqual(mockData)
   })
 })
-

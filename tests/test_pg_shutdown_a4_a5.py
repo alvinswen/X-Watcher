@@ -17,8 +17,6 @@ owner 定 A4 = accept-no-persist(file 模式跳过 pg 写、守卫读侧返空;a
 import asyncio
 import json
 
-import pytest
-
 
 # ---------------------------------------------------------------------------
 # A4-1. 写侧 file 跳过:_persist_task 早返,不碰 get_engine
@@ -31,7 +29,9 @@ def test_persist_task_skips_in_file_mode(monkeypatch):
 
     calls = {"n": 0}
     # 注意:原逻辑 try/except 会吞 AssertionError → 不能用抛异常 spy,必须计数断言
-    monkeypatch.setattr(models_mod, "get_engine", lambda *a, **k: calls.__setitem__("n", calls["n"] + 1))
+    monkeypatch.setattr(
+        models_mod, "get_engine", lambda *a, **k: calls.__setitem__("n", calls["n"] + 1)
+    )
 
     from src.scraper.task_registry import TaskRegistry, TaskStatus
 
@@ -137,13 +137,17 @@ def test_persist_audit_log_skips_in_file_mode(monkeypatch):
     import src.database.models as models_mod
 
     calls = {"n": 0}
-    monkeypatch.setattr(models_mod, "get_engine", lambda *a, **k: calls.__setitem__("n", calls["n"] + 1))
+    monkeypatch.setattr(
+        models_mod, "get_engine", lambda *a, **k: calls.__setitem__("n", calls["n"] + 1)
+    )
 
     from datetime import datetime, timezone
 
     from src.mcp.security import _persist_audit_log
 
-    _persist_audit_log("tool", "act", "user", None, "success", None, "mcp", datetime.now(timezone.utc))
+    _persist_audit_log(
+        "tool", "act", "user", None, "success", None, "mcp", datetime.now(timezone.utc)
+    )
     assert calls["n"] == 0, "file 模式 _persist_audit_log 不应调用 get_engine(早返)"
 
 
@@ -165,28 +169,10 @@ def test_persist_audit_log_calls_get_engine_in_sqlalchemy_mode(monkeypatch):
 
     from src.mcp.security import _persist_audit_log
 
-    _persist_audit_log("tool", "act", "user", None, "success", None, "mcp", datetime.now(timezone.utc))
+    _persist_audit_log(
+        "tool", "act", "user", None, "success", None, "mcp", datetime.now(timezone.utc)
+    )
     assert calls["n"] == 1
-
-
-# ---------------------------------------------------------------------------
-# A4-2. 读侧 file 返空:get_task_history 返 []、不开 session
-# ---------------------------------------------------------------------------
-def test_get_task_history_returns_empty_in_file_mode(monkeypatch):
-    """file 模式:get_task_history 返 [],不调 get_async_session_maker(不连 pg)。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
-
-    import src.database.async_session as async_session_mod
-
-    def _boom(*a, **k):
-        raise AssertionError("file 模式 get_task_history 不应开 session")
-
-    monkeypatch.setattr(async_session_mod, "get_async_session_maker", _boom)
-
-    from src.api.routes.admin import get_task_history
-
-    result = asyncio.run(get_task_history(limit=50, task_status=None, since=None, _admin=None))
-    assert result == []
 
 
 def test_get_audit_log_returns_empty_in_file_mode(monkeypatch):
@@ -210,6 +196,7 @@ def test_get_audit_log_returns_empty_in_file_mode(monkeypatch):
             def deco(fn):
                 captured[fn.__name__] = fn
                 return fn
+
             return deco
 
     register(_FakeMCP())
@@ -233,15 +220,24 @@ def test_audit_log_file_logger_still_writes_in_file_mode(monkeypatch):
     import src.mcp.security as sec_mod
 
     info_calls = {"n": 0}
-    monkeypatch.setattr(sec_mod.audit_logger, "info", lambda *a, **k: info_calls.__setitem__("n", info_calls["n"] + 1))
+    monkeypatch.setattr(
+        sec_mod.audit_logger,
+        "info",
+        lambda *a, **k: info_calls.__setitem__("n", info_calls["n"] + 1),
+    )
 
     # get_user_name 可能依赖 contextvar,patch 成稳定值
     monkeypatch.setattr(sec_mod, "get_user_name", lambda: "tester")
 
     # _persist_audit_log 内部有 try/except 吞抛 → 必须计数断言 get_engine 未被调(不能用抛异常 spy)
     import src.database.models as models_mod
+
     engine_calls = {"n": 0}
-    monkeypatch.setattr(models_mod, "get_engine", lambda *a, **k: engine_calls.__setitem__("n", engine_calls["n"] + 1))
+    monkeypatch.setattr(
+        models_mod,
+        "get_engine",
+        lambda *a, **k: engine_calls.__setitem__("n", engine_calls["n"] + 1),
+    )
 
     sec_mod.audit_log("manage_follows", "add", params={"x": 1}, result="success")
 
@@ -260,12 +256,16 @@ def test_init_database_skips_create_all_in_file_mode(monkeypatch):
 
     calls = {"n": 0}
     monkeypatch.setattr(
-        models_mod.Base.metadata, "create_all",
+        models_mod.Base.metadata,
+        "create_all",
         lambda *a, **k: calls.__setitem__("n", calls["n"] + 1),
     )
     monkeypatch.setattr(
-        models_mod, "get_engine",
-        lambda *a, **k: (_ for _ in ()).throw(AssertionError("file 模式 _init_database 不应调 get_engine")),
+        models_mod,
+        "get_engine",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("file 模式 _init_database 不应调 get_engine")
+        ),
     )
 
     from src.cli.init_command import _init_database
@@ -283,7 +283,8 @@ def test_init_database_calls_create_all_in_sqlalchemy_mode(monkeypatch, tmp_path
 
     calls = {"n": 0}
     monkeypatch.setattr(
-        models_mod.Base.metadata, "create_all",
+        models_mod.Base.metadata,
+        "create_all",
         lambda *a, **k: calls.__setitem__("n", calls["n"] + 1),
     )
 
@@ -303,9 +304,13 @@ def test_create_admin_file_mode_builds_admin_and_returns_key(monkeypatch, tmp_pa
 
     # file 模式不应碰 pg get_engine
     import src.database.models as models_mod
+
     monkeypatch.setattr(
-        models_mod, "get_engine",
-        lambda *a, **k: (_ for _ in ()).throw(AssertionError("file 模式 _create_admin 不应调 pg get_engine")),
+        models_mod,
+        "get_engine",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("file 模式 _create_admin 不应调 pg get_engine")
+        ),
     )
 
     from src.cli.init_command import _create_admin

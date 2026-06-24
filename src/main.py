@@ -4,7 +4,6 @@ import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -12,8 +11,6 @@ from src.config import get_settings
 from src.database.models import Base
 from src.database.models import get_engine as engine
 from src.logging_config import setup_logging
-from src.scheduler_accessor import register_scheduler, unregister_scheduler
-from src.scraper.scheduled_job import scheduled_scrape_job
 
 # 配置应用层日志：结构化格式 + 文件轮转 + trace_id 支持
 _settings = get_settings()
@@ -27,9 +24,6 @@ setup_logging(
 
 logger = logging.getLogger(__name__)
 
-# 全局调度器实例
-_scheduler: BackgroundScheduler | None = None
-
 # 服务启动时间
 _server_start_time: datetime | None = None
 
@@ -39,179 +33,27 @@ def get_server_start_time() -> datetime | None:
     return _server_start_time
 
 
-async def _get_schedule_config_from_db() -> tuple[int | None, datetime | None, bool]:
-    """从数据库获取调度配置。
-
-    在 lifespan async context 中直接 await 调用，避免 asyncio.run() 冲突。
-
-    Returns:
-        tuple: (interval_seconds, next_run_time, is_enabled)
-               无配置时返回 (None, None, False)
-    """
-    try:
-        from src.database.async_session import get_async_session_maker
-        from src.data_layer.provider import get_schedule_repo
-
-        session_maker = get_async_session_maker()
-        async with session_maker() as session:
-            repo = get_schedule_repo(session)
-            config = await repo.get_schedule_config()
-            if config:
-                return (config.interval_seconds, config.next_run_time, config.is_enabled)
-            return (None, None, False)
-    except Exception as e:
-        logger.warning(f"从数据库获取调度配置失败: {e}")
-        return (None, None, False)
-
-
 def _init_db_if_needed():
-    """启动期 DB 初始化:建表 + 内联迁移。
+    """启动期 DB 初始化:建表。
 
-    file 模式(pg 下线守卫):跳过 create_all + 内联迁移,避免重建已 DROP 的 pg 表。
-    sqlalchemy 模式:零行为变化(原 create_all + 两处迁移)。
+    file 模式(pg 下线守卫):跳过 create_all,避免重建已 DROP 的 pg 表。
     """
     from src.data_layer.provider import is_file_mode
 
     if is_file_mode():
-        logger.info("file 模式:跳过 create_all + 内联迁移(pg 下线守卫)")
+        logger.info("file 模式:跳过 create_all(pg 下线守卫)")
         return
 
     Base.metadata.create_all(engine())
-    _migrate_schedule_config_table()
-    _migrate_scheduler_execution_log_table()
-
-
-def _migrate_schedule_config_table():
-    """为 scraper_schedule_config 表添加 is_enabled 列（如果不存在）。
-
-    遗留内联迁移，已被 Alembic 覆盖。检查列是否存在后跳过。
-    """
-    from sqlalchemy import inspect as sa_inspect
-
-    eng = engine()
-    inspector = sa_inspect(eng)
-
-    try:
-        columns = [c["name"] for c in inspector.get_columns("scraper_schedule_config")]
-    except Exception:
-        return  # 表不存在
-
-    if "is_enabled" in columns:
-        return
-
-    try:
-        from sqlalchemy import text
-        with eng.connect() as conn:
-            conn.execute(
-                text(
-                    "ALTER TABLE scraper_schedule_config "
-                    "ADD COLUMN is_enabled BOOLEAN NOT NULL DEFAULT TRUE"
-                )
-            )
-            conn.commit()
-            logger.info("数据库迁移：已添加 scraper_schedule_config.is_enabled 列")
-    except Exception:
-        pass
-
-
-def _migrate_scheduler_execution_log_table():
-    """确保 scheduler_execution_log 表存在。
-
-    遗留内联迁移，已被 Alembic 覆盖。检查表是否存在后跳过。
-    """
-    from sqlalchemy import inspect as sa_inspect
-
-    eng = engine()
-    inspector = sa_inspect(eng)
-
-    if "scheduler_execution_log" in inspector.get_table_names():
-        return
-
-    # 使用 ORM 创建表（如果 ORM 模型已注册）
-    from src.database.models import Base
-    table = Base.metadata.tables.get("scheduler_execution_log")
-    if table is not None:
-        table.create(eng, checkfirst=True)
-        logger.info("数据库迁移：已创建 scheduler_execution_log 表")
-        return
-
-    # 兜底：用方言兼容的原生 SQL
-    try:
-        from sqlalchemy import text
-        from src.database.dialect import is_sqlite
-
-        if is_sqlite():
-            pk_clause = "id INTEGER PRIMARY KEY AUTOINCREMENT"
-        else:
-            pk_clause = "id SERIAL PRIMARY KEY"
-
-        with eng.connect() as conn:
-            conn.execute(
-                text(
-                    f"CREATE TABLE IF NOT EXISTS scheduler_execution_log ("
-                    f"{pk_clause},"
-                    f"job_id VARCHAR(100) NOT NULL,"
-                    f"event_type VARCHAR(20) NOT NULL,"
-                    f"executed_at TIMESTAMP NOT NULL,"
-                    f"duration_seconds FLOAT,"
-                    f"error_type VARCHAR(200),"
-                    f"error_message TEXT,"
-                    f"next_run_time TIMESTAMP,"
-                    f"created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP"
-                    f")"
-                )
-            )
-            conn.execute(
-                text(
-                    "CREATE INDEX IF NOT EXISTS idx_scheduler_log_job_id "
-                    "ON scheduler_execution_log(job_id)"
-                )
-            )
-            conn.execute(
-                text(
-                    "CREATE INDEX IF NOT EXISTS idx_scheduler_log_event_type "
-                    "ON scheduler_execution_log(event_type)"
-                )
-            )
-            conn.execute(
-                text(
-                    "CREATE INDEX IF NOT EXISTS idx_scheduler_log_executed_at "
-                    "ON scheduler_execution_log(executed_at)"
-                )
-            )
-            conn.commit()
-    except Exception:
-        pass
-
-
-async def _cleanup_old_scheduler_logs():
-    """清理过期的调度器执行日志。"""
-    try:
-        from src.database.async_session import get_async_session_maker
-        from src.data_layer.provider import get_scheduler_log_repo
-
-        settings = get_settings()
-        session_maker = get_async_session_maker()
-        async with session_maker() as session:
-            repo = get_scheduler_log_repo(session)
-            deleted = await repo.cleanup_old_logs(
-                retention_days=settings.scheduler_log_retention_days
-            )
-            if deleted > 0:
-                logger.info(f"清理了 {deleted} 条过期调度器执行日志")
-    except Exception as e:
-        logger.warning(f"清理调度器执行日志失败: {e}")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # noqa: ARG001 - app 参数是 FastAPI 要求的
     """应用生命周期管理。
 
-    启动时创建数据库表并初始化调度器。
-    关闭时停止调度器。
+    启动时创建数据库表并初始化后台队列。
+    关闭时停止后台队列。
     """
-    global _scheduler
-
     settings = get_settings()
 
     # 确保所有 ORM 模型在 create_all 前已注册到 Base.metadata
@@ -220,53 +62,6 @@ async def lifespan(app: FastAPI):  # noqa: ARG001 - app 参数是 FastAPI 要求
 
     # 启动时创建数据库表 + 内联迁移（file 模式跳过，pg 下线守卫）
     _init_db_if_needed()
-
-    # 初始化调度器
-    if settings.scraper_enabled:
-        _scheduler = BackgroundScheduler(timezone="Asia/Shanghai")
-        _scheduler.start()
-        register_scheduler(_scheduler)
-
-        # 注册事件监听器
-        from apscheduler.events import (
-            EVENT_JOB_ERROR,
-            EVENT_JOB_EXECUTED,
-            EVENT_JOB_MISSED,
-        )
-
-        from src.scraper.scheduler_listener import scheduler_event_listener
-
-        _scheduler.add_listener(
-            scheduler_event_listener,
-            EVENT_JOB_EXECUTED | EVENT_JOB_ERROR | EVENT_JOB_MISSED,
-        )
-        logger.info("调度器事件监听器已注册")
-
-        # 从 DB 加载调度配置，仅在有已启用配置时恢复 job
-        db_interval, db_next_run, db_is_enabled = await _get_schedule_config_from_db()
-
-        if db_is_enabled and db_interval is not None:
-            next_run = db_next_run if db_next_run is not None else datetime.now(timezone.utc)
-            _scheduler.add_job(
-                scheduled_scrape_job,
-                "interval",
-                seconds=db_interval,
-                id="scraper_job",
-                name="定时抓取推文",
-                max_instances=1,
-                replace_existing=True,
-                next_run_time=next_run,
-            )
-            logger.info(
-                f"调度器已启动，从 DB 恢复调度任务: "
-                f"interval={db_interval}s, next_run={next_run}, "
-                f"is_enabled={db_is_enabled}"
-            )
-        else:
-            logger.info(
-                f"调度器已启动（空闲模式，无调度任务）: "
-                f"db_interval={db_interval}, db_is_enabled={db_is_enabled}"
-            )
 
     # 安全检查：JWT 默认密钥警告
     if settings.jwt_secret_key == "change-me-in-production":
@@ -285,9 +80,6 @@ async def lifespan(app: FastAPI):  # noqa: ARG001 - app 参数是 FastAPI 要求
     if recovered > 0:
         logger.warning(f"启动时恢复了 {recovered} 个僵尸任务")
 
-    # 清理过期的调度器执行日志
-    await _cleanup_old_scheduler_logs()
-
     # 启动摘要任务队列
     from src.summarization.services.summarization_queue import SummarizationQueue
 
@@ -300,13 +92,8 @@ async def lifespan(app: FastAPI):  # noqa: ARG001 - app 参数是 FastAPI 要求
 
     yield
 
-    # 关闭时的清理工作（先停队列，再停调度器）
+    # 关闭时的清理工作
     await _summarization_queue.stop()
-
-    if _scheduler:
-        unregister_scheduler()
-        _scheduler.shutdown(wait=True)
-        logger.info("调度器已停止")
 
 
 # 创建 FastAPI 应用
@@ -338,14 +125,13 @@ if settings.prometheus_enabled:
 async def health_check():
     """健康检查端点。
 
-    检查数据库连接和调度器状态，返回各组件健康信息。
+    检查数据库连接，返回组件健康信息。
     始终返回 HTTP 200 以兼容 Docker HEALTHCHECK。
     """
     from sqlalchemy import text
 
     from src.data_layer.provider import is_file_mode
     from src.database.async_session import get_async_session_maker
-    from src.scheduler_accessor import get_scheduler
 
     components = {}
 
@@ -375,20 +161,7 @@ async def health_check():
         except Exception as e:
             components["database"] = {"status": "unhealthy", "error": str(e)}
 
-    # 2. 调度器状态检查
-    scheduler = get_scheduler()
-    if scheduler is not None:
-        job = scheduler.get_job("scraper_job")
-        components["scheduler"] = {
-            "status": "healthy" if scheduler.running else "unhealthy",
-            "running": scheduler.running,
-            "jobs": len(scheduler.get_jobs()),
-            "scraper_job_active": job is not None,
-        }
-    else:
-        components["scheduler"] = {"status": "unhealthy", "error": "not initialized"}
-
-    # 3. 整体状态判定
+    # 2. 整体状态判定
     overall = "healthy"
     if any(c["status"] == "unhealthy" for c in components.values()):
         overall = "degraded"
@@ -428,19 +201,6 @@ from src.monitoring import routes as monitoring_routes
 
 app.include_router(monitoring_routes.router)
 
-# 注册调度器执行历史 API 路由
-from src.api.routes.scheduler import router as scheduler_router
-
-app.include_router(scheduler_router)
-
-# 注册主题管理 API 路由
-# 注意：summary_router 必须在 topic_router 之前注册，
-# 因为 topic_router 的 /api/topics/{topic_id} 会拦截 /api/topics/summary-tasks
-from src.topic.api.routes import router as topic_router, summary_router as topic_summary_router
-
-app.include_router(topic_summary_router)
-app.include_router(topic_router)
-
 # 注册推文浏览 API 路由
 from src.browse.api.routes import router as browse_router
 
@@ -460,11 +220,6 @@ app.include_router(status_router)
 from src.api.routes.config_routes import router as config_router
 
 app.include_router(config_router)
-
-# 注册分析模块 API 路由（发文统计）
-from src.analytics.api.routes import analytics_router
-
-app.include_router(analytics_router)
 
 # 注册数据同步 API 路由
 from src.api.routes.sync_routes import router as sync_router
@@ -494,13 +249,15 @@ if os.path.exists(web_dir):
             path = request.url.path
 
             # 跳过 API 路径和系统路径
-            if (path.startswith("/api") or
-                path.startswith("/docs") or
-                path.startswith("/redoc") or
-                path.startswith("/openapi") or
-                path.startswith("/metrics") or
-                path == "/health" or
-                path.startswith("/assets")):
+            if (
+                path.startswith("/api")
+                or path.startswith("/docs")
+                or path.startswith("/redoc")
+                or path.startswith("/openapi")
+                or path.startswith("/metrics")
+                or path == "/health"
+                or path.startswith("/assets")
+            ):
                 return await call_next(request)
 
             # 对于其他路径，返回 index.html（如果存在）

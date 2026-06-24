@@ -8,9 +8,8 @@ import logging
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
-from sqlalchemy import select
 
 from src.mcp.security import audit_log
 from src.scraper import ScrapingService, TaskRegistry, TaskStatus
@@ -68,11 +67,7 @@ class ScrapeRequest:
             raise ValueError("usernames 不能为空")
 
         # 解析用户名列表
-        parsed_usernames = [
-            u.strip()
-            for u in usernames.split(",")
-            if u.strip()
-        ]
+        parsed_usernames = [u.strip() for u in usernames.split(",") if u.strip()]
 
         if not parsed_usernames:
             raise ValueError("至少需要提供一个有效的用户名")
@@ -237,13 +232,21 @@ async def _run_scraping_task_async(task_id: str, usernames: list[str], limit: in
         elapsed = time.time() - start_time
         logger.info(
             f"抓取任务完成: 耗时 {elapsed:.1f}s",
-            extra={"task_id": task_id, "event": "scrape_task_done", "processing_time_ms": int(elapsed * 1000)},
+            extra={
+                "task_id": task_id,
+                "event": "scrape_task_done",
+                "processing_time_ms": int(elapsed * 1000),
+            },
         )
     except Exception as e:
         elapsed = time.time() - start_time
         logger.exception(
             f"后台抓取任务执行失败: {e}",
-            extra={"task_id": task_id, "event": "scrape_task_failed", "error_type": type(e).__name__},
+            extra={
+                "task_id": task_id,
+                "event": "scrape_task_failed",
+                "error_type": type(e).__name__,
+            },
         )
         registry.update_task_status(task_id, TaskStatus.FAILED, error=str(e))
 
@@ -283,19 +286,22 @@ async def _run_backfill_all_async(task_id: str, max_tweets: int) -> None:
 
             try:
                 result = await service.backfill_articles_for_user(
-                    username, max_tweets=max_tweets,
+                    username,
+                    max_tweets=max_tweets,
                 )
             except Exception as e:
                 logger.warning(f"Article 批量回溯跳过 {username}: {e}")
                 result = {"checked": 0, "found": 0, "skipped": 0, "errors": 1}
 
-            details.append({
-                "username": username,
-                "checked": result.get("checked", 0),
-                "found": result.get("found", 0),
-                "skipped": result.get("skipped", 0),
-                "errors": result.get("errors", 0),
-            })
+            details.append(
+                {
+                    "username": username,
+                    "checked": result.get("checked", 0),
+                    "found": result.get("found", 0),
+                    "skipped": result.get("skipped", 0),
+                    "errors": result.get("errors", 0),
+                }
+            )
             summary["total_checked"] += result.get("checked", 0)
             summary["total_found"] += result.get("found", 0)
             summary["total_skipped"] += result.get("skipped", 0)
@@ -309,7 +315,8 @@ async def _run_backfill_all_async(task_id: str, max_tweets: int) -> None:
             extra={"task_id": task_id, "event": "backfill_all_done"},
         )
         registry.update_task_status(
-            task_id, TaskStatus.COMPLETED,
+            task_id,
+            TaskStatus.COMPLETED,
             result={"total_users": total, "summary": summary, "details": details},
         )
     except Exception as e:
@@ -390,9 +397,11 @@ async def start_scraping(
     logger.info(f"创建抓取任务: {task_id} - {scrape_request.parsed_usernames}")
 
     audit_log(
-        "start_scraping", "scrape",
+        "start_scraping",
+        "scrape",
         params={"usernames": scrape_request.parsed_usernames, "limit": scrape_request.limit},
-        source="api", user=_admin.name,
+        source="api",
+        user=_admin.name,
     )
 
     return ScrapeResponse(
@@ -521,9 +530,11 @@ async def delete_scraping_task(
         logger.info(f"删除任务: {task_id}")
 
         audit_log(
-            "delete_scraping_task", "delete",
+            "delete_scraping_task",
+            "delete",
             params={"task_id": task_id},
-            source="api", user=_admin.name,
+            source="api",
+            user=_admin.name,
         )
 
         return {"message": f"任务 {task_id} 已删除"}
@@ -575,9 +586,11 @@ async def backfill_articles(
         logger.info(f"创建 Article 批量回溯任务: {task_id}")
 
         audit_log(
-            "backfill_articles", "backfill_all",
+            "backfill_articles",
+            "backfill_all",
             params={"max_tweets": max_tweets},
-            source="api", user=_admin.name,
+            source="api",
+            user=_admin.name,
         )
 
         return JSONResponse(
@@ -608,7 +621,8 @@ async def backfill_articles(
 
     try:
         result = await service.backfill_articles_for_user(
-            username, max_tweets=max_tweets,
+            username,
+            max_tweets=max_tweets,
         )
     except Exception as e:
         logger.exception(f"Article 回溯异常: username={username}, error={e}")
@@ -620,93 +634,14 @@ async def backfill_articles(
     logger.info(f"Article 回溯完成: username={username}, result={result}")
 
     audit_log(
-        "backfill_articles", "backfill",
+        "backfill_articles",
+        "backfill",
         params={"username": username, "max_tweets": max_tweets},
-        source="api", user=_admin.name,
+        source="api",
+        user=_admin.name,
     )
 
     return {
         "username": username,
         "result": result,
     }
-
-
-@router.get("/tasks/history")
-async def get_task_history(
-    limit: int = Query(default=50, ge=1, le=200, description="返回记录数量"),
-    task_status: str | None = Query(default=None, alias="status", description="按状态过滤"),
-    since: str | None = Query(default=None, description="起始时间（ISO8601 格式）"),
-    _admin: UserDomain = Depends(get_current_admin_user),
-) -> list[dict]:
-    """查询持久化的任务执行历史。
-
-    返回数据库中的任务执行记录，支持按状态和时间过滤。
-    与内存中的 TaskRegistry 不同，这些记录在服务重启后仍然保留。
-
-    Args:
-        limit: 返回记录数量上限（1-200）
-        task_status: 可选的状态过滤器（completed / failed）
-        since: 可选的起始时间（ISO8601 格式）
-
-    Returns:
-        list[dict]: 任务历史记录列表
-    """
-    from src.data_layer.provider import is_file_mode
-
-    if is_file_mode():
-        # file 模式:任务历史无 pg 持久化(仅内存 TaskRegistry),无可查记录返空
-        return []
-
-    import json
-
-    from src.database.async_session import get_async_session_maker
-    from src.database.models import TaskExecutionLog
-
-    session_maker = get_async_session_maker()
-
-    try:
-        async with session_maker() as session:
-            query = select(TaskExecutionLog).order_by(
-                TaskExecutionLog.created_at.desc()
-            )
-
-            if task_status:
-                query = query.where(TaskExecutionLog.status == task_status)
-
-            if since:
-                try:
-                    since_dt = datetime.fromisoformat(since)
-                    query = query.where(TaskExecutionLog.created_at >= since_dt)
-                except ValueError:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"无效的时间格式: {since}，请使用 ISO8601 格式",
-                    )
-
-            query = query.limit(limit)
-            result = await session.execute(query)
-            logs = result.scalars().all()
-
-            return [
-                {
-                    "task_id": log.task_id,
-                    "task_name": log.task_name,
-                    "status": log.status,
-                    "created_at": log.created_at.isoformat() if log.created_at else None,
-                    "started_at": log.started_at.isoformat() if log.started_at else None,
-                    "completed_at": log.completed_at.isoformat() if log.completed_at else None,
-                    "duration_seconds": log.duration_seconds,
-                    "result": json.loads(log.result_json) if log.result_json else None,
-                    "error": log.error,
-                    "metadata": json.loads(log.metadata_json) if log.metadata_json else None,
-                }
-                for log in logs
-            ]
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"查询任务历史失败: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"查询任务历史失败: {e}",
-        )

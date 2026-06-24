@@ -2,14 +2,11 @@
 
 export * from "./tweet"
 export * from "./task"
-export * from "./scheduler"
 export * from "./user"
 export * from "./health"
 export * from "./browse"
-export * from "./topic"
 export * from "./status"
 export * from "./search"
-export * from "./analytics"
 export * from "./sync"
 
 /** API 错误响应。 */

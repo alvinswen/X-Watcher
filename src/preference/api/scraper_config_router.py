@@ -19,9 +19,6 @@ from src.preference.api.schemas import (
     UpdateScraperFollowRequest,
     DeleteResponse,
     ErrorResponse,
-    ScheduleConfigResponse,
-    UpdateScheduleIntervalRequest,
-    UpdateScheduleNextRunRequest,
     FetchAnalysisResponse,
     FollowStatsResponse,
     PeriodStats,
@@ -32,12 +29,9 @@ from src.preference.api.schemas import (
 from src.preference.infrastructure.scraper_config_repository import (
     NotFoundError,
     DuplicateError,
-    RepositoryError,
 )
 from src.data_layer.provider import get_follows_repo
 from src.preference.services.scraper_config_service import ScraperConfigService
-from src.topic.services.topic_summary_service import build_llm_providers
-
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +61,14 @@ async def _get_scraper_config_service(
     """
     repository = get_follows_repo(session)
     return ScraperConfigService(repository)
+
+
+def _build_llm_providers():
+    """复用摘要服务的 LLM provider 构建逻辑。"""
+    from src.summarization.llm.config import LLMProviderConfig
+    from src.summarization.services.summarization_service import _build_providers_from_config
+
+    return _build_providers_from_config(LLMProviderConfig.from_env())
 
 
 @router.post(
@@ -120,14 +122,12 @@ async def add_scraper_follow(
         )
     except DuplicateError as e:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"抓取账号 '{request.username}' 已存在"
+            status_code=status.HTTP_409_CONFLICT, detail=f"抓取账号 '{request.username}' 已存在"
         ) from e
     except Exception as e:
         logger.error(f"添加抓取账号失败: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="添加抓取账号失败"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="添加抓取账号失败"
         ) from e
 
 
@@ -139,10 +139,7 @@ async def add_scraper_follow(
     },
 )
 async def get_scraper_follows(
-    include_inactive: bool = Query(
-        False,
-        description="是否包含非活跃账号"
-    ),
+    include_inactive: bool = Query(False, description="是否包含非活跃账号"),
     service: ScraperConfigService = Depends(_get_scraper_config_service),
     admin: UserDomain = Depends(get_current_admin_user),
 ) -> list[ScraperFollowResponse]:
@@ -159,9 +156,7 @@ async def get_scraper_follows(
         list[ScraperFollowResponse]: 抓取账号列表
     """
     try:
-        result = await service.get_all_follows(
-            include_inactive=include_inactive
-        )
+        result = await service.get_all_follows(include_inactive=include_inactive)
         return [
             ScraperFollowResponse(
                 id=f.id,
@@ -179,8 +174,7 @@ async def get_scraper_follows(
     except Exception as e:
         logger.error(f"获取抓取账号列表失败: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="获取抓取账号列表失败"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="获取抓取账号列表失败"
         ) from e
 
 
@@ -239,12 +233,14 @@ async def get_follows_stats(
             fetch_stats = stats_map.get(username)
             effective_limit = calculator.calculate_next_limit(fetch_stats)
 
-            results.append(FollowStatsResponse(
-                username=username,
-                effective_limit=effective_limit,
-                max_count_12h=max_12h_map.get(username.lower(), 0),
-                max_count_24h=max_24h_map.get(username.lower(), 0),
-            ))
+            results.append(
+                FollowStatsResponse(
+                    username=username,
+                    effective_limit=effective_limit,
+                    max_count_12h=max_12h_map.get(username.lower(), 0),
+                    max_count_24h=max_24h_map.get(username.lower(), 0),
+                )
+            )
 
         return results
     except Exception as e:
@@ -394,11 +390,7 @@ async def sync_user_profiles(
         # 获取所有有 platform_user_id 的活跃 follows
         config_repo = get_follows_repo(session)
         follows = await config_repo.get_all_follows(include_inactive=False)
-        user_ids = [
-            f.platform_user_id
-            for f in follows
-            if f.platform_user_id
-        ]
+        user_ids = [f.platform_user_id for f in follows if f.platform_user_id]
 
         if not user_ids:
             return SyncProfilesResponse(
@@ -564,14 +556,12 @@ async def update_scraper_follow(
         )
     except NotFoundError as e:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"抓取账号 '@{username}' 不存在"
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"抓取账号 '@{username}' 不存在"
         ) from e
     except Exception as e:
         logger.error(f"更新抓取账号失败: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="更新抓取账号失败"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="更新抓取账号失败"
         ) from e
 
 
@@ -618,7 +608,7 @@ async def generate_follow_intro(
         description = profile.description or ""
 
         # 调用 LLM
-        providers = build_llm_providers()
+        providers = _build_llm_providers()
         if not providers:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -638,7 +628,9 @@ async def generate_follow_intro(
         for provider in providers:
             try:
                 result = await provider.complete(
-                    prompt=prompt, max_tokens=100, temperature=0.3,
+                    prompt=prompt,
+                    max_tokens=100,
+                    temperature=0.3,
                 )
                 if isinstance(result, SuccessResult):
                     llm_result = result.unwrap()
@@ -656,7 +648,8 @@ async def generate_follow_intro(
 
         # 保存
         updated = await config_repo.update_scraper_follow(
-            username=username, brief_intro=brief_intro,
+            username=username,
+            brief_intro=brief_intro,
         )
         await session.commit()
 
@@ -679,7 +672,6 @@ async def generate_follow_intro(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="生成极简介绍失败",
         ) from e
-
 
 
 @router.delete(
@@ -716,169 +708,12 @@ async def delete_scraper_follow(
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except NotFoundError as e:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"抓取账号 '@{username}' 不存在"
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"抓取账号 '@{username}' 不存在"
         ) from e
     except Exception as e:
         logger.error(f"删除抓取账号失败: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="删除抓取账号失败"
-        ) from e
-
-
-# ==================== 调度配置管理端点 ====================
-
-
-async def _get_schedule_service():
-    """获取 ScraperScheduleService 实例。
-
-    ScraperScheduleService 内部自行管理 session 生命周期，
-    每次 DB 操作使用独立的短生命周期 session，避免 PendingRollbackError。
-    """
-    from src.preference.services.schedule_service import ScraperScheduleService
-
-    return ScraperScheduleService()
-
-
-@router.get(
-    "/schedule",
-    response_model=ScheduleConfigResponse,
-    responses={
-        status.HTTP_401_UNAUTHORIZED: {"model": ErrorResponse},
-        status.HTTP_403_FORBIDDEN: {"model": ErrorResponse},
-    },
-)
-async def get_schedule_config(
-    service=Depends(_get_schedule_service),
-    admin: UserDomain = Depends(get_current_admin_user),
-) -> ScheduleConfigResponse:
-    """查看当前调度配置。"""
-    try:
-        return await service.get_schedule_config()
-    except Exception as e:
-        logger.error(f"获取调度配置失败: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="获取调度配置失败",
-        ) from e
-
-
-@router.put(
-    "/schedule/interval",
-    response_model=ScheduleConfigResponse,
-    responses={
-        status.HTTP_401_UNAUTHORIZED: {"model": ErrorResponse},
-        status.HTTP_403_FORBIDDEN: {"model": ErrorResponse},
-        status.HTTP_422_UNPROCESSABLE_CONTENT: {"model": ErrorResponse},
-    },
-)
-async def update_schedule_interval(
-    request: UpdateScheduleIntervalRequest,
-    service=Depends(_get_schedule_service),
-    admin: UserDomain = Depends(get_current_admin_user),
-) -> ScheduleConfigResponse:
-    """更新抓取间隔。"""
-    try:
-        return await service.update_interval(
-            interval_seconds=request.interval_seconds,
-            updated_by=admin.name,
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"更新调度间隔失败: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="调度器操作失败",
-        ) from e
-
-
-@router.put(
-    "/schedule/next-run",
-    response_model=ScheduleConfigResponse,
-    responses={
-        status.HTTP_401_UNAUTHORIZED: {"model": ErrorResponse},
-        status.HTTP_403_FORBIDDEN: {"model": ErrorResponse},
-        status.HTTP_422_UNPROCESSABLE_CONTENT: {"model": ErrorResponse},
-    },
-)
-async def update_schedule_next_run(
-    request: UpdateScheduleNextRunRequest,
-    service=Depends(_get_schedule_service),
-    admin: UserDomain = Depends(get_current_admin_user),
-) -> ScheduleConfigResponse:
-    """设置下次触发时间。"""
-    try:
-        return await service.update_next_run_time(
-            next_run_time=request.next_run_time,
-            updated_by=admin.name,
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"设置下次触发时间失败: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="调度器操作失败",
-        ) from e
-
-
-@router.post(
-    "/schedule/enable",
-    response_model=ScheduleConfigResponse,
-    responses={
-        status.HTTP_401_UNAUTHORIZED: {"model": ErrorResponse},
-        status.HTTP_403_FORBIDDEN: {"model": ErrorResponse},
-        status.HTTP_422_UNPROCESSABLE_CONTENT: {"model": ErrorResponse},
-    },
-)
-async def enable_schedule(
-    service=Depends(_get_schedule_service),
-    admin: UserDomain = Depends(get_current_admin_user),
-) -> ScheduleConfigResponse:
-    """启用调度。
-
-    从 DB 恢复配置并创建 scraper_job。
-    如果无配置，返回 422 提示先设置间隔。
-    """
-    try:
-        return await service.enable_schedule(updated_by=admin.name)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"启用调度失败: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="启用调度失败",
-        ) from e
-
-
-@router.post(
-    "/schedule/disable",
-    response_model=ScheduleConfigResponse,
-    responses={
-        status.HTTP_401_UNAUTHORIZED: {"model": ErrorResponse},
-        status.HTTP_403_FORBIDDEN: {"model": ErrorResponse},
-    },
-)
-async def disable_schedule(
-    service=Depends(_get_schedule_service),
-    admin: UserDomain = Depends(get_current_admin_user),
-) -> ScheduleConfigResponse:
-    """暂停调度。
-
-    移除 scraper_job 但保留 DB 中的调度配置。
-    """
-    try:
-        return await service.disable_schedule(updated_by=admin.name)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"暂停调度失败: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="暂停调度失败",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="删除抓取账号失败"
         ) from e
 
 
@@ -989,8 +824,7 @@ async def get_scraper_follows_public(
     except Exception as e:
         logger.error(f"获取抓取账号列表失败: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="获取抓取账号列表失败"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="获取抓取账号列表失败"
         ) from e
 
 

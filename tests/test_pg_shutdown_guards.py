@@ -13,8 +13,6 @@
 
 import asyncio
 
-import pytest
-
 
 # ---------------------------------------------------------------------------
 # 1. is_file_mode() 随 env 变化
@@ -55,19 +53,9 @@ def test_init_db_skips_create_all_in_file_mode(monkeypatch, tmp_path):
     monkeypatch.setattr(
         main_mod.Base.metadata, "create_all", lambda *a, **k: calls.__setitem__("n", calls["n"] + 1)
     )
-    # 迁移也 spy,确保 file 模式一概不调
-    migrate_calls = {"n": 0}
-    monkeypatch.setattr(
-        main_mod, "_migrate_schedule_config_table", lambda: migrate_calls.__setitem__("n", migrate_calls["n"] + 1)
-    )
-    monkeypatch.setattr(
-        main_mod, "_migrate_scheduler_execution_log_table", lambda: migrate_calls.__setitem__("n", migrate_calls["n"] + 1)
-    )
-
     main_mod._init_db_if_needed()
 
     assert calls["n"] == 0, "file 模式不应调用 create_all"
-    assert migrate_calls["n"] == 0, "file 模式不应调用内联迁移"
 
 
 def test_init_db_calls_create_all_in_sqlalchemy_mode(monkeypatch, tmp_path):
@@ -81,10 +69,6 @@ def test_init_db_calls_create_all_in_sqlalchemy_mode(monkeypatch, tmp_path):
     monkeypatch.setattr(
         main_mod.Base.metadata, "create_all", lambda *a, **k: calls.__setitem__("n", calls["n"] + 1)
     )
-    # 迁移走真表(sqlite 临时库),但只验证 create_all 被调用一次
-    monkeypatch.setattr(main_mod, "_migrate_schedule_config_table", lambda: None)
-    monkeypatch.setattr(main_mod, "_migrate_scheduler_execution_log_table", lambda: None)
-
     main_mod._init_db_if_needed()
 
     assert calls["n"] == 1, "sqlalchemy 模式应调用 create_all 恰一次"
@@ -101,7 +85,9 @@ def test_mcp_init_database_skips_in_file_mode(monkeypatch):
 
     calls = {"n": 0}
     monkeypatch.setattr(
-        models_mod.Base.metadata, "create_all", lambda *a, **k: calls.__setitem__("n", calls["n"] + 1)
+        models_mod.Base.metadata,
+        "create_all",
+        lambda *a, **k: calls.__setitem__("n", calls["n"] + 1),
     )
 
     from src.mcp.lifespan import init_database

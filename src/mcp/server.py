@@ -28,6 +28,7 @@ async def mcp_lifespan(server: FastMCP):
     )
     init_database()
     from src.mcp.security import log_action_guard_config
+
     log_action_guard_config()
     logger.info("MCP Server 就绪")
     yield
@@ -52,15 +53,13 @@ def create_mcp_server(
         "instructions": (
             "X-watcher 是面向 AI Agent 的 X(Twitter) 平台智能信息监控服务。"
             "你可以通过这些工具查询推文 feed、搜索推文、浏览每日统计、"
-            "管理监控主题、查看系统状态等。"
+            "管理关注账号、触发抓取、查看系统状态等。"
             "时间参数使用 ISO 8601 格式（如 2026-02-24T00:00:00Z）。"
             "\n\n"
             "## 工作流配方\n"
             "对于复杂场景，请读取 xwatcher://recipes/ 下的资源获取分步指南。"
             "可用配方：xwatcher://recipes/daily-summary（每日摘要生成）、"
-            "xwatcher://recipes/claude-code-summarize（Claude Code 翻译工作流）、"
-            "xwatcher://recipes/claude-code-topic-summary（Claude Code 主题摘要生成）、"
-            "xwatcher://recipes/claude-code-topic-review（Claude Code 主题综述：任意区间 + 出处引用）。"
+            "xwatcher://recipes/claude-code-summarize（Claude Code 翻译工作流）。"
         ),
         "lifespan": mcp_lifespan,
         "host": host,
@@ -90,13 +89,7 @@ def create_mcp_server(
     browse_tools.register(mcp)
     status_tools.register(mcp)
 
-    # 注册 Phase 2 工具（User 级：Topic 管理、分析）
-    from src.mcp.tools import analytics_tools, topic_tools
-
-    topic_tools.register(mcp)
-    analytics_tools.register(mcp)
-
-    # 注册 Phase 3 工具（Admin 级：关注管理、抓取、调度、摘要）
+    # 注册 Phase 3 工具（Admin 级：关注管理、抓取、摘要）
     from src.mcp.tools import admin_tools, summarization_tools
 
     admin_tools.register(mcp)

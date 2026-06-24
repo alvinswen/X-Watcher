@@ -1,4 +1,4 @@
-"""M-5 provider:scraper 簇 4 async 工厂 + 同步写入器 按 env flag 切换。"""
+"""M-5 provider:scraper 簇在线工厂按 env flag 切换。"""
 
 
 def test_get_tweet_repo_file_mode(monkeypatch, tmp_path):
@@ -50,39 +50,3 @@ def test_get_fetch_stats_repo_default_is_sqlalchemy(monkeypatch):
     from src.scraper.infrastructure.fetch_stats_repository import FetchStatsRepository
 
     assert isinstance(get_fetch_stats_repo(session=None), FetchStatsRepository)
-
-
-def test_get_scheduler_log_repo_file_mode(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
-    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    from src.data_layer.provider import get_scheduler_log_repo
-    from src.scraper.infrastructure.file_scheduler_log_repository import FileSchedulerLogStore
-
-    assert isinstance(get_scheduler_log_repo(session=None), FileSchedulerLogStore)
-
-
-def test_get_scheduler_log_repo_default_is_sqlalchemy(monkeypatch):
-    monkeypatch.delenv("XWATCHER_DATA_LAYER", raising=False)
-    from src.data_layer.provider import get_scheduler_log_repo
-    from src.scraper.infrastructure.scheduler_log_repository import SchedulerExecutionLogRepository
-
-    assert isinstance(get_scheduler_log_repo(session=None), SchedulerExecutionLogRepository)
-
-
-def test_get_scheduler_log_sync_writer_file_mode(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
-    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    from src.data_layer.provider import _FileSchedulerLogSyncWriter, get_scheduler_log_sync_writer
-
-    writer = get_scheduler_log_sync_writer()
-    assert isinstance(writer, _FileSchedulerLogSyncWriter)
-    assert hasattr(writer, "write_log")
-
-
-def test_get_scheduler_log_sync_writer_default_is_legacy_class(monkeypatch):
-    monkeypatch.delenv("XWATCHER_DATA_LAYER", raising=False)
-    from src.data_layer.provider import get_scheduler_log_sync_writer
-    from src.scraper.infrastructure.scheduler_log_repository import SchedulerExecutionLogSyncWriter
-
-    # sqlalchemy 模式返回旧静态类本身(鸭子兼容 .write_log(log) 静态调用)
-    assert get_scheduler_log_sync_writer() is SchedulerExecutionLogSyncWriter

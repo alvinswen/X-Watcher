@@ -5,19 +5,16 @@ from datetime import datetime, timezone
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from src.database.models import Base, ScraperFollow, ScraperScheduleConfig
-from src.scraper.infrastructure.article_models import ArticleOrm
+from src.database.models import Base, ScraperFollow
 from src.scraper.infrastructure.models import TweetOrm
 from src.summarization.infrastructure.models import SummaryOrm
 from src.sync.domain.models import (
     ConflictStrategy,
-    ExportFilters,
     ExportMetadata,
     ExportPackage,
     SyncCategory,
 )
 from src.sync.services.import_service import ImportService
-from src.topic.infrastructure.models import TopicAccountOrm, TopicOrm
 
 
 def _make_session_factory():
@@ -42,15 +39,26 @@ def _make_package(data: dict, categories: list[str] | None = None) -> ExportPack
 class TestImportConfig:
     def test_import_follows_insert(self):
         factory, engine = _make_session_factory()
-        pkg = _make_package({
-            "config": {
-                "scraper_follows": [
-                    {"username": "alice", "reason": "KOL", "added_by": "admin", "is_active": True},
-                    {"username": "bob", "reason": "Dev", "added_by": "admin", "is_active": True},
-                ],
-                "scraper_schedule_config": None,
+        pkg = _make_package(
+            {
+                "config": {
+                    "scraper_follows": [
+                        {
+                            "username": "alice",
+                            "reason": "KOL",
+                            "added_by": "admin",
+                            "is_active": True,
+                        },
+                        {
+                            "username": "bob",
+                            "reason": "Dev",
+                            "added_by": "admin",
+                            "is_active": True,
+                        },
+                    ],
+                }
             }
-        })
+        )
 
         svc = ImportService(factory)
         result = svc.import_data(pkg)
@@ -70,14 +78,15 @@ class TestImportConfig:
             session.add(ScraperFollow(username="alice", reason="Existing", added_by="admin"))
             session.commit()
 
-        pkg = _make_package({
-            "config": {
-                "scraper_follows": [
-                    {"username": "alice", "reason": "New", "added_by": "admin"},
-                ],
-                "scraper_schedule_config": None,
+        pkg = _make_package(
+            {
+                "config": {
+                    "scraper_follows": [
+                        {"username": "alice", "reason": "New", "added_by": "admin"},
+                    ],
+                }
             }
-        })
+        )
 
         svc = ImportService(factory)
         result = svc.import_data(pkg, strategy=ConflictStrategy.skip)
@@ -98,14 +107,15 @@ class TestImportConfig:
             session.add(ScraperFollow(username="alice", reason="Old", added_by="admin"))
             session.commit()
 
-        pkg = _make_package({
-            "config": {
-                "scraper_follows": [
-                    {"username": "alice", "reason": "New", "added_by": "import"},
-                ],
-                "scraper_schedule_config": None,
+        pkg = _make_package(
+            {
+                "config": {
+                    "scraper_follows": [
+                        {"username": "alice", "reason": "New", "added_by": "import"},
+                    ],
+                }
             }
-        })
+        )
 
         svc = ImportService(factory)
         result = svc.import_data(pkg, strategy=ConflictStrategy.overwrite)
@@ -118,69 +128,46 @@ class TestImportConfig:
             ).scalar_one()
             assert alice.reason == "New"
 
-    def test_import_schedule_config(self):
-        factory, engine = _make_session_factory()
-
-        pkg = _make_package({
-            "config": {
-                "scraper_follows": [],
-                "scraper_schedule_config": {
-                    "interval_seconds": 86400,
-                    "is_enabled": True,
-                    "updated_by": "import",
-                },
-            }
-        })
-
-        svc = ImportService(factory)
-        result = svc.import_data(pkg)
-
-        assert result.stats["scraper_schedule_config"].inserted == 1
-
-        with Session(engine) as session:
-            config = session.execute(
-                select(ScraperScheduleConfig).where(ScraperScheduleConfig.id == 1)
-            ).scalar_one()
-            assert config.interval_seconds == 86400
-
 
 class TestImportContent:
     def test_import_tweets_and_summaries(self):
         factory, engine = _make_session_factory()
 
-        pkg = _make_package({
-            "content": {
-                "tweets": [
-                    {
-                        "tweet_id": "tw_001",
-                        "text": "Hello",
-                        "created_at": "2026-02-01T00:00:00+00:00",
-                        "author_username": "alice",
-                    },
-                ],
-                "summaries": [
-                    {
-                        "summary_id": "sum_001",
-                        "tweet_id": "tw_001",
-                        "summary_text": "摘要",
-                        "model_provider": "openrouter",
-                        "model_name": "gpt-4",
-                        "prompt_tokens": 100,
-                        "completion_tokens": 50,
-                        "total_tokens": 150,
-                        "cost_usd": 0.01,
-                        "content_hash": "hash1",
-                    },
-                ],
-                "articles": [
-                    {
-                        "tweet_id": "tw_001",
-                        "title": "Article Title",
-                        "content": "Full text",
-                    },
-                ],
+        pkg = _make_package(
+            {
+                "content": {
+                    "tweets": [
+                        {
+                            "tweet_id": "tw_001",
+                            "text": "Hello",
+                            "created_at": "2026-02-01T00:00:00+00:00",
+                            "author_username": "alice",
+                        },
+                    ],
+                    "summaries": [
+                        {
+                            "summary_id": "sum_001",
+                            "tweet_id": "tw_001",
+                            "summary_text": "摘要",
+                            "model_provider": "openrouter",
+                            "model_name": "gpt-4",
+                            "prompt_tokens": 100,
+                            "completion_tokens": 50,
+                            "total_tokens": 150,
+                            "cost_usd": 0.01,
+                            "content_hash": "hash1",
+                        },
+                    ],
+                    "articles": [
+                        {
+                            "tweet_id": "tw_001",
+                            "title": "Article Title",
+                            "content": "Full text",
+                        },
+                    ],
+                }
             }
-        })
+        )
 
         svc = ImportService(factory)
         result = svc.import_data(pkg)
@@ -195,28 +182,32 @@ class TestImportContent:
         factory, engine = _make_session_factory()
 
         with Session(engine) as session:
-            session.add(TweetOrm(
-                tweet_id="tw_001",
-                text="Original",
-                created_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
-                author_username="alice",
-            ))
+            session.add(
+                TweetOrm(
+                    tweet_id="tw_001",
+                    text="Original",
+                    created_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
+                    author_username="alice",
+                )
+            )
             session.commit()
 
-        pkg = _make_package({
-            "content": {
-                "tweets": [
-                    {
-                        "tweet_id": "tw_001",
-                        "text": "Modified",
-                        "created_at": "2026-02-01T00:00:00+00:00",
-                        "author_username": "alice",
-                    },
-                ],
-                "summaries": [],
-                "articles": [],
+        pkg = _make_package(
+            {
+                "content": {
+                    "tweets": [
+                        {
+                            "tweet_id": "tw_001",
+                            "text": "Modified",
+                            "created_at": "2026-02-01T00:00:00+00:00",
+                            "author_username": "alice",
+                        },
+                    ],
+                    "summaries": [],
+                    "articles": [],
+                }
             }
-        })
+        )
 
         svc = ImportService(factory)
         result = svc.import_data(pkg, strategy=ConflictStrategy.merge)
@@ -230,120 +221,19 @@ class TestImportContent:
             assert tweet.text == "Original"
 
 
-class TestImportTopics:
-    def test_import_topic_with_accounts(self):
-        factory, engine = _make_session_factory()
-
-        pkg = _make_package({
-            "topics": {
-                "topics": [
-                    {
-                        "name": "AI Research",
-                        "description": "AI 研究动态",
-                        "accounts": ["alice", "bob"],
-                        "summary_tasks": [],
-                    },
-                ],
-            }
-        })
-
-        svc = ImportService(factory)
-        result = svc.import_data(pkg)
-
-        assert result.success
-        assert result.stats["topics"].inserted == 1
-
-        with Session(engine) as session:
-            topic = session.execute(select(TopicOrm)).scalar_one()
-            assert topic.name == "AI Research"
-            accounts = session.execute(
-                select(TopicAccountOrm).where(TopicAccountOrm.topic_id == topic.id)
-            ).scalars().all()
-            assert len(accounts) == 2
-
-    def test_merge_topics_adds_new_accounts(self):
-        factory, engine = _make_session_factory()
-
-        # 预插入 topic
-        with Session(engine) as session:
-            topic = TopicOrm(name="AI Research", description="AI")
-            session.add(topic)
-            session.flush()
-            session.add(TopicAccountOrm(topic_id=topic.id, username="alice"))
-            session.commit()
-
-        pkg = _make_package({
-            "topics": {
-                "topics": [
-                    {
-                        "name": "AI Research",
-                        "accounts": ["alice", "bob", "charlie"],
-                        "summary_tasks": [],
-                    },
-                ],
-            }
-        })
-
-        svc = ImportService(factory)
-        result = svc.import_data(pkg, strategy=ConflictStrategy.merge)
-
-        assert result.stats["topics"].updated == 1
-
-        with Session(engine) as session:
-            topic = session.execute(
-                select(TopicOrm).where(TopicOrm.name == "AI Research")
-            ).scalar_one()
-            accounts = session.execute(
-                select(TopicAccountOrm).where(TopicAccountOrm.topic_id == topic.id)
-            ).scalars().all()
-            usernames = {a.username for a in accounts}
-            assert usernames == {"alice", "bob", "charlie"}
-
-    def test_import_topic_with_summary_task(self):
-        factory, engine = _make_session_factory()
-
-        pkg = _make_package({
-            "topics": {
-                "topics": [
-                    {
-                        "name": "AI",
-                        "accounts": [],
-                        "summary_tasks": [
-                            {
-                                "time_span_hours": 24,
-                                "deadline": "2026-02-02T00:00:00+00:00",
-                                "status": "completed",
-                                "summary": {
-                                    "content": "Summary text",
-                                    "llm_provider": "openrouter",
-                                    "llm_model": "gpt-4",
-                                },
-                            },
-                        ],
-                    },
-                ],
-            }
-        })
-
-        svc = ImportService(factory)
-        result = svc.import_data(pkg)
-
-        assert result.success
-        assert result.stats["topics"].inserted == 1
-
-
 class TestDryRun:
     def test_dry_run_does_not_persist(self):
         factory, engine = _make_session_factory()
 
-        pkg = _make_package({
-            "config": {
-                "scraper_follows": [
-                    {"username": "alice", "reason": "KOL", "added_by": "admin"},
-                ],
-                "scraper_schedule_config": None,
+        pkg = _make_package(
+            {
+                "config": {
+                    "scraper_follows": [
+                        {"username": "alice", "reason": "KOL", "added_by": "admin"},
+                    ],
+                }
             }
-        })
+        )
 
         svc = ImportService(factory)
         result = svc.import_data(pkg, dry_run=True)
@@ -367,7 +257,6 @@ class TestCategoryFiltering:
                     "scraper_follows": [
                         {"username": "alice", "reason": "KOL", "added_by": "admin"},
                     ],
-                    "scraper_schedule_config": None,
                 },
                 "content": {
                     "tweets": [
@@ -404,24 +293,36 @@ class TestFullRoundtrip:
         Base.metadata.create_all(src_engine)
 
         with Session(src_engine) as session:
-            session.add(ScraperFollow(
-                username="alice", reason="KOL", added_by="admin",
-                added_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
-            ))
-            session.add(TweetOrm(
-                tweet_id="tw_001", text="Hello", author_username="alice",
-                created_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
-            ))
-            session.add(SummaryOrm(
-                summary_id="sum_001", tweet_id="tw_001", summary_text="摘要",
-                model_provider="openrouter", model_name="gpt-4",
-                prompt_tokens=100, completion_tokens=50, total_tokens=150,
-                cost_usd=0.01, content_hash="hash1",
-            ))
-            topic = TopicOrm(name="AI", description="AI Research")
-            session.add(topic)
-            session.flush()
-            session.add(TopicAccountOrm(topic_id=topic.id, username="alice"))
+            session.add(
+                ScraperFollow(
+                    username="alice",
+                    reason="KOL",
+                    added_by="admin",
+                    added_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                )
+            )
+            session.add(
+                TweetOrm(
+                    tweet_id="tw_001",
+                    text="Hello",
+                    author_username="alice",
+                    created_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
+                )
+            )
+            session.add(
+                SummaryOrm(
+                    summary_id="sum_001",
+                    tweet_id="tw_001",
+                    summary_text="摘要",
+                    model_provider="openrouter",
+                    model_name="gpt-4",
+                    prompt_tokens=100,
+                    completion_tokens=50,
+                    total_tokens=150,
+                    cost_usd=0.01,
+                    content_hash="hash1",
+                )
+            )
             session.commit()
 
         # 导出
@@ -448,7 +349,3 @@ class TestFullRoundtrip:
 
             summaries = session.execute(select(SummaryOrm)).scalars().all()
             assert len(summaries) == 1
-
-            topics = session.execute(select(TopicOrm)).scalars().all()
-            assert len(topics) == 1
-            assert topics[0].name == "AI"

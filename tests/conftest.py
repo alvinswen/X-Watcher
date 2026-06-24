@@ -40,13 +40,12 @@ _remove_file_handlers()
 # 这些导入不会在代码中使用，但确保 SQLAlchemy 能够找到所有表
 from src.scraper.infrastructure.models import TweetOrm  # noqa: F401
 from src.scraper.infrastructure.fetch_stats_models import FetchStatsOrm  # noqa: F401
-from src.scraper.infrastructure.scheduler_log_models import SchedulerExecutionLogOrm  # noqa: F401
 from src.scraper.infrastructure.article_models import ArticleOrm  # noqa: F401
 from src.summarization.infrastructure.models import SummaryOrm  # noqa: F401
-from src.topic.infrastructure.models import TopicOrm, TopicAccountOrm, TopicSummaryTaskOrm, TopicSummaryOrm  # noqa: F401
 
 # 在测试开始时加载 .env 文件
 from dotenv import load_dotenv
+
 load_dotenv()
 
 # ⚠️ 测试套件默认钉 sqlalchemy 模式,中和本机 gitignored .env 的 XWATCHER_DATA_LAYER=file 污染。
@@ -93,7 +92,7 @@ def _isolate_database_singletons():
     """隔离数据库单例，防止测试泄漏写入生产数据库。
 
     通过 patch get_engine() 使所有同步数据库操作（TaskRegistry._persist_task、
-    SchedulerExecutionLogSyncWriter.write_log、get_active_follows_from_db 等）
+    TaskRegistry._persist_task、get_active_follows_from_db 等）
     使用内存测试数据库而非生产 news_agent.db。
 
     同时 patch get_async_engine()/get_async_session_maker() 使所有异步数据库代码路径
@@ -111,10 +110,12 @@ def _isolate_database_singletons():
     # 引用(import 时定型),patch 源模块的 get_engine 覆盖不到该绑定名 → main.py 的 lifespan
     # 启动期 _init_db_if_needed() 会用未被 patch 的真实 pg sync engine 对真实 pg create_all
     # 重建表。故必须额外 patch src.main.engine 这一绑定名,堵住该同步路径的 pg 泄漏。
-    with patch("src.database.models.get_engine", return_value=_sync_test_engine), \
-         patch("src.main.engine", return_value=_sync_test_engine), \
-         patch("src.database.async_session.get_async_engine", return_value=_async_test_engine), \
-         patch("src.database.async_session.get_async_session_maker", return_value=_async_test_maker):
+    with (
+        patch("src.database.models.get_engine", return_value=_sync_test_engine),
+        patch("src.main.engine", return_value=_sync_test_engine),
+        patch("src.database.async_session.get_async_engine", return_value=_async_test_engine),
+        patch("src.database.async_session.get_async_session_maker", return_value=_async_test_maker),
+    ):
         yield
 
     # 测试后再次重置单例
@@ -325,9 +326,7 @@ async def test_session_factory(_test_db_engine):
     """
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-    factory = async_sessionmaker(
-        _test_db_engine, class_=AsyncSession, expire_on_commit=False
-    )
+    factory = async_sessionmaker(_test_db_engine, class_=AsyncSession, expire_on_commit=False)
 
     yield factory
 

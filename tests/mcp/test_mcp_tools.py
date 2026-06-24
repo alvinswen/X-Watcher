@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ── 辅助：创建工具函数引用 ────────────────────────────────────────
 
 
@@ -334,8 +333,8 @@ class TestGetSystemStatus:
         assert "tweets" in data["data"]
         assert "follows" in data["data"]
         assert "summaries" in data["data"]
-        assert "topics" in data["data"]
-        assert "scheduler" in data["data"]
+        assert "topics" not in data["data"]
+        assert "scheduler" not in data["data"]
         assert "system" in data["data"]
 
 
@@ -451,10 +450,16 @@ class TestTriggerScrape:
         with (
             patch("src.mcp.tools.admin_tools.require_admin", return_value=None),
             patch("src.mcp.security.check_scrape_guard", return_value=None),
-            patch("src.mcp.tools.admin_tools.resolve_user_list", new_callable=AsyncMock, return_value=["user1"]),
+            patch(
+                "src.mcp.tools.admin_tools.resolve_user_list",
+                new_callable=AsyncMock,
+                return_value=["user1"],
+            ),
             patch("src.mcp.security.audit_log"),
             patch("src.scraper.task_registry.TaskRegistry.get_instance") as mock_registry,
-            patch("src.scraper.ScrapingService", return_value=mock_service_instance) as mock_service_cls,
+            patch(
+                "src.scraper.ScrapingService", return_value=mock_service_instance
+            ) as mock_service_cls,
         ):
             mock_registry.return_value.get_tasks_by_status.return_value = []
 
@@ -481,14 +486,20 @@ class TestTriggerScrape:
         with (
             patch("src.mcp.tools.admin_tools.require_admin", return_value=None),
             patch("src.mcp.security.check_scrape_guard", return_value=None),
-            patch("src.mcp.tools.admin_tools.resolve_user_list", new_callable=AsyncMock, return_value=["user1"]),
+            patch(
+                "src.mcp.tools.admin_tools.resolve_user_list",
+                new_callable=AsyncMock,
+                return_value=["user1"],
+            ),
             patch("src.mcp.security.audit_log"),
             patch("src.scraper.task_registry.TaskRegistry.get_instance") as mock_registry,
-            patch("src.scraper.ScrapingService", return_value=mock_service_instance) as mock_service_cls,
+            patch(
+                "src.scraper.ScrapingService", return_value=mock_service_instance
+            ) as mock_service_cls,
         ):
             mock_registry.return_value.get_tasks_by_status.return_value = []
 
-            result_json = await trigger_scrape(
+            await trigger_scrape(
                 usernames="user1",
                 limit=10,
             )

@@ -16,12 +16,8 @@ security_logger = logging.getLogger("xwatcher.security")
 
 # 工具名 → 环境变量名映射
 _GUARD_ENV_MAP: dict[str, str] = {
-    "manage_topic": "MCP_TOPIC_ALLOWED_ACTIONS",
-    "manage_topic_accounts": "MCP_TOPIC_ACCOUNTS_ALLOWED_ACTIONS",
     "manage_follows": "MCP_FOLLOWS_ALLOWED_ACTIONS",
-    "manage_scheduler": "MCP_SCHEDULER_ALLOWED_ACTIONS",
     "batch_summarize": "MCP_SUMMARIZE_ALLOWED_ACTIONS",
-    "get_topic_summary": "MCP_TOPIC_SUMMARY_ALLOWED_ACTIONS",
 }
 
 # 进程级缓存：工具名 → 允许的 action 集合（None 表示全部允许）
@@ -128,7 +124,16 @@ def audit_log(
     try:
         loop = asyncio.get_running_loop()
         loop.run_in_executor(
-            None, _persist_audit_log, tool, action, user, params, result, error, source, now,
+            None,
+            _persist_audit_log,
+            tool,
+            action,
+            user,
+            params,
+            result,
+            error,
+            source,
+            now,
         )
     except RuntimeError:
         # 没有运行中的事件循环（同步调用场景），直接同步写入
