@@ -35,7 +35,6 @@ dependencies = [
     "sqlalchemy>=2.0.23",
     "alembic>=1.13.0",
     "aiosqlite>=0.19.0",  # SQLite 异步驱动
-    "asyncpg>=0.29.0",  # PostgreSQL 异步驱动（可选）
 
     # HTTP 客户端
     "httpx>=0.25.0",
