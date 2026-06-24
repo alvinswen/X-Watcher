@@ -2,6 +2,8 @@
 
 面向 Agent 的 X 平台智能信息监控服务
 
+> **当前架构现状（2026-06）**：数据层默认 **file 模式**（`XWATCHER_DATA_LAYER=file`，数据落 `data_migrated/`）；推文翻译/摘要默认由 **Claude Code Opus 在主对话接管**（外部 LLM 自动摘要默认关闭）；已提供 **MCP Server**（在 x-watcher 目录启动 Claude Code 即可用）。原 PostgreSQL/Docker 生产模式已于 2026-06-24 下线——下方部分章节仍以 SQLite/PG 为例，按此现状理解。
+
 ## Quick Start (Agent)
 
 ```bash
@@ -27,6 +29,8 @@ x-watcher serve                 # 启动服务
 init 完成后请记录输出中的 **API Key**（仅显示一次）。使用前端时在侧边栏底部点击"未配置 API Key"输入此 Key。
 
 ## 支持的 LLM 提供商
+
+> 注：当前默认翻译/摘要路径是 **Claude Code Opus（主对话）**；下表的外部提供商仅用于**可选**的自动摘要（`AUTO_SUMMARIZATION_ENABLED`，本项目部署中默认关闭）。
 
 | Provider | Slug | Default Model | 备注 |
 |----------|------|---------------|------|
@@ -151,7 +155,7 @@ curl http://localhost:8000/api/admin/config/validate \
 | **Web 框架** | FastAPI + Uvicorn |
 | **前端** | Vue 3 + Element Plus + TypeScript |
 | **LLM** | 通用 OpenAI 兼容协议（支持 6+ 提供商） |
-| **数据库** | SQLite（开发）→ PostgreSQL（生产） |
+| **数据层** | 默认 file 文件层（`data_migrated/`）；可选 SQLite（PostgreSQL 生产模式已于 2026-06-24 下线） |
 | **ORM** | SQLAlchemy 2.0 + Alembic |
 | **任务调度** | APScheduler |
 | **CLI** | Click |
