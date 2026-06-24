@@ -1,7 +1,7 @@
 """M-5 数据层 provider:按 XWATCHER_DATA_LAYER 在旧 SQLAlchemy repo 与 se 文件层 store 间切换。
 
 - 默认 sqlalchemy:旧应用零行为变化;设 XWATCHER_DATA_LAYER=file 切到文件层。
-- 文件层 store 经 scripts/link_se_stores.sh 符号链接进 src.* 命名空间。
+- 文件层 store 已实体化 vendoring 进 src.* 命名空间（早期曾用符号链接，见 754c0be）。
 - import 延迟到函数内,使 env 变更逐调用生效(测试可 monkeypatch)。
 """
 from __future__ import annotations
