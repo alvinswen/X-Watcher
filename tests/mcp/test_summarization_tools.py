@@ -201,7 +201,7 @@ class TestSaveSummaries:
         mock_save.assert_called_once()
         saved_record = mock_save.call_args[0][0]
         assert saved_record.model_provider == "claude_code"
-        # model_name 应来自配置(默认 claude-opus-4-7)而非硬编码
+        # model_name 应来自配置(默认 claude-opus-4-8)而非硬编码
         assert saved_record.model_name.startswith("claude-opus-")
         assert saved_record.cost_usd == 0.0
         assert saved_record.tweet_id == "t1"

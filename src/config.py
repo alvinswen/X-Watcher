@@ -88,12 +88,12 @@ class Settings(BaseSettings):
 
     # Claude Code 翻译/摘要接管模型名（写入 provenance 元数据）
     claude_code_model_name: str = Field(
-        default="claude-opus-4-7",
+        default="claude-opus-4-8",
         description="Claude Code 翻译/摘要接管时写入数据库的模型名（model_name / llm_model 字段）",
     )
 
     # 自动摘要配置
-    auto_summarization_enabled: bool = Field(default=True, description="是否在抓取后自动生成摘要")
+    auto_summarization_enabled: bool = Field(default=False, description="是否在抓取后自动生成摘要")
     auto_summarization_wait_for_completion: bool = Field(
         default=False, description="是否等待摘要完成再标记抓取任务完成（False 为后台模式）"
     )

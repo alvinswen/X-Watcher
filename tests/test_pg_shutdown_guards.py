@@ -32,8 +32,8 @@ def test_is_file_mode_sqlalchemy(monkeypatch):
 
 
 def test_is_file_mode_default_is_not_file(monkeypatch):
-    """未设 env(默认 sqlalchemy)不是 file 模式。"""
-    monkeypatch.delenv("XWATCHER_DATA_LAYER", raising=False)
+    """显式 sqlalchemy 不是 file 模式。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
     from src.data_layer.provider import is_file_mode
 
     assert is_file_mode() is False

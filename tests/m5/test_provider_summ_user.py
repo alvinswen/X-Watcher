@@ -12,7 +12,7 @@ def test_get_summary_repo_file_mode(monkeypatch, tmp_path):
 
 
 def test_get_summary_repo_default_is_sqlalchemy(monkeypatch):
-    monkeypatch.delenv("XWATCHER_DATA_LAYER", raising=False)
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
     from src.data_layer.provider import get_summary_repo
     from src.summarization.infrastructure.repository import SummarizationRepository
 
@@ -31,7 +31,7 @@ def test_get_user_repo_file_mode(monkeypatch, tmp_path):
 
 
 def test_get_user_repo_default_is_sqlalchemy(monkeypatch):
-    monkeypatch.delenv("XWATCHER_DATA_LAYER", raising=False)
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
     from src.data_layer.provider import get_user_repo
     from src.user.infrastructure.repository import UserRepository
 

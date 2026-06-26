@@ -11,7 +11,7 @@ def test_get_export_repo_file_mode(monkeypatch, tmp_path):
 
 
 def test_get_export_repo_default_is_sqlalchemy_dict_adapter(monkeypatch):
-    monkeypatch.delenv("XWATCHER_DATA_LAYER", raising=False)
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
     from src.data_layer.provider import get_export_repo, _SqlalchemyExportDictAdapter
 
     repo = get_export_repo(session=None)  # 套 ExportRepository(None),不触 DB
@@ -41,7 +41,7 @@ def test_get_import_repo_file_mode(monkeypatch, tmp_path):
 
 
 def test_get_import_repo_default_is_sqlalchemy(monkeypatch):
-    monkeypatch.delenv("XWATCHER_DATA_LAYER", raising=False)
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
     from src.data_layer.provider import get_import_repo
     from src.sync.infrastructure.import_repository import ImportRepository
 
