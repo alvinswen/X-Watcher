@@ -6,7 +6,7 @@
 
 import json
 from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +26,63 @@ def _get_tool_funcs():
     mcp = create_mcp_server()
     tools = mcp._tool_manager._tools
     return {name: tool.fn for name, tool in tools.items()}
+
+
+def test_run_mcp_server_rejects_weak_jwt_secret(monkeypatch, capsys):
+    """测试 MCP 入口对弱默认 JWT 密钥 fail-loud 拒起。"""
+    from src.config import clear_settings_cache
+    from src.mcp import server as mcp_server
+
+    monkeypatch.setenv("JWT_SECRET_KEY", "change-me-in-production")
+    clear_settings_cache()
+
+    with (
+        patch.object(mcp_server, "init_mcp_logging") as init_logging,
+        patch.object(mcp_server, "configure_transport") as configure_transport,
+        patch.object(mcp_server, "create_mcp_server") as create_mcp_server,
+        pytest.raises(SystemExit) as exc_info,
+    ):
+        mcp_server.run_mcp_server(transport="stdio")
+
+    assert exc_info.value.code == 1
+    init_logging.assert_not_called()
+    configure_transport.assert_not_called()
+    create_mcp_server.assert_not_called()
+    stderr = capsys.readouterr().err
+    assert "JWT 签名密钥强度校验未通过" in stderr
+    assert "默认值" in stderr
+    assert 'python -c "import secrets;print(secrets.token_urlsafe(32))"' in stderr
+    assert "Traceback" not in stderr
+
+    clear_settings_cache()
+
+
+def test_run_mcp_server_allows_strong_jwt_secret(monkeypatch):
+    """测试 MCP 入口在强 JWT 密钥下正常进入运行流程。"""
+    from src.config import clear_settings_cache
+    from src.mcp import server as mcp_server
+
+    monkeypatch.setenv("JWT_SECRET_KEY", "x" * 32)
+    clear_settings_cache()
+    mcp = MagicMock()
+
+    with (
+        patch.object(mcp_server, "init_mcp_logging") as init_logging,
+        patch.object(mcp_server, "configure_transport") as configure_transport,
+        patch.object(mcp_server, "create_mcp_server", return_value=mcp) as create_mcp_server,
+    ):
+        mcp_server.run_mcp_server(transport="stdio")
+
+    init_logging.assert_called_once_with(stderr_only=True)
+    configure_transport.assert_called_once_with("stdio")
+    create_mcp_server.assert_called_once_with(
+        host="0.0.0.0",
+        port=8001,
+        use_auth=False,
+    )
+    mcp.run.assert_called_once_with(transport="stdio")
+
+    clear_settings_cache()
 
 
 @pytest.fixture

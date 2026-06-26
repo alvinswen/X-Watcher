@@ -20,6 +20,14 @@ from src.config import clear_settings_cache, get_settings
 from src.logging_config import shutdown_logging
 from src.database.models import Base, reset_engine
 from src.database.async_session import reset_async_engine
+
+os.environ.setdefault("TWITTER_API_KEY", "test-twitter-key")
+os.environ.setdefault("TWITTER_BEARER_TOKEN", "test-bearer-token")
+os.environ["DATABASE_URL"] = "sqlite:///:memory:"
+os.environ["XWATCHER_DATA_LAYER"] = "sqlalchemy"
+os.environ["JWT_SECRET_KEY"] = "test-jwt-secret-key-with-at-least-32-chars"
+clear_settings_cache()
+
 from src.main import app
 
 

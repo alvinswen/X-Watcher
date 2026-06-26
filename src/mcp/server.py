@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 
 from mcp.server.fastmcp import FastMCP
 
+from src.config import validate_jwt_secret_strength
 from src.mcp.auth import configure_transport, get_transport, is_admin
 from src.mcp.lifespan import init_database, init_mcp_logging
 
@@ -118,6 +119,8 @@ def run_mcp_server(
         port: HTTP 模式监听端口
         api_key: 已弃用，保留参数兼容性。HTTP 模式使用 per-request 认证。
     """
+    validate_jwt_secret_strength()
+
     if api_key:
         logger.warning(
             "api_key 参数已弃用，HTTP 模式现在使用 per-request Bearer token 认证。"

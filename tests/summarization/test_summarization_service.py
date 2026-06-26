@@ -24,6 +24,7 @@ from src.summarization.domain.models import (
 from src.summarization.infrastructure.repository import SummarizationRepository
 from src.summarization.llm.base import LLMProvider
 from src.summarization.services.summarization_service import (
+    LLMResponseParseError,
     SummarizationService,
     create_summarization_service,
 )
@@ -638,12 +639,8 @@ class TestSummarizationService:
         assert translation == "这是翻译内容"
 
     @pytest.mark.asyncio
-    async def test_parse_llm_response_non_json_fallback(self):
-        """测试非 JSON 格式的 LLM 响应回退处理。
-
-        当 LLM 返回非 JSON 格式的纯文本时，整段文本作为摘要返回，
-        翻译为 None。
-        """
+    async def test_parse_llm_response_non_json_raises_parse_error(self):
+        """测试非 JSON 且无可提取字段时抛出解析失败信号。"""
         provider = MockLLMProvider("openrouter")
         service = SummarizationService(
             session_factory=create_mock_session_factory(),
@@ -651,15 +648,13 @@ class TestSummarizationService:
         )
 
         multiline_content = "这是摘要内容\n这是翻译内容"
-        summary, translation = service._parse_llm_response(multiline_content)
 
-        # 非 JSON 格式时，整段文本作为摘要返回
-        assert summary == "这是摘要内容\n这是翻译内容"
-        assert translation is None
+        with pytest.raises(LLMResponseParseError):
+            service._parse_llm_response(multiline_content)
 
     @pytest.mark.asyncio
-    async def test_parse_llm_response_single_line(self):
-        """测试解析单行格式的 LLM 响应。"""
+    async def test_parse_llm_response_single_line_raises_parse_error(self):
+        """测试单行纯文本不能再被当成摘要兜底。"""
         provider = MockLLMProvider("openrouter")
         service = SummarizationService(
             session_factory=create_mock_session_factory(),
@@ -667,10 +662,24 @@ class TestSummarizationService:
         )
 
         single_line_content = "这是摘要内容"
-        summary, translation = service._parse_llm_response(single_line_content)
 
-        assert summary == "这是摘要内容"
-        assert translation is None
+        with pytest.raises(LLMResponseParseError):
+            service._parse_llm_response(single_line_content)
+
+    @pytest.mark.asyncio
+    async def test_parse_llm_response_regex_rescue_still_persists_fields(self):
+        """测试正则救援能提取字段时仍按成功路径处理。"""
+        provider = MockLLMProvider("openrouter")
+        service = SummarizationService(
+            session_factory=create_mock_session_factory(),
+            providers=[provider],
+        )
+
+        content = '"summary": "这是可救援摘要",\n"translation": "这是翻译",\n'
+        summary, translation = service._parse_llm_response(content)
+
+        assert summary == "这是可救援摘要"
+        assert translation == "这是翻译"
 
     @pytest.mark.asyncio
     async def test_get_cost_stats(
@@ -741,6 +750,59 @@ class TestSummarizationService:
         assert summary_result.total_tweets_succeeded == 1
         assert summary_result.cache_misses == 1
         assert summary_result.failed_tweets == []
+
+    @pytest.mark.asyncio
+    async def test_parse_failure_is_not_persisted_or_retried(self):
+        """测试解析彻底失败时不落库、不缓存、不自动重试。"""
+        invalid_response = LLMResponse(
+            content="this is not json and has no summary field",
+            model="test-model",
+            provider="openrouter",
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+            cost_usd=0.001,
+        )
+        provider = MockLLMProvider("openrouter", responses=[invalid_response])
+        service = SummarizationService(
+            session_factory=create_mock_session_factory(),
+            providers=[provider],
+        )
+        service._load_tweets = AsyncMock(
+            return_value={
+                "tweet_bad_json": {
+                    "text": "A standalone tweet with enough text to trigger summarization and translation by the LLM provider service",
+                    "reference_type": None,
+                }
+            }
+        )
+        repository = MagicMock()
+        repository.save_summary_record = AsyncMock()
+
+        with (
+            patch(
+                "src.summarization.services.summarization_service.get_summary_repo",
+                return_value=repository,
+            ),
+            patch(
+                "src.summarization.services.summarization_service.structured_logger.log_summary_error"
+            ) as log_summary_error,
+            patch(
+                "src.summarization.services.summarization_service.asyncio.sleep",
+                new_callable=AsyncMock,
+            ) as sleep,
+        ):
+            result = await service.summarize_tweets(tweet_ids=["tweet_bad_json"])
+
+        assert isinstance(result, Failure)
+        assert provider._call_count == 1
+        sleep.assert_not_called()
+        repository.save_summary_record.assert_not_called()
+        assert await service.get_cache_size() == 0
+        log_summary_error.assert_called_once()
+        _, kwargs = log_summary_error.call_args
+        assert kwargs["tweet_id"] == "tweet_bad_json"
+        assert kwargs["error_type"] == "llm_response_parse_failed"
 
     @pytest.mark.asyncio
     async def test_regenerate_summary(

@@ -61,3 +61,26 @@ def test_openapi_schema_available(client):
 
     assert response.status_code == 200
     assert "openapi" in response.json()
+
+
+@pytest.mark.asyncio
+async def test_lifespan_rejects_weak_jwt_secret(monkeypatch, capsys):
+    """测试 REST lifespan 对弱默认 JWT 密钥 fail-loud 拒起。"""
+    from src.main import app, lifespan
+
+    monkeypatch.setenv("JWT_SECRET_KEY", "change-me-in-production")
+    monkeypatch.setenv("SCRAPER_ENABLED", "false")
+    clear_settings_cache()
+
+    with pytest.raises(SystemExit) as exc_info:
+        async with lifespan(app):
+            pass
+
+    assert exc_info.value.code == 1
+    stderr = capsys.readouterr().err
+    assert "JWT 签名密钥强度校验未通过" in stderr
+    assert "默认值" in stderr
+    assert 'python -c "import secrets;print(secrets.token_urlsafe(32))"' in stderr
+    assert "Traceback" not in stderr
+
+    clear_settings_cache()
