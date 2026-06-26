@@ -11,7 +11,7 @@ def test_get_tweet_repo_file_mode(monkeypatch, tmp_path):
 
 
 def test_get_tweet_repo_default_is_sqlalchemy(monkeypatch):
-    monkeypatch.delenv("XWATCHER_DATA_LAYER", raising=False)
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
     from src.data_layer.provider import get_tweet_repo
     from src.scraper.infrastructure.repository import TweetRepository
 
@@ -28,7 +28,7 @@ def test_get_article_repo_file_mode(monkeypatch, tmp_path):
 
 
 def test_get_article_repo_default_is_sqlalchemy(monkeypatch):
-    monkeypatch.delenv("XWATCHER_DATA_LAYER", raising=False)
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
     from src.data_layer.provider import get_article_repo
     from src.scraper.infrastructure.article_repository import ArticleRepository
 
@@ -45,7 +45,7 @@ def test_get_fetch_stats_repo_file_mode(monkeypatch, tmp_path):
 
 
 def test_get_fetch_stats_repo_default_is_sqlalchemy(monkeypatch):
-    monkeypatch.delenv("XWATCHER_DATA_LAYER", raising=False)
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
     from src.data_layer.provider import get_fetch_stats_repo
     from src.scraper.infrastructure.fetch_stats_repository import FetchStatsRepository
 

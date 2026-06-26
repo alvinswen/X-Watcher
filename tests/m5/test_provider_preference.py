@@ -12,7 +12,7 @@ def test_get_follows_repo_file_mode(monkeypatch, tmp_path):
 
 
 def test_get_follows_repo_default_is_sqlalchemy(monkeypatch):
-    monkeypatch.delenv("XWATCHER_DATA_LAYER", raising=False)
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
     from src.data_layer.provider import get_follows_repo
     from src.preference.infrastructure.scraper_config_repository import ScraperConfigRepository
 
@@ -31,7 +31,7 @@ def test_get_profile_repo_file_mode(monkeypatch, tmp_path):
 
 
 def test_get_profile_repo_default_is_sqlalchemy(monkeypatch):
-    monkeypatch.delenv("XWATCHER_DATA_LAYER", raising=False)
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
     from src.data_layer.provider import get_profile_repo
     from src.preference.infrastructure.x_user_profile_repository import XUserProfileRepository
 

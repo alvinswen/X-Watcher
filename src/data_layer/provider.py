@@ -1,6 +1,6 @@
 """M-5 数据层 provider:按 XWATCHER_DATA_LAYER 在旧 SQLAlchemy repo 与 se 文件层 store 间切换。
 
-- 默认 sqlalchemy:旧应用零行为变化;设 XWATCHER_DATA_LAYER=file 切到文件层。
+- 默认 file:旧 SQLAlchemy 能力可通过设 XWATCHER_DATA_LAYER=sqlalchemy 显式保留。
 - 文件层 store 已实体化 vendoring 进 src.* 命名空间（早期曾用符号链接，见 754c0be）。
 - import 延迟到函数内,使 env 变更逐调用生效(测试可 monkeypatch)。
 """
@@ -13,7 +13,7 @@ from pathlib import Path
 
 
 def _data_layer() -> str:
-    return os.environ.get("XWATCHER_DATA_LAYER", "sqlalchemy").strip().lower()
+    return os.environ.get("XWATCHER_DATA_LAYER", "file").strip().lower()
 
 
 def is_file_mode() -> bool:
@@ -22,11 +22,11 @@ def is_file_mode() -> bool:
 
 
 def _data_root() -> Path:
-    return Path(os.environ.get("XWATCHER_DATA_ROOT", "data"))
+    return Path(os.environ.get("XWATCHER_DATA_ROOT", "data_migrated"))
 
 
 def data_root() -> Path:
-    """文件数据层根目录(XWATCHER_DATA_ROOT,默认 data)。pg 下线守卫的单一真值源。"""
+    """文件数据层根目录(XWATCHER_DATA_ROOT,默认 data_migrated)。pg 下线守卫的单一真值源。"""
     return _data_root()
 
 
