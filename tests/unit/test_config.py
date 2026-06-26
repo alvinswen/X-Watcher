@@ -2,6 +2,34 @@
 
 import pytest
 
+VALID_JWT_SECRET = "x" * 32
+
+
+def _make_settings(jwt_secret: str):
+    from src.config import Settings
+
+    return Settings(
+        twitter_api_key="twitter-key",
+        twitter_bearer_token="test-bearer-token",
+        database_url="sqlite:///./test.db",
+        jwt_secret_key=jwt_secret,
+    )
+
+
+def _assert_jwt_guard_exits(capsys, jwt_secret: str) -> str:
+    from src.config import validate_jwt_secret_strength
+
+    with pytest.raises(SystemExit) as exc_info:
+        validate_jwt_secret_strength(_make_settings(jwt_secret))
+
+    assert exc_info.value.code == 1
+    stderr = capsys.readouterr().err
+    assert "启动失败：JWT 签名密钥强度校验未通过" in stderr
+    assert 'python -c "import secrets;print(secrets.token_urlsafe(32))"' in stderr
+    assert "JWT_SECRET_KEY=<上一步生成的值>" in stderr
+    assert "Traceback" not in stderr
+    return stderr
+
 
 def test_config_loads_from_env(monkeypatch):
     """测试从环境变量加载配置。"""
@@ -123,3 +151,39 @@ def test_config_singleton(monkeypatch):
 
     # 应该返回同一个实例
     assert settings1 is settings2
+
+
+def test_validate_jwt_secret_strength_rejects_default(capsys):
+    """测试默认 JWT 密钥会 fail-loud 拒绝启动。"""
+    stderr = _assert_jwt_guard_exits(capsys, "change-me-in-production")
+    assert "默认值" in stderr
+
+
+@pytest.mark.parametrize("jwt_secret", ["", "   "])
+def test_validate_jwt_secret_strength_rejects_blank(capsys, jwt_secret):
+    """测试空串/纯空白 JWT 密钥会被拒绝。"""
+    stderr = _assert_jwt_guard_exits(capsys, jwt_secret)
+    assert "不能为空或仅包含空白字符" in stderr
+
+
+def test_validate_jwt_secret_strength_rejects_31_chars(capsys):
+    """测试长度 31 的非默认 JWT 密钥会被拒绝。"""
+    stderr = _assert_jwt_guard_exits(capsys, "x" * 31)
+    assert "长度必须 >= 32 字符" in stderr
+    assert "当前 31" in stderr
+
+
+def test_validate_jwt_secret_strength_accepts_32_chars():
+    """测试长度正好 32 的非默认 JWT 密钥可以通过。"""
+    from src.config import validate_jwt_secret_strength
+
+    validate_jwt_secret_strength(_make_settings(VALID_JWT_SECRET))
+
+
+def test_validate_jwt_secret_strength_accepts_token_urlsafe_style():
+    """测试安装向导样式强随机密钥不会被误伤。"""
+    from src.config import validate_jwt_secret_strength
+
+    validate_jwt_secret_strength(
+        _make_settings("N8V06BqkAwvGL4gnPuxgb0eTIODlqKO1xxhB9OS02VU")
+    )

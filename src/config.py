@@ -3,6 +3,7 @@
 使用 Pydantic 加载和验证环境变量。
 """
 
+import sys
 from typing import Literal
 
 from dotenv import load_dotenv
@@ -11,6 +12,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # 加载 .env 文件
 load_dotenv()
+
+DEFAULT_JWT_SECRET_KEY = "change-me-in-production"
+MIN_JWT_SECRET_LENGTH = 32
+JWT_SECRET_GENERATE_COMMAND = (
+    'python -c "import secrets;print(secrets.token_urlsafe(32))"'
+)
 
 
 class Settings(BaseSettings):
@@ -76,7 +83,7 @@ class Settings(BaseSettings):
     )
 
     # JWT 认证配置
-    jwt_secret_key: str = Field(default="change-me-in-production", description="JWT 签名密钥")
+    jwt_secret_key: str = Field(default=DEFAULT_JWT_SECRET_KEY, description="JWT 签名密钥")
     jwt_expire_hours: int = Field(default=24, description="JWT 过期时间（小时）")
 
     # Claude Code 翻译/摘要接管模型名（写入 provenance 元数据）
@@ -164,6 +171,51 @@ def get_settings() -> Settings:
     if _settings_cache is None:
         _settings_cache = Settings()
     return _settings_cache
+
+
+def _jwt_secret_strength_errors(secret: str | None) -> list[str]:
+    """返回 JWT 密钥强度错误列表。"""
+    normalized = (secret or "").strip()
+    errors: list[str] = []
+
+    if normalized == DEFAULT_JWT_SECRET_KEY:
+        errors.append(
+            f"JWT_SECRET_KEY 不得使用默认值 {DEFAULT_JWT_SECRET_KEY!r}"
+        )
+    if not normalized:
+        errors.append("JWT_SECRET_KEY 不能为空或仅包含空白字符")
+    if len(normalized) < MIN_JWT_SECRET_LENGTH:
+        errors.append(
+            "JWT_SECRET_KEY 长度必须 >= "
+            f"{MIN_JWT_SECRET_LENGTH} 字符（当前 {len(normalized)}）"
+        )
+
+    return errors
+
+
+def validate_jwt_secret_strength(settings: Settings | None = None) -> None:
+    """启动期校验 JWT 签名密钥强度，不合规则 fail-loud 退出。"""
+    current_settings = settings or get_settings()
+    errors = _jwt_secret_strength_errors(current_settings.jwt_secret_key)
+    if not errors:
+        return
+
+    print(
+        "\n".join(
+            [
+                "启动失败：JWT 签名密钥强度校验未通过。",
+                "不满足规则：",
+                *[f"- {error}" for error in errors],
+                "",
+                "生成强随机密钥：",
+                f"  {JWT_SECRET_GENERATE_COMMAND}",
+                "写入 .env：",
+                "  JWT_SECRET_KEY=<上一步生成的值>",
+            ]
+        ),
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 
 def clear_settings_cache() -> None:

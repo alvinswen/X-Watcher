@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.config import get_settings
+from src.config import get_settings, validate_jwt_secret_strength
 from src.database.models import Base
 from src.database.models import get_engine as engine
 from src.logging_config import setup_logging
@@ -63,12 +63,8 @@ async def lifespan(app: FastAPI):  # noqa: ARG001 - app 参数是 FastAPI 要求
     # 启动时创建数据库表 + 内联迁移（file 模式跳过，pg 下线守卫）
     _init_db_if_needed()
 
-    # 安全检查：JWT 默认密钥警告
-    if settings.jwt_secret_key == "change-me-in-production":
-        logger.warning(
-            "JWT 密钥使用不安全的默认值 'change-me-in-production'。"
-            "请在 .env 中设置 JWT_SECRET_KEY 以保障生产环境安全。"
-        )
+    # 安全检查：JWT 弱密钥直接拒绝启动
+    validate_jwt_secret_strength(settings)
 
     # 恢复僵尸任务（内存 + 数据库残留的 RUNNING 记录）
     from src.scraper.task_registry import TaskRegistry

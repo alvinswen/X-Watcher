@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 from returns.result import Failure, Result, Success
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from src.data_layer.provider import get_summary_repo
 from src.summarization.domain.language_utils import is_chinese_dominant
 from src.summarization.domain.models import (
     CostStats,
@@ -29,9 +30,8 @@ from src.summarization.domain.models import (
     TweetFailure,
     TweetType,
 )
-from src.data_layer.provider import get_summary_repo
-from src.summarization.logging_utils import get_summary_logger
 from src.summarization.llm.base import LLMProvider, classify_error
+from src.summarization.logging_utils import get_summary_logger
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -49,6 +49,10 @@ _CacheEntry = tuple[LLMResponse, datetime]  # (响应, 缓存时间)
 # 防止多个后台摘要任务同时发起过多 LLM 请求导致限流
 _global_llm_semaphore: asyncio.Semaphore | None = None
 _GLOBAL_MAX_CONCURRENT_LLM = 3
+
+
+class LLMResponseParseError(ValueError):
+    """LLM 响应彻底无法解析为摘要字段。"""
 
 
 def _get_global_llm_semaphore() -> asyncio.Semaphore:
@@ -102,6 +106,7 @@ class SummarizationService:
         # 内存缓存
         self._cache: dict[str, _CacheEntry] = {}
         self._cache_lock = asyncio.Lock()
+        self._non_retryable_failed_tweet_ids: set[str] | None = None
 
     async def summarize_tweets(
         self,
@@ -261,6 +266,9 @@ class SummarizationService:
         """
         semaphore = asyncio.Semaphore(self._max_concurrent)
         results: list[SummaryRecord] = []
+        non_retryable_failed_ids: set[str] = set()
+        previous_non_retryable_failed_ids = self._non_retryable_failed_tweet_ids
+        self._non_retryable_failed_tweet_ids = non_retryable_failed_ids
 
         async def process_with_limit(
             tweet_id: str,
@@ -269,43 +277,62 @@ class SummarizationService:
                 record = await self._process_single_tweet(tweet_id, force_refresh)
                 return tweet_id, record
 
-        tasks = [process_with_limit(tid) for tid in tweet_ids]
-        processed = await asyncio.gather(*tasks)
+        try:
+            tasks = [process_with_limit(tid) for tid in tweet_ids]
+            processed = await asyncio.gather(*tasks)
 
-        failed_ids: list[str] = []
-        for tid, result in processed:
-            if result:
-                results.append(result)
-            else:
-                failed_ids.append(tid)
-
-        # 对失败的推文做 1 次重试（等待 5 秒让 rate limit 冷却）
-        if failed_ids:
-            logger.info(
-                f"重试 {len(failed_ids)} 条失败的独立推文，等待 5 秒...",
-                extra={"event": "tweet_retry", "retry_attempt": 1, "wait_seconds": 5, "total_tweets": len(failed_ids)},
-            )
-            await asyncio.sleep(5)
-            retry_tasks = [process_with_limit(tid) for tid in failed_ids]
-            retry_processed = await asyncio.gather(*retry_tasks)
-            failed_ids = []
-            for tid, result in retry_processed:
+            failed_ids: list[str] = []
+            for tid, result in processed:
                 if result:
                     results.append(result)
                 else:
                     failed_ids.append(tid)
 
-        # 记录最终仍失败的推文
-        failures: list[TweetFailure] = []
-        for tid in failed_ids:
-            failures.append(TweetFailure(
-                tweet_id=tid,
-                error_type="llm_failure",
-                error_message=f"推文 {tid} 处理失败（含重试）",
-                group_id=None,
-            ))
+            # 对 LLM 临时失败保留 1 次重试；解析彻底失败不自动重试，回到未摘要。
+            retry_ids = [
+                tid for tid in failed_ids if tid not in non_retryable_failed_ids
+            ]
+            failed_ids = [
+                tid for tid in failed_ids if tid in non_retryable_failed_ids
+            ]
 
-        return results, failures
+            if retry_ids:
+                logger.info(
+                    f"重试 {len(retry_ids)} 条失败的独立推文，等待 5 秒...",
+                    extra={
+                        "event": "tweet_retry",
+                        "retry_attempt": 1,
+                        "wait_seconds": 5,
+                        "total_tweets": len(retry_ids),
+                    },
+                )
+                await asyncio.sleep(5)
+                retry_tasks = [process_with_limit(tid) for tid in retry_ids]
+                retry_processed = await asyncio.gather(*retry_tasks)
+                for tid, result in retry_processed:
+                    if result:
+                        results.append(result)
+                    else:
+                        failed_ids.append(tid)
+
+            # 记录最终仍失败的推文
+            failures: list[TweetFailure] = []
+            for tid in failed_ids:
+                retry_note = (
+                    "不自动重试"
+                    if tid in non_retryable_failed_ids
+                    else "含重试"
+                )
+                failures.append(TweetFailure(
+                    tweet_id=tid,
+                    error_type="llm_failure",
+                    error_message=f"推文 {tid} 处理失败（{retry_note}）",
+                    group_id=None,
+                ))
+
+            return results, failures
+        finally:
+            self._non_retryable_failed_tweet_ids = previous_non_retryable_failed_ids
 
     @staticmethod
     def _extract_original_author(text: str, tweet_type: TweetType) -> str | None:
@@ -505,9 +532,20 @@ class SummarizationService:
             llm_response = result.unwrap()
 
             # 解析响应
-            summary_text, translation_text = self._parse_llm_response(
-                llm_response.content
-            )
+            try:
+                summary_text, translation_text = self._parse_llm_response(
+                    llm_response.content
+                )
+            except LLMResponseParseError as error:
+                logger.error(f"LLM 响应解析失败（独立推文）: {error}")
+                structured_logger.log_summary_error(
+                    tweet_id=tweet_id,
+                    error_type="llm_response_parse_failed",
+                    error_message=str(error),
+                )
+                if self._non_retryable_failed_tweet_ids is not None:
+                    self._non_retryable_failed_tweet_ids.add(tweet_id)
+                return None
 
             # 短推文：summary_text 使用特殊标记
             if is_short:
@@ -796,6 +834,9 @@ class SummarizationService:
 
         Returns:
             (摘要文本, 翻译文本) 元组
+
+        Raises:
+            LLMResponseParseError: 响应彻底无法解析出摘要字段
         """
         # 清理 markdown 代码块标记
         cleaned = content.strip()
@@ -828,8 +869,10 @@ class SummarizationService:
             return summary, translation if translation else None
 
         # JSON 解析彻底失败
-        logger.warning(f"JSON 解析失败，内容无法提取有效摘要: {content[:200]}...")
-        return content.strip(), None
+        preview = content[:200].replace("\n", " ")
+        raise LLMResponseParseError(
+            f"JSON 解析失败，内容无法提取有效摘要: {preview}..."
+        )
 
     @staticmethod
     def _try_parse_json(text: str) -> dict | None:
