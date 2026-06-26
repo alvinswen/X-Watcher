@@ -80,7 +80,7 @@
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="220" fixed="right">
+      <el-table-column label="操作" width="170" fixed="right">
         <template #default="{ row }">
           <el-button
             link
@@ -108,15 +108,6 @@
             :disabled="submitting"
           >
             {{ row.is_active ? "禁用" : "启用" }}
-          </el-button>
-          <el-button
-            link
-            type="danger"
-            size="small"
-            @click="handleDelete(row)"
-            :disabled="submitting"
-          >
-            删除
           </el-button>
         </template>
       </el-table-column>
@@ -507,10 +498,14 @@ async function handleSubmit() {
 /** 切换活跃状态 */
 async function handleToggleActive(follow: ScrapingFollow) {
   const action = follow.is_active ? "禁用" : "启用"
+  const message = follow.is_active
+    ? `将停止抓取该账号 @${follow.username}，可随时重新启用，历史数据保留。`
+    : `确定要启用账号 @${follow.username} 吗？`
+  const title = follow.is_active ? "确认禁用" : "确认操作"
   try {
     await ElMessageBox.confirm(
-      `确定要${action}账号 @${follow.username} 吗？`,
-      "确认操作",
+      message,
+      title,
       {
         type: "warning",
       },
@@ -522,31 +517,6 @@ async function handleToggleActive(follow: ScrapingFollow) {
   } catch (error) {
     if (error !== "cancel") {
       console.error("操作失败:", error)
-    }
-  } finally {
-    submitting.value = false
-  }
-}
-
-/** 删除账号 */
-async function handleDelete(follow: ScrapingFollow) {
-  try {
-    await ElMessageBox.confirm(
-      `确定要删除账号 @${follow.username} 吗？此操作不可恢复。`,
-      "确认删除",
-      {
-        type: "warning",
-        confirmButtonText: "删除",
-        confirmButtonClass: "el-button--danger",
-      },
-    )
-    submitting.value = true
-    await followsApi.delete(follow.username)
-    ElMessage.success("账号已删除")
-    await loadFollows()
-  } catch (error) {
-    if (error !== "cancel") {
-      console.error("删除失败:", error)
     }
   } finally {
     submitting.value = false

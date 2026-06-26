@@ -51,12 +51,32 @@
           </div>
         </template>
         <div class="summary-content">
-          <p class="summary-text">{{ tweet.summary.summary_text }}</p>
-          <p v-if="tweet.summary.translation_text" class="summary-translation">
-            <strong>中文翻译：</strong>{{ tweet.summary.translation_text }}
-          </p>
+          <template v-if="tweet.summary.is_generated_summary === false">
+            <p class="summary-text">该推文较短，无需摘要</p>
+            <p v-if="tweet.summary.translation_text" class="summary-translation">
+              <strong>中文翻译：</strong>{{ tweet.summary.translation_text }}
+            </p>
+            <p v-else class="summary-empty-translation">
+              原文已是中文，无需翻译
+            </p>
+          </template>
+          <template v-else>
+            <p class="summary-text">{{ tweet.summary.summary_text }}</p>
+            <p v-if="tweet.summary.translation_text" class="summary-translation">
+              <strong>中文翻译：</strong>{{ tweet.summary.translation_text }}
+            </p>
+            <p v-else class="summary-empty-translation">
+              原文已是中文，无需翻译
+            </p>
+          </template>
         </div>
-        <el-descriptions :column="2" size="small" border class="summary-meta">
+        <el-descriptions
+          v-if="tweet.summary.is_generated_summary !== false"
+          :column="2"
+          size="small"
+          border
+          class="summary-meta"
+        >
           <el-descriptions-item label="模型">
             {{ tweet.summary.model_provider }} / {{ tweet.summary.model_name }}
           </el-descriptions-item>
@@ -284,6 +304,12 @@ onMounted(() => {
   background-color: var(--bg-inset);
   border-left: 3px solid var(--color-primary);
   border-radius: 0 6px 6px 0;
+}
+
+.summary-empty-translation {
+  color: var(--text-tertiary);
+  font-size: 0.875rem;
+  margin: 0;
 }
 
 .summary-meta {
