@@ -998,7 +998,7 @@ class ScrapingService:
         """触发摘要生成任务。
 
         将摘要请求入队到集中式摘要队列，由队列 worker 统一处理。
-        支持跨线程入队（APScheduler 后台线程）。
+        支持跨线程入队（后台线程）。
 
         Args:
             tweet_ids: 推文 ID 列表

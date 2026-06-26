@@ -39,9 +39,6 @@ dependencies = [
     # HTTP 客户端
     "httpx>=0.25.0",
 
-    # 任务调度
-    "apscheduler>=3.10.0",
-
     # 环境配置
     "python-dotenv>=1.0.0",
 
@@ -198,7 +195,6 @@ include = ["src*"]
 
 [[tool.mypy.overrides]]
 module = [
-    "apscheduler.*",
     "returns.*",
 ]
 ignore_missing_imports = true

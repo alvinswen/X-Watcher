@@ -6,7 +6,7 @@
 设计要点：
 - 使用 asyncio.PriorityQueue 实现有界优先级队列
 - 单 worker 串行处理请求，内部 asyncio.gather + 全局 Semaphore(5) 仍可并发调用 LLM
-- 支持跨线程安全入队（APScheduler 后台线程通过 run_coroutine_threadsafe）
+- 支持跨线程安全入队（后台线程通过 run_coroutine_threadsafe）
 - 内置指数退避重试机制
 - 集成 TaskRegistry 实现可观测性
 - 分块感知的任务完成跟踪：仅当所有分块处理完毕后才标记任务完成
@@ -368,7 +368,7 @@ class SummarizationQueue:
     ) -> str | None:
         """跨线程安全入队。
 
-        用于 APScheduler 后台线程或其他非主事件循环的线程。
+        用于后台线程或其他非主事件循环的线程。
         通过 asyncio.run_coroutine_threadsafe 将入队操作调度到主事件循环。
 
         Args:

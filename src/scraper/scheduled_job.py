@@ -12,8 +12,7 @@ logger = logging.getLogger(__name__)
 def _run_async(coro):
     """在后台线程中安全运行 async coroutine。
 
-    APScheduler 的 BackgroundScheduler 在独立后台线程中运行 job，
-    通常没有 running event loop，可以直接 asyncio.run()。
+    后台线程通常没有 running event loop，可以直接 asyncio.run()。
     但为安全起见，提供 fallback：若线程已有 event loop 则创建新的。
     """
     try:
