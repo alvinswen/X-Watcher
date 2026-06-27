@@ -42,7 +42,6 @@ class Settings(BaseSettings):
 
     # 抓取器配置
     scraper_enabled: bool = Field(default=True, description="是否启用定时抓取")
-    scraper_interval: int = Field(default=43200, description="抓取间隔（秒），默认 12 小时")
     scraper_usernames: str = Field(default="", description="关注用户列表（逗号分隔）")
     scraper_limit: int = Field(default=30, ge=1, le=1000, description="单次抓取推文数量限制")
 

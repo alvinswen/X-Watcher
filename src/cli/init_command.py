@@ -214,7 +214,6 @@ def _build_env_content(
             "",
             "# 抓取器配置",
             "SCRAPER_ENABLED=true",
-            "SCRAPER_INTERVAL=43200",
             "SCRAPER_USERNAMES=",
             "SCRAPER_LIMIT=30",
             "",
