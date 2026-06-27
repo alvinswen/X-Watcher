@@ -225,6 +225,7 @@ class PromptConfig(BaseModel):
         is_short: bool,
         author_username: str | None = None,
         original_author: str | None = None,
+        subjects: list[dict[str, str]] | None = None,
     ) -> str:
         """格式化统一的摘要+翻译 Prompt。
 
@@ -236,6 +237,7 @@ class PromptConfig(BaseModel):
             is_short: 是否为短推文（仅翻译不摘要）
             author_username: 发布推文的用户名（如 elonmusk）
             original_author: 被转推/引用的原作者用户名（如 Handrev）
+            subjects: 当前 active 议题清单，空时不注入分类任务
 
         Returns:
             格式化后的 Prompt
@@ -362,6 +364,27 @@ class PromptConfig(BaseModel):
                     "- URL 链接保持不变，不翻译"
                 )
 
+        subject_section = ""
+        output_format = '{"summary": "中文摘要内容或null", "translation": "中文翻译内容"}'
+        if subjects:
+            subject_lines = "\n".join(
+                f'- {item["subject_id"]}: {item["name"]} — {item["nl_description"]}'
+                for item in subjects[:20]
+            )
+            subject_section = f"""
+## 议题分类（额外任务）
+以下是当前关注的议题，判断本推文命中哪些（可命中多个或一个不命中）：
+{subject_lines}
+
+subjects 字段只返回命中的议题；不命中任何议题时返回空数组。
+每项格式：{{"subject_id":"sub_xxx","relevant":true,"relevance":0.0-1.0,"reason":"一句话命中理由"}}。
+"""
+            output_format = (
+                '{"summary": "中文摘要内容或null", "translation": "中文翻译内容", '
+                '"subjects": [{"subject_id": "sub_xxx", "relevant": true, '
+                '"relevance": 0.82, "reason": "一句话命中理由"}]}'
+            )
+
         return f"""请分析以下推文并同时完成摘要和翻译任务。
 
 ## 推文内容
@@ -372,10 +395,11 @@ class PromptConfig(BaseModel):
 
 ## 翻译要求
 {translation_instruction}
+{subject_section}
 
 ## 输出格式
 严格返回以下 JSON 格式，不要添加任何 markdown 标记或其他内容：
-{{"summary": "中文摘要内容或null", "translation": "中文翻译内容"}}
+{output_format}
 """
 
     # 智能摘要长度配置

@@ -14,6 +14,7 @@ import {
   Refresh,
   Moon,
   Sunny,
+  Collection,
 } from "@element-plus/icons-vue"
 import { useAuthStore } from "@/stores/auth"
 import { useThemeStore } from "@/stores/theme"
@@ -56,6 +57,7 @@ const menuItems = [
   // —— 管理功能 ——
   { index: "/tweets", title: "推文管理", icon: Document },
   { index: "/follows", title: "关注管理", icon: User },
+  { index: "/subjects", title: "议题管理", icon: Collection },
   { index: "/users", title: "用户管理", icon: UserFilled },
   { index: "/sync", title: "数据同步", icon: Refresh },
 ]
