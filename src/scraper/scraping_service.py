@@ -1050,6 +1050,7 @@ class ScrapingService:
                         source="scraping",
                         priority=SummarizationPriority.NORMAL,
                     )
+                    await self._roll_subject_digests_after_summarization()
                 else:
                     logger.info(
                         f"触发摘要: {len(tweet_ids)} 条推文, 方式=enqueue_threadsafe（跨循环）",
@@ -1065,6 +1066,7 @@ class ScrapingService:
                             f"摘要入队失败（enqueue_threadsafe 返回 None）: "
                             f"{len(tweet_ids)} 条推文的摘要请求被丢弃"
                         )
+                    await self._roll_subject_digests_after_summarization()
             except RuntimeError:
                 # 无事件循环（后台线程）
                 logger.info(
@@ -1081,10 +1083,20 @@ class ScrapingService:
                         f"摘要入队失败（enqueue_threadsafe 返回 None，无事件循环）: "
                         f"{len(tweet_ids)} 条推文的摘要请求被丢弃"
                     )
+                await self._roll_subject_digests_after_summarization()
 
         except Exception as e:
             # 摘要触发失败不影响抓取结果
             logger.warning(f"触发摘要任务失败（不影响抓取结果）: {e}")
+
+    async def _roll_subject_digests_after_summarization(self) -> None:
+        """摘要后置滚动 Subject L1；失败不影响抓取主链路。"""
+        try:
+            from src.subjects.services.digest_service import SubjectDigestService
+
+            await SubjectDigestService().rollup_current_hour_for_active_subjects()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("滚动 Subject L1 失败（不影响抓取结果）: %s", e)
 
     async def _inline_summarize(self, tweet_ids: list[str]) -> None:
         """内联摘要回退：队列未运行时直接调用 SummarizationService。"""
@@ -1115,6 +1127,7 @@ class ScrapingService:
                 f"内联摘要完成: 成功 {summary.total_tweets_succeeded}/{summary.total_tweets}, "
                 f"缓存命中 {summary.cache_hits}, 耗时 {summary.processing_time_ms}ms"
             )
+            await self._roll_subject_digests_after_summarization()
 
     async def _backfill_platform_user_id(
         self, username: str, user_id: str

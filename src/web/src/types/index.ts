@@ -8,6 +8,7 @@ export * from "./browse"
 export * from "./status"
 export * from "./search"
 export * from "./sync"
+export * from "./subject"
 
 /** API 错误响应。 */
 export interface ApiError {

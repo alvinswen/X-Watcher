@@ -508,6 +508,15 @@ class SummarizationService:
                     threshold=min_threshold,
                 )
 
+            # active 议题为空时不注入分类段，保持旧输出 schema 零开销。
+            prompt_subjects: list[dict[str, str]] = []
+            try:
+                from src.subjects.services.classifier import SubjectClassifier
+
+                prompt_subjects = await SubjectClassifier().prompt_subjects()
+            except Exception as e:  # noqa: BLE001
+                logger.warning("加载 active 议题失败，摘要按旧 schema 继续: %s", e)
+
             # 调用 LLM 生成摘要+翻译 —— 不需要 DB session
             result = await self._call_llm_with_fallback(
                 tweet_id,
@@ -517,6 +526,7 @@ class SummarizationService:
                 is_short=is_short,
                 author_username=author_username,
                 original_author=original_author,
+                subjects=prompt_subjects,
             )
 
             if isinstance(result, Failure):
@@ -533,8 +543,9 @@ class SummarizationService:
 
             # 解析响应
             try:
-                summary_text, translation_text = self._parse_llm_response(
-                    llm_response.content
+                summary_text, translation_text, subject_matches = self._parse_llm_response(
+                    llm_response.content,
+                    include_subjects=True,
                 )
             except LLMResponseParseError as error:
                 logger.error(f"LLM 响应解析失败（独立推文）: {error}")
@@ -579,6 +590,15 @@ class SummarizationService:
             # 保存到内存缓存
             await self._set_cache(content_hash, llm_response)
 
+            try:
+                from src.subjects.services.classifier import SubjectClassifier
+                from src.subjects.services.digest_service import SubjectDigestService
+
+                matches = await SubjectClassifier().record_matches(tweet_id, subject_matches)
+                await SubjectDigestService().rollup_matches(matches)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("议题分类写入失败，不影响摘要主链路: tweet_id=%s error=%s", tweet_id, e)
+
             return record
 
         except Exception as e:
@@ -598,6 +618,7 @@ class SummarizationService:
         is_short: bool = False,
         author_username: str | None = None,
         original_author: str | None = None,
+        subjects: list[dict[str, str]] | None = None,
     ) -> Result[LLMResponse, Exception]:
         """调用 LLM 并实现降级策略。
 
@@ -612,6 +633,7 @@ class SummarizationService:
             is_short: 是否为短推文（仅翻译不摘要）
             author_username: 发布推文的用户名
             original_author: 被转推/引用的原作者用户名
+            subjects: active 议题清单
 
         Returns:
             Result[LLMResponse, Exception]: LLM 响应或错误
@@ -629,6 +651,7 @@ class SummarizationService:
                         tweet_text, tweet_type, is_short,
                         author_username=author_username,
                         original_author=original_author,
+                        subjects=subjects,
                     )
 
                     # 尝试调用
@@ -823,17 +846,23 @@ class SummarizationService:
         # 默认为 None（未知类型）
         return None
 
-    def _parse_llm_response(self, content: str) -> tuple[str, str | None]:
+    def _parse_llm_response(
+        self,
+        content: str,
+        *,
+        include_subjects: bool = False,
+    ) -> tuple[str, str | None] | tuple[str, str | None, list[dict] | None]:
         """解析 LLM 响应内容。
 
-        期望 JSON 格式: {"summary": "...", "translation": "..."}
+        期望 JSON 格式: {"summary": "...", "translation": "...", "subjects": [...]}
         支持清理 markdown 代码块标记和修复常见 JSON 格式问题。
 
         Args:
             content: LLM 返回的内容
 
         Returns:
-            (摘要文本, 翻译文本) 元组
+            默认返回 (摘要文本, 翻译文本)，保持旧单测与调试调用兼容。
+            include_subjects=True 时返回 (摘要文本, 翻译文本, subjects)。
 
         Raises:
             LLMResponseParseError: 响应彻底无法解析出摘要字段
@@ -864,9 +893,13 @@ class SummarizationService:
         if data is not None and isinstance(data, dict):
             summary = data.get("summary")
             translation = data.get("translation")
+            subjects = data.get("subjects")
             if summary is None or summary == "null":
                 summary = "[SHORT]"
-            return summary, translation if translation else None
+            if not isinstance(subjects, list):
+                subjects = None
+            parsed = (summary, translation if translation else None, subjects)
+            return parsed if include_subjects else parsed[:2]
 
         # JSON 解析彻底失败
         preview = content[:200].replace("\n", " ")

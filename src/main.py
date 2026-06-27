@@ -185,6 +185,11 @@ from src.feed.api.routes import router as feed_router
 
 app.include_router(feed_router)
 
+# 注册 Subject 议题 API 路由
+from src.subjects.api.routes import router as subjects_router
+
+app.include_router(subjects_router)
+
 # 注册用户管理 API 路由
 from src.user.api import auth_router, user_router, admin_user_router
 

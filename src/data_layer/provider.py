@@ -139,6 +139,15 @@ def get_summary_repo(session=None):
     return SummarizationRepository(session)
 
 
+def get_subject_repo(session=None):
+    """返回 SubjectStore 形态 repo。file:FileSubjectStore;sqlalchemy:一期不实现。"""
+    if _data_layer() == "file":
+        from src.subjects.store import FileSubjectStore
+
+        return FileSubjectStore(_data_root())
+    raise NotImplementedError("SubjectStore sqlalchemy 模式尚未实现；本期仅支持 file 数据层")
+
+
 def get_summarization_read_repo(session=None):
     """返回 summarization 读门面(get_unsummarized_tweets 反连接 + get_tweet_origins 原文回查)。
 

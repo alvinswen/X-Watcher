@@ -60,3 +60,20 @@ def utc_dates_in_window(utc_start: datetime, utc_end: datetime) -> list[date]:
         dates.append(d)
         d = d + timedelta(days=1)
     return dates
+
+
+def subject_doc(data_root: Path, subject_id: str) -> Path:
+    return Path(data_root) / "subjects" / f"{subject_id}.json"
+
+
+def subject_index(data_root: Path) -> Path:
+    return Path(data_root) / "subjects" / "index.json"
+
+
+def subject_match_shard(data_root: Path, subject_id: str, matched_at: datetime) -> Path:
+    month = as_utc(matched_at).strftime("%Y-%m")
+    return Path(data_root) / "subjects" / subject_id / "matches" / f"{month}.jsonl"
+
+
+def subject_digest_doc(data_root: Path, subject_id: str, hour: str) -> Path:
+    return Path(data_root) / "subjects" / subject_id / "digests" / f"{hour}.json"
