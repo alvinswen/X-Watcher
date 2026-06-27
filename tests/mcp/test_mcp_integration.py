@@ -474,6 +474,12 @@ class TestToolRegistration:
             # Summarization
             "get_unsummarized_tweets",
             "save_summaries",
+            # Subject（CHG-004 · 议题 continuous-query 一期）
+            "list_subjects",
+            "get_subject_feed",
+            "get_subject_digest",
+            "get_subject_updates",
+            "get_tweets_by_ids",
         }
         assert (
             expected == tool_names

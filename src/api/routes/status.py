@@ -28,7 +28,7 @@ router = APIRouter(prefix="/api/status", tags=["status"])
 # ── 响应模型 ──────────────────────────────────────────────
 
 
-# TweetStats/FollowStats/SummaryStats/TopicStats 抽到 src/api/status_schemas.py(断 status→main 循环,
+# TweetStats/FollowStats/SummaryStats 抽到 src/api/status_schemas.py(断 status→main 循环,
 # 供文件层 status 门面共享);此处 re-import 保持本模块引用不变。
 from src.api.status_schemas import (  # noqa: E402
     FollowStats,

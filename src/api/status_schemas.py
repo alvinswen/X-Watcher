@@ -25,9 +25,3 @@ class FollowStats(BaseModel):
 class SummaryStats(BaseModel):
     total: int
     pending_tweets: int
-
-
-class TopicStats(BaseModel):
-    total: int
-    latest_summary_at: datetime | None
-    latest_summary_status: str | None
