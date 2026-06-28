@@ -40,6 +40,7 @@ async def test_get_review_payload_returns_empty_v0_for_subject_without_review(tm
         "generated_at": None,
         "generated_by": None,
         "updated_at": None,
+        "covered_until": None,
     }
 
 
@@ -68,6 +69,7 @@ async def test_get_review_payload_reads_stored_review(tmp_path):
             generated_at=generated_at,
             generated_by="llm",
             updated_at=generated_at,
+            covered_until=generated_at,
         )
     )
 

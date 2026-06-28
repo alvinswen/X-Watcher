@@ -32,6 +32,14 @@ def write_shard(path: Path, records: list[dict]) -> None:
     atomic_replace(Path(path), payload.encode("utf-8"))
 
 
+def append(path: Path, record: dict) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(record, ensure_ascii=False))
+        fh.write("\n")
+
+
 def upsert(path: Path, new_records: list[dict], key: str = "tweet_id") -> int:
     existing = read_shard(path)
     by_key = {r[key]: r for r in existing}

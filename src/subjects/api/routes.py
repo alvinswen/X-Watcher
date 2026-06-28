@@ -21,7 +21,8 @@ from src.user.api.auth import get_current_admin_user
 from src.user.domain.models import UserDomain
 
 router = APIRouter(prefix="/api/admin/subjects", tags=["subjects"])
-REVIEW_MIGRATED_MESSAGE = "综述生成已迁移至外部技能，刷新功能将在后续版本改为挂待办"
+REVIEW_PENDING_MESSAGE = "综述刷新已加入待综述队列，外部技能将异步处理"
+REVIEW_MIGRATED_MESSAGE = "综述生成已迁移至外部技能，全量刷新入口暂不批量挂待办"
 
 
 async def _to_response(subject: Subject) -> SubjectResponse:
@@ -159,15 +160,18 @@ async def get_subject_feed(
 @router.get("/{subject_id}/digests")
 async def get_subject_digests(
     subject_id: str,
-    hour: str | None = None,
+    start: str | None = None,
+    end: str | None = None,
     limit: int = 24,
     _user: UserDomain = Depends(get_current_admin_user),
 ):
     repo = get_subject_repo()
     if await repo.get_subject(subject_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="议题不存在")
-    if hour:
-        digest = await repo.get_digest(subject_id, hour)
+    start_dt = datetime.fromisoformat(start.replace("Z", "+00:00")) if start else None
+    end_dt = datetime.fromisoformat(end.replace("Z", "+00:00")) if end else None
+    if start_dt or end_dt:
+        digest = await repo.get_digest(subject_id, start=start_dt, end=end_dt)
         return {"items": [_digest_public(digest)] if digest else [], "count": 1 if digest else 0}
     digests = await repo.list_digests(subject_id, limit=limit)
     return {
@@ -197,9 +201,11 @@ async def refresh_subject_review(
     subject_id: str,
     _user: UserDomain = Depends(get_current_admin_user),
 ):
-    if await get_subject_repo().get_subject(subject_id) is None:
+    repo = get_subject_repo()
+    if await repo.get_subject(subject_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="议题不存在")
-    return SubjectReviewRefreshResponse(task_id=None, message=REVIEW_MIGRATED_MESSAGE)
+    await repo.set_pending(subject_id, review=True)
+    return SubjectReviewRefreshResponse(task_id=None, pending=True, message=REVIEW_PENDING_MESSAGE)
 
 
 @router.post(

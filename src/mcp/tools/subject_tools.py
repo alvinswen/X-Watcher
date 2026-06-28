@@ -2,16 +2,80 @@
 
 from __future__ import annotations
 
+import json
 import logging
+from datetime import datetime
+from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
 from src.data_layer.provider import get_subject_repo
+from src.mcp.auth import require_scope
 from src.mcp.helpers import error_response, parse_datetime_optional, success_response
 from src.mcp.security import audit_log
-from src.subjects.services.review_service import SubjectReviewService
+from src.subjects.models import SubjectHighlight, SubjectReviewSection, SubjectReviewTrend
+from src.subjects.services.classifier import SubjectClassifier
+from src.subjects.services.digest_service import SubjectDigestService
+from src.subjects.services.review_service import ReviewConflictError, SubjectReviewService
 
 logger = logging.getLogger(__name__)
+REVIEW_PENDING_MESSAGE = "综述刷新已加入待综述队列，外部技能将异步处理"
+REVIEW_MIGRATED_MESSAGE = "综述生成已迁移至外部技能，全量刷新入口暂不批量挂待办"
+
+
+def _csv_ids(value: str | None) -> list[str]:
+    if value is None:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _json_array(value: str | None, field_name: str) -> list[dict[str, Any]]:
+    if value is None or not value.strip():
+        return []
+    parsed = json.loads(value)
+    if not isinstance(parsed, list):
+        raise ValueError(f"{field_name} 必须是 JSON 数组")
+    if not all(isinstance(item, dict) for item in parsed):
+        raise ValueError(f"{field_name} 每一项都必须是对象")
+    return parsed
+
+
+def _parse_highlights(value: str | None) -> list[SubjectHighlight]:
+    return [SubjectHighlight(**item) for item in _json_array(value, "highlights")]
+
+
+def _parse_sections(value: str) -> list[SubjectReviewSection]:
+    return [SubjectReviewSection(**item) for item in _json_array(value, "sections")]
+
+
+def _parse_trend(value: str | None) -> SubjectReviewTrend | None:
+    if value is None or not value.strip():
+        return None
+    parsed = json.loads(value)
+    if not isinstance(parsed, dict):
+        raise ValueError("trend 必须是 JSON 对象")
+    return SubjectReviewTrend(**parsed)
+
+
+def _required_datetime(value: str | None, field_name: str) -> datetime:
+    parsed = parse_datetime_optional(value)
+    if parsed is None:
+        raise ValueError(f"{field_name} 不能为空")
+    return parsed
+
+
+def _conflict_response(error: ReviewConflictError) -> str:
+    covered_until = error.covered_until.isoformat() if error.covered_until else None
+    return json.dumps(
+        {
+            "success": False,
+            "error_type": "conflict",
+            "error": str(error),
+            "latest_version": error.latest_version,
+            "covered_until": covered_until,
+        },
+        ensure_ascii=False,
+    )
 
 
 def register(mcp: FastMCP) -> None:
@@ -27,15 +91,17 @@ def register(mcp: FastMCP) -> None:
             subjects = await repo.list_subjects(status)
             items = []
             for subject in subjects:
-                items.append({
-                    "subject_id": subject.subject_id,
-                    "name": subject.name,
-                    "status": subject.status.value,
-                    "keywords": subject.keywords,
-                    "last_updated_at": subject.last_updated_at,
-                    "match_count": await repo.count_matches(subject.subject_id),
-                    "created_at": subject.created_at,
-                })
+                items.append(
+                    {
+                        "subject_id": subject.subject_id,
+                        "name": subject.name,
+                        "status": subject.status.value,
+                        "keywords": subject.keywords,
+                        "last_updated_at": subject.last_updated_at,
+                        "match_count": await repo.count_matches(subject.subject_id),
+                        "created_at": subject.created_at,
+                    }
+                )
             return success_response({"subjects": items, "count": len(items)})
         except Exception as e:  # noqa: BLE001
             logger.error("list_subjects 失败: %s", e, exc_info=True)
@@ -52,7 +118,9 @@ def register(mcp: FastMCP) -> None:
         try:
             repo = get_subject_repo()
             if await repo.get_subject(subject_id) is None:
-                return error_response("议题不存在，请先调用 list_subjects 获取有效 subject_id", "not_found")
+                return error_response(
+                    "议题不存在，请先调用 list_subjects 获取有效 subject_id", "not_found"
+                )
             data = await repo.get_subject_feed(
                 subject_id,
                 since=parse_datetime_optional(since),
@@ -67,23 +135,244 @@ def register(mcp: FastMCP) -> None:
             return error_response(f"查询失败: {e}")
 
     @mcp.tool()
-    async def get_subject_digest(subject_id: str, hour: str | None = None) -> str:
-        """获取某议题某 UTC 小时桶滚动新闻；hour 留空返回最新桶。"""
+    async def put_subject_matches(
+        subject_id: str,
+        tweet_ids: str,
+        relevance: float | None = None,
+        reason: str | None = None,
+    ) -> str:
+        """写回外部技能分类命中，成功后关闭待分类。"""
+        denied = require_scope("subjects:write")
+        if denied is not None:
+            audit_log(
+                "put_subject_matches",
+                "write",
+                params={"subject_id": subject_id},
+                result="failure",
+                error="permission",
+            )
+            return denied
+        try:
+            data = await SubjectClassifier(get_subject_repo()).write_matches(
+                subject_id=subject_id,
+                tweet_ids=_csv_ids(tweet_ids),
+                relevance=relevance,
+                reason=reason,
+            )
+            audit_log("put_subject_matches", "write", params={"subject_id": subject_id})
+            return success_response(data)
+        except LookupError as e:
+            audit_log(
+                "put_subject_matches",
+                "write",
+                params={"subject_id": subject_id},
+                result="failure",
+                error=str(e),
+            )
+            return error_response(str(e), "not_found")
+        except ValueError as e:
+            audit_log(
+                "put_subject_matches",
+                "write",
+                params={"subject_id": subject_id},
+                result="failure",
+                error=str(e),
+            )
+            return error_response(str(e), "validation")
+        except Exception as e:  # noqa: BLE001
+            audit_log(
+                "put_subject_matches",
+                "write",
+                params={"subject_id": subject_id},
+                result="failure",
+                error=str(e),
+            )
+            logger.error("put_subject_matches 失败: %s", e, exc_info=True)
+            return error_response(f"写入失败: {e}")
+
+    @mcp.tool()
+    async def put_subject_digest(
+        subject_id: str,
+        interval_start: str,
+        interval_end: str,
+        time_axis: str = "ingest",
+        digest_text: str = "",
+        highlights: str | None = None,
+        cited: str | None = None,
+    ) -> str:
+        """写回外部技能生成的区间滚动新闻。"""
+        denied = require_scope("subjects:write")
+        if denied is not None:
+            audit_log(
+                "put_subject_digest",
+                "write",
+                params={"subject_id": subject_id},
+                result="failure",
+                error="permission",
+            )
+            return denied
+        try:
+            data = await SubjectDigestService(get_subject_repo()).write_digest(
+                subject_id=subject_id,
+                interval_start=_required_datetime(interval_start, "interval_start"),
+                interval_end=_required_datetime(interval_end, "interval_end"),
+                time_axis=time_axis,
+                digest_text=digest_text,
+                highlights=_parse_highlights(highlights),
+                cited_tweet_ids=_csv_ids(cited),
+            )
+            audit_log("put_subject_digest", "write", params={"subject_id": subject_id})
+            return success_response(data)
+        except LookupError as e:
+            audit_log(
+                "put_subject_digest",
+                "write",
+                params={"subject_id": subject_id},
+                result="failure",
+                error=str(e),
+            )
+            return error_response(str(e), "not_found")
+        except (ValueError, TypeError, json.JSONDecodeError) as e:
+            audit_log(
+                "put_subject_digest",
+                "write",
+                params={"subject_id": subject_id},
+                result="failure",
+                error=str(e),
+            )
+            return error_response(str(e), "validation")
+        except Exception as e:  # noqa: BLE001
+            audit_log(
+                "put_subject_digest",
+                "write",
+                params={"subject_id": subject_id},
+                result="failure",
+                error=str(e),
+            )
+            logger.error("put_subject_digest 失败: %s", e, exc_info=True)
+            return error_response(f"写入失败: {e}")
+
+    @mcp.tool()
+    async def put_subject_review(
+        subject_id: str,
+        prev_version: int,
+        sections: str,
+        covered_until: str,
+        trend: str | None = None,
+        cited: str | None = None,
+    ) -> str:
+        """写回外部技能生成的累积综述，带乐观锁。"""
+        denied = require_scope("subjects:write")
+        if denied is not None:
+            audit_log(
+                "put_subject_review",
+                "write",
+                params={"subject_id": subject_id},
+                result="failure",
+                error="permission",
+            )
+            return denied
+        try:
+            data = await SubjectReviewService(get_subject_repo()).write_review(
+                subject_id=subject_id,
+                prev_version=prev_version,
+                sections=_parse_sections(sections),
+                covered_until=_required_datetime(covered_until, "covered_until"),
+                trend=_parse_trend(trend),
+                cited_tweet_ids=_csv_ids(cited),
+            )
+            audit_log("put_subject_review", "write", params={"subject_id": subject_id})
+            return success_response(data)
+        except ReviewConflictError as e:
+            audit_log(
+                "put_subject_review",
+                "write",
+                params={"subject_id": subject_id},
+                result="failure",
+                error=str(e),
+            )
+            return _conflict_response(e)
+        except LookupError as e:
+            audit_log(
+                "put_subject_review",
+                "write",
+                params={"subject_id": subject_id},
+                result="failure",
+                error=str(e),
+            )
+            return error_response(str(e), "not_found")
+        except (ValueError, TypeError, json.JSONDecodeError) as e:
+            audit_log(
+                "put_subject_review",
+                "write",
+                params={"subject_id": subject_id},
+                result="failure",
+                error=str(e),
+            )
+            return error_response(str(e), "validation")
+        except Exception as e:  # noqa: BLE001
+            audit_log(
+                "put_subject_review",
+                "write",
+                params={"subject_id": subject_id},
+                result="failure",
+                error=str(e),
+            )
+            logger.error("put_subject_review 失败: %s", e, exc_info=True)
+            return error_response(f"写入失败: {e}")
+
+    @mcp.tool()
+    async def get_pending_jobs(subject_id: str | None = None) -> str:
+        """列出待分类/待综述议题。"""
+        try:
+            repo = get_subject_repo()
+            items = await repo.list_pending(subject_id)
+            audit_log("get_pending_jobs", "read", params={"subject_id": subject_id})
+            return success_response({"items": items, "count": len(items)})
+        except Exception as e:  # noqa: BLE001
+            audit_log(
+                "get_pending_jobs",
+                "read",
+                params={"subject_id": subject_id},
+                result="failure",
+                error=str(e),
+            )
+            logger.error("get_pending_jobs 失败: %s", e, exc_info=True)
+            return error_response(f"查询失败: {e}")
+
+    @mcp.tool()
+    async def get_subject_digest(
+        subject_id: str,
+        start: str | None = None,
+        end: str | None = None,
+    ) -> str:
+        """按区间获取议题滚动新闻；都不传返回最新一条。"""
         try:
             repo = get_subject_repo()
             if await repo.get_subject(subject_id) is None:
-                return error_response("议题不存在，请先调用 list_subjects 获取有效 subject_id", "not_found")
-            digest = await repo.get_digest(subject_id, hour)
+                return error_response(
+                    "议题不存在，请先调用 list_subjects 获取有效 subject_id", "not_found"
+                )
+            start_dt = parse_datetime_optional(start)
+            end_dt = parse_datetime_optional(end)
+            digest = await repo.get_digest(subject_id, start=start_dt, end=end_dt)
             if digest is None:
-                return success_response({
-                    "hour": hour,
-                    "tweet_count": 0,
-                    "digest_text": "",
-                    "highlights": [],
-                    "cited_tweet_ids": [],
-                    "generated_at": None,
-                })
+                return success_response(
+                    {
+                        "subject_id": subject_id,
+                        "interval_start": start,
+                        "interval_end": end,
+                        "time_axis": None,
+                        "tweet_count": 0,
+                        "digest_text": "",
+                        "highlights": [],
+                        "cited_tweet_ids": [],
+                        "generated_at": None,
+                    }
+                )
             return success_response(digest.model_dump(mode="json", exclude={"generated_by"}))
+        except (ValueError, TypeError) as e:
+            return error_response(f"参数解析失败: {e}", "validation")
         except Exception as e:  # noqa: BLE001
             logger.error("get_subject_digest 失败: %s", e, exc_info=True)
             return error_response(f"查询失败: {e}")
@@ -94,7 +383,9 @@ def register(mcp: FastMCP) -> None:
         try:
             payload = await SubjectReviewService(get_subject_repo()).get_review_payload(subject_id)
             if payload is None:
-                return error_response("议题不存在，请先调用 list_subjects 获取有效 subject_id", "not_found")
+                return error_response(
+                    "议题不存在，请先调用 list_subjects 获取有效 subject_id", "not_found"
+                )
             return success_response(payload)
         except Exception as e:  # noqa: BLE001
             logger.error("get_subject_review 失败: %s", e, exc_info=True)
@@ -102,18 +393,35 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool()
     async def refresh_subject_review(subject_id: str | None = None) -> str:
-        """返回综述生成迁移占位；服务端生成链已移除。"""
+        """单议题刷新改为挂待综述；全量入口保持占位。"""
         try:
             audit_log(
                 "refresh_subject_review",
                 "refresh",
                 params={"subject_id": subject_id},
             )
-            return success_response({
-                "migrated": True,
-                "pending": False,
-                "message": "综述生成已迁移至外部技能，刷新功能将在后续版本改为挂待办",
-            })
+            if subject_id is None:
+                return success_response(
+                    {
+                        "migrated": True,
+                        "pending": False,
+                        "message": REVIEW_MIGRATED_MESSAGE,
+                    }
+                )
+            repo = get_subject_repo()
+            if await repo.get_subject(subject_id) is None:
+                return error_response(
+                    "议题不存在，请先调用 list_subjects 获取有效 subject_id", "not_found"
+                )
+            await repo.set_pending(subject_id, review=True)
+            return success_response(
+                {
+                    "pending": True,
+                    "job": "review",
+                    "subject_id": subject_id,
+                    "message": REVIEW_PENDING_MESSAGE,
+                }
+            )
         except Exception as e:  # noqa: BLE001
             audit_log(
                 "refresh_subject_review",
@@ -151,11 +459,13 @@ def register(mcp: FastMCP) -> None:
             if not ids:
                 return error_response("tweet_ids 不能为空", "validation")
             items, missing = await get_subject_repo().get_tweets_by_ids(ids)
-            return success_response({
-                "items": items,
-                "found_count": len(items),
-                "missing_ids": missing,
-            })
+            return success_response(
+                {
+                    "items": items,
+                    "found_count": len(items),
+                    "missing_ids": missing,
+                }
+            )
         except Exception as e:  # noqa: BLE001
             logger.error("get_tweets_by_ids 失败: %s", e, exc_info=True)
             return error_response(f"查询失败: {e}")

@@ -6,9 +6,15 @@ A1 阶段已移除服务端生成与 rollup 链路；历史 digest 仍由 store 
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any, cast
 
 from src.data_layer.provider import get_subject_repo
+from src.storage import paths
+from src.subjects.models import SubjectDigest, SubjectHighlight
+from src.subjects.store import utc_now
+
+_MAX_DIGEST_TEXT = 4000
 
 
 class SubjectDigestService:
@@ -18,3 +24,61 @@ class SubjectDigestService:
         repo_factory = cast(Callable[[], Any], get_subject_repo)
         self._repo: Any = repo if repo is not None else repo_factory()
         self._providers: list[Any] | None = providers
+
+    async def write_digest(
+        self,
+        *,
+        subject_id: str,
+        interval_start: datetime,
+        interval_end: datetime,
+        time_axis: str = "ingest",
+        digest_text: str,
+        highlights: list[SubjectHighlight] | None = None,
+        cited_tweet_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        if await self._repo.get_subject(subject_id) is None:
+            raise LookupError("议题不存在")
+        start = paths.as_utc(interval_start)
+        end = paths.as_utc(interval_end)
+        if start > end:
+            raise ValueError("区间非法: interval_start 必须小于等于 interval_end")
+        if time_axis not in {"ingest", "publish"}:
+            raise ValueError("time_axis 只能是 ingest 或 publish")
+        text = digest_text.strip()
+        if not text:
+            raise ValueError("digest_text 不能为空")
+        if len(text) > _MAX_DIGEST_TEXT:
+            raise ValueError("digest_text 超过 4000 字上限")
+
+        matches = await self._repo.list_matches(subject_id, since=start, until=end)
+        allowed_ids = {match.tweet_id for match in matches}
+        stored_highlights = highlights or []
+        cited = list(dict.fromkeys(cited_tweet_ids or []))
+        highlight_cited = [
+            tweet_id for highlight in stored_highlights for tweet_id in highlight.cited_tweet_ids
+        ]
+        missing_cited = [
+            tweet_id
+            for tweet_id in list(dict.fromkeys(cited + highlight_cited))
+            if tweet_id not in allowed_ids
+        ]
+        if missing_cited:
+            raise ValueError(f"cited_tweet_ids 越出本区间命中: {missing_cited}")
+
+        digest = SubjectDigest(
+            subject_id=subject_id,
+            interval_start=start,
+            interval_end=end,
+            time_axis=time_axis,
+            tweet_count=len(matches),
+            digest_text=text,
+            highlights=stored_highlights,
+            cited_tweet_ids=cited,
+            generated_at=utc_now(),
+        )
+        await self._repo.save_digest(digest)
+        return {
+            "subject_id": subject_id,
+            "interval_start": start.isoformat(),
+            "interval_end": end.isoformat(),
+        }

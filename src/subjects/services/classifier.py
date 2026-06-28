@@ -6,6 +6,8 @@ from collections.abc import Callable
 from typing import Any, cast
 
 from src.data_layer.provider import get_subject_repo
+from src.subjects.models import SubjectMatch
+from src.subjects.store import utc_now
 
 
 class SubjectClassifier:
@@ -25,3 +27,38 @@ class SubjectClassifier:
             }
             for subject in subjects
         ]
+
+    async def write_matches(
+        self,
+        *,
+        subject_id: str,
+        tweet_ids: list[str],
+        relevance: float | None = None,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        if await self._repo.get_subject(subject_id) is None:
+            raise LookupError("议题不存在")
+        ids = list(dict.fromkeys([tweet_id.strip() for tweet_id in tweet_ids if tweet_id.strip()]))
+        if not ids:
+            raise ValueError("tweet_ids 不能为空")
+        _items, missing = await self._repo.get_tweets_by_ids(ids)
+        if missing:
+            raise ValueError(f"引用悬空 missing_ids={missing}")
+        matched_at = utc_now()
+        matches = [
+            SubjectMatch(
+                subject_id=subject_id,
+                tweet_id=tweet_id,
+                matched_at=matched_at,
+                relevance=relevance,
+                reason=reason,
+            )
+            for tweet_id in ids
+        ]
+        saved = await self._repo.upsert_matches(matches)
+        await self._repo.set_pending(subject_id, classify=False)
+        return {
+            "written": len(saved),
+            "subject_id": subject_id,
+            "pending_classify": False,
+        }

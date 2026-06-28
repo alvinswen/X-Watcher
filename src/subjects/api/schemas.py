@@ -76,10 +76,12 @@ class SubjectReviewResponse(BaseModel):
     cited_tweet_ids: list[str] = Field(default_factory=list)
     prev_version: int | None = None
     generated_at: datetime | None = None
-    generated_by: Literal["llm", "fallback"] | None = None
+    generated_by: Literal["llm", "fallback", "skill"] | None = None
     updated_at: datetime | None = None
+    covered_until: datetime | None = None
 
 
 class SubjectReviewRefreshResponse(BaseModel):
     task_id: str | None = None
+    pending: bool = False
     message: str
