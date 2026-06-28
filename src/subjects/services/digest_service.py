@@ -107,7 +107,7 @@ class SubjectDigestService:
             subject_id=subject_id,
             hour=hour,
             tweet_count=total_match_count,
-            digest_text=digest_text[:260],
+            digest_text=digest_text,
             highlights=highlights,
             cited_tweet_ids=cited_ids,
             generated_at=datetime.now(timezone.utc),
