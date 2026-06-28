@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from src.data_layer.provider import get_subject_repo
-from src.scraper.task_registry import TaskRegistry, TaskStatus
 from src.subjects.api.schemas import (
     SubjectCreateRequest,
     SubjectCreateResponse,
@@ -15,35 +14,14 @@ from src.subjects.api.schemas import (
     SubjectReviewRefreshResponse,
     SubjectReviewResponse,
     SubjectUpdateRequest,
-    TaskSnapshot,
 )
 from src.subjects.models import Subject, SubjectStatus
-from src.subjects.services.backfill_service import SubjectBackfillService
-from src.subjects.services.review_service import (
-    ReviewRefreshAlreadyRunningError,
-    SubjectReviewService,
-)
+from src.subjects.services.review_service import SubjectReviewService
 from src.user.api.auth import get_current_admin_user
 from src.user.domain.models import UserDomain
 
 router = APIRouter(prefix="/api/admin/subjects", tags=["subjects"])
-
-
-def _task_snapshot(task_id: str | None) -> TaskSnapshot | None:
-    if not task_id:
-        return None
-    task = TaskRegistry.get_instance().get_task_status(task_id)
-    if not task:
-        return None
-    raw_status = task.get("status")
-    status_value = raw_status.value if isinstance(raw_status, TaskStatus) else str(raw_status)
-    return TaskSnapshot(
-        task_id=task_id,
-        status=status_value,
-        progress=task.get("progress"),
-        error=task.get("error"),
-        result=task.get("result"),
-    )
+REVIEW_MIGRATED_MESSAGE = "综述生成已迁移至外部技能，刷新功能将在后续版本改为挂待办"
 
 
 async def _to_response(subject: Subject) -> SubjectResponse:
@@ -58,14 +36,7 @@ async def _to_response(subject: Subject) -> SubjectResponse:
         updated_at=subject.updated_at,
         last_updated_at=subject.last_updated_at,
         match_count=await repo.count_matches(subject.subject_id),
-        backfill_task_id=subject.backfill_task_id,
-        backfill_task=_task_snapshot(subject.backfill_task_id),
     )
-
-
-def _is_backfill_running(subject: Subject) -> bool:
-    task = _task_snapshot(subject.backfill_task_id)
-    return task is not None and task.status in {"pending", "running"}
 
 
 def _digest_public(digest) -> dict:
@@ -102,12 +73,8 @@ async def create_subject(
         nl_description=request.nl_description,
         keywords=request.keywords,
     )
-    task_id = await SubjectBackfillService(repo).start_backfill(subject.subject_id)
-    subject = await repo.get_subject(subject.subject_id) or subject
     response = await _to_response(subject)
-    data = response.model_dump()
-    data["backfill_task_id"] = task_id
-    return SubjectCreateResponse(**data)
+    return SubjectCreateResponse(**response.model_dump())
 
 
 @router.get("/{subject_id}", response_model=SubjectResponse)
@@ -132,11 +99,6 @@ async def update_subject(
     subject = await repo.get_subject(subject_id)
     if subject is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="议题不存在")
-    if request.nl_description is not None and _is_backfill_running(subject):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="请停用或删重建",
-        )
     if (
         request.status == SubjectStatus.active.value
         and subject.status != SubjectStatus.active
@@ -167,12 +129,6 @@ async def delete_subject(
     subject = await repo.get_subject(subject_id)
     if subject is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="议题不存在")
-    if subject.backfill_task_id:
-        TaskRegistry.get_instance().update_task_status(
-            subject.backfill_task_id,
-            TaskStatus.FAILED,
-            error="cancelled by subject delete",
-        )
     deleted = await repo.delete_subject(subject_id)
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="议题不存在")
@@ -235,29 +191,23 @@ async def get_subject_review(
 @router.post(
     "/{subject_id}/review/refresh",
     response_model=SubjectReviewRefreshResponse,
-    status_code=status.HTTP_202_ACCEPTED,
+    status_code=status.HTTP_200_OK,
 )
 async def refresh_subject_review(
     subject_id: str,
     _user: UserDomain = Depends(get_current_admin_user),
 ):
-    try:
-        return await _review_service().start_refresh(subject_id)
-    except ReviewRefreshAlreadyRunningError as exc:
-        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="议题不存在") from exc
+    if await get_subject_repo().get_subject(subject_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="议题不存在")
+    return SubjectReviewRefreshResponse(task_id=None, message=REVIEW_MIGRATED_MESSAGE)
 
 
 @router.post(
     "/review/refresh",
     response_model=SubjectReviewRefreshResponse,
-    status_code=status.HTTP_202_ACCEPTED,
+    status_code=status.HTTP_200_OK,
 )
 async def refresh_all_subject_reviews(
     _user: UserDomain = Depends(get_current_admin_user),
 ):
-    try:
-        return await _review_service().start_refresh()
-    except ReviewRefreshAlreadyRunningError as exc:
-        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)) from exc
+    return SubjectReviewRefreshResponse(task_id=None, message=REVIEW_MIGRATED_MESSAGE)

@@ -41,14 +41,6 @@ class SubjectUpdateRequest(BaseModel):
         return stripped
 
 
-class TaskSnapshot(BaseModel):
-    task_id: str
-    status: str
-    progress: dict | None = None
-    error: str | None = None
-    result: dict | None = None
-
-
 class SubjectResponse(BaseModel):
     subject_id: str
     name: str
@@ -59,12 +51,10 @@ class SubjectResponse(BaseModel):
     updated_at: datetime
     last_updated_at: datetime | None = None
     match_count: int = 0
-    backfill_task_id: str | None = None
-    backfill_task: TaskSnapshot | None = None
 
 
 class SubjectCreateResponse(SubjectResponse):
-    backfill_task_id: str
+    pass
 
 
 class SubjectReviewSectionResponse(BaseModel):
@@ -91,5 +81,5 @@ class SubjectReviewResponse(BaseModel):
 
 
 class SubjectReviewRefreshResponse(BaseModel):
-    task_id: str
-    status: str
+    task_id: str | None = None
+    message: str

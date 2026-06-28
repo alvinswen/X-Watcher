@@ -131,12 +131,6 @@ class FileSubjectStore:
             changes["status"] = status
         return await self.save_subject(subject.model_copy(update=changes))
 
-    async def set_backfill_task(self, subject_id: str, task_id: str | None) -> Subject | None:
-        subject = await self.get_subject(subject_id)
-        if subject is None:
-            return None
-        return await self.save_subject(subject.model_copy(update={"backfill_task_id": task_id}))
-
     async def touch_subject(self, subject_id: str, when: datetime | None = None) -> None:
         subject = await self.get_subject(subject_id)
         if subject is None:

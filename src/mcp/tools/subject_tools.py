@@ -9,10 +9,7 @@ from mcp.server.fastmcp import FastMCP
 from src.data_layer.provider import get_subject_repo
 from src.mcp.helpers import error_response, parse_datetime_optional, success_response
 from src.mcp.security import audit_log
-from src.subjects.services.review_service import (
-    ReviewRefreshAlreadyRunningError,
-    SubjectReviewService,
-)
+from src.subjects.services.review_service import SubjectReviewService
 
 logger = logging.getLogger(__name__)
 
@@ -105,33 +102,18 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool()
     async def refresh_subject_review(subject_id: str | None = None) -> str:
-        """触发议题活综述重算。传 subject_id 刷单个；不传刷全部活跃议题；走后台任务，返回 task_id，用 get_task_status 轮询；无新 digest 时任务完成标“无变化”不产新版。"""
+        """返回综述生成迁移占位；服务端生成链已移除。"""
         try:
-            result = await SubjectReviewService(get_subject_repo()).start_refresh(subject_id)
             audit_log(
                 "refresh_subject_review",
                 "refresh",
                 params={"subject_id": subject_id},
             )
-            return success_response(result)
-        except ReviewRefreshAlreadyRunningError as e:
-            audit_log(
-                "refresh_subject_review",
-                "refresh",
-                params={"subject_id": subject_id},
-                result="failure",
-                error=str(e),
-            )
-            return error_response(str(e), "rate_limit")
-        except ValueError as e:
-            audit_log(
-                "refresh_subject_review",
-                "refresh",
-                params={"subject_id": subject_id},
-                result="failure",
-                error=str(e),
-            )
-            return error_response("议题不存在，请先调用 list_subjects 获取有效 subject_id", "not_found")
+            return success_response({
+                "migrated": True,
+                "pending": False,
+                "message": "综述生成已迁移至外部技能，刷新功能将在后续版本改为挂待办",
+            })
         except Exception as e:  # noqa: BLE001
             audit_log(
                 "refresh_subject_review",

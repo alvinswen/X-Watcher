@@ -233,13 +233,6 @@ def register(mcp: FastMCP) -> None:
                 limit=limit,
             )
 
-            try:
-                from src.subjects.services.digest_service import SubjectDigestService
-
-                await SubjectDigestService().rollup_current_hour_for_active_subjects()
-            except Exception as hook_error:  # noqa: BLE001
-                logger.warning("trigger_scrape 后置滚动 Subject L1 失败: %s", hook_error)
-
             audit_log(
                 "trigger_scrape",
                 "scrape",
