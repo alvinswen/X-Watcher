@@ -7,7 +7,6 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-
 SubjectStatusLiteral = Literal["active", "paused"]
 
 
@@ -66,3 +65,31 @@ class SubjectResponse(BaseModel):
 
 class SubjectCreateResponse(SubjectResponse):
     backfill_task_id: str
+
+
+class SubjectReviewSectionResponse(BaseModel):
+    title: str
+    body: str
+    cited_tweet_ids: list[str] = Field(default_factory=list)
+
+
+class SubjectReviewTrendResponse(BaseModel):
+    emerging: list[str] = Field(default_factory=list)
+    fading: list[str] = Field(default_factory=list)
+
+
+class SubjectReviewResponse(BaseModel):
+    subject_id: str
+    version: int
+    sections: list[SubjectReviewSectionResponse] = Field(default_factory=list)
+    trend: SubjectReviewTrendResponse = Field(default_factory=SubjectReviewTrendResponse)
+    cited_tweet_ids: list[str] = Field(default_factory=list)
+    prev_version: int | None = None
+    generated_at: datetime | None = None
+    generated_by: Literal["llm", "fallback"] | None = None
+    updated_at: datetime | None = None
+
+
+class SubjectReviewRefreshResponse(BaseModel):
+    task_id: str
+    status: str

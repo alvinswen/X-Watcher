@@ -6,6 +6,8 @@ import type {
   SubjectCreateRequest,
   SubjectDigestResponse,
   SubjectFeedResponse,
+  SubjectReview,
+  SubjectReviewRefreshResponse,
   SubjectStatus,
   SubjectUpdateRequest,
 } from "@/types"
@@ -46,6 +48,19 @@ export const subjectsApi = {
 
   async digests(subjectId: string): Promise<SubjectDigestResponse> {
     const response = await client.get<SubjectDigestResponse>(`${SUBJECTS_PREFIX}/${subjectId}/digests`)
+    return response.data
+  },
+
+  async review(subjectId: string): Promise<SubjectReview> {
+    const response = await client.get<SubjectReview>(`${SUBJECTS_PREFIX}/${subjectId}/review`)
+    return response.data
+  },
+
+  async refreshReview(subjectId?: string): Promise<SubjectReviewRefreshResponse> {
+    const url = subjectId
+      ? `${SUBJECTS_PREFIX}/${subjectId}/review/refresh`
+      : `${SUBJECTS_PREFIX}/review/refresh`
+    const response = await client.post<SubjectReviewRefreshResponse>(url)
     return response.data
   },
 }

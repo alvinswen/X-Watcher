@@ -48,3 +48,26 @@ class SubjectDigest(BaseModel):
     cited_tweet_ids: list[str] = Field(default_factory=list)
     generated_at: datetime
     generated_by: str = Field(default="fallback", description="llm 或 fallback")
+
+
+class SubjectReviewSection(BaseModel):
+    title: str
+    body: str
+    cited_tweet_ids: list[str] = Field(default_factory=list)
+
+
+class SubjectReviewTrend(BaseModel):
+    emerging: list[str] = Field(default_factory=list)
+    fading: list[str] = Field(default_factory=list)
+
+
+class SubjectReview(BaseModel):
+    subject_id: str
+    version: int
+    sections: list[SubjectReviewSection] = Field(default_factory=list)
+    trend: SubjectReviewTrend = Field(default_factory=SubjectReviewTrend)
+    cited_tweet_ids: list[str] = Field(default_factory=list)
+    prev_version: int | None = None
+    generated_at: datetime
+    generated_by: str = Field(default="fallback", description="llm 或 fallback")
+    updated_at: datetime

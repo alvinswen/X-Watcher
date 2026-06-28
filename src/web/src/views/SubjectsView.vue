@@ -1,23 +1,28 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref } from "vue"
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue"
 import type { FormInstance, FormRules } from "element-plus"
 import { ElMessage, ElMessageBox } from "element-plus"
 import {
   ChatLineSquare,
   Clock,
   Delete,
+  Document,
   EditPen,
   Loading,
   Lock,
   Plus,
+  Refresh,
   VideoPause,
   VideoPlay,
+  WarningFilled,
 } from "@element-plus/icons-vue"
 import { subjectsApi } from "@/api/subjects"
+import { tasksApi } from "@/api/tasks"
 import type {
   Subject,
   SubjectDigest,
   SubjectFeedItem,
+  SubjectReview,
   SubjectStatus,
 } from "@/types"
 
@@ -32,10 +37,16 @@ const subjects = ref<Subject[]>([])
 const selectedId = ref<string | null>(null)
 const feedItems = ref<SubjectFeedItem[]>([])
 const digests = ref<SubjectDigest[]>([])
-const activeTab = ref<"feed" | "digest">("feed")
+const review = ref<SubjectReview | null>(null)
+const activeTab = ref<"feed" | "digest" | "review">("feed")
 const statusFilter = ref<"all" | SubjectStatus>("all")
 const loadingSubjects = ref(false)
 const loadingDetail = ref(false)
+const reviewRefreshing = ref(false)
+const reviewError = ref("")
+const reviewTaskId = ref<string | null>(null)
+const reviewOpenSections = ref<string[]>([])
+const reviewOpenCites = ref<string[]>([])
 const pageError = ref("")
 const createError = ref("")
 const permissionError = ref(false)
@@ -69,9 +80,21 @@ const filteredSubjects = computed(() => {
 const selectedSubject = computed(() => subjects.value.find((item) => item.subject_id === selectedId.value) || null)
 const drawerTitle = computed(() => (drawerMode.value === "create" ? "新建议题" : "编辑议题"))
 const nlDescriptionLocked = computed(() => drawerMode.value === "edit" && isBackfilling(selectedSubject.value))
+const reviewVersion = computed(() => review.value?.version ?? 0)
+const reviewSections = computed(() => review.value?.sections ?? [])
+const reviewHasContent = computed(() => reviewSections.value.length > 0)
+const reviewHasTrend = computed(() => {
+  const trend = review.value?.trend
+  return reviewVersion.value >= 2 && Boolean(trend?.emerging.length || trend?.fading.length)
+})
+let reviewPollTimer: ReturnType<typeof setTimeout> | null = null
 
 onMounted(() => {
   void loadSubjects()
+})
+
+onBeforeUnmount(() => {
+  stopReviewPolling()
 })
 
 async function loadSubjects(preferId?: string) {
@@ -100,6 +123,9 @@ async function loadSelectedData() {
   if (!selectedId.value) {
     feedItems.value = []
     digests.value = []
+    review.value = null
+    reviewError.value = ""
+    stopReviewPolling()
     return
   }
   loadingDetail.value = true
@@ -110,6 +136,7 @@ async function loadSelectedData() {
     ])
     feedItems.value = feed.items
     digests.value = digestResponse.items
+    await loadReviewOnly()
   } catch (error) {
     pageError.value = error instanceof Error ? error.message : "议题详情加载失败"
   } finally {
@@ -118,11 +145,109 @@ async function loadSelectedData() {
 }
 
 async function selectSubject(subject: Subject) {
+  stopReviewPolling()
   selectedId.value = subject.subject_id
   activeTab.value = "feed"
+  reviewError.value = ""
+  reviewRefreshing.value = false
+  reviewTaskId.value = null
   await nextTick()
   detailScroll.value?.scrollTo({ top: 0 })
   await loadSelectedData()
+}
+
+function applyReview(nextReview: SubjectReview) {
+  review.value = nextReview
+  reviewOpenSections.value = nextReview.sections.length ? ["0"] : []
+  reviewOpenCites.value = []
+}
+
+async function loadReviewOnly() {
+  if (!selectedId.value) {
+    return
+  }
+  applyReview(await subjectsApi.review(selectedId.value))
+}
+
+async function refreshReview() {
+  if (!selectedId.value || reviewRefreshing.value) {
+    return
+  }
+  reviewError.value = ""
+  reviewRefreshing.value = true
+  try {
+    const response = await subjectsApi.refreshReview(selectedId.value)
+    reviewTaskId.value = response.task_id
+    pollReviewTask(response.task_id)
+  } catch (error) {
+    reviewRefreshing.value = false
+    reviewTaskId.value = null
+    reviewError.value = "综述生成失败，请重试"
+    const message = error instanceof Error ? error.message : ""
+    if (message.includes("已有") || message.includes("429")) {
+      ElMessage.info("综述重算中，请稍后查看")
+    }
+  }
+}
+
+function pollReviewTask(taskId: string) {
+  stopReviewPolling()
+  reviewPollTimer = setTimeout(() => {
+    void checkReviewTask(taskId)
+  }, 1000)
+}
+
+async function checkReviewTask(taskId: string) {
+  try {
+    const task = await tasksApi.getStatus(taskId)
+    if (task.status === "completed") {
+      reviewRefreshing.value = false
+      reviewTaskId.value = null
+      const result = task.result || {}
+      const changed = result.changed === true
+      const version = Number(result.version ?? reviewVersion.value)
+      await loadReviewOnly()
+      if (changed) {
+        ElMessage.success(`综述已更新至 v${reviewVersion.value}`)
+      } else {
+        ElMessage.info(`本轮无新增内容，综述未变（仍为 v${version}）`)
+      }
+      return
+    }
+    if (task.status === "failed") {
+      reviewRefreshing.value = false
+      reviewTaskId.value = null
+      reviewError.value = "综述生成失败，请重试"
+      return
+    }
+    pollReviewTask(taskId)
+  } catch {
+    reviewRefreshing.value = false
+    reviewTaskId.value = null
+    reviewError.value = "综述生成失败，请重试"
+  }
+}
+
+function stopReviewPolling() {
+  if (reviewPollTimer !== null) {
+    clearTimeout(reviewPollTimer)
+    reviewPollTimer = null
+  }
+}
+
+function reviewUpdatedText(): string {
+  if (!review.value?.updated_at) {
+    return "尚未生成"
+  }
+  return `更新于 ${formatRelative(review.value.updated_at)}`
+}
+
+function reviewSectionName(index: number): string {
+  return String(index)
+}
+
+function reviewCiteName(index: number): string {
+  return `cite-${index}`
 }
 
 function resetForm() {
@@ -556,6 +681,217 @@ function formatHourLabel(hour: string): string {
                 </el-collapse>
               </article>
             </el-tab-pane>
+
+            <el-tab-pane name="review">
+              <template #label>
+                <span data-review-tab-trigger>综述</span>
+              </template>
+
+              <div v-if="loadingDetail && !review" class="review-pane">
+                <el-skeleton animated class="review-skeleton">
+                  <template #template>
+                    <el-skeleton-item variant="text" class="review-skel-title" />
+                    <el-skeleton-item variant="text" />
+                    <el-skeleton-item variant="text" />
+                  </template>
+                </el-skeleton>
+                <el-skeleton animated class="review-skeleton">
+                  <template #template>
+                    <el-skeleton-item variant="text" class="review-skel-title" />
+                    <el-skeleton-item variant="text" />
+                    <el-skeleton-item variant="text" />
+                  </template>
+                </el-skeleton>
+              </div>
+
+              <div
+                v-else
+                class="review-pane"
+                :data-review-version="reviewVersion"
+              >
+                <div v-if="reviewError" class="review-error" data-review-error>
+                  <el-icon><WarningFilled /></el-icon>
+                  <p>综述生成失败，请重试</p>
+                  <el-button type="danger" plain :icon="Refresh" @click="refreshReview">
+                    重试
+                  </el-button>
+                </div>
+
+                <template v-else>
+                  <div class="review-infobar">
+                    <div class="review-info-left">
+                      <span
+                        class="review-version-badge"
+                        :class="{ empty: reviewVersion === 0 }"
+                        :data-review-version-badge="reviewVersion"
+                      >
+                        v{{ reviewVersion }}
+                      </span>
+                      <span class="review-updated">{{ reviewUpdatedText() }}</span>
+                      <el-tag
+                        v-if="review?.generated_by === 'fallback'"
+                        type="warning"
+                        size="small"
+                        effect="plain"
+                        data-review-fallback
+                      >
+                        降级生成
+                      </el-tag>
+                    </div>
+                    <el-button
+                      type="primary"
+                      plain
+                      :icon="Refresh"
+                      :loading="reviewRefreshing"
+                      :disabled="reviewRefreshing"
+                      data-review-refresh
+                      @click="refreshReview"
+                    >
+                      {{ reviewRefreshing ? "重算中…" : "刷新综述" }}
+                    </el-button>
+                  </div>
+
+                  <section
+                    v-if="reviewRefreshing"
+                    class="backfill-box review-recompute"
+                    role="status"
+                    aria-live="polite"
+                    :data-review-task-id="reviewTaskId || undefined"
+                  >
+                    <div class="backfill-line">
+                      <el-icon><Loading /></el-icon>
+                      <span>
+                        综述重算中…正在并入本轮新增内容，旧综述（v{{ reviewVersion }}）仍可阅读。
+                      </span>
+                    </div>
+                  </section>
+
+                  <div
+                    v-if="reviewRefreshing && !reviewHasContent"
+                    class="review-loading"
+                    aria-busy="true"
+                    aria-label="综述加载中"
+                  >
+                    <el-skeleton animated class="review-skeleton">
+                      <template #template>
+                        <el-skeleton-item variant="text" class="review-skel-title" />
+                        <el-skeleton-item variant="text" />
+                        <el-skeleton-item variant="text" />
+                      </template>
+                    </el-skeleton>
+                    <el-skeleton animated class="review-skeleton">
+                      <template #template>
+                        <el-skeleton-item variant="text" class="review-skel-title" />
+                        <el-skeleton-item variant="text" />
+                        <el-skeleton-item variant="text" />
+                      </template>
+                    </el-skeleton>
+                  </div>
+
+                  <el-empty
+                    v-else-if="reviewVersion === 0"
+                    description="暂无综述"
+                    data-empty-state="no-review"
+                    class="review-empty"
+                  >
+                    <template #image>
+                      <el-icon><Document /></el-icon>
+                    </template>
+                    <el-button type="primary" :icon="Refresh" @click="refreshReview">
+                      刷新综述生成首份
+                    </el-button>
+                  </el-empty>
+
+                  <template v-else>
+                    <section
+                      v-if="reviewHasTrend"
+                      class="review-trend"
+                      data-trend-block
+                    >
+                      <h3>
+                        本轮变化
+                        <span v-if="review?.prev_version">· 相对 v{{ review.prev_version }}</span>
+                      </h3>
+                      <div v-if="review?.trend.emerging.length" class="trend-group">
+                        <strong class="trend-label added">＋ 新增论点</strong>
+                        <ul>
+                          <li
+                            v-for="item in review.trend.emerging"
+                            :key="item"
+                            class="trend-item added"
+                          >
+                            <span>＋</span>{{ item }}
+                          </li>
+                        </ul>
+                      </div>
+                      <div v-if="review?.trend.fading.length" class="trend-group">
+                        <strong class="trend-label fading">↓ 淡出论点</strong>
+                        <ul>
+                          <li
+                            v-for="item in review.trend.fading"
+                            :key="item"
+                            class="trend-item fading"
+                          >
+                            <span>↓</span>{{ item }}
+                          </li>
+                        </ul>
+                      </div>
+                    </section>
+
+                    <el-collapse
+                      v-model="reviewOpenSections"
+                      class="review-section-collapse"
+                      :data-sections-count="reviewSections.length"
+                    >
+                      <el-collapse-item
+                        v-for="(section, index) in reviewSections"
+                        :key="`${reviewVersion}-${index}`"
+                        :name="reviewSectionName(index)"
+                        :data-review-section="index"
+                      >
+                        <template #title>
+                          <span class="review-section-title" :title="section.title">
+                            {{ section.title }}
+                          </span>
+                          <span class="review-section-count">
+                            引用 {{ section.cited_tweet_ids.length }} 条
+                          </span>
+                        </template>
+
+                        <p class="review-section-body">{{ section.body }}</p>
+
+                        <el-collapse
+                          v-if="section.cited_tweet_ids.length"
+                          v-model="reviewOpenCites"
+                          class="review-cite-collapse"
+                          data-cite-collapse
+                        >
+                          <el-collapse-item
+                            :name="reviewCiteName(index)"
+                            :title="`引用 ${section.cited_tweet_ids.length} 条`"
+                          >
+                            <div
+                              class="review-cite-item"
+                              :data-cited-tweet-ids="section.cited_tweet_ids.join(',')"
+                            >
+                              <p>{{ section.body }}</p>
+                              <div class="review-cite-ids">
+                                <code
+                                  v-for="tweetId in section.cited_tweet_ids"
+                                  :key="tweetId"
+                                >
+                                  {{ tweetId }}
+                                </code>
+                              </div>
+                            </div>
+                          </el-collapse-item>
+                        </el-collapse>
+                      </el-collapse-item>
+                    </el-collapse>
+                  </template>
+                </template>
+              </div>
+            </el-tab-pane>
           </el-tabs>
         </template>
       </main>
@@ -957,6 +1293,338 @@ function formatHourLabel(hour: string): string {
   color: var(--text-tertiary);
   font-family: var(--font-mono);
   font-size: var(--xs-font-size);
+}
+
+.review-pane {
+  padding: 24px 28px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--card-radius);
+  box-shadow: var(--shadow-card);
+}
+
+.review-infobar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-bottom: 16px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.review-info-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.review-version-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: var(--el-border-radius-base);
+  color: var(--el-color-white);
+  background: var(--color-primary);
+  font-family: var(--font-mono);
+  font-size: var(--small-font-size);
+  font-weight: 600;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.review-version-badge.empty {
+  background: var(--text-tertiary);
+}
+
+.review-updated {
+  color: var(--text-tertiary);
+  font-size: var(--small-font-size);
+  white-space: nowrap;
+}
+
+.review-recompute {
+  padding: 10px 14px;
+  margin: 0 0 16px;
+  border: 0;
+  border-left: 3px solid var(--color-info);
+  border-radius: 0 var(--el-border-radius-base) var(--el-border-radius-base) 0;
+}
+
+.review-recompute .backfill-line {
+  margin-bottom: 0;
+  color: var(--text-secondary);
+}
+
+.review-loading,
+.review-skeleton {
+  display: grid;
+  gap: 12px;
+}
+
+.review-skeleton {
+  padding: 20px;
+  margin-bottom: 20px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--card-radius);
+  background: var(--bg-card);
+}
+
+.review-skel-title {
+  width: 40%;
+}
+
+.review-empty {
+  padding: 56px 20px;
+}
+
+.review-empty :deep(.el-empty__image) {
+  display: flex;
+  justify-content: center;
+  color: var(--text-tertiary);
+  font-size: 64px;
+  opacity: 0.7;
+}
+
+.review-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 48px 20px;
+  color: var(--color-danger);
+  text-align: center;
+}
+
+.review-error .el-icon {
+  font-size: 56px;
+  opacity: 0.85;
+}
+
+.review-error p {
+  margin: 0;
+  color: var(--color-danger);
+  font-family: var(--font-reading);
+  font-size: var(--body-font-size);
+}
+
+.review-trend {
+  padding: 18px 20px;
+  margin-bottom: 20px;
+  border-left: 3px solid var(--color-primary);
+  border-radius: 0 var(--card-radius) var(--card-radius) 0;
+  background: var(--color-primary-lighter);
+}
+
+.review-trend h3 {
+  margin: 0 0 14px;
+  color: var(--text-primary);
+  font-family: var(--font-reading);
+  font-size: var(--summary-font-size);
+  font-weight: 600;
+}
+
+.review-trend h3 span {
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--small-font-size);
+  font-weight: 400;
+}
+
+.trend-group + .trend-group {
+  padding-top: 14px;
+  margin-top: 14px;
+  border-top: 1px dashed var(--border-medium);
+}
+
+.trend-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 8px;
+  font-size: var(--small-font-size);
+}
+
+.trend-label.added {
+  color: var(--color-success);
+}
+
+.trend-label.fading {
+  color: var(--text-tertiary);
+}
+
+.review-trend ul {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.trend-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-family: var(--font-reading);
+  font-size: var(--body-font-size);
+  line-height: 1.7;
+}
+
+.trend-item span {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-weight: 700;
+}
+
+.trend-item.added span {
+  color: var(--color-success);
+}
+
+.trend-item.fading {
+  color: var(--text-tertiary);
+}
+
+.review-section-collapse {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  border: 0;
+}
+
+.review-section-collapse :deep(.el-collapse-item) {
+  overflow: hidden;
+  border: 1px solid var(--border-light);
+  border-radius: var(--card-radius);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-card);
+  transition: border-color var(--transition-base), box-shadow var(--transition-base);
+}
+
+.review-section-collapse :deep(.el-collapse-item:hover) {
+  border-color: var(--border-medium);
+  box-shadow: var(--shadow-card-hover);
+}
+
+.review-section-collapse :deep(.el-collapse-item__header) {
+  gap: 12px;
+  height: auto;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  transition: background var(--transition-base);
+}
+
+.review-section-collapse :deep(.el-collapse-item__header:hover) {
+  background: var(--bg-inset);
+}
+
+.review-section-collapse :deep(.el-collapse-item__wrap) {
+  border-bottom: 0;
+  background: var(--bg-card);
+}
+
+.review-section-collapse :deep(.el-collapse-item__content) {
+  padding: 0 20px 20px;
+  color: var(--text-primary);
+}
+
+.review-section-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-family: var(--font-reading);
+  font-size: var(--summary-font-size);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-section-count {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: var(--el-border-radius-small);
+  background: var(--bg-inset);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--xs-font-size);
+  white-space: nowrap;
+}
+
+.review-section-body {
+  margin: 16px 0 0;
+  color: var(--text-primary);
+  font-family: var(--font-reading);
+  font-size: var(--body-font-size);
+  line-height: var(--reading-line-height);
+  letter-spacing: var(--reading-letter-spacing);
+  overflow-wrap: anywhere;
+}
+
+.review-cite-collapse {
+  padding-top: 12px;
+  margin-top: 14px;
+  border-top: 1px dashed var(--border-light);
+  border-bottom: 0;
+}
+
+.review-cite-collapse :deep(.el-collapse-item) {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.review-cite-collapse :deep(.el-collapse-item__header) {
+  padding: 0;
+  border-bottom: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--small-font-size);
+}
+
+.review-cite-collapse :deep(.el-collapse-item__content) {
+  padding: 12px 0 0;
+}
+
+.review-cite-item {
+  padding: 10px 14px;
+  border-left: 3px solid var(--color-primary-light);
+  border-radius: 0 var(--el-border-radius-base) var(--el-border-radius-base) 0;
+  background: var(--bg-inset);
+  cursor: default;
+}
+
+.review-cite-item p {
+  margin: 0 0 6px;
+  color: var(--text-primary);
+  font-family: var(--font-reading);
+  font-size: var(--small-font-size);
+  line-height: 1.8;
+}
+
+.review-cite-ids {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.review-cite-ids code {
+  padding: 1px 7px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--el-border-radius-small);
+  background: var(--bg-card);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--label-font-size);
+  text-decoration: none;
+  cursor: default;
 }
 
 .keyword-editor {

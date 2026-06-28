@@ -77,3 +77,31 @@ export interface SubjectDigestResponse {
   items: SubjectDigest[]
   count: number
 }
+
+export interface SubjectReviewSection {
+  title: string
+  body: string
+  cited_tweet_ids: string[]
+}
+
+export interface SubjectReviewTrend {
+  emerging: string[]
+  fading: string[]
+}
+
+export interface SubjectReview {
+  subject_id: string
+  version: number
+  sections: SubjectReviewSection[]
+  trend: SubjectReviewTrend
+  cited_tweet_ids: string[]
+  prev_version?: number | null
+  generated_at?: string | null
+  generated_by?: "llm" | "fallback" | null
+  updated_at?: string | null
+}
+
+export interface SubjectReviewRefreshResponse {
+  task_id: string
+  status: "pending" | "running" | "completed" | "failed" | string
+}
