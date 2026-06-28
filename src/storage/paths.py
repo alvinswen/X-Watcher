@@ -77,3 +77,11 @@ def subject_match_shard(data_root: Path, subject_id: str, matched_at: datetime) 
 
 def subject_digest_doc(data_root: Path, subject_id: str, hour: str) -> Path:
     return Path(data_root) / "subjects" / subject_id / "digests" / f"{hour}.json"
+
+
+def subject_review_doc(data_root: Path, subject_id: str) -> Path:
+    return Path(data_root) / "subjects" / subject_id / "review" / "latest.json"
+
+
+def subject_review_history_doc(data_root: Path, subject_id: str, version: int) -> Path:
+    return Path(data_root) / "subjects" / subject_id / "review" / "history" / f"{version}.json"

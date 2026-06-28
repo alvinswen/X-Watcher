@@ -19,7 +19,7 @@ from src.storage.atomic import shard_lock
 from src.storage.doc_store import atomic_write_doc, read_doc
 from src.storage.jsonl_store import read_shard, upsert
 from src.subjects.index import load_subject_ids, new_subject_id, save_subject_ids
-from src.subjects.models import Subject, SubjectDigest, SubjectMatch, SubjectStatus
+from src.subjects.models import Subject, SubjectDigest, SubjectMatch, SubjectReview, SubjectStatus
 
 _NO_LIMIT = 10**12
 
@@ -238,6 +238,34 @@ class FileSubjectStore:
             return SubjectDigest(**doc) if doc else None
         digests = await self.list_digests(subject_id, limit=1)
         return digests[0] if digests else None
+
+    async def save_review(self, review: SubjectReview) -> SubjectReview:
+        latest_path = paths.subject_review_doc(self._root, review.subject_id)
+        history_path = paths.subject_review_history_doc(
+            self._root,
+            review.subject_id,
+            review.version,
+        )
+        async with shard_lock(latest_path):
+            payload = review.model_dump(mode="json")
+            atomic_write_doc(latest_path, payload)
+            atomic_write_doc(history_path, payload)
+        return review
+
+    async def get_review(self, subject_id: str) -> SubjectReview | None:
+        doc = read_doc(paths.subject_review_doc(self._root, subject_id))
+        return SubjectReview(**doc) if doc else None
+
+    async def list_review_history(self, subject_id: str) -> list[SubjectReview]:
+        base = self._root / "subjects" / subject_id / "review" / "history"
+        if not base.exists():
+            return []
+        reviews: list[SubjectReview] = []
+        for path in sorted(base.glob("*.json"), key=lambda item: int(item.stem)):
+            doc = read_doc(path)
+            if doc:
+                reviews.append(SubjectReview(**doc))
+        return reviews
 
     async def get_tweets_by_ids(self, tweet_ids: list[str]) -> tuple[list[dict], list[str]]:
         from src.scraper.infrastructure.file_tweet_repository import FileTweetStore

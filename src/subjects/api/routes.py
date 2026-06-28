@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -12,11 +12,17 @@ from src.subjects.api.schemas import (
     SubjectCreateRequest,
     SubjectCreateResponse,
     SubjectResponse,
+    SubjectReviewRefreshResponse,
+    SubjectReviewResponse,
     SubjectUpdateRequest,
     TaskSnapshot,
 )
 from src.subjects.models import Subject, SubjectStatus
 from src.subjects.services.backfill_service import SubjectBackfillService
+from src.subjects.services.review_service import (
+    ReviewRefreshAlreadyRunningError,
+    SubjectReviewService,
+)
 from src.user.api.auth import get_current_admin_user
 from src.user.domain.models import UserDomain
 
@@ -64,6 +70,10 @@ def _is_backfill_running(subject: Subject) -> bool:
 
 def _digest_public(digest) -> dict:
     return digest.model_dump(mode="json", exclude={"generated_by"})
+
+
+def _review_service():
+    return SubjectReviewService(get_subject_repo())
 
 
 @router.get("", response_model=list[SubjectResponse])
@@ -207,5 +217,47 @@ async def get_subject_digests(
     return {
         "items": [_digest_public(digest) for digest in digests],
         "count": len(digests),
-        "generated_at": datetime.now(timezone.utc),
+        "generated_at": datetime.now(UTC),
     }
+
+
+@router.get("/{subject_id}/review", response_model=SubjectReviewResponse)
+async def get_subject_review(
+    subject_id: str,
+    _user: UserDomain = Depends(get_current_admin_user),
+):
+    payload = await _review_service().get_review_payload(subject_id)
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="议题不存在")
+    return payload
+
+
+@router.post(
+    "/{subject_id}/review/refresh",
+    response_model=SubjectReviewRefreshResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def refresh_subject_review(
+    subject_id: str,
+    _user: UserDomain = Depends(get_current_admin_user),
+):
+    try:
+        return await _review_service().start_refresh(subject_id)
+    except ReviewRefreshAlreadyRunningError as exc:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="议题不存在") from exc
+
+
+@router.post(
+    "/review/refresh",
+    response_model=SubjectReviewRefreshResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def refresh_all_subject_reviews(
+    _user: UserDomain = Depends(get_current_admin_user),
+):
+    try:
+        return await _review_service().start_refresh()
+    except ReviewRefreshAlreadyRunningError as exc:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)) from exc

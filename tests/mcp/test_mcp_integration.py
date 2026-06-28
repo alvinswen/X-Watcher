@@ -480,6 +480,9 @@ class TestToolRegistration:
             "get_subject_digest",
             "get_subject_updates",
             "get_tweets_by_ids",
+            # Subject Review（CHG-006 · L2 活综述）
+            "get_subject_review",
+            "refresh_subject_review",
         }
         assert (
             expected == tool_names

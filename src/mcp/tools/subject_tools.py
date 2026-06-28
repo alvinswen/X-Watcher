@@ -8,6 +8,11 @@ from mcp.server.fastmcp import FastMCP
 
 from src.data_layer.provider import get_subject_repo
 from src.mcp.helpers import error_response, parse_datetime_optional, success_response
+from src.mcp.security import audit_log
+from src.subjects.services.review_service import (
+    ReviewRefreshAlreadyRunningError,
+    SubjectReviewService,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +90,58 @@ def register(mcp: FastMCP) -> None:
         except Exception as e:  # noqa: BLE001
             logger.error("get_subject_digest 失败: %s", e, exc_info=True)
             return error_response(f"查询失败: {e}")
+
+    @mcp.tool()
+    async def get_subject_review(subject_id: str) -> str:
+        """读议题当前活综述（L2 全量累积全貌）。从未生成过返回 `version=0` 空壳（不报错），此时请调 `refresh_subject_review` 触发生成。想感知综述是否更新：周期性调本工具，比对返回的 `version` / `updated_at`——本版本不通过 `get_subject_updates` 推送 review 事件。"""
+        try:
+            payload = await SubjectReviewService(get_subject_repo()).get_review_payload(subject_id)
+            if payload is None:
+                return error_response("议题不存在，请先调用 list_subjects 获取有效 subject_id", "not_found")
+            return success_response(payload)
+        except Exception as e:  # noqa: BLE001
+            logger.error("get_subject_review 失败: %s", e, exc_info=True)
+            return error_response(f"查询失败: {e}")
+
+    @mcp.tool()
+    async def refresh_subject_review(subject_id: str | None = None) -> str:
+        """触发议题活综述重算。传 subject_id 刷单个；不传刷全部活跃议题；走后台任务，返回 task_id，用 get_task_status 轮询；无新 digest 时任务完成标“无变化”不产新版。"""
+        try:
+            result = await SubjectReviewService(get_subject_repo()).start_refresh(subject_id)
+            audit_log(
+                "refresh_subject_review",
+                "refresh",
+                params={"subject_id": subject_id},
+            )
+            return success_response(result)
+        except ReviewRefreshAlreadyRunningError as e:
+            audit_log(
+                "refresh_subject_review",
+                "refresh",
+                params={"subject_id": subject_id},
+                result="failure",
+                error=str(e),
+            )
+            return error_response(str(e), "rate_limit")
+        except ValueError as e:
+            audit_log(
+                "refresh_subject_review",
+                "refresh",
+                params={"subject_id": subject_id},
+                result="failure",
+                error=str(e),
+            )
+            return error_response("议题不存在，请先调用 list_subjects 获取有效 subject_id", "not_found")
+        except Exception as e:  # noqa: BLE001
+            audit_log(
+                "refresh_subject_review",
+                "refresh",
+                params={"subject_id": subject_id},
+                result="failure",
+                error=str(e),
+            )
+            logger.error("refresh_subject_review 失败: %s", e, exc_info=True)
+            return error_response(f"刷新失败: {e}")
 
     @mcp.tool()
     async def get_subject_updates(
