@@ -75,3 +75,18 @@ def require_admin() -> str | None:
 
         return error_response("需要管理员权限", "permission")
     return None
+
+
+def require_scope(scope: str) -> str | None:
+    """检查当前请求是否具有指定 scope。stdio 本地模式默认放行。"""
+    if _transport == "stdio":
+        return None
+
+    from mcp.server.auth.middleware.auth_context import get_access_token
+
+    from src.mcp.helpers import error_response
+
+    token = get_access_token()
+    if token is None or scope not in token.scopes:
+        return error_response(f"需要权限: {scope}", "permission")
+    return None

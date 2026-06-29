@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue"
+import { computed, nextTick, onMounted, reactive, ref } from "vue"
 import type { FormInstance, FormRules } from "element-plus"
 import { ElMessage, ElMessageBox } from "element-plus"
 import {
@@ -8,8 +8,6 @@ import {
   Delete,
   Document,
   EditPen,
-  Loading,
-  Lock,
   Plus,
   Refresh,
   VideoPause,
@@ -17,7 +15,6 @@ import {
   WarningFilled,
 } from "@element-plus/icons-vue"
 import { subjectsApi } from "@/api/subjects"
-import { tasksApi } from "@/api/tasks"
 import type {
   Subject,
   SubjectDigest,
@@ -33,20 +30,27 @@ interface SubjectForm {
   status: SubjectStatus
 }
 
+type ClassifyHintState = "recent" | "stale" | "never" | "empty"
+
+const STALE_THRESHOLD_MS = 6 * 3_600_000
+const REVIEW_PENDING_KEY_PREFIX = "subject-review-pending:"
+
 const subjects = ref<Subject[]>([])
 const selectedId = ref<string | null>(null)
 const feedItems = ref<SubjectFeedItem[]>([])
 const digests = ref<SubjectDigest[]>([])
 const review = ref<SubjectReview | null>(null)
+const lastClassifiedAt = ref<string | null>(null)
 const activeTab = ref<"feed" | "digest" | "review">("feed")
 const statusFilter = ref<"all" | SubjectStatus>("all")
 const loadingSubjects = ref(false)
 const loadingDetail = ref(false)
 const reviewRefreshing = ref(false)
+const reviewPending = ref(false)
 const reviewError = ref("")
-const reviewTaskId = ref<string | null>(null)
 const reviewOpenSections = ref<string[]>([])
 const reviewOpenCites = ref<string[]>([])
+const sessionPendingReviews = ref<Record<string, number>>({})
 const pageError = ref("")
 const createError = ref("")
 const permissionError = ref(false)
@@ -79,22 +83,44 @@ const filteredSubjects = computed(() => {
 })
 const selectedSubject = computed(() => subjects.value.find((item) => item.subject_id === selectedId.value) || null)
 const drawerTitle = computed(() => (drawerMode.value === "create" ? "新建议题" : "编辑议题"))
-const nlDescriptionLocked = computed(() => drawerMode.value === "edit" && isBackfilling(selectedSubject.value))
 const reviewVersion = computed(() => review.value?.version ?? 0)
 const reviewSections = computed(() => review.value?.sections ?? [])
-const reviewHasContent = computed(() => reviewSections.value.length > 0)
 const reviewHasTrend = computed(() => {
   const trend = review.value?.trend
   return reviewVersion.value >= 2 && Boolean(trend?.emerging.length || trend?.fading.length)
 })
-let reviewPollTimer: ReturnType<typeof setTimeout> | null = null
+const classifyHintState = computed<ClassifyHintState>(() => {
+  if (!selectedSubject.value) {
+    return "empty"
+  }
+  if (!lastClassifiedAt.value) {
+    return "never"
+  }
+  const timestamp = new Date(lastClassifiedAt.value).getTime()
+  if (Number.isNaN(timestamp)) {
+    return "never"
+  }
+  return Date.now() - timestamp > STALE_THRESHOLD_MS ? "stale" : "recent"
+})
+const classifyHintIcon = computed(() => (classifyHintState.value === "never" ? WarningFilled : Clock))
+const classifyHintPrefix = computed(() => (
+  classifyHintState.value === "stale" ? "距上次分类已较久：" : "最近一次分类："
+))
+const classifyHintRelativeText = computed(() => formatRelative(lastClassifiedAt.value))
+const classifyHintText = computed(() => {
+  if (classifyHintState.value === "empty") {
+    return "选择议题后查看最近一次分类时间"
+  }
+  if (classifyHintState.value === "never") {
+    return "尚未分类，等待外部分类节拍命中"
+  }
+  return ""
+})
+const classifyHintTitle = computed(() => (lastClassifiedAt.value ? formatAbsoluteDateTime(lastClassifiedAt.value) : ""))
+const reviewRequestButtonText = computed(() => (reviewPending.value ? "已请求·待处理" : "请求更新综述"))
 
 onMounted(() => {
   void loadSubjects()
-})
-
-onBeforeUnmount(() => {
-  stopReviewPolling()
 })
 
 async function loadSubjects(preferId?: string) {
@@ -124,8 +150,9 @@ async function loadSelectedData() {
     feedItems.value = []
     digests.value = []
     review.value = null
+    lastClassifiedAt.value = null
     reviewError.value = ""
-    stopReviewPolling()
+    reviewPending.value = false
     return
   }
   loadingDetail.value = true
@@ -135,6 +162,7 @@ async function loadSelectedData() {
       subjectsApi.digests(selectedId.value),
     ])
     feedItems.value = feed.items
+    lastClassifiedAt.value = feed.last_classified_at ?? null
     digests.value = digestResponse.items
     await loadReviewOnly()
   } catch (error) {
@@ -145,12 +173,11 @@ async function loadSelectedData() {
 }
 
 async function selectSubject(subject: Subject) {
-  stopReviewPolling()
   selectedId.value = subject.subject_id
   activeTab.value = "feed"
   reviewError.value = ""
   reviewRefreshing.value = false
-  reviewTaskId.value = null
+  reviewPending.value = false
   await nextTick()
   detailScroll.value?.scrollTo({ top: 0 })
   await loadSelectedData()
@@ -160,6 +187,7 @@ function applyReview(nextReview: SubjectReview) {
   review.value = nextReview
   reviewOpenSections.value = nextReview.sections.length ? ["0"] : []
   reviewOpenCites.value = []
+  syncReviewPending(nextReview.version)
 }
 
 async function loadReviewOnly() {
@@ -169,69 +197,77 @@ async function loadReviewOnly() {
   applyReview(await subjectsApi.review(selectedId.value))
 }
 
-async function refreshReview() {
-  if (!selectedId.value || reviewRefreshing.value) {
+async function requestReviewUpdate() {
+  if (!selectedId.value || reviewRefreshing.value || reviewPending.value) {
     return
   }
+  const subjectId = selectedId.value
+  const version = reviewVersion.value
   reviewError.value = ""
   reviewRefreshing.value = true
   try {
-    const response = await subjectsApi.refreshReview(selectedId.value)
-    reviewTaskId.value = response.task_id
-    pollReviewTask(response.task_id)
-  } catch (error) {
-    reviewRefreshing.value = false
-    reviewTaskId.value = null
-    reviewError.value = "综述生成失败，请重试"
-    const message = error instanceof Error ? error.message : ""
-    if (message.includes("已有") || message.includes("429")) {
-      ElMessage.info("综述重算中，请稍后查看")
+    const response = await subjectsApi.refreshReview(subjectId)
+    if (response.pending !== false) {
+      markReviewPending(subjectId, version)
+      ElMessage.success(response.message || "已请求更新综述")
     }
-  }
-}
-
-function pollReviewTask(taskId: string) {
-  stopReviewPolling()
-  reviewPollTimer = setTimeout(() => {
-    void checkReviewTask(taskId)
-  }, 1000)
-}
-
-async function checkReviewTask(taskId: string) {
-  try {
-    const task = await tasksApi.getStatus(taskId)
-    if (task.status === "completed") {
-      reviewRefreshing.value = false
-      reviewTaskId.value = null
-      const result = task.result || {}
-      const changed = result.changed === true
-      const version = Number(result.version ?? reviewVersion.value)
-      await loadReviewOnly()
-      if (changed) {
-        ElMessage.success(`综述已更新至 v${reviewVersion.value}`)
-      } else {
-        ElMessage.info(`本轮无新增内容，综述未变（仍为 v${version}）`)
-      }
-      return
-    }
-    if (task.status === "failed") {
-      reviewRefreshing.value = false
-      reviewTaskId.value = null
-      reviewError.value = "综述生成失败，请重试"
-      return
-    }
-    pollReviewTask(taskId)
   } catch {
+    reviewError.value = "请求未送达，请重试"
+  } finally {
     reviewRefreshing.value = false
-    reviewTaskId.value = null
-    reviewError.value = "综述生成失败，请重试"
   }
 }
 
-function stopReviewPolling() {
-  if (reviewPollTimer !== null) {
-    clearTimeout(reviewPollTimer)
-    reviewPollTimer = null
+function reviewPendingKey(subjectId: string): string {
+  return `${REVIEW_PENDING_KEY_PREFIX}${subjectId}`
+}
+
+function syncReviewPending(currentVersion: number) {
+  if (!selectedId.value) {
+    reviewPending.value = false
+    return
+  }
+  reviewPending.value = readReviewPending(selectedId.value, currentVersion)
+}
+
+function readReviewPending(subjectId: string, currentVersion: number): boolean {
+  const sessionVersion = sessionPendingReviews.value[subjectId]
+  let pending = sessionVersion === currentVersion
+  if (sessionVersion !== undefined && sessionVersion !== currentVersion) {
+    delete sessionPendingReviews.value[subjectId]
+  }
+
+  try {
+    const raw = window.localStorage.getItem(reviewPendingKey(subjectId))
+    if (!raw) {
+      return pending
+    }
+    const parsed = JSON.parse(raw) as { pending?: unknown; version?: unknown }
+    const storedVersion = Number(parsed.version)
+    if (parsed.pending === true && Number.isFinite(storedVersion) && storedVersion === currentVersion) {
+      pending = true
+    } else {
+      window.localStorage.removeItem(reviewPendingKey(subjectId))
+    }
+  } catch {
+    try {
+      window.localStorage.removeItem(reviewPendingKey(subjectId))
+    } catch {
+      // Ignore storage cleanup failures.
+    }
+    return pending
+  }
+
+  return pending
+}
+
+function markReviewPending(subjectId: string, version: number) {
+  sessionPendingReviews.value[subjectId] = version
+  reviewPending.value = true
+  try {
+    window.localStorage.setItem(reviewPendingKey(subjectId), JSON.stringify({ pending: true, version }))
+  } catch {
+    // localStorage can be unavailable in private mode; session ref keeps the current page usable.
   }
 }
 
@@ -309,13 +345,16 @@ async function submitSubject() {
         nl_description: form.nl_description,
         keywords: form.keywords,
       })
-      ElMessage.success("已创建，正在后台回填")
+      ElMessage.success("已创建，等待外部分类节拍命中")
       drawerVisible.value = false
       await loadSubjects(created.subject_id)
     } else if (selectedSubject.value) {
-      const payload = nlDescriptionLocked.value
-        ? { name: form.name, keywords: form.keywords, status: form.status }
-        : { name: form.name, nl_description: form.nl_description, keywords: form.keywords, status: form.status }
+      const payload = {
+        name: form.name,
+        nl_description: form.nl_description,
+        keywords: form.keywords,
+        status: form.status,
+      }
       const updated = await subjectsApi.update(selectedSubject.value.subject_id, payload)
       ElMessage.success("议题已更新")
       drawerVisible.value = false
@@ -342,7 +381,7 @@ async function toggleSubjectStatus(subject: Subject) {
 async function confirmDelete(subject: Subject) {
   try {
     await ElMessageBox.confirm(
-      "将取消进行中回填并删除议题及其命中关系。\n清除全部命中关系。\n删除后不可恢复。",
+      "将删除议题及其命中关系。\n清除全部命中关系。\n删除后不可恢复。",
       `删除议题「${subject.name}」?`,
       {
         type: "warning",
@@ -361,36 +400,15 @@ async function confirmDelete(subject: Subject) {
   }
 }
 
-function isBackfilling(subject: Subject | null): boolean {
-  const status = subject?.backfill_task?.status
-  return status === "pending" || status === "running"
-}
-
-function progressData(subject: Subject | null): string | undefined {
-  if (!subject?.backfill_task?.progress) {
-    return undefined
-  }
-  const progress = subject.backfill_task.progress
-  return `${progress.current}/${progress.total}`
-}
-
-function progressText(subject: Subject | null): string {
-  const progress = subject?.backfill_task?.progress
-  if (!progress) {
-    return "已处理 0/0 条"
-  }
-  return `已处理 ${progress.current}/${progress.total} 条`
-}
-
-function progressPercent(subject: Subject | null): number {
-  return subject?.backfill_task?.progress?.percentage || 0
-}
-
 function formatRelative(value?: string | null): string {
   if (!value) {
     return "尚无更新"
   }
-  const diff = Date.now() - new Date(value).getTime()
+  const timestamp = new Date(value).getTime()
+  if (Number.isNaN(timestamp)) {
+    return value
+  }
+  const diff = Math.max(0, Date.now() - timestamp)
   if (diff < 60_000) {
     return "刚刚"
   }
@@ -404,38 +422,63 @@ function formatRelative(value?: string | null): string {
 }
 
 function formatDateTime(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return value
+  }
   return new Intl.DateTimeFormat("zh-CN", {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(new Date(value))
+  }).format(date)
 }
 
-function formatHourLabel(hour: string): string {
-  const match = /^(\d{4})-(\d{2})-(\d{2})-(\d{2})$/.exec(hour)
-  if (!match) {
-    return `${hour}（UTC）`
+function formatAbsoluteDateTime(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return value
   }
-  const year = Number(match[1])
-  const month = Number(match[2])
-  const day = Number(match[3])
-  const hourPart = Number(match[4])
-  const start = new Date(Date.UTC(year, month - 1, day, hourPart, 0, 0))
-  const end = new Date(start.getTime() + 3_600_000)
-  const datePart = new Intl.DateTimeFormat("zh-CN", {
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).format(start).replace(/\//g, "-")
-  const startTime = new Intl.DateTimeFormat("zh-CN", {
     hour: "2-digit",
     minute: "2-digit",
-  }).format(start)
-  const endTime = new Intl.DateTimeFormat("zh-CN", {
+    second: "2-digit",
+  }).format(date)
+}
+
+function formatDatePart(date: Date): string {
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date).replace(/\//g, "-")
+}
+
+function formatTimePart(date: Date): string {
+  return new Intl.DateTimeFormat("zh-CN", {
     hour: "2-digit",
     minute: "2-digit",
-  }).format(end)
-  return `${datePart} ${startTime}-${endTime}（本地）`
+  }).format(date)
+}
+
+function sameLocalDate(start: Date, end: Date): boolean {
+  return start.getFullYear() === end.getFullYear()
+    && start.getMonth() === end.getMonth()
+    && start.getDate() === end.getDate()
+}
+
+function formatIntervalLabel(startValue: string, endValue: string): string {
+  const start = new Date(startValue)
+  const end = new Date(endValue)
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return `${startValue}~${endValue}`
+  }
+  if (sameLocalDate(start, end)) {
+    return `${formatDatePart(start)} ${formatTimePart(start)}~${formatTimePart(end)}`
+  }
+  return `${formatDatePart(start)} ${formatTimePart(start)} ~ ${formatDatePart(end)} ${formatTimePart(end)}`
 }
 </script>
 
@@ -584,56 +627,70 @@ function formatHourLabel(hour: string): string {
             <el-button :icon="EditPen" @click="openEdit(selectedSubject)">编辑</el-button>
           </header>
 
-          <section
-            v-if="isBackfilling(selectedSubject)"
-            class="backfill-box"
-            :data-backfill-progress="progressData(selectedSubject)"
-          >
-            <div class="backfill-line">
-              <el-icon><Loading /></el-icon>
-              <span>回填进行中</span>
-              <span class="progress-count">{{ progressText(selectedSubject) }}</span>
-            </div>
-            <el-progress
-              :percentage="progressPercent(selectedSubject)"
-              :show-text="false"
-              :stroke-width="6"
-              color="var(--color-primary)"
-            />
-          </section>
-
           <el-tabs v-model="activeTab" class="subject-tabs">
             <el-tab-pane label="feed" name="feed">
               <div v-if="loadingDetail" class="tab-loading">
+                <div
+                  class="classify-hint classify-hint-skeleton"
+                  data-classify-hint="loading"
+                  data-last-classified-at=""
+                >
+                  <el-skeleton animated>
+                    <template #template>
+                      <el-skeleton-item variant="text" class="hint-skel-line" />
+                    </template>
+                  </el-skeleton>
+                </div>
                 <el-skeleton v-for="idx in 3" :key="idx" animated />
               </div>
 
-              <el-empty
-                v-else-if="feedItems.length === 0"
-                description="暂无相关推文，等待下次抓取"
-                data-empty-state="no-tweets"
-                class="empty-state"
-              >
-                <el-icon><ChatLineSquare /></el-icon>
-              </el-empty>
+              <template v-else>
+                <div
+                  class="classify-hint"
+                  :class="classifyHintState"
+                  :data-classify-hint="classifyHintState"
+                  :data-last-classified-at="lastClassifiedAt || ''"
+                  :title="classifyHintTitle"
+                >
+                  <el-icon><component :is="classifyHintIcon" /></el-icon>
+                  <span class="classify-hint-copy">
+                    <template v-if="classifyHintState === 'recent' || classifyHintState === 'stale'">
+                      <span>{{ classifyHintPrefix }}</span>
+                      <strong class="classify-hint-time">{{ classifyHintRelativeText }}</strong>
+                    </template>
+                    <template v-else>
+                      {{ classifyHintText }}
+                    </template>
+                  </span>
+                </div>
 
-              <article
-                v-for="item in feedItems"
-                v-else
-                :key="item.tweet_id"
-                class="feed-row"
-              >
-                <div class="feed-meta">
-                  <span>@{{ item.author_username || item.author }}</span>
-                  <span>{{ formatDateTime(item.created_at) }}</span>
-                  <span>{{ item.tweet_id }}</span>
-                </div>
-                <p class="tweet-text">{{ item.text }}</p>
-                <div v-if="item.summary" class="summary-box">
-                  <span>AI 摘要</span>
-                  <p>{{ item.summary }}</p>
-                </div>
-              </article>
+                <el-empty
+                  v-if="feedItems.length === 0"
+                  description="暂无相关推文，等待外部分类节拍"
+                  data-empty-state="no-tweets"
+                  class="empty-state"
+                >
+                  <el-icon><ChatLineSquare /></el-icon>
+                </el-empty>
+
+                <article
+                  v-for="item in feedItems"
+                  v-else
+                  :key="item.tweet_id"
+                  class="feed-row"
+                >
+                  <div class="feed-meta">
+                    <span>@{{ item.author_username || item.author }}</span>
+                    <span>{{ formatDateTime(item.created_at) }}</span>
+                    <span>{{ item.tweet_id }}</span>
+                  </div>
+                  <p class="tweet-text">{{ item.text }}</p>
+                  <div v-if="item.summary" class="summary-box">
+                    <span>AI 摘要</span>
+                    <p>{{ item.summary }}</p>
+                  </div>
+                </article>
+              </template>
             </el-tab-pane>
 
             <el-tab-pane label="digest" name="digest">
@@ -643,7 +700,7 @@ function formatHourLabel(hour: string): string {
 
               <el-empty
                 v-else-if="digests.length === 0"
-                description="暂无滚动新闻，等待下次抓取"
+                description="暂无滚动新闻，等待外部分类节拍"
                 data-empty-state="no-tweets"
                 class="empty-state"
               >
@@ -651,24 +708,26 @@ function formatHourLabel(hour: string): string {
               </el-empty>
 
               <article
-                v-for="digest in digests"
+                v-for="(digest, index) in digests"
                 v-else
-                :key="digest.hour"
+                :key="`${digest.interval_start}-${digest.interval_end}-${digest.generated_at}-${index}`"
                 class="digest-card"
-                :data-hour-bucket="digest.hour"
-                :data-hour-label="formatHourLabel(digest.hour)"
+                :data-interval-start="digest.interval_start"
+                :data-interval-end="digest.interval_end"
               >
                 <div class="digest-head">
-                  <span class="hour-pill">{{ formatHourLabel(digest.hour) }}</span>
+                  <span class="interval-pill">
+                    {{ formatIntervalLabel(digest.interval_start, digest.interval_end) }}
+                  </span>
                   <span class="digest-count">{{ digest.tweet_count }} 条</span>
                 </div>
                 <p class="digest-text">{{ digest.digest_text }}</p>
                 <el-collapse v-if="digest.highlights.length" class="highlight-collapse">
                   <el-collapse-item
                     v-for="(highlight, index) in digest.highlights"
-                    :key="`${digest.hour}-${index}`"
+                    :key="`${digest.interval_start}-${digest.interval_end}-${index}`"
                     :title="`引用 ${highlight.cited_tweet_ids.length} 条`"
-                    :name="`${digest.hour}-${index}`"
+                    :name="`${digest.interval_start}-${digest.interval_end}-${index}`"
                   >
                     <div
                       class="highlight-item"
@@ -711,8 +770,8 @@ function formatHourLabel(hour: string): string {
               >
                 <div v-if="reviewError" class="review-error" data-review-error>
                   <el-icon><WarningFilled /></el-icon>
-                  <p>综述生成失败，请重试</p>
-                  <el-button type="danger" plain :icon="Refresh" @click="refreshReview">
+                  <p>{{ reviewError }}</p>
+                  <el-button plain :icon="Refresh" @click="requestReviewUpdate">
                     重试
                   </el-button>
                 </div>
@@ -738,58 +797,29 @@ function formatHourLabel(hour: string): string {
                         降级生成
                       </el-tag>
                     </div>
-                    <el-button
-                      type="primary"
-                      plain
-                      :icon="Refresh"
-                      :loading="reviewRefreshing"
-                      :disabled="reviewRefreshing"
-                      data-review-refresh
-                      @click="refreshReview"
-                    >
-                      {{ reviewRefreshing ? "重算中…" : "刷新综述" }}
-                    </el-button>
-                  </div>
-
-                  <section
-                    v-if="reviewRefreshing"
-                    class="backfill-box review-recompute"
-                    role="status"
-                    aria-live="polite"
-                    :data-review-task-id="reviewTaskId || undefined"
-                  >
-                    <div class="backfill-line">
-                      <el-icon><Loading /></el-icon>
-                      <span>
-                        综述重算中…正在并入本轮新增内容，旧综述（v{{ reviewVersion }}）仍可阅读。
+                    <div class="review-actions">
+                      <span
+                        v-if="reviewPending"
+                        class="review-pending-badge"
+                        data-review-pending="true"
+                      >
+                        已请求更新·待外部综述节拍处理
                       </span>
+                      <el-button
+                        plain
+                        :icon="Refresh"
+                        :loading="reviewRefreshing"
+                        :disabled="reviewRefreshing || reviewPending"
+                        data-review-request
+                        @click="requestReviewUpdate"
+                      >
+                        {{ reviewRequestButtonText }}
+                      </el-button>
                     </div>
-                  </section>
-
-                  <div
-                    v-if="reviewRefreshing && !reviewHasContent"
-                    class="review-loading"
-                    aria-busy="true"
-                    aria-label="综述加载中"
-                  >
-                    <el-skeleton animated class="review-skeleton">
-                      <template #template>
-                        <el-skeleton-item variant="text" class="review-skel-title" />
-                        <el-skeleton-item variant="text" />
-                        <el-skeleton-item variant="text" />
-                      </template>
-                    </el-skeleton>
-                    <el-skeleton animated class="review-skeleton">
-                      <template #template>
-                        <el-skeleton-item variant="text" class="review-skel-title" />
-                        <el-skeleton-item variant="text" />
-                        <el-skeleton-item variant="text" />
-                      </template>
-                    </el-skeleton>
                   </div>
 
                   <el-empty
-                    v-else-if="reviewVersion === 0"
+                    v-if="reviewVersion === 0"
                     description="暂无综述"
                     data-empty-state="no-review"
                     class="review-empty"
@@ -797,8 +827,14 @@ function formatHourLabel(hour: string): string {
                     <template #image>
                       <el-icon><Document /></el-icon>
                     </template>
-                    <el-button type="primary" :icon="Refresh" @click="refreshReview">
-                      刷新综述生成首份
+                    <el-button
+                      plain
+                      :icon="Refresh"
+                      :loading="reviewRefreshing"
+                      :disabled="reviewRefreshing || reviewPending"
+                      @click="requestReviewUpdate"
+                    >
+                      {{ reviewRequestButtonText }}
                     </el-button>
                   </el-empty>
 
@@ -913,12 +949,7 @@ function formatHourLabel(hour: string): string {
             v-model="form.nl_description"
             type="textarea"
             :rows="6"
-            :disabled="nlDescriptionLocked"
           />
-          <p v-if="nlDescriptionLocked" class="locked-help">
-            <el-icon><Lock /></el-icon>
-            回填进行中不可改描述，如需修改请先停用或删重建
-          </p>
         </el-form-item>
         <el-form-item label="关键词">
           <div class="keyword-editor">
@@ -1168,26 +1199,62 @@ function formatHourLabel(hour: string): string {
   overflow-wrap: anywhere;
 }
 
-.backfill-box {
-  padding: 10px 14px;
-  margin: 14px 0;
-  border: 1px solid var(--color-info);
-  border-radius: var(--el-border-radius-base);
-  background: var(--bg-inset);
-}
-
-.backfill-line {
+.classify-hint {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 8px;
-  color: var(--color-info);
+  min-width: 0;
+  padding: 10px 14px;
+  margin: 0 0 12px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--el-border-radius-base);
+  background: var(--bg-inset);
+  color: var(--text-secondary);
   font-size: var(--small-font-size);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 
-.progress-count {
-  margin-left: auto;
+.classify-hint .el-icon {
+  flex-shrink: 0;
+  color: var(--color-info);
+  font-size: var(--body-font-size);
+}
+
+.classify-hint.stale .el-icon {
+  color: var(--color-warning);
+}
+
+.classify-hint.never {
+  background: var(--color-warning-light);
+}
+
+.classify-hint.never .el-icon {
+  color: var(--color-warning);
+}
+
+.classify-hint-skeleton {
+  display: block;
+}
+
+.hint-skel-line {
+  width: 260px;
+  max-width: 100%;
+}
+
+.classify-hint-copy {
+  min-width: 0;
+}
+
+.classify-hint-time {
+  color: var(--text-primary);
   font-family: var(--font-mono);
+  font-size: var(--xs-font-size);
+  font-weight: 600;
+}
+
+.classify-hint.stale .classify-hint-time {
+  color: var(--color-warning);
 }
 
 .subject-tabs {
@@ -1261,11 +1328,11 @@ function formatHourLabel(hour: string): string {
   margin-bottom: 10px;
 }
 
-.hour-pill {
+.interval-pill {
   padding: 2px 8px;
   border-radius: var(--el-border-radius-small);
   background: var(--bg-inset);
-  color: var(--color-info);
+  color: var(--text-tertiary);
   font-family: var(--font-mono);
   font-size: var(--xs-font-size);
 }
@@ -1346,20 +1413,27 @@ function formatHourLabel(hour: string): string {
   white-space: nowrap;
 }
 
-.review-recompute {
-  padding: 10px 14px;
-  margin: 0 0 16px;
-  border: 0;
-  border-left: 3px solid var(--color-info);
-  border-radius: 0 var(--el-border-radius-base) var(--el-border-radius-base) 0;
+.review-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
-.review-recompute .backfill-line {
-  margin-bottom: 0;
-  color: var(--text-secondary);
+.review-pending-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 2px 9px;
+  border-radius: var(--el-border-radius-base);
+  background: var(--bg-inset);
+  color: var(--text-tertiary);
+  font-size: var(--small-font-size);
+  line-height: 1.6;
+  white-space: nowrap;
 }
 
-.review-loading,
 .review-skeleton {
   display: grid;
   gap: 12px;
@@ -1636,15 +1710,6 @@ function formatHourLabel(hour: string): string {
 
 .keyword-input {
   width: 160px;
-}
-
-.locked-help {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin: 6px 0 0;
-  color: var(--color-warning);
-  font-size: var(--small-font-size);
 }
 
 @media (min-width: 1800px) {

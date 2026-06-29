@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 
 def as_utc(dt: datetime) -> datetime:
-    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
+    return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
 
 
 def canonical_shard(data_root: Path, author_username: str, created_at: datetime) -> Path:
@@ -46,7 +46,7 @@ def local_day_to_utc_window(local_date: date, tz_offset_min: int) -> tuple[datet
     tz_offset_min = JS getTimezoneOffset()(分钟);local + offset = UTC。
     """
     local_midnight = datetime(local_date.year, local_date.month, local_date.day)
-    utc_start = (local_midnight + timedelta(minutes=tz_offset_min)).replace(tzinfo=timezone.utc)
+    utc_start = (local_midnight + timedelta(minutes=tz_offset_min)).replace(tzinfo=UTC)
     utc_end = utc_start + timedelta(days=1)
     return utc_start, utc_end
 
@@ -75,8 +75,9 @@ def subject_match_shard(data_root: Path, subject_id: str, matched_at: datetime) 
     return Path(data_root) / "subjects" / subject_id / "matches" / f"{month}.jsonl"
 
 
-def subject_digest_doc(data_root: Path, subject_id: str, hour: str) -> Path:
-    return Path(data_root) / "subjects" / subject_id / "digests" / f"{hour}.json"
+def subject_digest_shard(data_root: Path, subject_id: str, interval_start: datetime) -> Path:
+    month = as_utc(interval_start).strftime("%Y-%m")
+    return Path(data_root) / "subjects" / subject_id / "digests" / f"{month}.jsonl"
 
 
 def subject_review_doc(data_root: Path, subject_id: str) -> Path:

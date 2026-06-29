@@ -5,7 +5,7 @@
 """
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -96,7 +96,7 @@ def tool_funcs():
 @pytest.fixture
 async def seed_tweets(async_session: AsyncSession):
     """准备推文和摘要测试数据。"""
-    base_time = datetime(2026, 2, 20, 10, 0, 0, tzinfo=timezone.utc)
+    base_time = datetime(2026, 2, 20, 10, 0, 0, tzinfo=UTC)
 
     tweets = [
         TweetOrm(
@@ -480,6 +480,10 @@ class TestToolRegistration:
             "get_subject_digest",
             "get_subject_updates",
             "get_tweets_by_ids",
+            "put_subject_matches",
+            "put_subject_digest",
+            "put_subject_review",
+            "get_pending_jobs",
             # Subject Review（CHG-006 · L2 活综述）
             "get_subject_review",
             "refresh_subject_review",

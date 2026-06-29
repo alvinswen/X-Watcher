@@ -1,4 +1,5 @@
 """token_verifier 认证路由测试:合法 key 放行 / 失效 key 拒绝(双向)。"""
+
 import hashlib
 
 import pytest
@@ -55,7 +56,7 @@ async def test_verify_token_file_mode_admin_scope(monkeypatch, tmp_path):
     from src.mcp.token_verifier import XWatcherTokenVerifier
 
     ok = await XWatcherTokenVerifier().verify_token(token)
-    assert ok.scopes == ["admin", "user"]
+    assert ok.scopes == ["admin", "user", "subjects:write"]
     assert ok.client_id == "Boss"
 
 
@@ -82,11 +83,11 @@ async def test_verify_token_sqlalchemy_mode(monkeypatch):
         u = User(name="Bob", email="bob@x.com", is_admin=False)
         s.add(u)
         await s.flush()
-        s.add(ApiKey(user_id=u.id, key_hash=key_hash, key_prefix="sql-to", name="t", is_active=True))
+        s.add(
+            ApiKey(user_id=u.id, key_hash=key_hash, key_prefix="sql-to", name="t", is_active=True)
+        )
         await s.commit()
-    monkeypatch.setattr(
-        "src.database.async_session.get_async_session_maker", lambda: maker
-    )
+    monkeypatch.setattr("src.database.async_session.get_async_session_maker", lambda: maker)
 
     from src.mcp.token_verifier import XWatcherTokenVerifier
 

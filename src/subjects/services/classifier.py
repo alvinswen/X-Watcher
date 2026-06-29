@@ -2,21 +2,20 @@
 
 from __future__ import annotations
 
-import logging
-from datetime import datetime, timezone
-from typing import Any
+from collections.abc import Callable
+from typing import Any, cast
 
 from src.data_layer.provider import get_subject_repo
 from src.subjects.models import SubjectMatch
-
-logger = logging.getLogger(__name__)
+from src.subjects.store import utc_now
 
 
 class SubjectClassifier:
-    """把摘要 LLM 响应里的 subjects 字段落为 SubjectMatch。"""
+    """提供议题 prompt 元数据，供后续外部技能复用。"""
 
-    def __init__(self, repo=None) -> None:
-        self._repo = repo if repo is not None else get_subject_repo()
+    def __init__(self, repo: Any | None = None) -> None:
+        repo_factory = cast(Callable[[], Any], get_subject_repo)
+        self._repo: Any = repo if repo is not None else repo_factory()
 
     async def prompt_subjects(self) -> list[dict[str, str]]:
         subjects = (await self._repo.list_active_subjects())[:20]
@@ -29,39 +28,37 @@ class SubjectClassifier:
             for subject in subjects
         ]
 
-    async def record_matches(
+    async def write_matches(
         self,
-        tweet_id: str,
-        raw_subjects: list[dict[str, Any]] | None,
-    ) -> list[SubjectMatch]:
-        if raw_subjects is None:
-            logger.info("议题分类为空或解析失败，跳过 match 写入: tweet_id=%s", tweet_id)
-            return []
-
-        active = {subject.subject_id for subject in await self._repo.list_active_subjects()}
-        now = datetime.now(timezone.utc)
-        matches: list[SubjectMatch] = []
-        for item in raw_subjects:
-            if not isinstance(item, dict):
-                continue
-            subject_id = str(item.get("subject_id") or "")
-            if subject_id not in active:
-                continue
-            if item.get("relevant") is not True:
-                continue
-            relevance = item.get("relevance")
-            try:
-                relevance_value = float(relevance) if relevance is not None else None
-            except (TypeError, ValueError):
-                relevance_value = None
-            matches.append(
-                SubjectMatch(
-                    subject_id=subject_id,
-                    tweet_id=tweet_id,
-                    matched_at=now,
-                    relevant=True,
-                    relevance=relevance_value,
-                    reason=str(item.get("reason") or "")[:240] or None,
-                )
+        *,
+        subject_id: str,
+        tweet_ids: list[str],
+        relevance: float | None = None,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        if await self._repo.get_subject(subject_id) is None:
+            raise LookupError("议题不存在")
+        ids = list(dict.fromkeys([tweet_id.strip() for tweet_id in tweet_ids if tweet_id.strip()]))
+        if not ids:
+            raise ValueError("tweet_ids 不能为空")
+        _items, missing = await self._repo.get_tweets_by_ids(ids)
+        if missing:
+            raise ValueError(f"引用悬空 missing_ids={missing}")
+        matched_at = utc_now()
+        matches = [
+            SubjectMatch(
+                subject_id=subject_id,
+                tweet_id=tweet_id,
+                matched_at=matched_at,
+                relevance=relevance,
+                reason=reason,
             )
-        return await self._repo.upsert_matches(matches)
+            for tweet_id in ids
+        ]
+        saved = await self._repo.upsert_matches(matches)
+        await self._repo.set_pending(subject_id, classify=False)
+        return {
+            "written": len(saved),
+            "subject_id": subject_id,
+            "pending_classify": False,
+        }

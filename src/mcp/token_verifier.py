@@ -42,7 +42,7 @@ class XWatcherTokenVerifier(TokenVerifier):
             return AccessToken(
                 token=token,
                 client_id="admin",
-                scopes=["admin", "user"],
+                scopes=["admin", "user", "subjects:write"],
             )
 
         # 2. 查询数据库中的用户 API Key
@@ -62,7 +62,7 @@ class XWatcherTokenVerifier(TokenVerifier):
                     if user is not None:
                         is_admin = bool(user.is_admin)
                         user_name = user.name or "mcp_user"
-                        scopes = ["admin", "user"] if is_admin else ["user"]
+                        scopes = ["admin", "user", "subjects:write"] if is_admin else ["user"]
                         logger.debug(
                             "Token 验证通过: 数据库用户 %s (admin=%s)",
                             user_name,

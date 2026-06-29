@@ -4,19 +4,20 @@
 - subjects/index.json: {"subject_ids": [...]}
 - subjects/{subject_id}.json: Subject
 - subjects/{subject_id}/matches/{YYYY-MM}.jsonl: SubjectMatch
-- subjects/{subject_id}/digests/{YYYY-MM-DD-HH}.json: SubjectDigest
+- subjects/{subject_id}/digests/{YYYY-MM}.jsonl: SubjectDigest
 """
 
 from __future__ import annotations
 
 import shutil
-from datetime import datetime, timedelta, timezone
+from collections.abc import Iterable
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Iterable
 
 from src.storage import paths
 from src.storage.atomic import shard_lock
 from src.storage.doc_store import atomic_write_doc, read_doc
+from src.storage.jsonl_store import append as append_jsonl
 from src.storage.jsonl_store import read_shard, upsert
 from src.subjects.index import load_subject_ids, new_subject_id, save_subject_ids
 from src.subjects.models import Subject, SubjectDigest, SubjectMatch, SubjectReview, SubjectStatus
@@ -25,7 +26,7 @@ _NO_LIMIT = 10**12
 
 
 def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def parse_dt(value: str | datetime) -> datetime:
@@ -39,7 +40,7 @@ def hour_bucket(dt: datetime) -> str:
 
 
 def hour_window(hour: str) -> tuple[datetime, datetime]:
-    start = datetime.strptime(hour, "%Y-%m-%d-%H").replace(tzinfo=timezone.utc)
+    start = datetime.strptime(hour, "%Y-%m-%d-%H").replace(tzinfo=UTC)
     return start, start + timedelta(hours=1)
 
 
@@ -94,18 +95,23 @@ class FileSubjectStore:
             status=status,
             created_at=now,
             updated_at=now,
+            pending_classify=True,
         )
         async with shard_lock(paths.subject_index(self._root)):
             ids = load_subject_ids(self._root)
             ids.append(subject.subject_id)
-            atomic_write_doc(self._subject_path(subject.subject_id), subject.model_dump(mode="json"))
+            atomic_write_doc(
+                self._subject_path(subject.subject_id), subject.model_dump(mode="json")
+            )
             save_subject_ids(self._root, ids)
         return subject
 
     async def save_subject(self, subject: Subject) -> Subject:
         updated = subject.model_copy(update={"updated_at": utc_now()})
         async with shard_lock(self._subject_path(updated.subject_id)):
-            atomic_write_doc(self._subject_path(updated.subject_id), updated.model_dump(mode="json"))
+            atomic_write_doc(
+                self._subject_path(updated.subject_id), updated.model_dump(mode="json")
+            )
         return updated
 
     async def update_subject(
@@ -131,17 +137,48 @@ class FileSubjectStore:
             changes["status"] = status
         return await self.save_subject(subject.model_copy(update=changes))
 
-    async def set_backfill_task(self, subject_id: str, task_id: str | None) -> Subject | None:
-        subject = await self.get_subject(subject_id)
-        if subject is None:
-            return None
-        return await self.save_subject(subject.model_copy(update={"backfill_task_id": task_id}))
-
     async def touch_subject(self, subject_id: str, when: datetime | None = None) -> None:
         subject = await self.get_subject(subject_id)
         if subject is None:
             return
         await self.save_subject(subject.model_copy(update={"last_updated_at": when or utc_now()}))
+
+    async def set_pending(
+        self,
+        subject_id: str,
+        *,
+        classify: bool | None = None,
+        review: bool | None = None,
+    ) -> Subject | None:
+        subject = await self.get_subject(subject_id)
+        if subject is None:
+            return None
+        changes: dict[str, bool] = {}
+        if classify is not None:
+            changes["pending_classify"] = classify
+        if review is not None:
+            changes["pending_review"] = review
+        if not changes:
+            return subject
+        return await self.save_subject(subject.model_copy(update=changes))
+
+    async def list_pending(self, subject_id: str | None = None) -> list[dict[str, bool | str]]:
+        if subject_id is not None:
+            subject = await self.get_subject(subject_id)
+            subjects = [subject] if subject is not None else []
+        else:
+            subjects = await self.list_subjects()
+        items: list[dict[str, bool | str]] = []
+        for subject in subjects:
+            if subject.pending_classify or subject.pending_review:
+                items.append(
+                    {
+                        "subject_id": subject.subject_id,
+                        "pending_classify": subject.pending_classify,
+                        "pending_review": subject.pending_review,
+                    }
+                )
+        return items
 
     async def delete_subject(self, subject_id: str) -> bool:
         subject = await self.get_subject(subject_id)
@@ -201,6 +238,12 @@ class FileSubjectStore:
     async def count_matches(self, subject_id: str) -> int:
         return len(await self.list_matches(subject_id))
 
+    async def last_classified_at(self, subject_id: str) -> datetime | None:
+        matches = await self.list_matches(subject_id)
+        if not matches:
+            return None
+        return max(match.matched_at for match in matches)
+
     async def match_hours_for_tweets(self, tweet_ids: list[str]) -> set[tuple[str, str]]:
         wanted = set(tweet_ids)
         affected: set[tuple[str, str]] = set()
@@ -211,9 +254,9 @@ class FileSubjectStore:
         return affected
 
     async def save_digest(self, digest: SubjectDigest) -> SubjectDigest:
-        path = paths.subject_digest_doc(self._root, digest.subject_id, digest.hour)
+        path = paths.subject_digest_shard(self._root, digest.subject_id, digest.interval_start)
         async with shard_lock(path):
-            atomic_write_doc(path, digest.model_dump(mode="json"))
+            append_jsonl(path, digest.model_dump(mode="json"))
         await self.touch_subject(digest.subject_id, digest.generated_at)
         return digest
 
@@ -221,22 +264,36 @@ class FileSubjectStore:
         base = self._root / "subjects" / subject_id / "digests"
         if not base.exists():
             return []
-        return sorted(base.glob("*.json"), reverse=True)
+        return sorted(base.glob("*.jsonl"), reverse=True)
 
-    async def list_digests(self, subject_id: str, limit: int = 24) -> list[SubjectDigest]:
+    async def list_digests(
+        self,
+        subject_id: str,
+        limit: int = 24,
+        *,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> list[SubjectDigest]:
         digests: list[SubjectDigest] = []
         for path in self._digest_paths(subject_id):
-            doc = read_doc(path)
-            if doc:
-                digests.append(SubjectDigest(**doc))
-        digests.sort(key=lambda item: item.hour, reverse=True)
+            for record in read_shard(path):
+                digests.append(SubjectDigest(**record))
+        if start is not None:
+            start = paths.as_utc(start)
+            digests = [digest for digest in digests if digest.interval_start >= start]
+        if end is not None:
+            end = paths.as_utc(end)
+            digests = [digest for digest in digests if digest.interval_end <= end]
+        digests.sort(key=lambda item: (item.interval_end, item.generated_at), reverse=True)
         return digests[: max(limit, 0)]
 
-    async def get_digest(self, subject_id: str, hour: str | None = None) -> SubjectDigest | None:
-        if hour is not None:
-            doc = read_doc(paths.subject_digest_doc(self._root, subject_id, hour))
-            return SubjectDigest(**doc) if doc else None
-        digests = await self.list_digests(subject_id, limit=1)
+    async def get_digest(
+        self,
+        subject_id: str,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> SubjectDigest | None:
+        digests = await self.list_digests(subject_id, limit=1, start=start, end=end)
         return digests[0] if digests else None
 
     async def save_review(self, review: SubjectReview) -> SubjectReview:
@@ -272,7 +329,9 @@ class FileSubjectStore:
         from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
 
         wanted = list(dict.fromkeys([tid for tid in tweet_ids if tid]))
-        tweet_map = {tweet.tweet_id: tweet for tweet in await FileTweetStore(self._root).get_all_tweets()}
+        tweet_map = {
+            tweet.tweet_id: tweet for tweet in await FileTweetStore(self._root).get_all_tweets()
+        }
         summary_map = {
             summary.tweet_id: summary
             for summary in await FileSummaryStore(self._root).get_all_summaries()
@@ -285,17 +344,19 @@ class FileSubjectStore:
                 missing.append(tweet_id)
                 continue
             summary = summary_map.get(tweet_id)
-            items.append({
-                "tweet_id": tweet.tweet_id,
-                "text": tweet.text,
-                "summary": summary.summary_text if summary else None,
-                "translation": summary.translation_text if summary else None,
-                "author": tweet.author_username,
-                "author_username": tweet.author_username,
-                "created_at": tweet.created_at,
-                "reference_type": tweet.reference_type.value if tweet.reference_type else None,
-                "referenced_tweet_id": tweet.referenced_tweet_id,
-            })
+            items.append(
+                {
+                    "tweet_id": tweet.tweet_id,
+                    "text": tweet.text,
+                    "summary": summary.summary_text if summary else None,
+                    "translation": summary.translation_text if summary else None,
+                    "author": tweet.author_username,
+                    "author_username": tweet.author_username,
+                    "created_at": tweet.created_at,
+                    "reference_type": tweet.reference_type.value if tweet.reference_type else None,
+                    "referenced_tweet_id": tweet.referenced_tweet_id,
+                }
+            )
         return items, missing
 
     async def get_subject_feed(
@@ -307,9 +368,16 @@ class FileSubjectStore:
         limit: int = 200,
     ) -> dict:
         if await self.get_subject(subject_id) is None:
-            return {"items": [], "count": 0, "has_more": False, "next_since": None}
+            return {
+                "items": [],
+                "count": 0,
+                "has_more": False,
+                "next_since": None,
+                "last_classified_at": None,
+            }
         clamped = min(max(limit, 1), 500)
         matches = await self.list_matches(subject_id, since=since, until=until)
+        latest_match_at = await self.last_classified_at(subject_id)
         if since is not None:
             since_utc = paths.as_utc(since)
             matches = [match for match in matches if match.matched_at > since_utc]
@@ -324,6 +392,7 @@ class FileSubjectStore:
             "count": len(items),
             "has_more": len(page) < total,
             "next_since": next_since,
+            "last_classified_at": latest_match_at.isoformat() if latest_match_at else None,
         }
 
     async def get_updates(self, since_cursor: str | None = None, limit: int = 200) -> dict:
@@ -335,22 +404,26 @@ class FileSubjectStore:
             for match in await self.list_matches(subject.subject_id, since=since):
                 if match.matched_at <= since:
                     continue
-                updates.append({
-                    "subject_id": subject.subject_id,
-                    "subject_name": subject.name,
-                    "update_type": "match",
-                    "updated_at": match.matched_at,
-                    "summary": match.reason or "新增相关推文",
-                })
+                updates.append(
+                    {
+                        "subject_id": subject.subject_id,
+                        "subject_name": subject.name,
+                        "update_type": "match",
+                        "updated_at": match.matched_at,
+                        "summary": match.reason or "新增相关推文",
+                    }
+                )
             for digest in await self.list_digests(subject.subject_id, limit=1000):
                 if digest.generated_at > since:
-                    updates.append({
-                        "subject_id": subject.subject_id,
-                        "subject_name": subject_names.get(subject.subject_id, subject.name),
-                        "update_type": "digest",
-                        "updated_at": digest.generated_at,
-                        "summary": digest.digest_text[:120],
-                    })
+                    updates.append(
+                        {
+                            "subject_id": subject.subject_id,
+                            "subject_name": subject_names.get(subject.subject_id, subject.name),
+                            "update_type": "digest",
+                            "updated_at": digest.generated_at,
+                            "summary": digest.digest_text[:120],
+                        }
+                    )
         updates.sort(key=lambda item: (item["updated_at"], item["subject_id"]))
         clamped = min(max(limit, 1), 500)
         page = updates[:clamped]
@@ -359,9 +432,7 @@ class FileSubjectStore:
             extra = [item for item in updates[clamped:] if item["updated_at"] == boundary]
             page.extend(extra)
         next_cursor = (
-            page[-1]["updated_at"].isoformat()
-            if page
-            else (since_cursor or utc_now().isoformat())
+            page[-1]["updated_at"].isoformat() if page else (since_cursor or utc_now().isoformat())
         )
         return {
             "updates": page,
