@@ -2,18 +2,6 @@
 
 export type SubjectStatus = "active" | "paused"
 
-export interface SubjectTaskSnapshot {
-  task_id: string
-  status: "pending" | "running" | "completed" | "failed" | string
-  progress?: {
-    current: number
-    total: number
-    percentage: number
-  }
-  error?: string | null
-  result?: Record<string, unknown> | null
-}
-
 export interface Subject {
   subject_id: string
   name: string
@@ -24,8 +12,6 @@ export interface Subject {
   updated_at: string
   last_updated_at?: string | null
   match_count: number
-  backfill_task_id?: string | null
-  backfill_task?: SubjectTaskSnapshot | null
 }
 
 export interface SubjectCreateRequest {
@@ -56,6 +42,7 @@ export interface SubjectFeedResponse {
   count: number
   has_more: boolean
   next_since?: string | null
+  last_classified_at?: string | null
 }
 
 export interface SubjectDigestHighlight {
@@ -65,7 +52,9 @@ export interface SubjectDigestHighlight {
 
 export interface SubjectDigest {
   subject_id: string
-  hour: string
+  interval_start: string
+  interval_end: string
+  time_axis: string
   tweet_count: number
   digest_text: string
   highlights: SubjectDigestHighlight[]
@@ -102,6 +91,7 @@ export interface SubjectReview {
 }
 
 export interface SubjectReviewRefreshResponse {
-  task_id: string
-  status: "pending" | "running" | "completed" | "failed" | string
+  task_id: string | null
+  pending?: boolean
+  message: string
 }
