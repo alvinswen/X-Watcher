@@ -14,6 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.database.models import ScraperFollow
 from src.database.x_user_profile_model import XUserProfileOrm
 from src.scraper.infrastructure.models import TweetOrm
+from src.subjects.models import SubjectMatch
+from src.subjects.store import FileSubjectStore
 from src.summarization.infrastructure.models import SummaryOrm
 
 # ── 辅助 ──────────────────────────────────────────────────────────
@@ -276,6 +278,152 @@ class TestSearchTweetsIntegration:
         data = json.loads(result)
         assert data["success"] is True
         assert data["data"]["total"] == 0
+
+
+# ── Subject 工具集成测试 ──────────────────────────────────────────
+
+
+class TestSubjectToolsIntegration:
+    @pytest.mark.asyncio
+    async def test_subject_digest_publish_requires_write_scope(self, tool_funcs):
+        import src.mcp.auth as auth_mod
+
+        original_transport = auth_mod._transport
+        try:
+            auth_mod._transport = "sse"
+            result = await tool_funcs["put_subject_digest"](
+                subject_id="sub_missing",
+                interval_start="2026-06-28T10:00:00Z",
+                interval_end="2026-06-28T11:00:00Z",
+                time_axis="publish",
+                digest_text="无权限不应写入",
+            )
+        finally:
+            auth_mod._transport = original_transport
+
+        data = json.loads(result)
+        assert data["success"] is False
+        assert data["error_type"] == "permission"
+
+    @pytest.mark.asyncio
+    async def test_subject_feed_publish_and_digest_accepts_structured_highlights(
+        self, tool_funcs, tmp_path
+    ):
+        repo = FileSubjectStore(tmp_path)
+        subject = await repo.create_subject(
+            name="发布轴议题",
+            nl_description="验证 MCP 发布轴与结构化 highlights",
+        )
+        base = datetime(2026, 6, 28, 10, tzinfo=UTC)
+        await repo.upsert_matches(
+            [
+                SubjectMatch(
+                    subject_id=subject.subject_id,
+                    tweet_id="publish_in",
+                    matched_at=base - timedelta(days=1),
+                ),
+                SubjectMatch(
+                    subject_id=subject.subject_id,
+                    tweet_id="ingest_only",
+                    matched_at=base + timedelta(minutes=5),
+                ),
+                SubjectMatch(
+                    subject_id=subject.subject_id,
+                    tweet_id="missing",
+                    matched_at=base + timedelta(minutes=6),
+                ),
+            ]
+        )
+
+        async def fake_get_tweets_by_ids(tweet_ids: list[str]):
+            created_by_id = {
+                "publish_in": base + timedelta(minutes=5),
+                "ingest_only": base - timedelta(days=1),
+            }
+            items = [
+                {"tweet_id": tweet_id, "created_at": created_by_id[tweet_id]}
+                for tweet_id in tweet_ids
+                if tweet_id in created_by_id
+            ]
+            missing = [tweet_id for tweet_id in tweet_ids if tweet_id not in created_by_id]
+            return items, missing
+
+        repo.get_tweets_by_ids = fake_get_tweets_by_ids  # type: ignore[method-assign]
+
+        with patch("src.mcp.tools.subject_tools.get_subject_repo", return_value=repo):
+            feed_result = await tool_funcs["get_subject_feed"](
+                subject_id=subject.subject_id,
+                since=base.isoformat(),
+                until=(base + timedelta(hours=1)).isoformat(),
+                time_axis="publish",
+            )
+            feed_data = json.loads(feed_result)
+            assert feed_data["success"] is True
+            assert [item["tweet_id"] for item in feed_data["data"]["items"]] == [
+                "publish_in"
+            ]
+
+            digest_result = await tool_funcs["put_subject_digest"](
+                subject_id=subject.subject_id,
+                interval_start=base.isoformat(),
+                interval_end=(base + timedelta(hours=1)).isoformat(),
+                time_axis="publish",
+                digest_text="发布轴 MCP 正文",
+                highlights=[
+                    {"point": "发布轴命中", "cited_tweet_ids": ["publish_in"]},
+                ],
+                cited="publish_in",
+            )
+            digest_data = json.loads(digest_result)
+            assert digest_data["success"] is True
+            assert digest_data["data"]["skipped_no_publish_time"] == 1
+            assert digest_data["data"]["skipped_no_publish_time_ids"] == ["missing"]
+
+            invalid_result = await tool_funcs["put_subject_digest"](
+                subject_id=subject.subject_id,
+                interval_start=base.isoformat(),
+                interval_end=(base + timedelta(hours=1)).isoformat(),
+                digest_text="非法 highlights",
+                highlights=["not-an-object"],
+            )
+            invalid_data = json.loads(invalid_result)
+            assert invalid_data["success"] is False
+            assert invalid_data["error_type"] == "validation"
+
+    @pytest.mark.asyncio
+    async def test_subject_review_accepts_structured_and_string_sections_trend(
+        self, tool_funcs, tmp_path
+    ):
+        repo = FileSubjectStore(tmp_path)
+        subject = await repo.create_subject(
+            name="综述议题",
+            nl_description="验证 MCP sections/trend 容错",
+        )
+        await repo.set_pending(subject.subject_id, review=True)
+        covered_until = datetime(2026, 6, 28, 12, tzinfo=UTC)
+
+        with patch("src.mcp.tools.subject_tools.get_subject_repo", return_value=repo):
+            structured_result = await tool_funcs["put_subject_review"](
+                subject_id=subject.subject_id,
+                prev_version=0,
+                sections=[{"title": "总览", "body": "结构化章节"}],
+                covered_until=covered_until.isoformat(),
+                trend={"emerging": ["发布轴"], "fading": []},
+            )
+            structured_data = json.loads(structured_result)
+            assert structured_data["success"] is True
+            assert structured_data["data"]["version"] == 1
+
+            string_result = await tool_funcs["put_subject_review"](
+                subject_id=subject.subject_id,
+                prev_version=1,
+                sections=json.dumps([{"title": "后续", "body": "字符串章节"}]),
+                covered_until=(covered_until + timedelta(hours=1)).isoformat(),
+                trend=json.dumps({"emerging": ["容错"], "fading": []}),
+            )
+            string_data = json.loads(string_result)
+            assert string_data["success"] is True
+            assert string_data["data"]["version"] == 2
 
 
 # ── browse 集成测试 ───────────────────────────────────────────────

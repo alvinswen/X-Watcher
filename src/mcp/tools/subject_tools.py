@@ -29,10 +29,18 @@ def _csv_ids(value: str | None) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-def _json_array(value: str | None, field_name: str) -> list[dict[str, Any]]:
-    if value is None or not value.strip():
+def _json_array(
+    value: str | list[dict[str, Any]] | None,
+    field_name: str,
+) -> list[dict[str, Any]]:
+    if value is None:
         return []
-    parsed = json.loads(value)
+    if isinstance(value, list):
+        parsed = value
+    else:
+        if not value.strip():
+            return []
+        parsed = json.loads(value)
     if not isinstance(parsed, list):
         raise ValueError(f"{field_name} 必须是 JSON 数组")
     if not all(isinstance(item, dict) for item in parsed):
@@ -40,18 +48,23 @@ def _json_array(value: str | None, field_name: str) -> list[dict[str, Any]]:
     return parsed
 
 
-def _parse_highlights(value: str | None) -> list[SubjectHighlight]:
+def _parse_highlights(value: str | list[dict[str, Any]] | None) -> list[SubjectHighlight]:
     return [SubjectHighlight(**item) for item in _json_array(value, "highlights")]
 
 
-def _parse_sections(value: str) -> list[SubjectReviewSection]:
+def _parse_sections(value: str | list[dict[str, Any]]) -> list[SubjectReviewSection]:
     return [SubjectReviewSection(**item) for item in _json_array(value, "sections")]
 
 
-def _parse_trend(value: str | None) -> SubjectReviewTrend | None:
-    if value is None or not value.strip():
+def _parse_trend(value: str | dict[str, Any] | None) -> SubjectReviewTrend | None:
+    if value is None:
         return None
-    parsed = json.loads(value)
+    if isinstance(value, dict):
+        parsed = value
+    else:
+        if not value.strip():
+            return None
+        parsed = json.loads(value)
     if not isinstance(parsed, dict):
         raise ValueError("trend 必须是 JSON 对象")
     return SubjectReviewTrend(**parsed)
@@ -113,8 +126,9 @@ def register(mcp: FastMCP) -> None:
         since: str | None = None,
         until: str | None = None,
         limit: int = 200,
+        time_axis: str = "ingest",
     ) -> str:
-        """获取某议题下命中推文流（内联推文+摘要，游标分页）。"""
+        """获取某议题下命中推文流；publish 按 created_at 锁候选并与写入校验同口径。"""
         try:
             repo = get_subject_repo()
             if await repo.get_subject(subject_id) is None:
@@ -126,6 +140,7 @@ def register(mcp: FastMCP) -> None:
                 since=parse_datetime_optional(since),
                 until=parse_datetime_optional(until),
                 limit=limit,
+                time_axis=time_axis,
             )
             return success_response(data)
         except (ValueError, TypeError) as e:
@@ -197,10 +212,13 @@ def register(mcp: FastMCP) -> None:
         interval_end: str,
         time_axis: str = "ingest",
         digest_text: str = "",
-        highlights: str | None = None,
+        highlights: str | list[dict[str, Any]] | None = None,
         cited: str | None = None,
     ) -> str:
-        """写回外部技能生成的区间滚动新闻。"""
+        """写回区间滚动新闻；publish 按 created_at 圈候选并校验 cited/highlights 引用。
+
+        highlights 可传 JSON 字符串或对象数组；publish 成功时返回 skipped_no_publish_time。
+        """
         denied = require_scope("subjects:write")
         if denied is not None:
             audit_log(
@@ -256,12 +274,12 @@ def register(mcp: FastMCP) -> None:
     async def put_subject_review(
         subject_id: str,
         prev_version: int,
-        sections: str,
+        sections: str | list[dict[str, Any]],
         covered_until: str,
-        trend: str | None = None,
+        trend: str | dict[str, Any] | None = None,
         cited: str | None = None,
     ) -> str:
-        """写回外部技能生成的累积综述，带乐观锁。"""
+        """写回累积综述；sections 收 JSON 字符串或数组，trend 收字符串或对象。"""
         denied = require_scope("subjects:write")
         if denied is not None:
             audit_log(
