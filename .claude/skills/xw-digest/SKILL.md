@@ -20,7 +20,7 @@ This skill runs a single execution round: 取数 -> 动脑 -> 回写 -> 校验. 
 - `subject_id`: required target subject.
 - `interval_start`: optional explicit interval start.
 - `interval_end`: optional explicit interval end. If absent, use the current caller-provided time.
-- `time_axis`: optional; defaults to `ingest`, may be `publish` when the caller explicitly requests publish-time digesting.
+- `time_axis`: optional; defaults to `ingest`, may be `publish` to filter candidates and validate citations by each tweet's publish time (created_at). When publish, step 2 must also pass time_axis=publish so the locked candidate set matches the write-side validation.
 
 ## Execution Steps
 
@@ -32,7 +32,7 @@ This skill runs a single execution round: 取数 -> 动脑 -> 回写 -> 校验. 
    - If no feed item exists, skip writing and report "no classified matches".
 
 2. Lock the candidate set.
-   - Call `get_subject_feed(subject_id, since=interval_start, until=interval_end)`.
+   - Call `get_subject_feed(subject_id, since=interval_start, until=interval_end, time_axis=time_axis)`. When `time_axis=publish`, the returned candidates are scoped by publish time, matching the write-side validation.
    - Treat the returned tweet ids as the only citation candidate set for this run.
    - If the returned set is empty, skip writing and report the empty interval.
 

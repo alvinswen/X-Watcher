@@ -142,6 +142,7 @@ async def get_subject_feed(
     since: str | None = None,
     until: str | None = None,
     limit: int = 200,
+    time_axis: str | None = Query(default=None, pattern="^(ingest|publish)$"),
     _user: UserDomain = Depends(get_current_admin_user),
 ):
     repo = get_subject_repo()
@@ -154,6 +155,7 @@ async def get_subject_feed(
         since=since_dt,
         until=until_dt,
         limit=limit,
+        time_axis=time_axis or "ingest",
     )
 
 

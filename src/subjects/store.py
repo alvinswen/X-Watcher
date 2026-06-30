@@ -25,6 +25,16 @@ from src.subjects.models import Subject, SubjectDigest, SubjectMatch, SubjectRev
 _NO_LIMIT = 10**12
 
 
+class _PublishWindowMatches(list[SubjectMatch]):
+    def __init__(
+        self,
+        matches: list[SubjectMatch],
+        skipped_no_publish_time_ids: list[str],
+    ) -> None:
+        super().__init__(matches)
+        self.skipped_no_publish_time_ids = skipped_no_publish_time_ids
+
+
 def utc_now() -> datetime:
     return datetime.now(UTC)
 
@@ -359,6 +369,46 @@ class FileSubjectStore:
             )
         return items, missing
 
+    async def _publish_window_matches(
+        self,
+        subject_id: str,
+        *,
+        start: datetime | None,
+        end: datetime | None,
+    ) -> list[SubjectMatch]:
+        """按推文发布时间圈定候选，供写入校验与 feed 共用。"""
+        all_matches = await self.list_matches(subject_id)
+        if not all_matches:
+            return _PublishWindowMatches([], [])
+
+        items, _missing = await self.get_tweets_by_ids(
+            [match.tweet_id for match in all_matches]
+        )
+        created_map: dict[str, datetime] = {}
+        for item in items:
+            tweet_id = str(item.get("tweet_id") or "")
+            created_at = item.get("created_at")
+            if tweet_id and created_at is not None:
+                created_map[tweet_id] = paths.as_utc(created_at)
+
+        start_utc = paths.as_utc(start) if start is not None else None
+        end_utc = paths.as_utc(end) if end is not None else None
+        skipped_no_publish_time_ids: list[str] = []
+        matches: list[SubjectMatch] = []
+        for match in all_matches:
+            created_at = created_map.get(match.tweet_id)
+            if created_at is None:
+                skipped_no_publish_time_ids.append(match.tweet_id)
+                continue
+            if start_utc is not None and created_at < start_utc:
+                continue
+            if end_utc is not None and created_at >= end_utc:
+                continue
+            matches.append(match)
+
+        matches.sort(key=lambda match: (created_map[match.tweet_id], match.tweet_id))
+        return _PublishWindowMatches(matches, skipped_no_publish_time_ids)
+
     async def get_subject_feed(
         self,
         subject_id: str,
@@ -366,6 +416,7 @@ class FileSubjectStore:
         since: datetime | None = None,
         until: datetime | None = None,
         limit: int = 200,
+        time_axis: str = "ingest",
     ) -> dict:
         if await self.get_subject(subject_id) is None:
             return {
@@ -375,10 +426,15 @@ class FileSubjectStore:
                 "next_since": None,
                 "last_classified_at": None,
             }
+        if time_axis not in {"ingest", "publish"}:
+            raise ValueError("time_axis 只能是 ingest 或 publish")
         clamped = min(max(limit, 1), 500)
-        matches = await self.list_matches(subject_id, since=since, until=until)
+        if time_axis == "publish":
+            matches = await self._publish_window_matches(subject_id, start=since, end=until)
+        else:
+            matches = await self.list_matches(subject_id, since=since, until=until)
         latest_match_at = await self.last_classified_at(subject_id)
-        if since is not None:
+        if time_axis == "ingest" and since is not None:
             since_utc = paths.as_utc(since)
             matches = [match for match in matches if match.matched_at > since_utc]
         total = len(matches)

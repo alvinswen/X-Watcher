@@ -5,9 +5,11 @@ import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
+from src.subjects.api import routes as subject_routes
 from src.subjects.models import (
     SubjectHighlight,
     SubjectMatch,
@@ -25,6 +27,19 @@ async def _subject(repo: FileSubjectStore) -> str:
         nl_description="用于验证外部技能写回",
     )
     return subject.subject_id
+
+
+def _tweet_lookup(created_by_id: dict[str, datetime]):
+    async def fake_get_tweets_by_ids(tweet_ids: list[str]):
+        items = [
+            {"tweet_id": tweet_id, "created_at": created_by_id[tweet_id]}
+            for tweet_id in tweet_ids
+            if tweet_id in created_by_id
+        ]
+        missing = [tweet_id for tweet_id in tweet_ids if tweet_id not in created_by_id]
+        return items, missing
+
+    return fake_get_tweets_by_ids
 
 
 @pytest.mark.asyncio
@@ -143,6 +158,226 @@ async def test_digest_appends_month_jsonl_filters_interval_and_ignores_old_json(
     assert latest is not None
     assert latest.digest_text == "第二版"
     assert latest.interval_start == base
+
+
+@pytest.mark.asyncio
+async def test_publish_window_matches_uses_created_at_and_feed_reuses_source(tmp_path):
+    repo = FileSubjectStore(tmp_path)
+    subject_id = await _subject(repo)
+    base = datetime(2026, 6, 28, 10, tzinfo=UTC)
+    await repo.upsert_matches(
+        [
+            SubjectMatch(
+                subject_id=subject_id,
+                tweet_id="before",
+                matched_at=base + timedelta(minutes=5),
+            ),
+            SubjectMatch(
+                subject_id=subject_id,
+                tweet_id="at_start",
+                matched_at=base - timedelta(days=1),
+            ),
+            SubjectMatch(
+                subject_id=subject_id,
+                tweet_id="inside",
+                matched_at=base + timedelta(days=1),
+            ),
+            SubjectMatch(
+                subject_id=subject_id,
+                tweet_id="at_end",
+                matched_at=base + timedelta(minutes=10),
+            ),
+            SubjectMatch(
+                subject_id=subject_id,
+                tweet_id="missing",
+                matched_at=base + timedelta(minutes=30),
+            ),
+        ]
+    )
+    repo.get_tweets_by_ids = _tweet_lookup(  # type: ignore[method-assign]
+        {
+            "before": base - timedelta(minutes=1),
+            "at_start": base,
+            "inside": base + timedelta(hours=1),
+            "at_end": base + timedelta(hours=2),
+        }
+    )
+
+    publish_matches = await repo._publish_window_matches(
+        subject_id,
+        start=base,
+        end=base + timedelta(hours=2),
+    )
+
+    assert [match.tweet_id for match in publish_matches] == ["at_start", "inside"]
+    assert publish_matches.skipped_no_publish_time_ids == ["missing"]
+
+    publish_feed = await repo.get_subject_feed(
+        subject_id,
+        since=base,
+        until=base + timedelta(hours=2),
+        time_axis="publish",
+    )
+    assert [item["tweet_id"] for item in publish_feed["items"]] == ["at_start", "inside"]
+
+    ingest_feed = await repo.get_subject_feed(
+        subject_id,
+        since=base,
+        until=base + timedelta(hours=2),
+    )
+    assert [item["tweet_id"] for item in ingest_feed["items"]] == ["before", "at_end"]
+
+
+@pytest.mark.asyncio
+async def test_rest_feed_optional_time_axis_passes_through_to_store(tmp_path):
+    repo = FileSubjectStore(tmp_path)
+    subject_id = await _subject(repo)
+    base = datetime(2026, 6, 28, 10, tzinfo=UTC)
+    await repo.upsert_matches(
+        [
+            SubjectMatch(
+                subject_id=subject_id,
+                tweet_id="publish_in",
+                matched_at=base - timedelta(days=1),
+            ),
+            SubjectMatch(
+                subject_id=subject_id,
+                tweet_id="ingest_in",
+                matched_at=base + timedelta(minutes=5),
+            ),
+        ]
+    )
+    repo.get_tweets_by_ids = _tweet_lookup(  # type: ignore[method-assign]
+        {
+            "publish_in": base + timedelta(minutes=5),
+            "ingest_in": base - timedelta(days=1),
+        }
+    )
+
+    with patch("src.subjects.api.routes.get_subject_repo", return_value=repo):
+        publish_feed = await subject_routes.get_subject_feed(
+            subject_id,
+            since=base.isoformat(),
+            until=(base + timedelta(hours=1)).isoformat(),
+            time_axis="publish",
+        )
+        ingest_feed = await subject_routes.get_subject_feed(
+            subject_id,
+            since=base.isoformat(),
+            until=(base + timedelta(hours=1)).isoformat(),
+            time_axis=None,
+        )
+
+    assert [item["tweet_id"] for item in publish_feed["items"]] == ["publish_in"]
+    assert [item["tweet_id"] for item in ingest_feed["items"]] == ["ingest_in"]
+
+
+@pytest.mark.asyncio
+async def test_write_digest_publish_axis_validates_citations_and_reports_skipped(tmp_path):
+    repo = FileSubjectStore(tmp_path)
+    subject_id = await _subject(repo)
+    base = datetime(2026, 6, 28, 10, tzinfo=UTC)
+    await repo.upsert_matches(
+        [
+            SubjectMatch(
+                subject_id=subject_id,
+                tweet_id="publish_in",
+                matched_at=base - timedelta(days=1),
+            ),
+            SubjectMatch(
+                subject_id=subject_id,
+                tweet_id="ingest_only",
+                matched_at=base + timedelta(minutes=5),
+            ),
+            SubjectMatch(
+                subject_id=subject_id,
+                tweet_id="missing",
+                matched_at=base + timedelta(minutes=6),
+            ),
+        ]
+    )
+    repo.get_tweets_by_ids = _tweet_lookup(  # type: ignore[method-assign]
+        {
+            "publish_in": base + timedelta(minutes=5),
+            "ingest_only": base - timedelta(days=1),
+        }
+    )
+    service = SubjectDigestService(repo)
+
+    with pytest.raises(ValueError, match="越出本区间"):
+        await service.write_digest(
+            subject_id=subject_id,
+            interval_start=base,
+            interval_end=base + timedelta(hours=1),
+            time_axis="publish",
+            digest_text="发布时间轴正文",
+            cited_tweet_ids=["ingest_only"],
+        )
+
+    result = await service.write_digest(
+        subject_id=subject_id,
+        interval_start=base,
+        interval_end=base + timedelta(hours=1),
+        time_axis="publish",
+        digest_text="发布时间轴正文",
+        highlights=[SubjectHighlight(point="发布轴命中", cited_tweet_ids=["publish_in"])],
+        cited_tweet_ids=["publish_in"],
+    )
+
+    assert result["skipped_no_publish_time"] == 1
+    assert result["skipped_no_publish_time_ids"] == ["missing"]
+    latest = await repo.get_digest(
+        subject_id,
+        start=base,
+        end=base + timedelta(hours=1),
+    )
+    assert latest is not None
+    assert latest.time_axis == "publish"
+    assert latest.tweet_count == 1
+
+    ingest_result = await service.write_digest(
+        subject_id=subject_id,
+        interval_start=base,
+        interval_end=base + timedelta(hours=1),
+        digest_text="入库轴正文",
+        cited_tweet_ids=["ingest_only"],
+    )
+    assert ingest_result["skipped_no_publish_time"] == 0
+
+
+@pytest.mark.asyncio
+async def test_write_digest_publish_empty_interval_allows_empty_citations(tmp_path):
+    repo = FileSubjectStore(tmp_path)
+    subject_id = await _subject(repo)
+    base = datetime(2026, 6, 28, 10, tzinfo=UTC)
+    service = SubjectDigestService(repo)
+
+    result = await service.write_digest(
+        subject_id=subject_id,
+        interval_start=base,
+        interval_end=base + timedelta(hours=1),
+        time_axis="publish",
+        digest_text="空区间正文",
+    )
+
+    assert result["skipped_no_publish_time"] == 0
+    latest = await repo.get_digest(
+        subject_id,
+        start=base,
+        end=base + timedelta(hours=1),
+    )
+    assert latest is not None
+    assert latest.tweet_count == 0
+
+    with pytest.raises(ValueError, match="越出本区间"):
+        await service.write_digest(
+            subject_id=subject_id,
+            interval_start=base,
+            interval_end=base + timedelta(hours=1),
+            time_axis="publish",
+            digest_text="空区间引用越界",
+            cited_tweet_ids=["ghost"],
+        )
 
 
 @pytest.mark.asyncio

@@ -50,7 +50,18 @@ class SubjectDigestService:
         if len(text) > _MAX_DIGEST_TEXT:
             raise ValueError("digest_text 超过 4000 字上限")
 
-        matches = await self._repo.list_matches(subject_id, since=start, until=end)
+        skipped_no_publish_time_ids: list[str] = []
+        if time_axis == "publish":
+            matches = await self._repo._publish_window_matches(
+                subject_id,
+                start=start,
+                end=end,
+            )
+            skipped_no_publish_time_ids = list(
+                getattr(matches, "skipped_no_publish_time_ids", [])
+            )
+        else:
+            matches = await self._repo.list_matches(subject_id, since=start, until=end)
         allowed_ids = {match.tweet_id for match in matches}
         stored_highlights = highlights or []
         cited = list(dict.fromkeys(cited_tweet_ids or []))
@@ -77,8 +88,12 @@ class SubjectDigestService:
             generated_at=utc_now(),
         )
         await self._repo.save_digest(digest)
-        return {
+        data: dict[str, Any] = {
             "subject_id": subject_id,
             "interval_start": start.isoformat(),
             "interval_end": end.isoformat(),
+            "skipped_no_publish_time": len(skipped_no_publish_time_ids),
         }
+        if skipped_no_publish_time_ids:
+            data["skipped_no_publish_time_ids"] = skipped_no_publish_time_ids
+        return data
