@@ -97,3 +97,9 @@ data_migrated.*/
 data_migrated.*
 
 bench_results.json
+
+# 讨论归档 / 设计草稿（本地生成，不提交）
+discussion-archive/
+
+# docs/ 整体不入库（本地文档草稿区；drift-log 台账转为纯本地留痕，与 CLAUDE.md 同属不入库文件）
+docs/

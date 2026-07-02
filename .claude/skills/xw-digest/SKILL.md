@@ -10,7 +10,7 @@ Use this skill when a subject needs an interval digest over already classified m
 
 ## Authority And Scope
 
-The authoritative schema is `deliverables/2026-06-28-CHG-007-subject-skill-driven-A2.done/04-接口契约.md`. Any parameter table below is only an extract for execution clarity; if there is a conflict, follow the A2 contract.
+The authoritative schema is the live MCP tool signatures in `src/mcp/tools/subject_tools.py`. Any parameter table below is only an extract for execution clarity; if there is a conflict, follow the tool signatures in `src/mcp/tools/subject_tools.py`.
 
 The provenance extension is defined by CHG-009-B. When this skill writes a digest, `playbook_id` is the fixed literal `xw-digest`, `playbook_version` is read from this file's front-matter, and `generated_at` / `validator_version` are never passed because the service fills them.
 
