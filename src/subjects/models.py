@@ -122,3 +122,26 @@ class SubjectFeedback(BaseModel):
     corrected_value: dict[str, Any] | None = None
     supersedes: str | None = None
     when: datetime
+
+
+class EvalTier(StrEnum):
+    hygiene = "hygiene"
+    judge = "judge"
+    human = "human"
+
+
+class SubjectEval(BaseModel):
+    id: str
+    subject_id: str
+    target_id: str
+    target_provenance_ref: str | None = None
+    tier: EvalTier
+    scores: dict[str, float] = Field(default_factory=dict)
+    hard_fail: bool | None = None
+    failed_checks: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    rubric_version: str | None = None
+    judge_model: str | None = None
+    judge_human_kappa: float | None = Field(default=None, ge=-1, le=1)
+    note: str | None = None
+    when: datetime

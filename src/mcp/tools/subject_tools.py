@@ -18,7 +18,9 @@ from src.subjects.models import SubjectHighlight, SubjectReviewSection, SubjectR
 from src.subjects.provenance import build_candidate_set_hash
 from src.subjects.services.classifier import SubjectClassifier
 from src.subjects.services.digest_service import SubjectDigestService
+from src.subjects.services.eval_service import SubjectEvalService
 from src.subjects.services.feedback_service import SubjectFeedbackService
+from src.subjects.services.hygiene_service import SubjectHygieneService
 from src.subjects.services.review_service import ReviewConflictError, SubjectReviewService
 
 logger = logging.getLogger(__name__)
@@ -296,7 +298,7 @@ def register(mcp: FastMCP) -> None:
         model_name: str | None = None,
         model_version: str | None = None,
     ) -> str:
-        """写回外部技能分类命中，成功后关闭待分类。"""
+        """写回外部技能分类命中，成功后关闭待分类；溯源写成时返回 provenance_key。"""
         denied = require_scope("subjects:write")
         if denied is not None:
             audit_log(
@@ -374,6 +376,7 @@ def register(mcp: FastMCP) -> None:
         """写回区间滚动新闻；publish 按 created_at 圈候选并校验 cited/highlights 引用。
 
         highlights 可传 JSON 字符串或对象数组；publish 成功时返回 skipped_no_publish_time。
+        溯源写成时返回 provenance_key，可填入 eval 的 target_provenance_ref。
         """
         denied = require_scope("subjects:write")
         if denied is not None:
@@ -451,7 +454,10 @@ def register(mcp: FastMCP) -> None:
         model_name: str | None = None,
         model_version: str | None = None,
     ) -> str:
-        """写回累积综述；sections 收 JSON 字符串或数组，trend 收字符串或对象。"""
+        """写回累积综述；sections 收 JSON 字符串或数组，trend 收字符串或对象。
+
+        溯源写成时返回 provenance_key，可填入 eval 的 target_provenance_ref。
+        """
         denied = require_scope("subjects:write")
         if denied is not None:
             audit_log(
@@ -804,3 +810,270 @@ def register(mcp: FastMCP) -> None:
             )
             logger.error("get_subject_feedback 失败: %s", e, exc_info=True)
             return error_response("查询失败: feedback 裁决读取失败", "internal")
+
+    @mcp.tool()
+    async def put_subject_eval(
+        subject_id: str,
+        target_id: str,
+        tier: str,
+        scores: str | None = None,
+        target_provenance_ref: str | None = None,
+        rubric_version: str | None = None,
+        judge_model: str | None = None,
+        judge_human_kappa: float | None = None,
+        note: str | None = None,
+        hard_fail: bool | None = None,
+        failed_checks: str | None = None,
+        warnings: str | None = None,
+    ) -> str:
+        """写 judge/human eval 记录；hygiene 档请调 run_subject_hygiene_check。
+
+        target_id 示例：match::<sid>::<tweet_id> /
+        digest::<sid>::<interval_start>::<time_axis> / review::<sid>::<version>。
+        eval 纯追加，评错再评一条；读侧按 when 取最新。
+        """
+        denied = require_scope("subjects:write")
+        if denied is not None:
+            audit_log(
+                "put_subject_eval",
+                "write",
+                params={"subject_id": subject_id},
+                result="failure",
+                error="permission",
+            )
+            return denied
+        try:
+            if hard_fail is not None or failed_checks is not None or warnings is not None:
+                raise ValueError("hard_fail / failed_checks / warnings 只能由卫生计算工具产生")
+            eval_record = await SubjectEvalService(get_subject_repo()).put_eval(
+                subject_id=subject_id,
+                target_id=target_id,
+                tier=tier,
+                scores=scores,
+                target_provenance_ref=target_provenance_ref,
+                rubric_version=rubric_version,
+                judge_model=judge_model,
+                judge_human_kappa=judge_human_kappa,
+                note=note,
+            )
+            audit_log(
+                "put_subject_eval",
+                "write",
+                params={"subject_id": subject_id, "tier": tier},
+            )
+            return success_response(eval_record.model_dump(mode="json"))
+        except LookupError as e:
+            audit_log(
+                "put_subject_eval",
+                "write",
+                params={"subject_id": subject_id},
+                result="failure",
+                error=str(e),
+            )
+            return error_response(str(e), "not_found")
+        except (ValueError, TypeError, json.JSONDecodeError) as e:
+            audit_log(
+                "put_subject_eval",
+                "write",
+                params={"subject_id": subject_id},
+                result="failure",
+                error=str(e),
+            )
+            return error_response(str(e), "validation")
+        except OSError as e:
+            audit_log(
+                "put_subject_eval",
+                "write",
+                params={"subject_id": subject_id},
+                result="failure",
+                error=str(e),
+            )
+            logger.error("put_subject_eval 失败: %s", e, exc_info=True)
+            return error_response("写入失败: eval 记录未落盘，请稍后重试", "internal")
+        except Exception as e:  # noqa: BLE001
+            audit_log(
+                "put_subject_eval",
+                "write",
+                params={"subject_id": subject_id},
+                result="failure",
+                error=str(e),
+            )
+            logger.error("put_subject_eval 失败: %s", e, exc_info=True)
+            return error_response("写入失败: eval 记录未落盘，请稍后重试", "internal")
+
+    @mcp.tool()
+    async def get_subject_eval(
+        subject_id: str,
+        target_id: str | None = None,
+        tier: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> str:
+        """读取 eval 记录，可按 target_id/tier/[since,until) 过滤；不分页。"""
+        try:
+            data = await SubjectEvalService(get_subject_repo()).get_evals(
+                subject_id=subject_id,
+                target_id=target_id,
+                tier=tier,
+                since=since,
+                until=until,
+            )
+            audit_log(
+                "get_subject_eval",
+                "read",
+                params={"subject_id": subject_id, "tier": tier},
+            )
+            return success_response(data)
+        except LookupError as e:
+            audit_log(
+                "get_subject_eval",
+                "read",
+                params={"subject_id": subject_id},
+                result="failure",
+                error=str(e),
+            )
+            return error_response(str(e), "not_found")
+        except (ValueError, TypeError) as e:
+            audit_log(
+                "get_subject_eval",
+                "read",
+                params={"subject_id": subject_id},
+                result="failure",
+                error=str(e),
+            )
+            return error_response(str(e), "validation")
+        except Exception as e:  # noqa: BLE001
+            audit_log(
+                "get_subject_eval",
+                "read",
+                params={"subject_id": subject_id},
+                result="failure",
+                error=str(e),
+            )
+            logger.error("get_subject_eval 失败: %s", e, exc_info=True)
+            return error_response("查询失败: eval 记录读取失败", "internal")
+
+    @mcp.tool()
+    async def run_subject_hygiene_check(
+        subject_id: str,
+        target_type: str,
+        interval_start: str | None = None,
+        time_axis: str | None = None,
+        generated_at: str | None = None,
+        version: int | None = None,
+    ) -> str:
+        """对 digest/review 跑确定性卫生体检并自动落 tier=hygiene eval 记录。"""
+        denied = require_scope("subjects:write")
+        if denied is not None:
+            audit_log(
+                "run_subject_hygiene_check",
+                "write",
+                params={"subject_id": subject_id, "target_type": target_type},
+                result="failure",
+                error="permission",
+            )
+            return denied
+        try:
+            data = await SubjectHygieneService(get_subject_repo()).run_check(
+                subject_id=subject_id,
+                target_type=target_type,
+                interval_start=interval_start,
+                time_axis=time_axis,
+                generated_at=generated_at,
+                version=version,
+            )
+            audit_log(
+                "run_subject_hygiene_check",
+                "write",
+                params={"subject_id": subject_id, "target_type": target_type},
+            )
+            return success_response(data)
+        except LookupError as e:
+            audit_log(
+                "run_subject_hygiene_check",
+                "write",
+                params={"subject_id": subject_id, "target_type": target_type},
+                result="failure",
+                error=str(e),
+            )
+            return error_response(str(e), "not_found")
+        except (ValueError, TypeError) as e:
+            audit_log(
+                "run_subject_hygiene_check",
+                "write",
+                params={"subject_id": subject_id, "target_type": target_type},
+                result="failure",
+                error=str(e),
+            )
+            return error_response(str(e), "validation")
+        except OSError as e:
+            audit_log(
+                "run_subject_hygiene_check",
+                "write",
+                params={"subject_id": subject_id, "target_type": target_type},
+                result="failure",
+                error=str(e),
+            )
+            logger.error("run_subject_hygiene_check 失败: %s", e, exc_info=True)
+            return error_response("写入失败: eval 记录未落盘，请稍后重试", "internal")
+        except Exception as e:  # noqa: BLE001
+            audit_log(
+                "run_subject_hygiene_check",
+                "write",
+                params={"subject_id": subject_id, "target_type": target_type},
+                result="failure",
+                error=str(e),
+            )
+            logger.error("run_subject_hygiene_check 失败: %s", e, exc_info=True)
+            return error_response("写入失败: eval 记录未落盘，请稍后重试", "internal")
+
+    @mcp.tool()
+    async def get_subject_correction_rate(subject_id: str, window_days: int) -> str:
+        """读取近 N 天 rolling 窗口内人工更正率；纯读不落盘。"""
+        try:
+            data, cycle_targets = await SubjectEvalService(get_subject_repo()).get_correction_rate(
+                subject_id=subject_id,
+                window_days=window_days,
+            )
+            for cycle_target in cycle_targets:
+                audit_log(
+                    "get_subject_correction_rate",
+                    "read",
+                    params={"subject_id": subject_id, "target_id": cycle_target},
+                    result="warning",
+                    error="superseded_cycle_detected",
+                )
+            audit_log(
+                "get_subject_correction_rate",
+                "read",
+                params={"subject_id": subject_id, "window_days": window_days},
+            )
+            return success_response(data)
+        except LookupError as e:
+            audit_log(
+                "get_subject_correction_rate",
+                "read",
+                params={"subject_id": subject_id},
+                result="failure",
+                error=str(e),
+            )
+            return error_response(str(e), "not_found")
+        except (ValueError, TypeError) as e:
+            audit_log(
+                "get_subject_correction_rate",
+                "read",
+                params={"subject_id": subject_id},
+                result="failure",
+                error=str(e),
+            )
+            return error_response(str(e), "validation")
+        except Exception as e:  # noqa: BLE001
+            audit_log(
+                "get_subject_correction_rate",
+                "read",
+                params={"subject_id": subject_id},
+                result="failure",
+                error=str(e),
+            )
+            logger.error("get_subject_correction_rate 失败: %s", e, exc_info=True)
+            return error_response("查询失败: 人工更正率读取失败", "internal")

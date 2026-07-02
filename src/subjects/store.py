@@ -6,6 +6,7 @@
 - subjects/{subject_id}/matches/{YYYY-MM}.jsonl: SubjectMatch
 - subjects/{subject_id}/digests/{YYYY-MM}.jsonl: SubjectDigest
 - subjects/{subject_id}/feedback/{YYYY-MM}.jsonl: SubjectFeedback
+- subjects/{subject_id}/eval/{YYYY-MM}.jsonl: SubjectEval
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from src.subjects.models import (
     Provenance,
     Subject,
     SubjectDigest,
+    SubjectEval,
     SubjectFeedback,
     SubjectMatch,
     SubjectReview,
@@ -285,8 +287,20 @@ class FileSubjectStore:
             append_jsonl(path, feedback.model_dump(mode="json"))
         return feedback
 
+    async def append_eval(self, eval_record: SubjectEval) -> SubjectEval:
+        path = paths.subject_eval_shard(self._root, eval_record.subject_id, eval_record.when)
+        async with shard_lock(path):
+            append_jsonl(path, eval_record.model_dump(mode="json"))
+        return eval_record
+
     def _feedback_paths(self, subject_id: str) -> list[Path]:
         base = self._root / "subjects" / subject_id / "feedback"
+        if not base.exists():
+            return []
+        return sorted(base.glob("*.jsonl"))
+
+    def _eval_paths(self, subject_id: str) -> list[Path]:
+        base = self._root / "subjects" / subject_id / "eval"
         if not base.exists():
             return []
         return sorted(base.glob("*.jsonl"))
@@ -298,6 +312,17 @@ class FileSubjectStore:
                 feedbacks.append(SubjectFeedback(**record))
         feedbacks.sort(key=lambda item: (item.when, item.id))
         return feedbacks
+
+    async def read_evals(self, subject_id: str) -> list[SubjectEval]:
+        evals: list[SubjectEval] = []
+        for path in self._eval_paths(subject_id):
+            for record in read_shard(path):
+                try:
+                    evals.append(SubjectEval(**record))
+                except (TypeError, ValueError):
+                    continue
+        evals.sort(key=lambda item: (item.when, item.id))
+        return evals
 
     def _digest_paths(self, subject_id: str) -> list[Path]:
         base = self._root / "subjects" / subject_id / "digests"
@@ -420,6 +445,27 @@ class FileSubjectStore:
                 }
             )
         return items, missing
+
+    async def get_tweet_author_ids(
+        self,
+        tweet_ids: list[str],
+    ) -> tuple[dict[str, str | None], list[str]]:
+        from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
+
+        wanted = list(dict.fromkeys([tid for tid in tweet_ids if tid]))
+        tweet_map = {
+            tweet.tweet_id: tweet for tweet in await FileTweetStore(self._root).get_all_tweets()
+        }
+        author_ids: dict[str, str | None] = {}
+        missing: list[str] = []
+        for tweet_id in wanted:
+            tweet = tweet_map.get(tweet_id)
+            if tweet is None:
+                missing.append(tweet_id)
+                continue
+            author_id = getattr(tweet, "author_user_id", None)
+            author_ids[tweet_id] = str(author_id) if author_id else None
+        return author_ids, missing
 
     async def _publish_window_matches(
         self,

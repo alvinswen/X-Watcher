@@ -127,6 +127,7 @@ async def test_write_matches_saves_batch_sidecar_and_rejects_mismatch(tmp_path):
         "subject_id": subject_id,
         "pending_classify": False,
         "provenance_written": True,
+        "provenance_key": expected_hash,
     }
     stored = await repo.read_provenance(
         subject_id=subject_id,
@@ -188,6 +189,7 @@ async def test_write_digest_recomputes_publish_and_ingest_and_uses_generated_key
     assert publish_result["provenance_written"] is True
 
     sidecar_path = _single_json(tmp_path / "subjects" / subject_id / "provenance" / "digests")
+    assert publish_result["provenance_key"] == sidecar_path.stem
     key_interval, key_axis, key_generated = sidecar_path.stem.split("_")
     assert key_interval == "20260628T100000Z"
     assert key_axis == "publish"
@@ -268,7 +270,12 @@ async def test_write_review_saves_version_sidecar_and_rejects_subset_hash(tmp_pa
         provenance=_raw_provenance(["r1", "r2"]),
     )
 
-    assert result == {"subject_id": subject_id, "version": 1, "provenance_written": True}
+    assert result == {
+        "subject_id": subject_id,
+        "version": 1,
+        "provenance_written": True,
+        "provenance_key": "1",
+    }
     stored = await repo.read_provenance(subject_id=subject_id, kind="review", key="1")
     assert stored is not None
     assert stored.candidate_ids == ["r1", "r2"]
@@ -311,6 +318,7 @@ async def test_sidecar_io_failure_keeps_digest_record_and_returns_false(tmp_path
     )
 
     assert result["provenance_written"] is False
+    assert "provenance_key" not in result
     latest = await repo.get_digest(
         subject_id,
         start=base,

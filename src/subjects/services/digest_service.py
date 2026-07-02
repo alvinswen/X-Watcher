@@ -12,10 +12,11 @@ from typing import Any, cast
 from src.data_layer.provider import get_subject_repo
 from src.storage import paths
 from src.subjects.models import SubjectDigest, SubjectHighlight
-from src.subjects.provenance import assemble_provenance
+from src.subjects.provenance import assemble_provenance, build_digest_provenance_key
 from src.subjects.store import utc_now
 
-_MAX_DIGEST_TEXT = 4000
+MAX_DIGEST_TEXT = 4000
+_MAX_DIGEST_TEXT = MAX_DIGEST_TEXT
 
 
 class SubjectDigestService:
@@ -49,7 +50,7 @@ class SubjectDigestService:
         text = digest_text.strip()
         if not text:
             raise ValueError("digest_text 不能为空")
-        if len(text) > _MAX_DIGEST_TEXT:
+        if len(text) > MAX_DIGEST_TEXT:
             raise ValueError("digest_text 超过 4000 字上限")
 
         skipped_no_publish_time_ids: list[str] = []
@@ -107,10 +108,7 @@ class SubjectDigestService:
         if skipped_no_publish_time_ids:
             data["skipped_no_publish_time_ids"] = skipped_no_publish_time_ids
         if prov is not None:
-            key = (
-                f"{start.strftime('%Y%m%dT%H%M%SZ')}_{time_axis}_"
-                f"{now.strftime('%Y%m%dT%H%M%S%fZ')}"
-            )
+            key = build_digest_provenance_key(start, time_axis, now)
             try:
                 await self._repo.save_provenance(
                     subject_id=subject_id,
@@ -119,6 +117,7 @@ class SubjectDigestService:
                     provenance=prov,
                 )
                 data["provenance_written"] = True
+                data["provenance_key"] = key
             except OSError:
                 data["provenance_written"] = False
         return data
