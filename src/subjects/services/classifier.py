@@ -7,6 +7,7 @@ from typing import Any, cast
 
 from src.data_layer.provider import get_subject_repo
 from src.subjects.models import SubjectMatch
+from src.subjects.provenance import assemble_provenance
 from src.subjects.store import utc_now
 
 
@@ -35,6 +36,7 @@ class SubjectClassifier:
         tweet_ids: list[str],
         relevance: float | None = None,
         reason: str | None = None,
+        provenance: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if await self._repo.get_subject(subject_id) is None:
             raise LookupError("议题不存在")
@@ -45,6 +47,15 @@ class SubjectClassifier:
         if missing:
             raise ValueError(f"引用悬空 missing_ids={missing}")
         matched_at = utc_now()
+        prov = (
+            assemble_provenance(
+                raw=provenance,
+                recomputed_ids=ids,
+                generated_at=matched_at,
+            )
+            if provenance is not None
+            else None
+        )
         matches = [
             SubjectMatch(
                 subject_id=subject_id,
@@ -57,8 +68,20 @@ class SubjectClassifier:
         ]
         saved = await self._repo.upsert_matches(matches)
         await self._repo.set_pending(subject_id, classify=False)
-        return {
+        data: dict[str, Any] = {
             "written": len(saved),
             "subject_id": subject_id,
             "pending_classify": False,
         }
+        if prov is not None:
+            try:
+                await self._repo.save_provenance(
+                    subject_id=subject_id,
+                    kind="matches",
+                    key=prov.candidate_set_hash,
+                    provenance=prov,
+                )
+                data["provenance_written"] = True
+            except OSError:
+                data["provenance_written"] = False
+        return data

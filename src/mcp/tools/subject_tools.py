@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 from mcp.server.fastmcp import FastMCP
 
@@ -14,8 +15,10 @@ from src.mcp.auth import require_scope
 from src.mcp.helpers import error_response, parse_datetime_optional, success_response
 from src.mcp.security import audit_log
 from src.subjects.models import SubjectHighlight, SubjectReviewSection, SubjectReviewTrend
+from src.subjects.provenance import build_candidate_set_hash
 from src.subjects.services.classifier import SubjectClassifier
 from src.subjects.services.digest_service import SubjectDigestService
+from src.subjects.services.feedback_service import SubjectFeedbackService
 from src.subjects.services.review_service import ReviewConflictError, SubjectReviewService
 
 logger = logging.getLogger(__name__)
@@ -27,6 +30,37 @@ def _csv_ids(value: str | None) -> list[str]:
     if value is None:
         return []
     return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _collect_provenance(
+    playbook_id: str | None,
+    playbook_version: str | None,
+    prompt_hash: str | None,
+    candidate_set_hash: str | None,
+    candidate_ids: str | None,
+    model_name: str | None,
+    model_version: str | None,
+) -> dict[str, Any] | None:
+    values = (
+        playbook_id,
+        playbook_version,
+        prompt_hash,
+        candidate_set_hash,
+        candidate_ids,
+        model_name,
+        model_version,
+    )
+    if all(value is None for value in values):
+        return None
+    return {
+        "playbook_id": playbook_id,
+        "playbook_version": playbook_version,
+        "prompt_hash": prompt_hash,
+        "candidate_set_hash": candidate_set_hash,
+        "candidate_ids": _csv_ids(candidate_ids),
+        "model_name": model_name,
+        "model_version": model_version,
+    }
 
 
 def _json_array(
@@ -75,6 +109,15 @@ def _required_datetime(value: str | None, field_name: str) -> datetime:
     if parsed is None:
         raise ValueError(f"{field_name} 不能为空")
     return parsed
+
+
+def _candidate_ids_from_matches(matches: list[Any]) -> list[str]:
+    return sorted({match.tweet_id for match in matches if match.tweet_id})
+
+
+def _subject_repo() -> Any:
+    repo_factory = cast(Callable[[], Any], get_subject_repo)
+    return repo_factory()
 
 
 def _conflict_response(error: ReviewConflictError) -> str:
@@ -150,11 +193,108 @@ def register(mcp: FastMCP) -> None:
             return error_response(f"查询失败: {e}")
 
     @mcp.tool()
+    async def get_subject_candidate_set(
+        subject_id: str,
+        time_axis: str,
+        interval_start: str | None = None,
+        interval_end: str | None = None,
+    ) -> str:
+        """取某议题在指定口径下的权威候选 tweet_id 全集 + candidate_set_hash 指纹。
+
+        用于写 provenance 前与服务端写入校验器对齐。
+
+        time_axis:
+          - publish: 按推文发布时间(created_at)圈窗；需 interval_start/interval_end
+          - ingest : 按入库时间(matched_at)圈窗，since>= / until<；需 interval_start/interval_end
+          - review : 全量，忽略区间
+        不支持 time_axis=match；match 候选=技能自持 tweet_ids，技能自算 hash。
+
+        圈候选请用本工具；勿用 get_subject_feed 的 id 算 candidate_set_hash。
+        feed 有分页(<=500)与边界口径差异，会导致 provenance 写入校验拒收。
+
+        返回: candidate_ids(全集不分页), candidate_set_hash, count, time_axis,
+        interval_start, interval_end, skipped_no_publish_time。
+        """
+        try:
+            repo = _subject_repo()
+            if await repo.get_subject(subject_id) is None:
+                return error_response(
+                    "议题不存在，请先调用 list_subjects 获取有效 subject_id", "not_found"
+                )
+            if time_axis not in {"publish", "ingest", "review"}:
+                return error_response("time_axis 只能是 publish / ingest / review", "validation")
+
+            skipped_no_publish_time = 0
+            start_dt: datetime | None = None
+            end_dt: datetime | None = None
+            if time_axis in {"publish", "ingest"}:
+                if interval_start is None or interval_end is None:
+                    return error_response(
+                        "该口径需提供 interval_start 与 interval_end", "validation"
+                    )
+                start_dt = parse_datetime_optional(interval_start)
+                end_dt = parse_datetime_optional(interval_end)
+                if start_dt is None or end_dt is None:
+                    return error_response(
+                        "该口径需提供 interval_start 与 interval_end", "validation"
+                    )
+                if start_dt > end_dt:
+                    return error_response(
+                        "区间倒置：interval_start 必须早于 interval_end", "validation"
+                    )
+                if time_axis == "publish":
+                    matches = await repo._publish_window_matches(
+                        subject_id,
+                        start=start_dt,
+                        end=end_dt,
+                    )
+                    skipped_no_publish_time = len(
+                        getattr(matches, "skipped_no_publish_time_ids", [])
+                    )
+                else:
+                    matches = await repo.list_matches(
+                        subject_id,
+                        since=start_dt,
+                        until=end_dt,
+                    )
+            else:
+                matches = await repo.list_matches(subject_id)
+
+            candidate_ids = _candidate_ids_from_matches(matches)
+            data = {
+                "candidate_ids": candidate_ids,
+                "candidate_set_hash": build_candidate_set_hash(candidate_ids),
+                "count": len(candidate_ids),
+                "time_axis": time_axis,
+                "interval_start": start_dt.isoformat() if start_dt is not None else None,
+                "interval_end": end_dt.isoformat() if end_dt is not None else None,
+                "skipped_no_publish_time": skipped_no_publish_time,
+            }
+            audit_log(
+                "get_subject_candidate_set",
+                "read",
+                params={"subject_id": subject_id, "time_axis": time_axis},
+            )
+            return success_response(data)
+        except (ValueError, TypeError) as e:
+            return error_response(f"参数解析失败: {e}", "validation")
+        except Exception as e:  # noqa: BLE001
+            logger.error("get_subject_candidate_set 失败: %s", e, exc_info=True)
+            return error_response(f"查询失败: {e}")
+
+    @mcp.tool()
     async def put_subject_matches(
         subject_id: str,
         tweet_ids: str,
         relevance: float | None = None,
         reason: str | None = None,
+        playbook_id: str | None = None,
+        playbook_version: str | None = None,
+        prompt_hash: str | None = None,
+        candidate_set_hash: str | None = None,
+        candidate_ids: str | None = None,
+        model_name: str | None = None,
+        model_version: str | None = None,
     ) -> str:
         """写回外部技能分类命中，成功后关闭待分类。"""
         denied = require_scope("subjects:write")
@@ -173,6 +313,15 @@ def register(mcp: FastMCP) -> None:
                 tweet_ids=_csv_ids(tweet_ids),
                 relevance=relevance,
                 reason=reason,
+                provenance=_collect_provenance(
+                    playbook_id,
+                    playbook_version,
+                    prompt_hash,
+                    candidate_set_hash,
+                    candidate_ids,
+                    model_name,
+                    model_version,
+                ),
             )
             audit_log("put_subject_matches", "write", params={"subject_id": subject_id})
             return success_response(data)
@@ -214,6 +363,13 @@ def register(mcp: FastMCP) -> None:
         digest_text: str = "",
         highlights: str | list[dict[str, Any]] | None = None,
         cited: str | None = None,
+        playbook_id: str | None = None,
+        playbook_version: str | None = None,
+        prompt_hash: str | None = None,
+        candidate_set_hash: str | None = None,
+        candidate_ids: str | None = None,
+        model_name: str | None = None,
+        model_version: str | None = None,
     ) -> str:
         """写回区间滚动新闻；publish 按 created_at 圈候选并校验 cited/highlights 引用。
 
@@ -238,6 +394,15 @@ def register(mcp: FastMCP) -> None:
                 digest_text=digest_text,
                 highlights=_parse_highlights(highlights),
                 cited_tweet_ids=_csv_ids(cited),
+                provenance=_collect_provenance(
+                    playbook_id,
+                    playbook_version,
+                    prompt_hash,
+                    candidate_set_hash,
+                    candidate_ids,
+                    model_name,
+                    model_version,
+                ),
             )
             audit_log("put_subject_digest", "write", params={"subject_id": subject_id})
             return success_response(data)
@@ -278,6 +443,13 @@ def register(mcp: FastMCP) -> None:
         covered_until: str,
         trend: str | dict[str, Any] | None = None,
         cited: str | None = None,
+        playbook_id: str | None = None,
+        playbook_version: str | None = None,
+        prompt_hash: str | None = None,
+        candidate_set_hash: str | None = None,
+        candidate_ids: str | None = None,
+        model_name: str | None = None,
+        model_version: str | None = None,
     ) -> str:
         """写回累积综述；sections 收 JSON 字符串或数组，trend 收字符串或对象。"""
         denied = require_scope("subjects:write")
@@ -298,6 +470,15 @@ def register(mcp: FastMCP) -> None:
                 covered_until=_required_datetime(covered_until, "covered_until"),
                 trend=_parse_trend(trend),
                 cited_tweet_ids=_csv_ids(cited),
+                provenance=_collect_provenance(
+                    playbook_id,
+                    playbook_version,
+                    prompt_hash,
+                    candidate_set_hash,
+                    candidate_ids,
+                    model_name,
+                    model_version,
+                ),
             )
             audit_log("put_subject_review", "write", params={"subject_id": subject_id})
             return success_response(data)
@@ -487,3 +668,139 @@ def register(mcp: FastMCP) -> None:
         except Exception as e:  # noqa: BLE001
             logger.error("get_tweets_by_ids 失败: %s", e, exc_info=True)
             return error_response(f"查询失败: {e}")
+
+    @mcp.tool()
+    async def put_subject_feedback(
+        subject_id: str,
+        target_type: str,
+        target_id: str,
+        verdict: str,
+        authority: str,
+        who: str,
+        provenance_key: str | None = None,
+        corrected_value: str | None = None,
+        note: str | None = None,
+        supersedes: str | None = None,
+    ) -> str:
+        """写入议题派生物反馈裁决，append-only 落 subjects/<sid>/feedback/YYYY-MM.jsonl。"""
+        denied = require_scope("subjects:write")
+        if denied is not None:
+            audit_log(
+                "put_subject_feedback",
+                "write",
+                params={"subject_id": subject_id},
+                result="failure",
+                error="permission",
+            )
+            return denied
+        try:
+            feedback = await SubjectFeedbackService(get_subject_repo()).put_feedback(
+                subject_id=subject_id,
+                target_type=target_type,
+                target_id=target_id,
+                verdict=verdict,
+                authority=authority,
+                who=who,
+                provenance_key=provenance_key,
+                corrected_value=corrected_value,
+                note=note,
+                supersedes=supersedes,
+            )
+            audit_log(
+                "put_subject_feedback",
+                "write",
+                params={"subject_id": subject_id, "target_type": target_type},
+            )
+            return success_response(feedback.model_dump(mode="json"))
+        except LookupError as e:
+            audit_log(
+                "put_subject_feedback",
+                "write",
+                params={"subject_id": subject_id},
+                result="failure",
+                error=str(e),
+            )
+            return error_response(str(e), "not_found")
+        except (ValueError, TypeError, json.JSONDecodeError) as e:
+            audit_log(
+                "put_subject_feedback",
+                "write",
+                params={"subject_id": subject_id},
+                result="failure",
+                error=str(e),
+            )
+            return error_response(str(e), "validation")
+        except Exception as e:  # noqa: BLE001
+            audit_log(
+                "put_subject_feedback",
+                "write",
+                params={"subject_id": subject_id},
+                result="failure",
+                error=str(e),
+            )
+            logger.error("put_subject_feedback 失败: %s", e, exc_info=True)
+            return error_response("写入失败: feedback 裁决未落盘，请稍后重试", "internal")
+
+    @mcp.tool()
+    async def get_subject_feedback(
+        subject_id: str,
+        target_id: str | None = None,
+        target_type: str | None = None,
+    ) -> str:
+        """读取议题当前有效反馈裁决，可按 target_id 或 target_type 过滤。"""
+        try:
+            feedbacks, cycle_targets = await SubjectFeedbackService(
+                get_subject_repo()
+            ).get_current_feedbacks(
+                subject_id=subject_id,
+                target_id=target_id,
+                target_type=target_type,
+            )
+            for cycle_target in cycle_targets:
+                audit_log(
+                    "get_subject_feedback",
+                    "read",
+                    params={"subject_id": subject_id, "target_id": cycle_target},
+                    result="warning",
+                    error="superseded_cycle_detected",
+                )
+            audit_log(
+                "get_subject_feedback",
+                "read",
+                params={"subject_id": subject_id, "target_type": target_type},
+            )
+            return success_response(
+                {
+                    "subject_id": subject_id,
+                    "count": len(feedbacks),
+                    "feedbacks": feedbacks,
+                }
+            )
+        except LookupError as e:
+            audit_log(
+                "get_subject_feedback",
+                "read",
+                params={"subject_id": subject_id},
+                result="failure",
+                error=str(e),
+            )
+            return error_response(str(e), "not_found")
+        except (ValueError, TypeError) as e:
+            audit_log(
+                "get_subject_feedback",
+                "read",
+                params={"subject_id": subject_id},
+                result="failure",
+                error=str(e),
+            )
+            return error_response(str(e), "validation")
+        except Exception as e:  # noqa: BLE001
+            audit_log(
+                "get_subject_feedback",
+                "read",
+                params={"subject_id": subject_id},
+                result="failure",
+                error=str(e),
+            )
+            logger.error("get_subject_feedback 失败: %s", e, exc_info=True)
+            return error_response("查询失败: feedback 裁决读取失败", "internal")

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -75,3 +76,49 @@ class SubjectReview(BaseModel):
     generated_by: str = Field(default="skill", description="llm、fallback 或 skill")
     updated_at: datetime
     covered_until: datetime | None = None
+
+
+class Provenance(BaseModel):
+    playbook_id: str
+    playbook_version: str
+    prompt_hash: str
+    candidate_set_hash: str
+    candidate_ids: list[str] | None = None
+    model_name: str | None = None
+    model_version: str | None = None
+    generated_at: datetime
+    validator_version: str | None = None
+
+
+class FeedbackTargetType(StrEnum):
+    match = "match"
+    digest = "digest"
+    review = "review"
+
+
+class FeedbackVerdict(StrEnum):
+    reject = "reject"
+    accept = "accept"
+    correct = "correct"
+    off_topic = "off_topic"
+    drift = "drift"
+
+
+class FeedbackAuthority(StrEnum):
+    human_correction = "human_correction"
+    agent_selfeval = "agent_selfeval"
+
+
+class SubjectFeedback(BaseModel):
+    id: str
+    subject_id: str
+    target_type: FeedbackTargetType
+    target_id: str
+    provenance_key: str | None = None
+    verdict: FeedbackVerdict
+    authority: FeedbackAuthority
+    who: str
+    note: str | None = None
+    corrected_value: dict[str, Any] | None = None
+    supersedes: str | None = None
+    when: datetime

@@ -5,6 +5,7 @@
 - subjects/{subject_id}.json: Subject
 - subjects/{subject_id}/matches/{YYYY-MM}.jsonl: SubjectMatch
 - subjects/{subject_id}/digests/{YYYY-MM}.jsonl: SubjectDigest
+- subjects/{subject_id}/feedback/{YYYY-MM}.jsonl: SubjectFeedback
 """
 
 from __future__ import annotations
@@ -20,7 +21,15 @@ from src.storage.doc_store import atomic_write_doc, read_doc
 from src.storage.jsonl_store import append as append_jsonl
 from src.storage.jsonl_store import read_shard, upsert
 from src.subjects.index import load_subject_ids, new_subject_id, save_subject_ids
-from src.subjects.models import Subject, SubjectDigest, SubjectMatch, SubjectReview, SubjectStatus
+from src.subjects.models import (
+    Provenance,
+    Subject,
+    SubjectDigest,
+    SubjectFeedback,
+    SubjectMatch,
+    SubjectReview,
+    SubjectStatus,
+)
 
 _NO_LIMIT = 10**12
 
@@ -270,6 +279,26 @@ class FileSubjectStore:
         await self.touch_subject(digest.subject_id, digest.generated_at)
         return digest
 
+    async def append_feedback(self, feedback: SubjectFeedback) -> SubjectFeedback:
+        path = paths.subject_feedback_shard(self._root, feedback.subject_id, feedback.when)
+        async with shard_lock(path):
+            append_jsonl(path, feedback.model_dump(mode="json"))
+        return feedback
+
+    def _feedback_paths(self, subject_id: str) -> list[Path]:
+        base = self._root / "subjects" / subject_id / "feedback"
+        if not base.exists():
+            return []
+        return sorted(base.glob("*.jsonl"))
+
+    async def read_feedbacks(self, subject_id: str) -> list[SubjectFeedback]:
+        feedbacks: list[SubjectFeedback] = []
+        for path in self._feedback_paths(subject_id):
+            for record in read_shard(path):
+                feedbacks.append(SubjectFeedback(**record))
+        feedbacks.sort(key=lambda item: (item.when, item.id))
+        return feedbacks
+
     def _digest_paths(self, subject_id: str) -> list[Path]:
         base = self._root / "subjects" / subject_id / "digests"
         if not base.exists():
@@ -318,6 +347,29 @@ class FileSubjectStore:
             atomic_write_doc(latest_path, payload)
             atomic_write_doc(history_path, payload)
         return review
+
+    async def save_provenance(
+        self,
+        *,
+        subject_id: str,
+        kind: str,
+        key: str,
+        provenance: Provenance,
+    ) -> Provenance:
+        path = paths.subject_provenance_doc(self._root, subject_id, kind, key)
+        async with shard_lock(path):
+            atomic_write_doc(path, provenance.model_dump(mode="json"))
+        return provenance
+
+    async def read_provenance(
+        self,
+        *,
+        subject_id: str,
+        kind: str,
+        key: str,
+    ) -> Provenance | None:
+        doc = read_doc(paths.subject_provenance_doc(self._root, subject_id, kind, key))
+        return Provenance(**doc) if doc else None
 
     async def get_review(self, subject_id: str) -> SubjectReview | None:
         doc = read_doc(paths.subject_review_doc(self._root, subject_id))
@@ -381,9 +433,7 @@ class FileSubjectStore:
         if not all_matches:
             return _PublishWindowMatches([], [])
 
-        items, _missing = await self.get_tweets_by_ids(
-            [match.tweet_id for match in all_matches]
-        )
+        items, _missing = await self.get_tweets_by_ids([match.tweet_id for match in all_matches])
         created_map: dict[str, datetime] = {}
         for item in items:
             tweet_id = str(item.get("tweet_id") or "")
