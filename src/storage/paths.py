@@ -85,6 +85,11 @@ def subject_feedback_shard(data_root: Path, subject_id: str, when: datetime) -> 
     return Path(data_root) / "subjects" / subject_id / "feedback" / f"{month}.jsonl"
 
 
+def subject_eval_shard(data_root: Path, subject_id: str, when: datetime) -> Path:
+    month = as_utc(when).strftime("%Y-%m")
+    return Path(data_root) / "subjects" / subject_id / "eval" / f"{month}.jsonl"
+
+
 def subject_review_doc(data_root: Path, subject_id: str) -> Path:
     return Path(data_root) / "subjects" / subject_id / "review" / "latest.json"
 

@@ -359,9 +359,7 @@ class TestSubjectToolsIntegration:
             )
             feed_data = json.loads(feed_result)
             assert feed_data["success"] is True
-            assert [item["tweet_id"] for item in feed_data["data"]["items"]] == [
-                "publish_in"
-            ]
+            assert [item["tweet_id"] for item in feed_data["data"]["items"]] == ["publish_in"]
 
             digest_result = await tool_funcs["put_subject_digest"](
                 subject_id=subject.subject_id,
@@ -634,6 +632,10 @@ class TestToolRegistration:
             "put_subject_review",
             "put_subject_feedback",
             "get_subject_feedback",
+            "put_subject_eval",
+            "get_subject_eval",
+            "run_subject_hygiene_check",
+            "get_subject_correction_rate",
             "get_pending_jobs",
             # Subject Review（CHG-006 · L2 活综述）
             "get_subject_review",

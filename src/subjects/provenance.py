@@ -8,6 +8,7 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any
 
+from src.storage import paths
 from src.subjects.models import Provenance
 
 VALIDATOR_VERSION = "1.0"
@@ -32,6 +33,19 @@ def _ordered_candidate_ids(tweet_ids: Sequence[str]) -> list[str]:
 def build_candidate_set_hash(tweet_ids: Sequence[str]) -> str:
     ordered = _ordered_candidate_ids(tweet_ids)
     return hashlib.sha256(",".join(ordered).encode("utf-8")).hexdigest()
+
+
+def build_digest_provenance_key(
+    interval_start: datetime,
+    time_axis: str,
+    generated_at: datetime,
+) -> str:
+    start = paths.as_utc(interval_start)
+    generated = paths.as_utc(generated_at)
+    return (
+        f"{start.strftime('%Y%m%dT%H%M%SZ')}_{time_axis}_"
+        f"{generated.strftime('%Y%m%dT%H%M%S%fZ')}"
+    )
 
 
 def assemble_provenance(

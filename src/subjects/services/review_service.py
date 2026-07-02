@@ -12,7 +12,8 @@ from src.subjects.models import SubjectReview, SubjectReviewSection, SubjectRevi
 from src.subjects.provenance import assemble_provenance
 from src.subjects.store import utc_now
 
-_MAX_SECTION_BODY = 4000
+MAX_SECTION_BODY = 4000
+_MAX_SECTION_BODY = MAX_SECTION_BODY
 
 
 class ReviewConflictError(Exception):
@@ -78,7 +79,7 @@ class SubjectReviewService:
             body = section.body.strip()
             if not body:
                 raise ValueError(f"第 {index} 段 body 不能为空")
-            if len(body) > _MAX_SECTION_BODY:
+            if len(body) > MAX_SECTION_BODY:
                 raise ValueError(f"第 {index} 段 body 超过 4000 字上限")
 
         matches = await self._repo.list_matches(subject_id)
@@ -126,6 +127,7 @@ class SubjectReviewService:
                     provenance=prov,
                 )
                 data["provenance_written"] = True
+                data["provenance_key"] = str(review.version)
             except OSError:
                 data["provenance_written"] = False
         return data

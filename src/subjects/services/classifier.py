@@ -82,6 +82,7 @@ class SubjectClassifier:
                     provenance=prov,
                 )
                 data["provenance_written"] = True
+                data["provenance_key"] = prov.candidate_set_hash
             except OSError:
                 data["provenance_written"] = False
         return data
