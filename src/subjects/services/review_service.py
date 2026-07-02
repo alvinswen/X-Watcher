@@ -9,6 +9,7 @@ from typing import Any, cast
 from src.data_layer.provider import get_subject_repo
 from src.storage import paths
 from src.subjects.models import SubjectReview, SubjectReviewSection, SubjectReviewTrend
+from src.subjects.provenance import assemble_provenance
 from src.subjects.store import utc_now
 
 _MAX_SECTION_BODY = 4000
@@ -60,6 +61,7 @@ class SubjectReviewService:
         covered_until: datetime,
         trend: SubjectReviewTrend | None = None,
         cited_tweet_ids: list[str] | None = None,
+        provenance: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if await self._repo.get_subject(subject_id) is None:
             raise LookupError("议题不存在")
@@ -92,6 +94,15 @@ class SubjectReviewService:
             raise ValueError(f"cited_tweet_ids 不属于该议题命中: {missing_cited}")
 
         now = utc_now()
+        prov = (
+            assemble_provenance(
+                raw=provenance,
+                recomputed_ids=[match.tweet_id for match in matches],
+                generated_at=now,
+            )
+            if provenance is not None
+            else None
+        )
         review = SubjectReview(
             subject_id=subject_id,
             version=current_version + 1,
@@ -105,4 +116,16 @@ class SubjectReviewService:
         )
         await self._repo.save_review(review)
         await self._repo.set_pending(subject_id, review=False)
-        return {"subject_id": subject_id, "version": review.version}
+        data: dict[str, Any] = {"subject_id": subject_id, "version": review.version}
+        if prov is not None:
+            try:
+                await self._repo.save_provenance(
+                    subject_id=subject_id,
+                    kind="review",
+                    key=str(review.version),
+                    provenance=prov,
+                )
+                data["provenance_written"] = True
+            except OSError:
+                data["provenance_written"] = False
+        return data

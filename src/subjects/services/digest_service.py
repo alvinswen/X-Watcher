@@ -12,6 +12,7 @@ from typing import Any, cast
 from src.data_layer.provider import get_subject_repo
 from src.storage import paths
 from src.subjects.models import SubjectDigest, SubjectHighlight
+from src.subjects.provenance import assemble_provenance
 from src.subjects.store import utc_now
 
 _MAX_DIGEST_TEXT = 4000
@@ -35,6 +36,7 @@ class SubjectDigestService:
         digest_text: str,
         highlights: list[SubjectHighlight] | None = None,
         cited_tweet_ids: list[str] | None = None,
+        provenance: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if await self._repo.get_subject(subject_id) is None:
             raise LookupError("议题不存在")
@@ -57,9 +59,7 @@ class SubjectDigestService:
                 start=start,
                 end=end,
             )
-            skipped_no_publish_time_ids = list(
-                getattr(matches, "skipped_no_publish_time_ids", [])
-            )
+            skipped_no_publish_time_ids = list(getattr(matches, "skipped_no_publish_time_ids", []))
         else:
             matches = await self._repo.list_matches(subject_id, since=start, until=end)
         allowed_ids = {match.tweet_id for match in matches}
@@ -76,6 +76,16 @@ class SubjectDigestService:
         if missing_cited:
             raise ValueError(f"cited_tweet_ids 越出本区间命中: {missing_cited}")
 
+        now = utc_now()
+        prov = (
+            assemble_provenance(
+                raw=provenance,
+                recomputed_ids=[match.tweet_id for match in matches],
+                generated_at=now,
+            )
+            if provenance is not None
+            else None
+        )
         digest = SubjectDigest(
             subject_id=subject_id,
             interval_start=start,
@@ -85,7 +95,7 @@ class SubjectDigestService:
             digest_text=text,
             highlights=stored_highlights,
             cited_tweet_ids=cited,
-            generated_at=utc_now(),
+            generated_at=now,
         )
         await self._repo.save_digest(digest)
         data: dict[str, Any] = {
@@ -96,4 +106,19 @@ class SubjectDigestService:
         }
         if skipped_no_publish_time_ids:
             data["skipped_no_publish_time_ids"] = skipped_no_publish_time_ids
+        if prov is not None:
+            key = (
+                f"{start.strftime('%Y%m%dT%H%M%SZ')}_{time_axis}_"
+                f"{now.strftime('%Y%m%dT%H%M%S%fZ')}"
+            )
+            try:
+                await self._repo.save_provenance(
+                    subject_id=subject_id,
+                    kind="digests",
+                    key=key,
+                    provenance=prov,
+                )
+                data["provenance_written"] = True
+            except OSError:
+                data["provenance_written"] = False
         return data

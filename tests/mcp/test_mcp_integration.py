@@ -625,12 +625,15 @@ class TestToolRegistration:
             # Subject（CHG-004 · 议题 continuous-query 一期）
             "list_subjects",
             "get_subject_feed",
+            "get_subject_candidate_set",
             "get_subject_digest",
             "get_subject_updates",
             "get_tweets_by_ids",
             "put_subject_matches",
             "put_subject_digest",
             "put_subject_review",
+            "put_subject_feedback",
+            "get_subject_feedback",
             "get_pending_jobs",
             # Subject Review（CHG-006 · L2 活综述）
             "get_subject_review",

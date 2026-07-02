@@ -80,9 +80,20 @@ def subject_digest_shard(data_root: Path, subject_id: str, interval_start: datet
     return Path(data_root) / "subjects" / subject_id / "digests" / f"{month}.jsonl"
 
 
+def subject_feedback_shard(data_root: Path, subject_id: str, when: datetime) -> Path:
+    month = as_utc(when).strftime("%Y-%m")
+    return Path(data_root) / "subjects" / subject_id / "feedback" / f"{month}.jsonl"
+
+
 def subject_review_doc(data_root: Path, subject_id: str) -> Path:
     return Path(data_root) / "subjects" / subject_id / "review" / "latest.json"
 
 
 def subject_review_history_doc(data_root: Path, subject_id: str, version: int) -> Path:
     return Path(data_root) / "subjects" / subject_id / "review" / "history" / f"{version}.json"
+
+
+def subject_provenance_doc(data_root: Path, subject_id: str, kind: str, key: str) -> Path:
+    if kind not in {"matches", "digests", "review"}:
+        raise ValueError("provenance kind 只能是 matches、digests 或 review")
+    return Path(data_root) / "subjects" / subject_id / "provenance" / kind / f"{key}.json"
