@@ -34,15 +34,6 @@ export interface StatusOverviewResponse {
   system: SystemStatus
 }
 
-/** LLM 提供商验证结果 */
-export interface LLMProviderValidation {
-  name: string
-  status: "healthy" | "unhealthy"
-  model?: string
-  latency_ms?: number
-  error?: string
-}
-
 /** 服务连通性验证项 */
 export interface ServiceValidation {
   status: "healthy" | "unhealthy"
@@ -52,7 +43,6 @@ export interface ServiceValidation {
 
 /** 配置验证响应 */
 export interface ConfigValidateResponse {
-  llm_providers: LLMProviderValidation[]
   twitter_api: ServiceValidation
   database: ServiceValidation
 }

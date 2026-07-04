@@ -62,7 +62,7 @@ def init_database() -> None:
     """初始化数据库：建表。
 
     从 src/main.py 的 lifespan() 中提取的 DB 初始化逻辑，
-    不启动 SummarizationQueue、CORS/SPA 中间件。
+    不启动 CORS/SPA 中间件。
 
     file 模式(pg 下线守卫):整体早返——跳过 create_all + async engine 预热。
     预热仅为 stdio 模式 stdout handler 副作用注册,
@@ -77,10 +77,10 @@ def init_database() -> None:
     from src.database.models import Base, get_engine
 
     # 确保所有 ORM 模型在 create_all 前已注册到 Base.metadata
+    from src.database.x_user_profile_model import XUserProfileOrm  # noqa: F401
     from src.scraper.infrastructure.article_models import ArticleOrm  # noqa: F401
     from src.scraper.infrastructure.models import TweetOrm  # noqa: F401
     from src.summarization.infrastructure.models import SummaryOrm  # noqa: F401
-    from src.database.x_user_profile_model import XUserProfileOrm  # noqa: F401
 
     eng = get_engine()
 

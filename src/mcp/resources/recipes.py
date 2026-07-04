@@ -13,12 +13,12 @@ DAILY_SUMMARY_RECIPE = """\
 # 每日摘要生成工作流
 
 ## 场景
-围绕最近抓取的推文，完成数据补全、翻译/摘要补全和浏览验证。
+围绕最近抓取的推文，完成数据补全、摘要/翻译回写和浏览验证。
 
 ## 默认参数
 - 时间跨度：24 小时
 - 抓取范围：默认所有活跃关注账号
-- 翻译/摘要：优先补全缺失摘要，必要时交给 Claude Code 处理
+- 摘要/翻译：由 Claude Code 读取缺口、生成内容并回写
 
 ## 分步流程
 
@@ -30,29 +30,32 @@ DAILY_SUMMARY_RECIPE = """\
 - 轮询间隔建议：15 秒
 - 典型耗时：2-5 分钟（取决于账号数）
 
-### Step 3：检查翻译/摘要缺口
-调用 `batch_summarize(action="preview", since=<start>, until=<end>)`
-- 如果 `pending_count == 0` → 直接进入浏览验证
-- 如果 `pending_count > 0` → 调用 `batch_summarize(action="backfill", since=<start>, until=<end>)`
+### Step 3：获取摘要缺口
+调用 `get_unsummarized_tweets(limit=25, since=<start>, until=<end>)`
+- 如果返回 0 条 → 直接进入浏览验证
+- 如果有待处理推文 → 在 Claude Code 上下文中生成中文摘要和翻译
 
-### Step 4：浏览验证
+### Step 4：保存结果
+调用 `save_summaries(summaries=[...])` 回写生成结果。保存前检查摘要、翻译是否完整；验证门会返回未通过条目的明细。
+
+### Step 5：浏览验证
 调用 `browse_tweets(date=<today>)` 或 `get_feed(since=<start>)`，确认最新推文和摘要可读。
 
-### Step 5：交付
+### Step 6：交付
 基于浏览到的推文与摘要，向用户输出关注账号的当日要点、重要链接和待跟进事项。
 
 ## 错误处理
 - 抓取任务失败 → 检查网络连接，建议手动重试
 - 没有可抓取账号 → 提示先通过 `manage_follows` 添加或启用关注账号
-- 摘要仍缺失 → 使用 `get_unsummarized_tweets` 取原文，在 Claude Code 中生成后调用 `save_summaries`
+- 摘要仍缺失 → 继续使用 `get_unsummarized_tweets` 取原文，在 Claude Code 中生成后调用 `save_summaries`
 
 ## 工具调用速查
 | 步骤 | 工具 | 关键参数 |
 |------|------|----------|
 | 触发抓取 | trigger_scrape | - |
 | 监控抓取进度 | get_task_status | task_id |
-| 检查摘要缺口 | batch_summarize | action="preview", since, until |
-| 触发摘要补全 | batch_summarize | action="backfill", since, until |
+| 获取摘要缺口 | get_unsummarized_tweets | limit, since, until |
+| 保存摘要 | save_summaries | summaries |
 | 浏览验证 | browse_tweets / get_feed | date / since |
 """
 
@@ -61,15 +64,12 @@ CLAUDE_CODE_SUMMARIZE_RECIPE = """\
 # Claude Code 翻译工作流
 
 ## 场景
-使用 Claude Code 替代外部 LLM API 完成推文翻译和摘要生成。
-Claude Code 本身就是 LLM，直接阅读推文原文并生成中文摘要和翻译。
+使用 Claude Code 阅读推文原文，生成中文摘要和翻译，并通过确定性验证门回写。
 
 ## 分步流程
 
-### Step 1：抓取推文（跳过自动翻译）
-调用 `trigger_scrape(skip_summarization=true)`
-- 设置 `skip_summarization=true` 确保抓取后不自动调用 LLM API 翻译
-- 记录返回的 task_id
+### Step 1：抓取推文
+调用 `trigger_scrape()` 并记录返回的 task_id。
 
 ### Step 2：等待抓取完成
 轮询 `get_task_status(task_id)` 直到 status == "completed"
@@ -110,7 +110,7 @@ Claude Code 本身就是 LLM，直接阅读推文原文并生成中文摘要和�
 ## 工具调用速查
 | 步骤 | 工具 | 关键参数 |
 |------|------|----------|
-| 抓取 | trigger_scrape | skip_summarization=true |
+| 抓取 | trigger_scrape | usernames, limit |
 | 等待 | get_task_status | task_id |
 | 获取待翻译 | get_unsummarized_tweets | limit, since, until |
 | 保存结果 | save_summaries | summaries (原生数组,亦兼容 JSON 字符串) |

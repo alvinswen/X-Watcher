@@ -26,13 +26,6 @@ class Settings(BaseSettings):
     从环境变量加载配置，使用 Pydantic 进行验证。
     """
 
-    # LLM 提供商配置（新格式）
-    # 注意：LLM_*_API_KEY / LLM_*_MODEL 等变量由 LLMProviderConfig.from_env() 独立处理，
-    # 不经过 Settings 类。旧格式（OPENROUTER_API_KEY 等）由各 provider Config.from_env() 读取。
-    llm_providers: str = Field(
-        default="", description="LLM 提供商优先级列表（逗号分隔，如 openrouter,deepseek）"
-    )
-
     # X 平台 API 配置
     twitter_api_key: str = Field(..., description="X 平台 API 密钥")
     twitter_bearer_token: str = Field(..., description="X 平台 Bearer 令牌")
@@ -89,15 +82,6 @@ class Settings(BaseSettings):
     claude_code_model_name: str = Field(
         default="claude-opus-4-8",
         description="Claude Code 翻译/摘要接管时写入数据库的模型名（model_name / llm_model 字段）",
-    )
-
-    # 自动摘要配置
-    auto_summarization_enabled: bool = Field(default=False, description="是否在抓取后自动生成摘要")
-    auto_summarization_wait_for_completion: bool = Field(
-        default=False, description="是否等待摘要完成再标记抓取任务完成（False 为后台模式）"
-    )
-    auto_summarization_batch_size: int = Field(
-        default=50, ge=1, le=500, description="自动摘要批次大小"
     )
 
     # 动态 limit 配置

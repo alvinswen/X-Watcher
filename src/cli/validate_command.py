@@ -1,6 +1,6 @@
 """x-watcher validate 命令实现。
 
-逐一检查 LLM 提供商、Twitter API、数据库的连通性。
+逐一检查 Twitter API、数据库的连通性。
 """
 
 import asyncio
@@ -23,17 +23,7 @@ def validate() -> None:
     results.append(db_result)
     _print_result(db_result)
 
-    # 2. LLM 提供商检查
-    click.echo("\n[LLM 提供商]")
-    llm_results = asyncio.run(_check_llm_providers())
-    for r in llm_results:
-        results.append(r)
-        _print_result(r)
-
-    if not llm_results:
-        click.echo("  未配置任何 LLM 提供商")
-
-    # 3. Twitter API 检查
+    # 2. Twitter API 检查
     click.echo("\n[Twitter API]")
     twitter_result = asyncio.run(_check_twitter_api())
     results.append(twitter_result)
@@ -72,46 +62,6 @@ def _check_database() -> dict:
         return {"name": "database", "status": "healthy", "latency_ms": latency_ms}
     except Exception as e:
         return {"name": "database", "status": "unhealthy", "error": str(e)}
-
-
-async def _check_llm_providers() -> list[dict]:
-    """检查已配置的 LLM 提供商。"""
-    try:
-        from src.summarization.llm.config import LLMProviderConfig
-        from src.summarization.services.summarization_service import _build_providers_from_config
-
-        config = LLMProviderConfig.from_env()
-        providers = _build_providers_from_config(config)
-    except Exception as e:
-        return [{"name": "llm_config", "status": "unhealthy", "error": str(e)}]
-
-    results = []
-    for provider in providers:
-        name = provider.get_provider_name()
-        model = provider.get_model_name()
-        try:
-            start = time.monotonic()
-            result = await provider.complete("Say OK", max_tokens=10, temperature=0)
-            latency_ms = int((time.monotonic() - start) * 1000)
-
-            if hasattr(result, "unwrap"):
-                result.unwrap()  # 触发异常（如果是 Failure）
-
-            results.append({
-                "name": name,
-                "status": "healthy",
-                "model": model,
-                "latency_ms": latency_ms,
-            })
-        except Exception as e:
-            results.append({
-                "name": name,
-                "status": "unhealthy",
-                "model": model,
-                "error": str(e)[:200],
-            })
-
-    return results
 
 
 async def _check_twitter_api() -> dict:

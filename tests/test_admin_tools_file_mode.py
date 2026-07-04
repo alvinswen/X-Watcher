@@ -2,7 +2,6 @@
 
 路径可证:种子只进文件层 store → MCP 工具经 _tool_manager._tools[].fn 调用 →
 断言聚合出现即证读文件层(无 pg/session)。覆盖:
-- batch_summarize:preview(反连接 count)/ reset(时间窗 tweet 总数)
 - get_follow_accounts_info:profiles / stats(每账号总推文)/ analysis(逐周期 count)
 故障注入:接缝改名 / 逻辑破坏须翻红。
 """
@@ -10,7 +9,6 @@ import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
-
 
 # ── 辅助 ─────────────────────────────────────────────────────────────
 
@@ -76,72 +74,6 @@ def file_mode(monkeypatch, tmp_path):
     # 旁路 admin 鉴权(纯数据层接线测试)
     monkeypatch.setattr("src.mcp.tools.admin_tools.require_admin", lambda: None)
     return tmp_path
-
-
-# ── batch_summarize ─────────────────────────────────────────────────
-
-
-class TestBatchSummarizeFileMode:
-    @pytest.mark.asyncio
-    async def test_preview_counts_unsummarized_from_file_layer(self, file_mode):
-        """preview 反连接 count 走文件层:3 推文 1 已摘要 → pending=2。"""
-        from src.summarization.infrastructure.file_summarization_read_repository import (
-            FileSummarizationReadStore,
-        )
-
-        read = FileSummarizationReadStore(file_mode)
-        base = datetime(2026, 6, 10, 12, tzinfo=timezone.utc)
-        await read.seed_tweets([
-            _make_tweet("1", "alice", base),
-            _make_tweet("2", "bob", base + timedelta(hours=1)),
-            _make_tweet("3", "carol", base + timedelta(hours=2)),
-        ])
-        await read.seed_summaries([_make_summary("s1", "2")])
-
-        result = await _tool_funcs()["batch_summarize"](action="preview")
-        data = json.loads(result)
-        assert data["success"] is True, data
-        assert data["data"]["pending_count"] == 2
-
-    @pytest.mark.asyncio
-    async def test_reset_counts_all_tweets_in_window_from_file_layer(self, file_mode):
-        """reset 时间窗总推文(含已摘要)走文件层:窗内 2 条、窗外 1 条 → tweet_count=2。"""
-        from src.summarization.infrastructure.file_summarization_read_repository import (
-            FileSummarizationReadStore,
-        )
-
-        read = FileSummarizationReadStore(file_mode)
-        await read.seed_tweets([
-            _make_tweet("1", "alice", datetime(2026, 6, 10, 5, tzinfo=timezone.utc)),
-            _make_tweet("2", "bob", datetime(2026, 6, 10, 6, tzinfo=timezone.utc)),
-            _make_tweet("3", "carol", datetime(2026, 6, 11, 0, tzinfo=timezone.utc)),  # 窗外
-        ])
-        # 2 号已摘要也应被计入(reset 不做反连接)
-        await read.seed_summaries([_make_summary("s2", "2")])
-
-        result = await _tool_funcs()["batch_summarize"](
-            action="reset",
-            since="2026-06-10T00:00:00Z",
-            until="2026-06-11T00:00:00Z",
-        )
-        data = json.loads(result)
-        assert data["success"] is True, data
-        assert data["data"]["tweet_count"] == 2
-
-    @pytest.mark.asyncio
-    async def test_preview_breaks_when_facade_count_renamed(self, file_mode, monkeypatch):
-        """故障注入:门面 count 方法改名 → preview 报失败(证实经门面而非裸 ORM)。"""
-        from src.summarization.infrastructure.file_summarization_read_repository import (
-            FileSummarizationReadStore,
-        )
-
-        read = FileSummarizationReadStore(file_mode)
-        await read.seed_tweets([_make_tweet("1", "alice", datetime(2026, 6, 10, tzinfo=timezone.utc))])
-
-        monkeypatch.delattr(FileSummarizationReadStore, "count_unsummarized")
-        result = await _tool_funcs()["batch_summarize"](action="preview")
-        data = json.loads(result)
-        assert data["success"] is False
 
 
 # ── get_follow_accounts_info ─────────────────────────────────────────

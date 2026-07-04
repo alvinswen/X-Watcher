@@ -12,18 +12,6 @@ vi.mock("@/api", () => ({
   tweetsApi: {
     getList: vi.fn(),
   },
-  summariesApi: {
-    batchSummarize: vi.fn(),
-    getTaskStatus: vi.fn(),
-  },
-}))
-
-// Mock polling service
-vi.mock("@/services/polling", () => ({
-  taskPollingService: {
-    startPolling: vi.fn(),
-    stopAll: vi.fn(),
-  },
 }))
 
 // Mock format util

@@ -141,20 +141,11 @@
           />
         </el-form-item>
         <el-form-item label="极简介绍">
-          <div style="display: flex; gap: 8px; width: 100%">
-            <el-input
-              v-model="formData.brief_intro"
-              placeholder="≤10汉字，如「加密货币交易所」"
-              maxlength="50"
-            />
-            <el-button
-              @click="handleGenerateIntro"
-              :loading="generating"
-              :disabled="!isEditMode"
-            >
-              AI 生成
-            </el-button>
-          </div>
+          <el-input
+            v-model="formData.brief_intro"
+            placeholder="≤10汉字，如「加密货币交易所」"
+            maxlength="50"
+          />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -314,9 +305,6 @@ const selectedProfile = ref<XUserProfile | null>(null)
 /** 表单引用 */
 const formRef = ref<FormInstance>()
 
-/** 生成介绍状态 */
-const generating = ref(false)
-
 /** 表单数据 */
 const formData = reactive({
   username: "",
@@ -405,21 +393,6 @@ function handleShowProfile(follow: ScrapingFollow) {
   if (profile) {
     selectedProfile.value = profile
     profileDrawerVisible.value = true
-  }
-}
-
-/** 生成极简介绍 */
-async function handleGenerateIntro() {
-  if (!currentFollow.value) return
-  generating.value = true
-  try {
-    const result = await followsApi.generateIntro(currentFollow.value.username)
-    formData.brief_intro = result.brief_intro || ""
-    ElMessage.success("介绍生成成功")
-  } catch (error) {
-    console.error("生成介绍失败:", error)
-  } finally {
-    generating.value = false
   }
 }
 

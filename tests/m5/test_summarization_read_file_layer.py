@@ -13,8 +13,7 @@
 """
 
 import json
-import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -22,7 +21,6 @@ import pytest
 from src.mcp.helpers import success_response
 from src.scraper.domain.models import ReferenceType, Tweet
 from src.summarization.domain.models import SummaryRecord
-
 
 # ---- helpers --------------------------------------------------------------
 
@@ -51,10 +49,10 @@ async def _make_sqlite_sa_store(tmp_path):
     """temp sqlite AsyncSession + SqlalchemySummarizationReadStore,共享 TweetOrm/SummaryOrm 元数据。"""
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+    from src.data_layer._summarization_read_sqlalchemy import SqlalchemySummarizationReadStore
     from src.database.models import Base
     from src.scraper.infrastructure.models import TweetOrm  # noqa: F401 (注册元数据)
     from src.summarization.infrastructure.models import SummaryOrm  # noqa: F401
-    from src.data_layer._summarization_read_sqlalchemy import SqlalchemySummarizationReadStore
 
     db = Path(tmp_path) / "sa_read.sqlite"
     engine = create_async_engine(f"sqlite+aiosqlite:///{db}")
@@ -226,9 +224,7 @@ async def test_origins_six_fields_file_vs_sqlalchemy_controlled(monkeypatch, tmp
 
 @pytest.mark.asyncio
 async def test_load_tweets_file_mode_returns_six_fields(monkeypatch, tmp_path):
-    """接线后:file 模式下 SummarizationService._load_tweets 经 provider 门面返回 6 字段 dict,
-    与 _process_single_tweet 消费方(text/reference_type/referenced_tweet_id/referenced_tweet_text/
-    author_username/referenced_tweet_author_username)对齐 → file 模式可跑、6 字段齐全。"""
+    """接线后:file 模式下 summarization 读取门面 get_tweet_origins 返回 6 字段 dict。"""
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path / "filestore"))
 
@@ -242,11 +238,7 @@ async def test_load_tweets_file_mode_returns_six_fields(monkeypatch, tmp_path):
                referenced_tweet_author_username="orig_a"),
     ])
 
-    # 构造 SummarizationService(_load_tweets 在 file 模式忽略 session/session_factory)
-    from src.summarization.services.summarization_service import SummarizationService
-
-    service = SummarizationService(session_factory=None, providers=[])  # type: ignore[arg-type]
-    out = await service._load_tweets(["t1"])
+    out = await get_summarization_read_repo().get_tweet_origins(["t1"])
 
     assert set(out) == {"t1"}
     # 消费方(_process_single_tweet 约 405-470)用到的 6 键全部存在且正确
@@ -585,91 +577,6 @@ async def test_list_ids_fault_injection_closed_window_caught(monkeypatch, tmp_pa
         assert buggy != set(await sa_store.list_tweet_ids_in_window(s, u))
     finally:
         await cleanup()
-
-
-@pytest.mark.asyncio
-async def test_repair_endpoints_file_mode_no_crash(monkeypatch, tmp_path):
-    """4 admin 端点 file 模式可跑(DROP 后不裸查 ORM、不崩):用 ASGI client + 文件层 seed,
-    覆盖 preview_backfill / start_backfill / preview_reset / start_reset。"""
-    from unittest.mock import AsyncMock, Mock, patch
-
-    from httpx import ASGITransport, AsyncClient
-
-    from src.database.async_session import get_db_session
-    from src.main import app
-    from src.scraper import TaskRegistry
-    from src.user.api.auth import get_current_admin_user
-    from src.user.domain.models import BOOTSTRAP_ADMIN
-
-    TaskRegistry.get_instance().clear_all()
-
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
-    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path / "filestore"))
-    from src.data_layer.provider import get_summarization_read_repo
-
-    # 文件层 seed:t4/t5 无摘要;t1-t3 有摘要(同 sqlalchemy 端点测试的数据形状)
-    now = datetime.now(timezone.utc)
-    tweets = [
-        _tweet(f"t{i}", "testuser", created=now - timedelta(hours=i)) for i in range(1, 6)
-    ]
-    store = get_summarization_read_repo()
-    await store.seed_tweets(tweets)
-    await store.seed_summaries([_summary(f"s{i}", f"t{i}") for i in range(1, 4)])
-
-    # file 模式 session 被门面忽略,但端点签名仍 Depends(get_db_session) → 给个哑 override
-    async def _dummy_session():
-        yield None
-
-    async def _admin():
-        return BOOTSTRAP_ADMIN
-
-    app.dependency_overrides[get_db_session] = _dummy_session
-    app.dependency_overrides[get_current_admin_user] = _admin
-
-    mock_queue = Mock()
-    mock_queue.enqueue = AsyncMock(return_value="file-mode-task")
-    try:
-        with patch(
-            "src.summarization.services.summarization_queue.SummarizationQueue.get_instance",
-            return_value=mock_queue,
-        ):
-            transport = ASGITransport(app=app)
-            async with AsyncClient(transport=transport, base_url="http://test") as ac:
-                # preview_backfill:无窗 → t4/t5 无摘要 = 2
-                r = await ac.get("/api/summaries/backfill/preview")
-                assert r.status_code == 200
-                assert r.json()["tweet_count"] == 2
-
-                # start_backfill:同上 → 202 + 2 条
-                r = await ac.post("/api/summaries/backfill", json={})
-                assert r.status_code == 202
-                assert r.json()["tweet_count"] == 2
-
-                # preview_reset:宽窗覆盖全 5 条
-                r = await ac.get(
-                    "/api/summaries/reset/preview",
-                    params={
-                        "since": (now - timedelta(hours=6)).isoformat(),
-                        "until": (now + timedelta(hours=1)).isoformat(),
-                    },
-                )
-                assert r.status_code == 200
-                assert r.json()["tweet_count"] == 5
-
-                # start_reset:宽窗 → 202 + 5 条
-                r = await ac.post(
-                    "/api/summaries/reset",
-                    json={
-                        "since": (now - timedelta(hours=6)).isoformat(),
-                        "until": (now + timedelta(hours=1)).isoformat(),
-                    },
-                )
-                assert r.status_code == 202
-                assert r.json()["tweet_count"] == 5
-    finally:
-        app.dependency_overrides.pop(get_db_session, None)
-        app.dependency_overrides.pop(get_current_admin_user, None)
-        TaskRegistry.get_instance().clear_all()
 
 
 @pytest.mark.asyncio

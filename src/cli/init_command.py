@@ -10,8 +10,6 @@ import sys
 
 import click
 
-from src.summarization.llm.presets import PROVIDER_PRESETS, get_preset
-
 
 def _generate_password(length: int = 16) -> str:
     """生成随机密码。"""
@@ -26,12 +24,6 @@ def _generate_jwt_secret() -> str:
 
 @click.command()
 @click.option("--twitter-api-key", default=None, help="TwitterAPI.io API Key")
-@click.option(
-    "--llm-provider",
-    default=None,
-    help=f"LLM 提供商 ({', '.join(s for s in PROVIDER_PRESETS if s != 'custom')})",
-)
-@click.option("--llm-api-key", default=None, help="LLM API Key")
 @click.option("--admin-email", default=None, help="管理员邮箱")
 @click.option("--admin-password", default=None, help="管理员密码（默认自动生成）")
 @click.option("--no-input", is_flag=True, help="非交互模式（缺必填参数则报错）")
@@ -39,8 +31,6 @@ def _generate_jwt_secret() -> str:
 @click.option("--skip-validate", is_flag=True, help="跳过 API Key 验证")
 def init(
     twitter_api_key: str | None,
-    llm_provider: str | None,
-    llm_api_key: str | None,
     admin_email: str | None,
     admin_password: str | None,
     no_input: bool,
@@ -63,32 +53,6 @@ def init(
             sys.exit(1)
         twitter_api_key = click.prompt("Twitter API Key (TwitterAPI.io)")
 
-    # LLM Provider
-    available_providers = [s for s in PROVIDER_PRESETS if s != "custom"]
-    if not llm_provider:
-        if no_input:
-            click.echo("错误：--no-input 模式下必须提供 --llm-provider", err=True)
-            sys.exit(1)
-        click.echo(f"\n可用的 LLM 提供商: {', '.join(available_providers)}")
-        llm_provider = click.prompt(
-            "选择 LLM 提供商",
-            type=click.Choice(available_providers, case_sensitive=False),
-        )
-
-    llm_provider = llm_provider.lower()
-    preset = get_preset(llm_provider)
-    if preset is None and llm_provider != "custom":
-        click.echo(f"错误：未知的 LLM 提供商 '{llm_provider}'", err=True)
-        click.echo(f"可选值: {', '.join(available_providers)}")
-        sys.exit(1)
-
-    # LLM API Key
-    if not llm_api_key:
-        if no_input:
-            click.echo("错误：--no-input 模式下必须提供 --llm-api-key", err=True)
-            sys.exit(1)
-        llm_api_key = click.prompt(f"{llm_provider} API Key")
-
     # Admin email
     if not admin_email:
         if no_input:
@@ -110,17 +74,15 @@ def init(
 
     env_content = _build_env_content(
         twitter_api_key=twitter_api_key,
-        llm_provider=llm_provider,
-        llm_api_key=llm_api_key,
         jwt_secret=jwt_secret,
     )
 
     env_path = os.path.join(os.getcwd(), ".env")
     if os.path.exists(env_path):
         if no_input:
-            click.echo(f"  .env 已存在，跳过（使用已有文件）")
+            click.echo("  .env 已存在，跳过（使用已有文件）")
         else:
-            overwrite = click.confirm(f"  .env 已存在，是否覆盖？", default=False)
+            overwrite = click.confirm("  .env 已存在，是否覆盖？", default=False)
             if not overwrite:
                 click.echo("  跳过 .env 生成")
             else:
@@ -154,10 +116,7 @@ def init(
     if not skip_validate:
         click.echo("\n验证配置...")
         # 简单输出配置摘要即可，详细验证用 x-watcher validate
-        click.echo(f"  LLM 提供商: {llm_provider}")
-        if preset:
-            click.echo(f"  默认模型: {preset.default_model}")
-            click.echo(f"  Base URL: {preset.base_url}")
+        click.echo("  可运行 x-watcher validate 检查 Twitter API 与数据库")
     else:
         click.echo("\n跳过验证（--skip-validate）")
 
@@ -167,7 +126,6 @@ def init(
     click.echo()
     click.echo("配置摘要：")
     click.echo(f"  Twitter API Key: {twitter_api_key[:8]}...")
-    click.echo(f"  LLM 提供商: {llm_provider}")
     click.echo(f"  管理员邮箱: {admin_email}")
     if generated_password:
         click.echo(f"  管理员密码: {admin_password}  (自动生成，请妥善保管)")
@@ -185,56 +143,35 @@ def init(
 
 def _build_env_content(
     twitter_api_key: str,
-    llm_provider: str,
-    llm_api_key: str,
     jwt_secret: str,
 ) -> str:
     """构建 .env 文件内容。"""
-    preset = get_preset(llm_provider)
-    provider_slug = llm_provider.upper()
-
     lines = [
         "# X-watcher 配置（由 x-watcher init 生成）",
         "",
-        "# LLM 配置",
-        f"LLM_PROVIDERS={llm_provider}",
-        f"LLM_{provider_slug}_API_KEY={llm_api_key}",
+        "# X 平台 API 配置",
+        f"TWITTER_API_KEY={twitter_api_key}",
+        "TWITTER_BEARER_TOKEN=placeholder",
+        "TWITTER_BASE_URL=https://api.twitterapi.io/twitter",
+        "",
+        "# 抓取器配置",
+        "SCRAPER_ENABLED=true",
+        "SCRAPER_USERNAMES=",
+        "SCRAPER_LIMIT=30",
+        "",
+        "# 数据库配置",
+        "DATABASE_URL=sqlite:///./news_agent.db",
+        "",
+        "# 日志配置",
+        "LOG_LEVEL=INFO",
+        "",
+        "# JWT 认证",
+        f"JWT_SECRET_KEY={jwt_secret}",
+        "JWT_EXPIRE_HOURS=24",
+        "",
+        "# 监控",
+        "PROMETHEUS_ENABLED=true",
     ]
-
-    if preset and preset.default_model:
-        lines.append(f"LLM_{provider_slug}_MODEL={preset.default_model}")
-
-    lines.extend(
-        [
-            "",
-            "# X 平台 API 配置",
-            f"TWITTER_API_KEY={twitter_api_key}",
-            "TWITTER_BEARER_TOKEN=placeholder",
-            "TWITTER_BASE_URL=https://api.twitterapi.io/twitter",
-            "",
-            "# 抓取器配置",
-            "SCRAPER_ENABLED=true",
-            "SCRAPER_USERNAMES=",
-            "SCRAPER_LIMIT=30",
-            "",
-            "# 数据库配置",
-            "DATABASE_URL=sqlite:///./news_agent.db",
-            "",
-            "# 日志配置",
-            "LOG_LEVEL=INFO",
-            "",
-            "# JWT 认证",
-            f"JWT_SECRET_KEY={jwt_secret}",
-            "JWT_EXPIRE_HOURS=24",
-            "",
-            "# 自动摘要",
-            "AUTO_SUMMARIZATION_ENABLED=true",
-            "AUTO_SUMMARIZATION_BATCH_SIZE=50",
-            "",
-            "# 监控",
-            "PROMETHEUS_ENABLED=true",
-        ]
-    )
 
     return "\n".join(lines) + "\n"
 
@@ -266,16 +203,15 @@ def _create_admin(email: str, password: str) -> str | None:
         raw API Key（用户已存在时返回 None）。
     """
     from scripts.seed_admin import _hash_password
-
     from src.data_layer.provider import is_file_mode
     from src.user.services.auth_service import AuthService
 
     if is_file_mode():
         return _create_admin_file(email, password, _hash_password, AuthService)
 
-    from src.database.models import ApiKey, User, get_engine
-
     from sqlalchemy.orm import Session
+
+    from src.database.models import ApiKey, User, get_engine
 
     engine = get_engine()
     with Session(engine) as session:

@@ -8,7 +8,6 @@ import logging
 import os
 import tempfile
 from logging.handlers import QueueHandler
-from unittest.mock import patch
 
 import pytest
 
@@ -16,7 +15,6 @@ from src.logging_config import (
     EnhancedTextFormatter,
     JSONFormatter,
     TraceIdFilter,
-    _queue_listener,
     setup_logging,
     shutdown_logging,
     trace_id_var,
@@ -93,13 +91,13 @@ class TestJSONFormatter:
         )
         record.trace_id = "-"
         record.tweet_id = "tw_001"
-        record.provider = "openrouter"
+        record.provider = "scraper"
 
         output = formatter.format(record)
         data = json.loads(output)
 
         assert data["extra"]["tweet_id"] == "tw_001"
-        assert data["extra"]["provider"] == "openrouter"
+        assert data["extra"]["provider"] == "scraper"
 
     def test_exception_included(self):
         """测试异常信息包含在 JSON 输出中。"""
@@ -155,16 +153,16 @@ class TestEnhancedTextFormatter:
         """测试关键 extra 字段追加到消息后。"""
         formatter = EnhancedTextFormatter(datefmt="%Y-%m-%d %H:%M:%S")
         record = logging.LogRecord(
-            "test", logging.INFO, "", 0, "LLM 调用", (), None
+            "test", logging.INFO, "", 0, "服务调用", (), None
         )
         record.trace_id = "-"
-        record.provider = "openrouter"
+        record.provider = "scraper"
         record.tweet_id = "tw_001"
 
         output = formatter.format(record)
 
         assert "| " in output
-        assert "provider=openrouter" in output
+        assert "provider=scraper" in output
         assert "tweet_id=tw_001" in output
 
     def test_no_extra_no_pipe(self):
