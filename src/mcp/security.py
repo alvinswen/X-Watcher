@@ -17,6 +17,8 @@ security_logger = logging.getLogger("xwatcher.security")
 # 工具名 → 环境变量名映射
 _GUARD_ENV_MAP: dict[str, str] = {
     "manage_follows": "MCP_FOLLOWS_ALLOWED_ACTIONS",
+    "trigger_scrape": "MCP_TRIGGER_SCRAPE_ALLOWED_ACTIONS",
+    "trigger_backfill": "MCP_TRIGGER_BACKFILL_ALLOWED_ACTIONS",
 }
 
 # 进程级缓存：工具名 → 允许的 action 集合（None 表示全部允许）
@@ -183,7 +185,7 @@ def _persist_audit_log(
 def log_action_guard_config() -> None:
     """启动时打印当前 guard 配置。"""
     lines = []
-    for tool_name, env_var in _GUARD_ENV_MAP.items():
+    for tool_name in _GUARD_ENV_MAP:
         allowed = _get_allowed_actions(tool_name)
         if allowed is None:
             lines.append(f"  {tool_name}: 全部允许")
@@ -192,6 +194,6 @@ def log_action_guard_config() -> None:
 
     scrape_enabled = os.environ.get("MCP_SCRAPE_ENABLED", "true").lower()
     scrape_status = "允许" if scrape_enabled in ("true", "1", "yes") else "禁用"
-    lines.append(f"  trigger_scrape: {scrape_status}")
+    lines.append(f"  scrape/backfill 整体开关 (MCP_SCRAPE_ENABLED): {scrape_status}")
 
     security_logger.info("Action Guard 配置:\n%s", "\n".join(lines))

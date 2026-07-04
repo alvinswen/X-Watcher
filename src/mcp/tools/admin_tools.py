@@ -198,11 +198,14 @@ def register(mcp: FastMCP) -> None:
         if perm_err:
             return perm_err
 
-        from src.mcp.security import audit_log, check_scrape_guard
+        from src.mcp.security import audit_log, check_action_guard, check_scrape_guard
 
         guard_err = check_scrape_guard()
         if guard_err:
             return guard_err
+        action_guard_err = check_action_guard("trigger_scrape", "scrape")
+        if action_guard_err:
+            return action_guard_err
 
         try:
             from src.scraper import ScrapingService, TaskRegistry
@@ -270,11 +273,14 @@ def register(mcp: FastMCP) -> None:
         if perm_err:
             return perm_err
 
-        from src.mcp.security import audit_log, check_scrape_guard
+        from src.mcp.security import audit_log, check_action_guard, check_scrape_guard
 
         guard_err = check_scrape_guard()
         if guard_err:
             return guard_err
+        action_guard_err = check_action_guard("trigger_backfill", "scrape")
+        if action_guard_err:
+            return action_guard_err
 
         try:
             from src.scraper import ScrapingService
