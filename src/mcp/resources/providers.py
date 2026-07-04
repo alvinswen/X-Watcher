@@ -95,10 +95,6 @@ def register(mcp: FastMCP) -> None:
                         "early_stop_threshold": settings.scraper_early_stop_threshold,
                         "max_extra_pages": settings.scraper_max_extra_pages,
                     },
-                    "summarization": {
-                        "auto_enabled": settings.auto_summarization_enabled,
-                        "batch_size": settings.auto_summarization_batch_size,
-                    },
                     "feed": {
                         "max_tweets": settings.feed_max_tweets,
                     },

@@ -10,28 +10,28 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.data_layer.provider import get_follows_repo
 from src.database.async_session import get_async_session
-from src.user.api.auth import get_current_admin_user, get_current_user
-from src.user.domain.models import UserDomain
 from src.preference.api.schemas import (
     CreateScraperFollowRequest,
-    ScraperFollowResponse,
-    UpdateScraperFollowRequest,
     DeleteResponse,
     ErrorResponse,
     FetchAnalysisResponse,
     FollowStatsResponse,
     PeriodStats,
-    TweetTimeRangeResponse,
-    XUserProfileResponse,
+    ScraperFollowResponse,
     SyncProfilesResponse,
+    TweetTimeRangeResponse,
+    UpdateScraperFollowRequest,
+    XUserProfileResponse,
 )
 from src.preference.infrastructure.scraper_config_repository import (
-    NotFoundError,
     DuplicateError,
+    NotFoundError,
 )
-from src.data_layer.provider import get_follows_repo
 from src.preference.services.scraper_config_service import ScraperConfigService
+from src.user.api.auth import get_current_admin_user, get_current_user
+from src.user.domain.models import UserDomain
 
 logger = logging.getLogger(__name__)
 
@@ -61,14 +61,6 @@ async def _get_scraper_config_service(
     """
     repository = get_follows_repo(session)
     return ScraperConfigService(repository)
-
-
-def _build_llm_providers():
-    """复用摘要服务的 LLM provider 构建逻辑。"""
-    from src.summarization.llm.config import LLMProviderConfig
-    from src.summarization.services.summarization_service import _build_providers_from_config
-
-    return _build_providers_from_config(LLMProviderConfig.from_env())
 
 
 @router.post(
@@ -562,115 +554,6 @@ async def update_scraper_follow(
         logger.error(f"更新抓取账号失败: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="更新抓取账号失败"
-        ) from e
-
-
-@router.post(
-    "/follows/{username}/generate-intro",
-    response_model=ScraperFollowResponse,
-    responses={
-        status.HTTP_401_UNAUTHORIZED: {"model": ErrorResponse},
-        status.HTTP_403_FORBIDDEN: {"model": ErrorResponse},
-        status.HTTP_404_NOT_FOUND: {"model": ErrorResponse},
-    },
-)
-async def generate_follow_intro(
-    username: str,
-    session: AsyncSession = Depends(get_async_session),
-    admin: UserDomain = Depends(get_current_admin_user),
-) -> ScraperFollowResponse:
-    """为指定关注账号生成极简介绍。
-
-    查询用户档案，调用 LLM 生成 ≤10 汉字的极简介绍并保存。
-    """
-    from src.data_layer.provider import get_profile_repo
-
-    try:
-        # 查询 follow
-        config_repo = get_follows_repo(session)
-        follow = await config_repo.get_follow_by_username(username)
-        if follow is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"抓取账号 '@{username}' 不存在",
-            )
-
-        # 查询档案
-        profile_repo = get_profile_repo(session)
-        profile = await profile_repo.get_profile_by_username(username)
-        if profile is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"用户 {username} 的档案不存在（请先同步档案）",
-            )
-
-        display_name = profile.display_name or username
-        description = profile.description or ""
-
-        # 调用 LLM
-        providers = _build_llm_providers()
-        if not providers:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="没有可用的 LLM 提供商",
-            )
-
-        prompt = (
-            "根据以下 Twitter 账号信息，生成一个不超过10个汉字的中文极简介绍。\n"
-            f"显示名: {display_name}\n"
-            f"个人简介: {description}\n"
-            "只输出介绍文本，不要包含引号、标点或额外说明。"
-        )
-
-        from returns.result import Success as SuccessResult
-
-        llm_result = None
-        for provider in providers:
-            try:
-                result = await provider.complete(
-                    prompt=prompt,
-                    max_tokens=100,
-                    temperature=0.3,
-                )
-                if isinstance(result, SuccessResult):
-                    llm_result = result.unwrap()
-                    break
-            except Exception as e:
-                logger.warning(f"Provider {provider.get_provider_name()} 调用失败: {e}")
-
-        if llm_result is None:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="所有 LLM 提供商均失败",
-            )
-
-        brief_intro = llm_result.content.strip()[:50]
-
-        # 保存
-        updated = await config_repo.update_scraper_follow(
-            username=username,
-            brief_intro=brief_intro,
-        )
-        await session.commit()
-
-        return ScraperFollowResponse(
-            id=updated.id,
-            username=updated.username,
-            platform_user_id=updated.platform_user_id,
-            added_at=updated.added_at,
-            reason=updated.reason,
-            added_by=updated.added_by,
-            is_active=updated.is_active,
-            manual_limit=updated.manual_limit,
-            brief_intro=updated.brief_intro,
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"生成极简介绍失败: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="生成极简介绍失败",
         ) from e
 
 

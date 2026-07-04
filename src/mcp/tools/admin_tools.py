@@ -1,7 +1,7 @@
 """MCP Admin 管理工具。
 
 提供 manage_follows、trigger_scrape、trigger_backfill、get_task_status、
-batch_summarize、get_follow_accounts_info 六个 Admin 级工具。
+get_follow_accounts_info 五个 Admin 级工具。
 """
 
 import logging
@@ -11,7 +11,6 @@ from mcp.server.fastmcp import FastMCP
 from src.mcp.auth import require_admin
 from src.mcp.helpers import (
     error_response,
-    parse_datetime_optional,
     resolve_user_list,
     success_response,
 )
@@ -60,8 +59,8 @@ def register(mcp: FastMCP) -> None:
             return guard_err
 
         try:
-            from src.database.async_session import get_async_session_maker
             from src.data_layer.provider import get_follows_repo
+            from src.database.async_session import get_async_session_maker
             from src.preference.services.scraper_config_service import (
                 ScraperConfigService,
             )
@@ -188,15 +187,12 @@ def register(mcp: FastMCP) -> None:
     async def trigger_scrape(
         usernames: str | None = None,
         limit: int = 100,
-        skip_summarization: bool = False,
     ) -> str:
         """手动触发抓取任务。需要管理员权限。
 
         Args:
             usernames: 要抓取的 X 用户名，逗号分隔。留空则抓取所有活跃账号
             limit: 每个用户的抓取推文数量限制，默认 100
-            skip_summarization: 跳过自动摘要生成。设为 true 时抓取后不自动翻译，
-                               适用于 Claude Code 接管翻译的场景
         """
         perm_err = require_admin()
         if perm_err:
@@ -221,7 +217,7 @@ def register(mcp: FastMCP) -> None:
                     "rate_limit",
                 )
 
-            service = ScrapingService(skip_summarization=skip_summarization)
+            service = ScrapingService()
 
             user_list = await resolve_user_list(usernames)
             if not user_list:
@@ -239,21 +235,14 @@ def register(mcp: FastMCP) -> None:
                 params={
                     "usernames": user_list,
                     "limit": limit,
-                    "skip_summarization": skip_summarization,
                 },
-            )
-            msg = (
-                "抓取任务已完成（摘要生成已跳过，等待外部翻译）"
-                if skip_summarization
-                else "抓取任务已完成（含摘要生成）"
             )
             return success_response(
                 {
                     "task_id": task_id,
                     "usernames": user_list,
                     "limit": limit,
-                    "skip_summarization": skip_summarization,
-                    "message": msg,
+                    "message": "抓取任务已完成",
                 }
             )
         except Exception as e:
@@ -348,135 +337,6 @@ def register(mcp: FastMCP) -> None:
         except Exception as e:
             logger.error("get_task_status 失败: %s", e, exc_info=True)
             return error_response(f"查询失败: {e}")
-
-    @mcp.tool()
-    async def batch_summarize(
-        action: str = "preview",
-        since: str | None = None,
-        until: str | None = None,
-        batch_size: int = 50,
-    ) -> str:
-        """批量摘要生成（backfill/重置/预览）。需要管理员权限。
-
-        Args:
-            action: 操作类型：
-                    "preview" - 预览待摘要推文数量（默认）
-                    "backfill" - 为缺少摘要的推文批量生成
-                    "reset" - 重置指定时间范围的摘要并重新生成
-            since: 起始时间，ISO 8601 格式（reset 时必填）
-            until: 截止时间，ISO 8601 格式（reset 时必填）
-            batch_size: 每批处理数量，默认 50
-        """
-        perm_err = require_admin()
-        if perm_err:
-            return perm_err
-
-        if action not in ("preview", "backfill", "reset"):
-            return error_response(
-                f"无效的 action: {action}，可选值: preview, backfill, reset",
-                "validation",
-            )
-
-        from src.mcp.security import audit_log, check_action_guard
-
-        guard_err = check_action_guard("batch_summarize", action)
-        if guard_err:
-            return guard_err
-
-        try:
-            from src.data_layer.provider import get_summarization_read_repo
-            from src.database.async_session import get_async_session_maker
-
-            since_dt = parse_datetime_optional(since)
-            until_dt = parse_datetime_optional(until)
-            session_maker = get_async_session_maker()
-
-            if action == "preview":
-                # 反连接 count 走 summarization 读门面(file 模式忽略 session)
-                async with session_maker() as session:
-                    read_repo = get_summarization_read_repo(session)
-                    count = await read_repo.count_unsummarized(since=since_dt, until=until_dt)
-                return success_response(
-                    {
-                        "action": "preview",
-                        "pending_count": count,
-                    }
-                )
-
-            elif action == "backfill":
-                # 启动后台 backfill 任务
-                from src.summarization.services.summarization_queue import (
-                    SummarizationPriority,
-                    SummarizationQueue,
-                )
-
-                queue = SummarizationQueue.get_instance()
-                await queue.start()  # 幂等：已启动则立即返回
-
-                # 查询待摘要推文 ID(反连接 DESC limit,走读门面取 tweet_id)
-                async with session_maker() as session:
-                    read_repo = get_summarization_read_repo(session)
-                    rows = await read_repo.get_unsummarized_tweets(
-                        since=since_dt, until=until_dt, limit=batch_size
-                    )
-                    tweet_ids = [r["tweet_id"] for r in rows]
-
-                if not tweet_ids:
-                    return success_response(
-                        {
-                            "action": "backfill",
-                            "message": "没有待摘要的推文",
-                            "count": 0,
-                        }
-                    )
-
-                # 入队（队列在 FastAPI 进程中运行，MCP 需要自行启动）
-                task_id = await queue.enqueue(
-                    tweet_ids,
-                    source="mcp_backfill",
-                    priority=SummarizationPriority.HIGH,
-                )
-
-                audit_log("batch_summarize", "backfill", params={"tweet_count": len(tweet_ids)})
-                return success_response(
-                    {
-                        "action": "backfill",
-                        "task_id": task_id,
-                        "tweet_count": len(tweet_ids),
-                        "note": "摘要任务已入队，worker 正在处理",
-                    }
-                )
-
-            elif action == "reset":
-                if not since_dt or not until_dt:
-                    return error_response("reset 操作需要 since 和 until 参数", "validation")
-
-                # 时间窗全部推文数(含已摘要)走读门面 count_tweets_in_window
-                async with session_maker() as session:
-                    read_repo = get_summarization_read_repo(session)
-                    tweet_count = await read_repo.count_tweets_in_window(since_dt, until_dt)
-
-                audit_log(
-                    "batch_summarize",
-                    "reset",
-                    params={"since": since, "until": until, "tweet_count": tweet_count},
-                )
-                return success_response(
-                    {
-                        "action": "reset_preview",
-                        "since": since,
-                        "until": until,
-                        "tweet_count": tweet_count,
-                        "note": "请通过 FastAPI API 执行实际的 reset 操作",
-                    }
-                )
-
-        except (ValueError, TypeError) as e:
-            return error_response(f"参数解析失败: {e}", "validation")
-        except Exception as e:
-            audit_log("batch_summarize", action, result="failure", error=str(e))
-            logger.error("batch_summarize 失败: %s", e, exc_info=True)
-            return error_response(f"操作失败: {e}")
 
     @mcp.tool()
     async def get_follow_accounts_info(

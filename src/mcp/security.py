@@ -17,7 +17,6 @@ security_logger = logging.getLogger("xwatcher.security")
 # 工具名 → 环境变量名映射
 _GUARD_ENV_MAP: dict[str, str] = {
     "manage_follows": "MCP_FOLLOWS_ALLOWED_ACTIONS",
-    "batch_summarize": "MCP_SUMMARIZE_ALLOWED_ACTIONS",
 }
 
 # 进程级缓存：工具名 → 允许的 action 集合（None 表示全部允许）

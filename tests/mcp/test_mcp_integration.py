@@ -615,7 +615,6 @@ class TestToolRegistration:
             "trigger_scrape",
             "trigger_backfill",
             "get_task_status",
-            "batch_summarize",
             "get_follow_accounts_info",
             # Summarization
             "get_unsummarized_tweets",

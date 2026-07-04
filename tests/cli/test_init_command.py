@@ -29,8 +29,6 @@ class TestInitCommand:
                 "init",
                 "--no-input",
                 "--twitter-api-key=test-twitter-key",
-                "--llm-provider=deepseek",
-                "--llm-api-key=sk-test-123",
                 "--skip-db",
                 "--skip-validate",
             ],
@@ -43,9 +41,9 @@ class TestInitCommand:
         env_path = tmp_path / ".env"
         assert env_path.exists()
         env_content = env_path.read_text(encoding="utf-8")
-        assert "LLM_PROVIDERS=deepseek" in env_content
-        assert "LLM_DEEPSEEK_API_KEY=sk-test-123" in env_content
         assert "TWITTER_API_KEY=test-twitter-key" in env_content
+        assert "LLM" + "_" not in env_content
+        assert "AUTO_" + "SUMMARIZATION" not in env_content
 
     def test_init_no_input_skip_existing_env(self, tmp_path, monkeypatch):
         """非交互模式下已有 .env 时跳过。"""
@@ -63,8 +61,6 @@ class TestInitCommand:
                 "init",
                 "--no-input",
                 "--twitter-api-key=key",
-                "--llm-provider=deepseek",
-                "--llm-api-key=sk-test",
                 "--skip-db",
                 "--skip-validate",
             ],
@@ -90,8 +86,6 @@ class TestInitCommand:
                 "init",
                 "--no-input",
                 "--twitter-api-key=test-twitter-key",
-                "--llm-provider=deepseek",
-                "--llm-api-key=sk-test-123",
                 "--skip-validate",
             ],
         )
@@ -103,6 +97,7 @@ class TestInitCommand:
         # conftest 的 autouse fixture 将 get_engine() patch 为 :memory: 引擎，
         # 所以通过 get_engine() 获取同一个引擎来验证数据
         from sqlalchemy import text
+
         from src.database.models import get_engine
         engine = get_engine()
         with engine.connect() as conn:
@@ -126,8 +121,6 @@ class TestInitCommand:
                 "init",
                 "--no-input",
                 "--twitter-api-key=key",
-                "--llm-provider=openrouter",
-                "--llm-api-key=sk-test",
                 "--skip-db",
                 "--skip-validate",
             ],
@@ -138,6 +131,8 @@ class TestInitCommand:
         assert "JWT_SECRET_KEY=" in env_content
         # JWT 密钥不应该是默认值
         assert "change-me-in-production" not in env_content
+        assert "LLM" + "_" not in env_content
+        assert "AUTO_" + "SUMMARIZATION" not in env_content
 
 
 class TestValidateCommand:
@@ -147,9 +142,6 @@ class TestValidateCommand:
         """validate 命令能正常运行。"""
         monkeypatch.setenv("TWITTER_API_KEY", "")
         monkeypatch.setenv("TWITTER_BEARER_TOKEN", "test")
-        monkeypatch.setenv("LLM_PROVIDERS", "")
-        monkeypatch.setenv("MINIMAX_API_KEY", "")
-        monkeypatch.setenv("OPENROUTER_API_KEY", "")
 
         runner = CliRunner()
         result = runner.invoke(cli, ["validate"])

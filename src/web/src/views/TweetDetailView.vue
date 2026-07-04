@@ -39,15 +39,6 @@
               <span>AI 摘要</span>
               <el-tag v-if="tweet.summary.cached" type="info" size="small">缓存</el-tag>
             </div>
-            <el-button
-              link
-              :icon="Refresh"
-              :loading="regenerating"
-              :disabled="regenerating"
-              @click="handleRegenerateSummary"
-            >
-              重新生成
-            </el-button>
           </div>
         </template>
         <div class="summary-content">
@@ -91,17 +82,7 @@
 
       <!-- 无摘要提示 -->
       <el-card v-else class="info-card">
-        <el-empty description="此推文暂无摘要" :image-size="80">
-          <el-button
-            type="primary"
-            :icon="Refresh"
-            :loading="regenerating"
-            :disabled="regenerating"
-            @click="handleRegenerateSummary"
-          >
-            生成摘要
-          </el-button>
-        </el-empty>
+        <el-empty description="暂无摘要 · 摘要由 Agent 生成" :image-size="80" />
       </el-card>
 
     </div>
@@ -118,9 +99,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue"
 import { useRoute, useRouter } from "vue-router"
-import { ArrowLeft, Refresh } from "@element-plus/icons-vue"
-import { ElMessage } from "element-plus"
-import { tweetsApi, summariesApi } from "@/api"
+import { ArrowLeft } from "@element-plus/icons-vue"
+import { tweetsApi } from "@/api"
 import { formatFullDateTime } from "@/utils/format"
 import type { TweetDetail } from "@/types"
 
@@ -133,9 +113,6 @@ const tweet = ref<TweetDetail | null>(null)
 
 /** 加载状态 */
 const loading = ref(false)
-
-/** 摘要再生成状态 */
-const regenerating = ref(false)
 
 /** 加载推文详情 */
 async function loadTweetDetail() {
@@ -157,25 +134,6 @@ async function loadTweetDetail() {
 /** 返回上一页 */
 function handleGoBack() {
   router.back()
-}
-
-/** 重新生成/生成摘要 */
-async function handleRegenerateSummary() {
-  const tweetId = route.params.id as string
-  if (!tweetId) return
-
-  regenerating.value = true
-  try {
-    await summariesApi.regenerate(tweetId)
-    ElMessage.success("摘要生成成功")
-    // 刷新详情
-    tweet.value = await tweetsApi.getDetail(tweetId)
-  } catch (error) {
-    console.error("摘要生成失败:", error)
-    ElMessage.error("摘要生成失败，请稍后重试")
-  } finally {
-    regenerating.value = false
-  }
 }
 
 /** 组件挂载时加载数据 */

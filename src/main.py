@@ -51,8 +51,7 @@ def _init_db_if_needed():
 async def lifespan(app: FastAPI):  # noqa: ARG001 - app 参数是 FastAPI 要求的
     """应用生命周期管理。
 
-    启动时创建数据库表并初始化后台队列。
-    关闭时停止后台队列。
+    启动时创建数据库表并执行启动安全检查。
     """
     settings = get_settings()
 
@@ -76,20 +75,11 @@ async def lifespan(app: FastAPI):  # noqa: ARG001 - app 参数是 FastAPI 要求
     if recovered > 0:
         logger.warning(f"启动时恢复了 {recovered} 个僵尸任务")
 
-    # 启动摘要任务队列
-    from src.summarization.services.summarization_queue import SummarizationQueue
-
-    _summarization_queue = SummarizationQueue.get_instance()
-    await _summarization_queue.start()
-
     # 记录服务启动时间
     global _server_start_time
     _server_start_time = datetime.now(timezone.utc)
 
     yield
-
-    # 关闭时的清理工作
-    await _summarization_queue.stop()
 
 
 # 创建 FastAPI 应用
@@ -191,7 +181,7 @@ from src.subjects.api.routes import router as subjects_router
 app.include_router(subjects_router)
 
 # 注册用户管理 API 路由
-from src.user.api import auth_router, user_router, admin_user_router
+from src.user.api import admin_user_router, auth_router, user_router
 
 app.include_router(auth_router)
 app.include_router(user_router)
@@ -229,8 +219,9 @@ app.include_router(sync_router)
 
 # 配置前端静态资源服务（如果存在）
 import os
-from fastapi.staticfiles import StaticFiles
+
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 

@@ -48,26 +48,3 @@ db_pool_available = Gauge(
     "db_pool_available",
     "Available database connections",
 )
-
-# 摘要队列指标
-summarization_queue_size = Gauge(
-    "summarization_queue_size",
-    "Current items in summarization queue",
-)
-
-summarization_queue_enqueued_total = Counter(
-    "summarization_queue_enqueued_total",
-    "Total items enqueued to summarization queue",
-    ["source"],  # scraping/batch_api/retry
-)
-
-summarization_queue_processed_total = Counter(
-    "summarization_queue_processed_total",
-    "Total items processed from summarization queue",
-    ["status"],  # success/failure
-)
-
-summarization_queue_dropped_total = Counter(
-    "summarization_queue_dropped_total",
-    "Items dropped due to full summarization queue",
-)

@@ -75,29 +75,6 @@
         show-icon
       />
       <div v-else-if="configData" class="health-section">
-        <!-- LLM 提供商 -->
-        <div class="health-group">
-          <div class="health-group-title">LLM 提供商</div>
-          <div class="health-items">
-            <div
-              v-for="provider in configData.llm_providers"
-              :key="provider.name"
-              class="health-item"
-            >
-              <el-tag
-                :type="provider.status === 'healthy' ? 'success' : 'danger'"
-                size="large"
-                class="health-tag"
-              >
-                {{ provider.name }}
-              </el-tag>
-              <span v-if="provider.model" class="health-detail">{{ provider.model }}</span>
-              <span v-if="provider.latency_ms" class="health-latency">{{ provider.latency_ms }}ms</span>
-              <span v-if="provider.error" class="health-error">{{ provider.error }}</span>
-            </div>
-          </div>
-        </div>
-
         <!-- Twitter API -->
         <div class="health-group">
           <div class="health-group-title">Twitter API</div>

@@ -47,7 +47,6 @@ class ScrapingService:
         repository: Any | None = None,
         max_concurrent: int = 3,
         limit_calculator: LimitCalculator | None = None,
-        skip_summarization: bool = False,
     ) -> None:
         """初始化抓取服务。
 
@@ -58,14 +57,12 @@ class ScrapingService:
             repository: 推文仓库（为 None 时创建新实例）
             max_concurrent: 最大并发请求数
             limit_calculator: 动态 Limit 计算器（为 None 时从配置创建）
-            skip_summarization: 跳过自动摘要生成（Claude Code 接管翻译时使用）
         """
         self._client = client or TwitterClient()
         self._parser = parser or TweetParser()
         self._validator = validator or TweetValidator()
         self._repository = repository
         self._max_concurrent = max_concurrent
-        self._skip_summarization = skip_summarization
         self._registry = TaskRegistry.get_instance()
 
         if limit_calculator is not None:
@@ -566,8 +563,8 @@ class ScrapingService:
     ) -> None:
         """更新用户的回溯状态。"""
         try:
-            from src.database.async_session import get_async_session_maker
             from src.data_layer.provider import get_follows_repo
+            from src.database.async_session import get_async_session_maker
 
             session_maker = get_async_session_maker()
             async with session_maker() as session:
@@ -589,8 +586,8 @@ class ScrapingService:
             FetchStats | None: 统计数据，不存在时返回 None
         """
         try:
-            from src.database.async_session import get_async_session_maker
             from src.data_layer.provider import get_fetch_stats_repo
+            from src.database.async_session import get_async_session_maker
 
             session_maker = get_async_session_maker()
             async with session_maker() as session:
@@ -616,8 +613,8 @@ class ScrapingService:
             new_count: 本次新增的推文数
         """
         try:
-            from src.database.async_session import get_async_session_maker
             from src.data_layer.provider import get_fetch_stats_repo
+            from src.database.async_session import get_async_session_maker
 
             updated = self._limit_calculator.update_stats_after_fetch(
                 stats=old_stats,
@@ -743,9 +740,9 @@ class ScrapingService:
         logger.info("检测到 %d 条推文含 Article（via article 字段），开始获取", len(article_tweets))
 
         try:
+            from src.data_layer.provider import get_article_repo
             from src.database.async_session import get_async_session_maker
             from src.scraper.domain.models import Article
-            from src.data_layer.provider import get_article_repo
 
             session_maker = get_async_session_maker()
 
@@ -850,13 +847,13 @@ class ScrapingService:
         result: dict[str, Any] = {"checked": 0, "found": 0, "skipped": 0, "errors": 0}
 
         try:
-            from src.database.async_session import get_async_session_maker
-            from src.scraper.domain.models import Article
             from src.data_layer.provider import (
                 get_article_read_repo,
                 get_article_repo,
                 is_file_mode,
             )
+            from src.database.async_session import get_async_session_maker
+            from src.scraper.domain.models import Article
 
             session_maker = get_async_session_maker()
 
@@ -966,8 +963,8 @@ class ScrapingService:
 
         if self._repository is None:
             # 延迟导入避免循环依赖
-            from src.database.async_session import get_async_session_maker
             from src.data_layer.provider import get_tweet_repo
+            from src.database.async_session import get_async_session_maker
 
             session_maker = get_async_session_maker()
 
@@ -977,143 +974,11 @@ class ScrapingService:
                 # 提交事务
                 await session.commit()
 
-                # 保存成功后，触发摘要
-                if result.success_count > 0 and not self._skip_summarization:
-                    await self._trigger_summarization(result.saved_tweet_ids)
-
                 return result
         else:
             # 如果已经有 repository，由调用者管理事务
-            save_result = await self._repository.save_tweets(
+            return await self._repository.save_tweets(
                 tweets, early_stop_threshold=early_stop
-            )
-
-            # 保存成功后，触发摘要
-            if save_result.success_count > 0 and not self._skip_summarization:
-                await self._trigger_summarization(save_result.saved_tweet_ids)
-
-            return save_result
-
-    async def _trigger_summarization(self, tweet_ids: list[str]) -> None:
-        """触发摘要生成任务。
-
-        将摘要请求入队到集中式摘要队列，由队列 worker 统一处理。
-        支持跨线程入队（后台线程）。
-
-        Args:
-            tweet_ids: 推文 ID 列表
-        """
-        try:
-            from src.config import get_settings
-
-            settings = get_settings()
-
-            # 检查是否启用自动摘要
-            if not settings.auto_summarization_enabled:
-                logger.debug("自动摘要已禁用，跳过摘要生成")
-                return
-
-            if not tweet_ids:
-                return
-
-            from src.summarization.services.summarization_queue import (
-                SummarizationPriority,
-                SummarizationQueue,
-            )
-
-            queue = SummarizationQueue.get_instance()
-
-            # 队列未运行时（MCP stdio 模式），直接内联处理摘要
-            if not queue.is_running:
-                logger.info(
-                    f"触发摘要: {len(tweet_ids)} 条推文, 方式=inline（队列未运行）",
-                    extra={
-                        "event": "trigger_summarization",
-                        "total_tweets": len(tweet_ids),
-                        "enqueue_method": "inline",
-                        "source": "scraping",
-                    },
-                )
-                await self._inline_summarize(tweet_ids)
-                return
-
-            # 检测当前是否在主事件循环中
-            try:
-                running_loop = asyncio.get_running_loop()
-                if running_loop is queue._loop:
-                    logger.info(
-                        f"触发摘要: {len(tweet_ids)} 条推文, 方式=enqueue（主循环）",
-                        extra={"event": "trigger_summarization", "total_tweets": len(tweet_ids), "enqueue_method": "enqueue", "source": "scraping"},
-                    )
-                    await queue.enqueue(
-                        tweet_ids,
-                        source="scraping",
-                        priority=SummarizationPriority.NORMAL,
-                    )
-                else:
-                    logger.info(
-                        f"触发摘要: {len(tweet_ids)} 条推文, 方式=enqueue_threadsafe（跨循环）",
-                        extra={"event": "trigger_summarization", "total_tweets": len(tweet_ids), "enqueue_method": "enqueue_threadsafe", "source": "scraping"},
-                    )
-                    task_id = queue.enqueue_threadsafe(
-                        tweet_ids,
-                        source="scraping",
-                        priority=SummarizationPriority.NORMAL,
-                    )
-                    if task_id is None:
-                        logger.error(
-                            f"摘要入队失败（enqueue_threadsafe 返回 None）: "
-                            f"{len(tweet_ids)} 条推文的摘要请求被丢弃"
-                        )
-            except RuntimeError:
-                # 无事件循环（后台线程）
-                logger.info(
-                    f"触发摘要: {len(tweet_ids)} 条推文, 方式=enqueue_threadsafe（无事件循环）",
-                    extra={"event": "trigger_summarization", "total_tweets": len(tweet_ids), "enqueue_method": "enqueue_threadsafe", "source": "scraping"},
-                )
-                task_id = queue.enqueue_threadsafe(
-                    tweet_ids,
-                    source="scraping",
-                    priority=SummarizationPriority.NORMAL,
-                )
-                if task_id is None:
-                    logger.error(
-                        f"摘要入队失败（enqueue_threadsafe 返回 None，无事件循环）: "
-                        f"{len(tweet_ids)} 条推文的摘要请求被丢弃"
-                    )
-
-        except Exception as e:
-            # 摘要触发失败不影响抓取结果
-            logger.warning(f"触发摘要任务失败（不影响抓取结果）: {e}")
-
-    async def _inline_summarize(self, tweet_ids: list[str]) -> None:
-        """内联摘要回退：队列未运行时直接调用 SummarizationService。"""
-        from src.database.async_session import get_async_session_maker
-        from src.summarization.domain.models import PromptConfig
-        from src.summarization.llm.config import LLMProviderConfig
-        from src.summarization.services.summarization_service import (
-            create_summarization_service,
-        )
-
-        session_factory = get_async_session_maker()
-        config = LLMProviderConfig.from_env()
-        service = create_summarization_service(
-            session_factory=session_factory,
-            config=config,
-            prompt_config=PromptConfig(),
-        )
-
-        result = await service.summarize_tweets(tweet_ids=tweet_ids)
-
-        from returns.result import Failure
-
-        if isinstance(result, Failure):
-            logger.warning(f"内联摘要失败: {result.failure()}")
-        else:
-            summary = result.unwrap()
-            logger.info(
-                f"内联摘要完成: 成功 {summary.total_tweets_succeeded}/{summary.total_tweets}, "
-                f"缓存命中 {summary.cache_hits}, 耗时 {summary.processing_time_ms}ms"
             )
 
     async def _backfill_platform_user_id(
@@ -1125,8 +990,8 @@ class ScrapingService:
         失败时仅记录警告日志，不影响抓取结果。
         """
         try:
-            from src.database.async_session import get_async_session_maker
             from src.data_layer.provider import get_follows_repo
+            from src.database.async_session import get_async_session_maker
 
             session_maker = get_async_session_maker()
             async with session_maker() as session:
@@ -1150,8 +1015,8 @@ class ScrapingService:
             str | None: 新的 username，或 None（无法检测/修复）
         """
         try:
-            from src.database.async_session import get_async_session_maker
             from src.data_layer.provider import get_follows_repo
+            from src.database.async_session import get_async_session_maker
 
             session_maker = get_async_session_maker()
             async with session_maker() as session:
@@ -1221,8 +1086,8 @@ class ScrapingService:
             usernames: 刚完成抓取的用户名列表
         """
         try:
-            from src.database.async_session import get_async_session_maker
             from src.data_layer.provider import get_follows_repo, get_profile_repo
+            from src.database.async_session import get_async_session_maker
             from src.preference.domain.models import XUserProfile
 
             session_maker = get_async_session_maker()
