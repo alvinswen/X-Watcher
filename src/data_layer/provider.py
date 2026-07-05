@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
+from typing import Any
 
 
 def _data_layer() -> str:
@@ -33,7 +34,7 @@ def data_root() -> Path:
 logger = logging.getLogger(__name__)
 
 
-def get_follows_repo(session=None):
+def get_follows_repo(session: Any = None) -> Any:
     """返回 FollowStore 形态 repo(12 契约方法)。
 
     file 模式:FileFollowStore(data_root),忽略 session。
@@ -48,7 +49,7 @@ def get_follows_repo(session=None):
     return ScraperConfigRepository(session)
 
 
-def get_profile_repo(session=None):
+def get_profile_repo(session: Any = None) -> Any:
     """返回 ProfileStore 形态 repo(6 契约方法)。
 
     file 模式:FileProfileStore(data_root),忽略 session。
@@ -63,7 +64,7 @@ def get_profile_repo(session=None):
     return XUserProfileRepository(session)
 
 
-def get_tweet_repo(session=None):
+def get_tweet_repo(session: Any = None) -> Any:
     """返回 TweetStore 形态 repo。file:FileTweetStore(忽略 session);sqlalchemy:TweetRepository(session)。"""
     if _data_layer() == "file":
         from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
@@ -74,7 +75,7 @@ def get_tweet_repo(session=None):
     return TweetRepository(session)
 
 
-def get_tweet_read_repo(session=None):
+def get_tweet_read_repo(session: Any = None) -> Any:
     """返回 tweet 读门面(list_tweets / get_tweet_detail,供 /api/tweets 两端点)。
 
     file 模式:FileTweetReadStore(_data_root())(组合 FileTweetStore + FileSummaryStore;
@@ -91,7 +92,7 @@ def get_tweet_read_repo(session=None):
     return SqlalchemyTweetReadStore(session)
 
 
-def get_article_repo(session=None):
+def get_article_repo(session: Any = None) -> Any:
     """返回 ArticleStore 形态 repo。file:FileArticleStore;sqlalchemy:ArticleRepository(session)。"""
     if _data_layer() == "file":
         from src.scraper.infrastructure.file_article_repository import FileArticleStore
@@ -102,7 +103,7 @@ def get_article_repo(session=None):
     return ArticleRepository(session)
 
 
-def get_article_read_repo(session=None):
+def get_article_read_repo(session: Any = None) -> Any:
     """返回 article 反连接读门面(get_unarticled_tweets:找无 article 记录的作者推文)。
 
     file 模式:FileArticleReadStore(_data_root())(组合 FileTweetStore+FileArticleStore 集合差,忽略 session)。
@@ -117,7 +118,7 @@ def get_article_read_repo(session=None):
     return SqlalchemyArticleReadStore(session)
 
 
-def get_fetch_stats_repo(session=None):
+def get_fetch_stats_repo(session: Any = None) -> Any:
     """返回 FetchStatsStore 形态 repo。file:FileFetchStatsStore;sqlalchemy:FetchStatsRepository(session)。"""
     if _data_layer() == "file":
         from src.scraper.infrastructure.file_fetch_stats_repository import FileFetchStatsStore
@@ -128,7 +129,7 @@ def get_fetch_stats_repo(session=None):
     return FetchStatsRepository(session)
 
 
-def get_summary_repo(session=None):
+def get_summary_repo(session: Any = None) -> Any:
     """返回 SummaryStore 形态 repo。file:FileSummaryStore(忽略 session);sqlalchemy:SummarizationRepository(session)。"""
     if _data_layer() == "file":
         from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
@@ -139,7 +140,7 @@ def get_summary_repo(session=None):
     return SummarizationRepository(session)
 
 
-def get_subject_repo(session=None):
+def get_subject_repo(session: Any = None) -> Any:
     """返回 SubjectStore 形态 repo。file:FileSubjectStore;sqlalchemy:一期不实现。"""
     if _data_layer() == "file":
         from src.subjects.store import FileSubjectStore
@@ -148,7 +149,7 @@ def get_subject_repo(session=None):
     raise NotImplementedError("SubjectStore sqlalchemy 模式尚未实现；本期仅支持 file 数据层")
 
 
-def get_summarization_read_repo(session=None):
+def get_summarization_read_repo(session: Any = None) -> Any:
     """返回 summarization 读门面(get_unsummarized_tweets 反连接 + get_tweet_origins 原文回查)。
 
     file 模式:FileSummarizationReadStore(组合 FileTweetStore+FileSummaryStore),忽略 session。
@@ -165,7 +166,7 @@ def get_summarization_read_repo(session=None):
     return SqlalchemySummarizationReadStore(session)
 
 
-def get_user_repo(session=None):
+def get_user_repo(session: Any = None) -> Any:
     """返回 UserStore 形态 repo(14 契约方法,含 get_password_hash_by_*)。
 
     file 模式:FileUserStore(data_root),忽略 session。
@@ -187,25 +188,25 @@ class _FileExportSyncAdapter:
     暴露 export_service 调用的 6 方法名。
     """
 
-    def __init__(self, store) -> None:
+    def __init__(self, store: Any) -> None:
         self._store = store
 
-    def get_follows(self):
+    def get_follows(self) -> Any:
         import asyncio
 
         return asyncio.run(self._store.export_follows())
 
-    def get_tweets(self, since=None, until=None, authors=None):
+    def get_tweets(self, since: Any = None, until: Any = None, authors: Any = None) -> Any:
         import asyncio
 
         return asyncio.run(self._store.export_tweets(since=since, until=until, authors=authors))
 
-    def get_summaries(self, tweet_ids=None):
+    def get_summaries(self, tweet_ids: Any = None) -> Any:
         import asyncio
 
         return asyncio.run(self._store.export_summaries(tweet_ids=tweet_ids))
 
-    def get_articles(self, tweet_ids=None):
+    def get_articles(self, tweet_ids: Any = None) -> Any:
         import asyncio
 
         return asyncio.run(self._store.export_articles(tweet_ids=tweet_ids))
@@ -244,7 +245,7 @@ class _SqlalchemyExportDictAdapter:
         return [article_to_dict(a) for a in self._repo.get_articles(tweet_ids=tweet_ids)]
 
 
-def get_export_repo(session=None):
+def get_export_repo(session: Any = None) -> Any:
     """返回 export 门面。file:_FileExportSyncAdapter;sqlalchemy:_SqlalchemyExportDictAdapter。"""
     if _data_layer() == "file":
         from src.sync.infrastructure.file_export_repository import FileExportStore
@@ -263,7 +264,7 @@ class _FileImportSyncAdapter:
     调用上下文无 running loop(路由 to_thread / CLI 同步)→ asyncio.run 安全。
     """
 
-    def __init__(self, data_root, dry_run=False) -> None:
+    def __init__(self, data_root: str | Path, dry_run: bool = False) -> None:
         import shutil
         import tempfile
         from pathlib import Path
@@ -272,6 +273,7 @@ class _FileImportSyncAdapter:
 
         self._dry_run = dry_run
         self._tmp = None
+        root: str | Path
         if dry_run:
             self._tmp = tempfile.mkdtemp(prefix="xw-import-dryrun-")
             try:
@@ -286,23 +288,23 @@ class _FileImportSyncAdapter:
             root = self._tmp
         else:
             root = data_root
-        self._store = FileImportStore(root)
+        self._store = FileImportStore(Path(root))
 
-    def _run(self, coro):
+    def _run(self, coro: Any) -> Any:
         import asyncio
 
         return asyncio.run(coro)
 
-    def import_follows(self, items, strategy):
+    def import_follows(self, items: Any, strategy: Any) -> Any:
         return self._run(self._store.import_follows(items, strategy))
 
-    def import_tweets(self, items, strategy):
+    def import_tweets(self, items: Any, strategy: Any) -> Any:
         return self._run(self._store.import_tweets(items, strategy))
 
-    def import_summaries(self, items, strategy):
+    def import_summaries(self, items: Any, strategy: Any) -> Any:
         return self._run(self._store.import_summaries(items, strategy))
 
-    def import_articles(self, items, strategy):
+    def import_articles(self, items: Any, strategy: Any) -> Any:
         return self._run(self._store.import_articles(items, strategy))
 
     def close(self) -> None:
@@ -314,7 +316,7 @@ class _FileImportSyncAdapter:
             self._tmp = None
 
 
-def get_import_repo(session=None, dry_run=False):
+def get_import_repo(session: Any = None, dry_run: bool = False) -> Any:
     """返回 import 门面(import_*→ImportStats)。
 
     file 模式:_FileImportSyncAdapter(asyncio.run 桥;dry_run=True copytree 隔离写,真数据未动)。
@@ -327,7 +329,7 @@ def get_import_repo(session=None, dry_run=False):
     return ImportRepository(session)
 
 
-def get_browse_repo(session=None):
+def get_browse_repo(session: Any = None) -> Any:
     """返回 browse 读门面(get_tweets / get_author_timeline 列表面 + get_daily_stats / get_authors 聚合两法)。
 
     file 模式:FileBrowseReadStore(_data_root())(组合 file store;列表面 summary JOIN,聚合两法纯 tweet 计数/分组)。
@@ -342,7 +344,7 @@ def get_browse_repo(session=None):
     return BrowseService(session)
 
 
-def get_feed_repo(session=None):
+def get_feed_repo(session: Any = None) -> Any:
     """返回 feed 读门面(get_feed 时间窗增量 + author/keyword + summary JOIN)。
 
     file 模式:FileFeedReadStore(_data_root())(组合 file store + summary JOIN;db_created_at→None)。
@@ -357,7 +359,7 @@ def get_feed_repo(session=None):
     return FeedService(session)
 
 
-def get_search_repo(session=None):
+def get_search_repo(session: Any = None) -> Any:
     """返回 search 读门面(search_tweets 多词 AND 全文 + 时间窗/author + summary JOIN)。
 
     file 模式:FileSearchReadStore(_data_root())(窗口快路径/全扫 + 多词 AND;db_created_at→None)。
@@ -372,7 +374,7 @@ def get_search_repo(session=None):
     return SearchService(session)
 
 
-def get_scraper_stats_repo(session=None):
+def get_scraper_stats_repo(session: Any = None) -> Any:
     """返回 scraper_config 账号聚合读门面(max_period_counts / tweet_time_range / period_analysis)。
 
     file 模式:FileScraperStatsReadStore(_data_root())(组合 FileTweetStore Python 槽聚合;
@@ -392,7 +394,7 @@ def get_scraper_stats_repo(session=None):
     return SqlalchemyScraperStatsReadStore(session)
 
 
-def get_status_repo(session=None):
+def get_status_repo(session: Any = None) -> Any:
     """返回 status 统计读门面(get_tweet_stats / get_follow_stats / get_summary_stats)。
 
     file 模式:FileStatusReadStore(_data_root())(组合 file store 在 Python 槽 count/max/反连接,忽略 session)。
