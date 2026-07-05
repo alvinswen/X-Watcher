@@ -7,7 +7,7 @@ name = "x-watcher"
 version = "0.1.0"
 description = "面向 Agent 的 X 平台智能信息监控服务"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = {text = "MIT"}
 authors = [
     {name = "Development Team"}
@@ -16,8 +16,8 @@ keywords = ["x", "twitter", "watcher", "monitor", "ai", "fastapi"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Framework :: FastAPI",
 ]
 
@@ -75,6 +75,7 @@ dev = [
     "black>=23.11.0",
     "ruff>=0.1.6",
     "mypy>=1.7.0",
+    "mypy-baseline>=0.7.4",
 
 ]
 
@@ -178,12 +179,15 @@ exclude_lines = [
 
 # Mypy 配置
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 strict = true
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
 plugins = ["pydantic.mypy"]
+
+[tool.mypy-baseline]
+baseline_path = ".mypy-baseline.txt"
 
 # Setuptools 包发现配置
 [tool.setuptools.packages.find]
@@ -195,3 +199,10 @@ module = [
     "returns.*",
 ]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# benchmark 工具代码非生产逻辑不纳入 strict
+module = [
+    "src.data_layer.bench.*",
+]
+ignore_errors = true
