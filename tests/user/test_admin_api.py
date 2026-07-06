@@ -9,26 +9,32 @@ from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.config import clear_settings_cache
-from src.database.models import Base, User as UserOrm
+from src.database.models import Base
 from src.main import app
 from src.user.domain.models import UserDomain
-from src.user.services.auth_service import AuthService
 
 
 JWT_SECRET = "test-admin-api-jwt-secret-32bytes!!"
 
 
 @pytest.fixture(autouse=True)
-def setup_env():
+def setup_env(tmp_path):
     """设置测试环境变量。"""
-    original_jwt = os.environ.get("JWT_SECRET_KEY")
+    originals = {
+        "JWT_SECRET_KEY": os.environ.get("JWT_SECRET_KEY"),
+        "XWATCHER_DATA_LAYER": os.environ.get("XWATCHER_DATA_LAYER"),
+        "XWATCHER_DATA_ROOT": os.environ.get("XWATCHER_DATA_ROOT"),
+    }
     os.environ["JWT_SECRET_KEY"] = JWT_SECRET
+    os.environ["XWATCHER_DATA_LAYER"] = "file"
+    os.environ["XWATCHER_DATA_ROOT"] = str(tmp_path)
     clear_settings_cache()
     yield
-    if original_jwt is None:
-        os.environ.pop("JWT_SECRET_KEY", None)
-    else:
-        os.environ["JWT_SECRET_KEY"] = original_jwt
+    for key, value in originals.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
     clear_settings_cache()
 
 

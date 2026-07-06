@@ -2,6 +2,7 @@
 
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -10,7 +11,7 @@ from fastapi.testclient import TestClient
 from src.config import clear_settings_cache
 from src.main import app
 from src.summarization.domain.models import SummaryRecord
-from src.summarization.infrastructure.models import SummaryOrm
+from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
 from src.user.api.auth import get_current_admin_user
 from src.user.domain.models import BOOTSTRAP_ADMIN
 
@@ -24,14 +25,15 @@ def override_auth():
 
 
 @pytest.fixture(autouse=True)
-def setup_test_env():
+def setup_test_env(monkeypatch, tmp_path):
     """设置测试环境变量。"""
-    os.environ["SCRAPER_ENABLED"] = "false"
+    monkeypatch.setenv("SCRAPER_ENABLED", "false")
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     clear_settings_cache()
 
     yield
 
-    os.environ.pop("SCRAPER_ENABLED", None)
     clear_settings_cache()
 
 
@@ -69,19 +71,13 @@ class TestGetTweetSummaryEndpoint:
     async def test_get_existing_summary_returns_data(
         self,
         client: TestClient,
-        async_session,
         sample_summary_record,
     ):
         """测试 GET /tweets/{id} 存在返回摘要。"""
-        orm_record = SummaryOrm.from_domain(sample_summary_record)
-        async_session.add(orm_record)
-        await async_session.commit()
+        store = FileSummaryStore(Path(os.environ["XWATCHER_DATA_ROOT"]))
+        await store.seed([sample_summary_record])
 
-        with patch(
-            "src.summarization.api.routes.get_async_session_maker",
-            return_value=lambda: async_session,
-        ):
-            response = client.get(f"/api/summaries/tweets/{sample_summary_record.tweet_id}")
+        response = client.get(f"/api/summaries/tweets/{sample_summary_record.tweet_id}")
 
         assert response.status_code == 200
         data = response.json()

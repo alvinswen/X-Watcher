@@ -1,14 +1,20 @@
 """Export 服务测试。"""
 
+import asyncio
 from datetime import datetime, timezone
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from src.database.models import Base, ScraperFollow
-from src.scraper.infrastructure.article_models import ArticleOrm
-from src.scraper.infrastructure.models import TweetOrm
-from src.summarization.infrastructure.models import SummaryOrm
+from src.database.models import Base
+from src.preference.domain.models import ScraperFollow
+from src.preference.infrastructure.file_follow_repository import FileFollowStore
+from src.scraper.domain.models import Article, Tweet
+from src.scraper.infrastructure.file_article_repository import FileArticleStore
+from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
+from src.summarization.domain.models import SummaryRecord
+from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
 from src.sync.domain.models import SyncCategory
 from src.sync.services.export_service import ExportService
 
@@ -19,73 +25,83 @@ def _make_engine():
     return engine
 
 
-def _seed_data(session: Session) -> None:
-    """插入测试数据。"""
-    # Config
-    session.add(
-        ScraperFollow(
-            username="alice",
-            reason="KOL",
-            added_by="admin",
-            added_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
-        )
-    )
-    session.add(
-        ScraperFollow(
-            username="bob",
-            reason="Developer",
-            added_by="admin",
-            added_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
-        )
-    )
-    # Content
-    session.add(
-        TweetOrm(
-            tweet_id="tw_001",
-            text="Hello from Alice",
-            created_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
-            author_username="alice",
-        )
-    )
-    session.add(
-        TweetOrm(
-            tweet_id="tw_002",
-            text="Hello from Bob",
-            created_at=datetime(2026, 2, 10, tzinfo=timezone.utc),
-            author_username="bob",
-        )
-    )
-    session.add(
-        SummaryOrm(
-            summary_id="sum_001",
-            tweet_id="tw_001",
-            summary_text="Alice 说 Hello",
-            model_provider="openrouter",
-            model_name="gpt-4",
-            prompt_tokens=100,
-            completion_tokens=50,
-            total_tokens=150,
-            cost_usd=0.01,
-            content_hash="hash1",
-        )
-    )
-    session.add(
-        ArticleOrm(
-            tweet_id="tw_001",
-            title="Alice Article",
-            content="Long article text",
-            author_username="alice",
-        )
-    )
+def _seed_file_data(root) -> None:
+    """插入文件层测试数据。"""
 
-    session.commit()
+    async def _seed() -> None:
+        await FileFollowStore(root).seed([
+            ScraperFollow(
+                id=1,
+                username="alice",
+                reason="KOL",
+                added_by="admin",
+                added_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                is_active=True,
+            ),
+            ScraperFollow(
+                id=2,
+                username="bob",
+                reason="Developer",
+                added_by="admin",
+                added_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
+                is_active=True,
+            ),
+        ])
+        await FileTweetStore(root).save_tweets(
+            [
+                Tweet(
+                    tweet_id="tw_001",
+                    text="Hello from Alice",
+                    created_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
+                    author_username="alice",
+                ),
+                Tweet(
+                    tweet_id="tw_002",
+                    text="Hello from Bob",
+                    created_at=datetime(2026, 2, 10, tzinfo=timezone.utc),
+                    author_username="bob",
+                ),
+            ],
+            early_stop_threshold=0,
+        )
+        await FileSummaryStore(root).seed([
+            SummaryRecord(
+                summary_id="sum_001",
+                tweet_id="tw_001",
+                summary_text="Alice 说 Hello",
+                model_provider="openrouter",
+                model_name="gpt-4",
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+                cost_usd=0.01,
+                content_hash="hash1",
+                created_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
+                updated_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
+            )
+        ])
+        await FileArticleStore(root).seed([
+            Article(
+                tweet_id="tw_001",
+                title="Alice Article",
+                content="Long article text",
+                author_username="alice",
+            )
+        ])
+
+    asyncio.run(_seed())
+
+
+@pytest.fixture(autouse=True)
+def file_export_root(monkeypatch, tmp_path):
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
 
 
 class TestExportService:
-    def test_export_all(self):
+    def test_export_all(self, tmp_path):
         engine = _make_engine()
-        with Session(engine) as session:
-            _seed_data(session)
+        _seed_file_data(tmp_path)
 
         with Session(engine) as session:
             svc = ExportService(session)
@@ -106,10 +122,9 @@ class TestExportService:
         assert pkg.metadata.counts["scraper_follows"] == 2
         assert pkg.metadata.counts["tweets"] == 2
 
-    def test_export_single_category(self):
+    def test_export_single_category(self, tmp_path):
         engine = _make_engine()
-        with Session(engine) as session:
-            _seed_data(session)
+        _seed_file_data(tmp_path)
 
         with Session(engine) as session:
             svc = ExportService(session)
@@ -119,10 +134,9 @@ class TestExportService:
         assert "config" in pkg.data
         assert "content" not in pkg.data
 
-    def test_export_content_with_since_filter(self):
+    def test_export_content_with_since_filter(self, tmp_path):
         engine = _make_engine()
-        with Session(engine) as session:
-            _seed_data(session)
+        _seed_file_data(tmp_path)
 
         with Session(engine) as session:
             svc = ExportService(session)
@@ -138,10 +152,9 @@ class TestExportService:
         assert len(pkg.data["content"]["summaries"]) == 0
         assert len(pkg.data["content"]["articles"]) == 0
 
-    def test_export_content_with_authors_filter(self):
+    def test_export_content_with_authors_filter(self, tmp_path):
         engine = _make_engine()
-        with Session(engine) as session:
-            _seed_data(session)
+        _seed_file_data(tmp_path)
 
         with Session(engine) as session:
             svc = ExportService(session)

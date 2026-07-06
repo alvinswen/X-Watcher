@@ -42,11 +42,3 @@ def test_get_fetch_stats_repo_file_mode(monkeypatch, tmp_path):
     from src.scraper.infrastructure.file_fetch_stats_repository import FileFetchStatsStore
 
     assert isinstance(get_fetch_stats_repo(session=None), FileFetchStatsStore)
-
-
-def test_get_fetch_stats_repo_default_is_sqlalchemy(monkeypatch):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
-    from src.data_layer.provider import get_fetch_stats_repo
-    from src.scraper.infrastructure.fetch_stats_repository import FetchStatsRepository
-
-    assert isinstance(get_fetch_stats_repo(session=None), FetchStatsRepository)

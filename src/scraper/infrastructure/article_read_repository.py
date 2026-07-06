@@ -45,29 +45,3 @@ class FileArticleReadStore:
 
         limit = max(max_tweets, 0)
         return [t.tweet_id for t in candidates[:limit]]
-
-
-class SqlalchemyArticleReadStore:
-    """sqlalchemy 模式:逐字复刻原内联反连接 SQL,SQL 字节零变化。"""
-
-    def __init__(self, session) -> None:
-        self._session = session
-
-    async def get_unarticled_tweets(self, username: str, max_tweets: int = 200) -> list[str]:
-        from sqlalchemy import select
-
-        from src.scraper.infrastructure.article_models import ArticleOrm
-        from src.scraper.infrastructure.models import TweetOrm
-
-        stmt = (
-            select(TweetOrm.tweet_id)
-            .outerjoin(ArticleOrm, TweetOrm.tweet_id == ArticleOrm.tweet_id)
-            .where(
-                TweetOrm.author_username == username,
-                ArticleOrm.tweet_id.is_(None),
-            )
-            .order_by(TweetOrm.created_at.desc())
-            .limit(max_tweets)
-        )
-        rows = await self._session.execute(stmt)
-        return [row[0] for row in rows]

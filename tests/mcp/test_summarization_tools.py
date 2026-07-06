@@ -4,13 +4,14 @@
 """
 
 import json
+import os
 from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.scraper.infrastructure.models import TweetOrm
-from src.summarization.infrastructure.models import SummaryOrm
+from src.scraper.domain.models import ReferenceType, Tweet
 
 
 def _get_tool_funcs():
@@ -27,12 +28,26 @@ def tool_funcs():
     return _get_tool_funcs()
 
 
+@pytest.fixture(autouse=True)
+def file_data_root(monkeypatch, tmp_path):
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+
+
 def _mock_session_maker(mock_session):
     """创建 mock session_maker。"""
     sm = MagicMock()
     sm.return_value.__aenter__ = AsyncMock(return_value=mock_session)
     sm.return_value.__aexit__ = AsyncMock(return_value=False)
     return sm
+
+
+async def _seed_tweets(tweets: list[Tweet]) -> None:
+    from src.summarization.infrastructure.file_summarization_read_repository import (
+        FileSummarizationReadStore,
+    )
+
+    await FileSummarizationReadStore(Path(os.environ["XWATCHER_DATA_ROOT"])).seed_tweets(tweets)
 
 
 class TestGetUnsummarizedTweets:
@@ -43,23 +58,17 @@ class TestGetUnsummarizedTweets:
         """测试返回没有摘要的推文。"""
         get_unsummarized = tool_funcs["get_unsummarized_tweets"]
 
-        # 模拟查询结果 — 返回一条没有摘要的推文
-        mock_row = MagicMock()
-        mock_row._mapping = {
-            "tweet_id": "t1",
-            "text": "Hello world from @elonmusk",
-            "author_username": "elonmusk",
-            "author_display_name": "Elon Musk",
-            "reference_type": None,
-            "referenced_tweet_text": None,
-            "referenced_tweet_author_username": None,
-            "created_at": datetime(2026, 4, 1, 10, 0, tzinfo=timezone.utc),
-        }
+        await _seed_tweets([
+            Tweet(
+                tweet_id="t1",
+                text="Hello world from @elonmusk",
+                author_username="elonmusk",
+                author_display_name="Elon Musk",
+                created_at=datetime(2026, 4, 1, 10, 0, tzinfo=timezone.utc),
+            )
+        ])
 
         mock_session = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.fetchall.return_value = [mock_row]
-        mock_session.execute = AsyncMock(return_value=mock_result)
         mock_sm = _mock_session_maker(mock_session)
 
         with (
@@ -125,22 +134,20 @@ class TestGetUnsummarizedTweets:
         """测试引用推文（quoted/retweeted）字段被正确返回。"""
         get_unsummarized = tool_funcs["get_unsummarized_tweets"]
 
-        mock_row = MagicMock()
-        mock_row._mapping = {
-            "tweet_id": "t2",
-            "text": "Great thread!",
-            "author_username": "user1",
-            "author_display_name": "User One",
-            "reference_type": "quoted",
-            "referenced_tweet_text": "Original content here",
-            "referenced_tweet_author_username": "originalauthor",
-            "created_at": datetime(2026, 4, 1, 12, 0, tzinfo=timezone.utc),
-        }
+        await _seed_tweets([
+            Tweet(
+                tweet_id="t2",
+                text="Great thread!",
+                author_username="user1",
+                author_display_name="User One",
+                reference_type=ReferenceType.quoted,
+                referenced_tweet_text="Original content here",
+                referenced_tweet_author_username="originalauthor",
+                created_at=datetime(2026, 4, 1, 12, 0, tzinfo=timezone.utc),
+            )
+        ])
 
         mock_session = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.fetchall.return_value = [mock_row]
-        mock_session.execute = AsyncMock(return_value=mock_result)
         mock_sm = _mock_session_maker(mock_session)
 
         with (
@@ -177,7 +184,7 @@ class TestSaveSummaries:
             patch("src.mcp.tools.summarization_tools.require_admin", return_value=None),
             patch("src.database.async_session.get_async_session_maker", return_value=mock_sm),
             patch(
-                "src.summarization.infrastructure.repository.SummarizationRepository.save_summary_record",
+                "src.summarization.infrastructure.file_summary_repository.FileSummaryStore.save_summary_record",
                 new_callable=AsyncMock,
                 return_value=mock_record,
             ) as mock_save,
@@ -224,7 +231,7 @@ class TestSaveSummaries:
             patch("src.mcp.tools.summarization_tools.require_admin", return_value=None),
             patch("src.database.async_session.get_async_session_maker", return_value=mock_sm),
             patch(
-                "src.summarization.infrastructure.repository.SummarizationRepository.save_summary_record",
+                "src.summarization.infrastructure.file_summary_repository.FileSummaryStore.save_summary_record",
                 new_callable=AsyncMock,
                 return_value=mock_record,
             ) as mock_save,
@@ -261,7 +268,7 @@ class TestSaveSummaries:
             patch("src.mcp.tools.summarization_tools.require_admin", return_value=None),
             patch("src.database.async_session.get_async_session_maker", return_value=mock_sm),
             patch(
-                "src.summarization.infrastructure.repository.SummarizationRepository.save_summary_record",
+                "src.summarization.infrastructure.file_summary_repository.FileSummaryStore.save_summary_record",
                 new_callable=AsyncMock,
                 return_value=mock_record,
             ),
@@ -304,7 +311,7 @@ class TestSaveSummaries:
             patch("src.mcp.tools.summarization_tools.require_admin", return_value=None),
             patch("src.database.async_session.get_async_session_maker", return_value=mock_sm),
             patch(
-                "src.summarization.infrastructure.repository.SummarizationRepository.save_summary_record",
+                "src.summarization.infrastructure.file_summary_repository.FileSummaryStore.save_summary_record",
                 new_callable=AsyncMock,
                 return_value=mock_record,
             ),
@@ -328,33 +335,27 @@ class TestSaveSummaries:
         """验证门：截断译文不入库，计入 failed/errors（替代静默入库）。"""
         save_summaries = tool_funcs["save_summaries"]
 
-        origin_row = MagicMock()
-        origin_row._mapping = {
-            "tweet_id": "t1",
-            "text": (
-                "People in Africa are not starving. This is a myth. The only "
-                "time there is a shortage of food is when there is a war going "
-                "on and the only way to solve that would be invasion!"
-            ),
-            "referenced_tweet_text": None,
-            "reference_type": None,
-            # CR-023:get_tweet_origins 扩为 6 列读,mock 行须随 SELECT 列同步补 3 键
-            "referenced_tweet_id": None,
-            "author_username": "alice",
-            "referenced_tweet_author_username": None,
-        }
+        await _seed_tweets([
+            Tweet(
+                tweet_id="t1",
+                text=(
+                    "People in Africa are not starving. This is a myth. The only "
+                    "time there is a shortage of food is when there is a war going "
+                    "on and the only way to solve that would be invasion!"
+                ),
+                author_username="alice",
+                created_at=datetime(2026, 4, 1, 10, 0, tzinfo=timezone.utc),
+            )
+        ])
         mock_session = AsyncMock()
         mock_session.commit = AsyncMock()
-        _origin_result = MagicMock()
-        _origin_result.fetchall.return_value = [origin_row]
-        mock_session.execute = AsyncMock(return_value=_origin_result)
         mock_sm = _mock_session_maker(mock_session)
 
         with (
             patch("src.mcp.tools.summarization_tools.require_admin", return_value=None),
             patch("src.database.async_session.get_async_session_maker", return_value=mock_sm),
             patch(
-                "src.summarization.infrastructure.repository.SummarizationRepository.save_summary_record",
+                "src.summarization.infrastructure.file_summary_repository.FileSummaryStore.save_summary_record",
                 new_callable=AsyncMock,
             ) as mock_save,
             patch("src.mcp.security.audit_log"),

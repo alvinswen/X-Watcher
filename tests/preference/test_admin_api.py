@@ -3,16 +3,25 @@
 测试 ScraperConfigRouter 端点，使用 get_current_admin_user 认证。
 """
 
+import os
+from pathlib import Path
+
 import pytest
 from datetime import datetime, timezone
 from httpx import AsyncClient, ASGITransport
 from fastapi import FastAPI, status
 
 from src.preference.api.routes import scraper_config_router
-from src.preference.infrastructure.scraper_config_repository import ScraperConfigRepository
+from src.preference.infrastructure.file_follow_repository import FileFollowStore
 from src.database.async_session import get_async_session
 from src.user.api.auth import get_current_admin_user
 from src.user.domain.models import UserDomain
+
+
+@pytest.fixture(autouse=True)
+def file_data_layer(monkeypatch, tmp_path):
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
 
 
 class TestAdminAuth:
@@ -145,13 +154,12 @@ class TestScraperConfigAPI:
     @pytest.mark.asyncio
     async def test_create_scraper_follow_duplicate_returns_409(self, client, async_session):
         """测试重复创建返回 409。"""
-        repo = ScraperConfigRepository(async_session)
+        repo = FileFollowStore(Path(os.environ["XWATCHER_DATA_ROOT"]))
         await repo.create_scraper_follow(
             username="duplicate",
             reason="第一次创建",
             added_by="admin"
         )
-        await async_session.commit()
 
         request_data = {
             "username": "duplicate",
@@ -170,10 +178,9 @@ class TestScraperConfigAPI:
     @pytest.mark.asyncio
     async def test_get_scraper_follows_success(self, client, async_session):
         """测试获取抓取列表成功。"""
-        repo = ScraperConfigRepository(async_session)
+        repo = FileFollowStore(Path(os.environ["XWATCHER_DATA_ROOT"]))
         await repo.create_scraper_follow("user1", "理由1", "admin1")
         await repo.create_scraper_follow("user2", "理由2", "admin2")
-        await async_session.commit()
 
         response = await client.get(
             "/api/admin/scraping/follows",
@@ -189,10 +196,9 @@ class TestScraperConfigAPI:
     @pytest.mark.asyncio
     async def test_get_scraper_follows_include_inactive(self, client, async_session):
         """测试获取包含非活跃账号的列表。"""
-        repo = ScraperConfigRepository(async_session)
+        repo = FileFollowStore(Path(os.environ["XWATCHER_DATA_ROOT"]))
         follow = await repo.create_scraper_follow("inactive_user", "测试", "admin")
         await repo.deactivate_follow(follow.username)
-        await async_session.commit()
 
         # 只获取活跃账号
         response = await client.get(
@@ -213,9 +219,8 @@ class TestScraperConfigAPI:
     @pytest.mark.asyncio
     async def test_update_scraper_follow_success(self, client, async_session):
         """测试更新抓取账号成功。"""
-        repo = ScraperConfigRepository(async_session)
+        repo = FileFollowStore(Path(os.environ["XWATCHER_DATA_ROOT"]))
         await repo.create_scraper_follow("updatable", "原理由", "admin")
-        await async_session.commit()
 
         update_data = {
             "reason": "新理由",
@@ -247,9 +252,8 @@ class TestScraperConfigAPI:
     @pytest.mark.asyncio
     async def test_delete_scraper_follow_success(self, client, async_session):
         """测试软删除抓取账号成功。"""
-        repo = ScraperConfigRepository(async_session)
+        repo = FileFollowStore(Path(os.environ["XWATCHER_DATA_ROOT"]))
         await repo.create_scraper_follow("deletable", "测试", "admin")
-        await async_session.commit()
 
         response = await client.delete(
             "/api/admin/scraping/follows/deletable",

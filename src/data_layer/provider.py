@@ -37,31 +37,21 @@ logger = logging.getLogger(__name__)
 def get_follows_repo(session: Any = None) -> Any:
     """返回 FollowStore 形态 repo(12 契约方法)。
 
-    file 模式:FileFollowStore(data_root),忽略 session。
-    sqlalchemy 模式:ScraperConfigRepository(session)。
+    固定返回 FileFollowStore(data_root),忽略 session。
     """
-    if _data_layer() == "file":
-        from src.preference.infrastructure.file_follow_repository import FileFollowStore
+    from src.preference.infrastructure.file_follow_repository import FileFollowStore
 
-        return FileFollowStore(_data_root())
-    from src.preference.infrastructure.scraper_config_repository import ScraperConfigRepository
-
-    return ScraperConfigRepository(session)
+    return FileFollowStore(_data_root())
 
 
 def get_profile_repo(session: Any = None) -> Any:
     """返回 ProfileStore 形态 repo(6 契约方法)。
 
-    file 模式:FileProfileStore(data_root),忽略 session。
-    sqlalchemy 模式:XUserProfileRepository(session)。
+    固定返回 FileProfileStore(data_root),忽略 session。
     """
-    if _data_layer() == "file":
-        from src.preference.infrastructure.file_profile_repository import FileProfileStore
+    from src.preference.infrastructure.file_profile_repository import FileProfileStore
 
-        return FileProfileStore(_data_root())
-    from src.preference.infrastructure.x_user_profile_repository import XUserProfileRepository
-
-    return XUserProfileRepository(session)
+    return FileProfileStore(_data_root())
 
 
 def get_tweet_repo(session: Any = None) -> Any:
@@ -106,38 +96,25 @@ def get_article_repo(session: Any = None) -> Any:
 def get_article_read_repo(session: Any = None) -> Any:
     """返回 article 反连接读门面(get_unarticled_tweets:找无 article 记录的作者推文)。
 
-    file 模式:FileArticleReadStore(_data_root())(组合 FileTweetStore+FileArticleStore 集合差,忽略 session)。
-    sqlalchemy 模式:SqlalchemyArticleReadStore(session)(逐字复刻原内联反连接 SQL,SQL 零变化)。
+    固定返回 FileArticleReadStore(_data_root())(组合 FileTweetStore+FileArticleStore 集合差),忽略 session。
     """
-    if _data_layer() == "file":
-        from src.scraper.infrastructure.article_read_repository import FileArticleReadStore
+    from src.scraper.infrastructure.article_read_repository import FileArticleReadStore
 
-        return FileArticleReadStore(_data_root())
-    from src.scraper.infrastructure.article_read_repository import SqlalchemyArticleReadStore
-
-    return SqlalchemyArticleReadStore(session)
+    return FileArticleReadStore(_data_root())
 
 
 def get_fetch_stats_repo(session: Any = None) -> Any:
-    """返回 FetchStatsStore 形态 repo。file:FileFetchStatsStore;sqlalchemy:FetchStatsRepository(session)。"""
-    if _data_layer() == "file":
-        from src.scraper.infrastructure.file_fetch_stats_repository import FileFetchStatsStore
+    """返回 FetchStatsStore 形态 repo,固定 FileFetchStatsStore(data_root),忽略 session。"""
+    from src.scraper.infrastructure.file_fetch_stats_repository import FileFetchStatsStore
 
-        return FileFetchStatsStore(_data_root())
-    from src.scraper.infrastructure.fetch_stats_repository import FetchStatsRepository
-
-    return FetchStatsRepository(session)
+    return FileFetchStatsStore(_data_root())
 
 
 def get_summary_repo(session: Any = None) -> Any:
-    """返回 SummaryStore 形态 repo。file:FileSummaryStore(忽略 session);sqlalchemy:SummarizationRepository(session)。"""
-    if _data_layer() == "file":
-        from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
+    """返回 SummaryStore 形态 repo,固定 FileSummaryStore(data_root),忽略 session。"""
+    from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
 
-        return FileSummaryStore(_data_root())
-    from src.summarization.infrastructure.repository import SummarizationRepository
-
-    return SummarizationRepository(session)
+    return FileSummaryStore(_data_root())
 
 
 def get_subject_repo(session: Any = None) -> Any:
@@ -152,33 +129,23 @@ def get_subject_repo(session: Any = None) -> Any:
 def get_summarization_read_repo(session: Any = None) -> Any:
     """返回 summarization 读门面(get_unsummarized_tweets 反连接 + get_tweet_origins 原文回查)。
 
-    file 模式:FileSummarizationReadStore(组合 FileTweetStore+FileSummaryStore),忽略 session。
-    sqlalchemy 模式:SqlalchemySummarizationReadStore(session)(逐字复刻原 raw 查询,产同构 dict)。
+    固定返回 FileSummarizationReadStore(组合 FileTweetStore+FileSummaryStore),忽略 session。
     """
-    if _data_layer() == "file":
-        from src.summarization.infrastructure.file_summarization_read_repository import (
-            FileSummarizationReadStore,
-        )
+    from src.summarization.infrastructure.file_summarization_read_repository import (
+        FileSummarizationReadStore,
+    )
 
-        return FileSummarizationReadStore(_data_root())
-    from src.data_layer._summarization_read_sqlalchemy import SqlalchemySummarizationReadStore
-
-    return SqlalchemySummarizationReadStore(session)
+    return FileSummarizationReadStore(_data_root())
 
 
 def get_user_repo(session: Any = None) -> Any:
     """返回 UserStore 形态 repo(14 契约方法,含 get_password_hash_by_*)。
 
-    file 模式:FileUserStore(data_root),忽略 session。
-    sqlalchemy 模式:UserRepository(session)。
+    固定返回 FileUserStore(data_root),忽略 session。
     """
-    if _data_layer() == "file":
-        from src.user.infrastructure.file_user_repository import FileUserStore
+    from src.user.infrastructure.file_user_repository import FileUserStore
 
-        return FileUserStore(_data_root())
-    from src.user.infrastructure.repository import UserRepository
-
-    return UserRepository(session)
+    return FileUserStore(_data_root())
 
 
 class _FileExportSyncAdapter:
@@ -212,48 +179,11 @@ class _FileExportSyncAdapter:
         return asyncio.run(self._store.export_articles(tweet_ids=tweet_ids))
 
 
-class _SqlalchemyExportDictAdapter:
-    """sqlalchemy 模式 export 门面:套旧 ExportRepository + serializers.*_to_dict,统一返 dict。
-
-    把原 export_service 的序列化职责搬进适配器,使两侧 export_service 消费同格式 dict。
-    """
-
-    def __init__(self, repo) -> None:
-        self._repo = repo
-
-    def get_follows(self):
-        from src.sync.infrastructure.serializers import follow_to_dict
-
-        return [follow_to_dict(f) for f in self._repo.get_follows()]
-
-    def get_tweets(self, since=None, until=None, authors=None):
-        from src.sync.infrastructure.serializers import tweet_to_dict
-
-        return [
-            tweet_to_dict(t)
-            for t in self._repo.get_tweets(since=since, until=until, authors=authors)
-        ]
-
-    def get_summaries(self, tweet_ids=None):
-        from src.sync.infrastructure.serializers import summary_to_dict
-
-        return [summary_to_dict(s) for s in self._repo.get_summaries(tweet_ids=tweet_ids)]
-
-    def get_articles(self, tweet_ids=None):
-        from src.sync.infrastructure.serializers import article_to_dict
-
-        return [article_to_dict(a) for a in self._repo.get_articles(tweet_ids=tweet_ids)]
-
-
 def get_export_repo(session: Any = None) -> Any:
-    """返回 export 门面。file:_FileExportSyncAdapter;sqlalchemy:_SqlalchemyExportDictAdapter。"""
-    if _data_layer() == "file":
-        from src.sync.infrastructure.file_export_repository import FileExportStore
+    """返回 export 文件同步门面 _FileExportSyncAdapter,忽略 session。"""
+    from src.sync.infrastructure.file_export_repository import FileExportStore
 
-        return _FileExportSyncAdapter(FileExportStore(_data_root()))
-    from src.sync.infrastructure.export_repository import ExportRepository
-
-    return _SqlalchemyExportDictAdapter(ExportRepository(session))
+    return _FileExportSyncAdapter(FileExportStore(_data_root()))
 
 
 class _FileImportSyncAdapter:

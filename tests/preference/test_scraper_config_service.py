@@ -6,11 +6,8 @@
 import pytest
 
 from src.preference.domain.models import ScraperFollow
-from src.preference.infrastructure.scraper_config_repository import (
-    ScraperConfigRepository,
-    NotFoundError,
-    DuplicateError,
-)
+from src.preference.infrastructure.file_follow_repository import FileFollowStore
+from src.preference.infrastructure.follow_store import DuplicateError, NotFoundError
 from src.preference.services.scraper_config_service import ScraperConfigService
 
 
@@ -18,10 +15,10 @@ from src.preference.services.scraper_config_service import ScraperConfigService
 class TestScraperConfigService:
     """ScraperConfigService 测试类。"""
 
-    async def test_add_scraper_follow_success(self, async_session):
+    async def test_add_scraper_follow_success(self, tmp_path):
         """测试成功添加抓取账号。"""
         # Arrange
-        repository = ScraperConfigRepository(async_session)
+        repository = FileFollowStore(tmp_path)
         service = ScraperConfigService(repository)
 
         # Act
@@ -39,10 +36,10 @@ class TestScraperConfigService:
         assert result.is_active is True
         assert result.id > 0
 
-    async def test_add_scraper_follow_duplicate_raises_error(self, async_session):
+    async def test_add_scraper_follow_duplicate_raises_error(self, tmp_path):
         """测试添加重复账号时抛出错误。"""
         # Arrange
-        repository = ScraperConfigRepository(async_session)
+        repository = FileFollowStore(tmp_path)
         service = ScraperConfigService(repository)
         await service.add_scraper_follow(
             username="testuser",
@@ -59,10 +56,10 @@ class TestScraperConfigService:
             )
         assert "testuser" in str(exc_info.value)
 
-    async def test_get_all_follows_returns_active_only_by_default(self, async_session):
+    async def test_get_all_follows_returns_active_only_by_default(self, tmp_path):
         """测试默认只返回启用的抓取账号。"""
         # Arrange
-        repository = ScraperConfigRepository(async_session)
+        repository = FileFollowStore(tmp_path)
         service = ScraperConfigService(repository)
         await service.add_scraper_follow("user1", "原因1", "admin")
         await service.add_scraper_follow("user2", "原因2", "admin")
@@ -80,10 +77,10 @@ class TestScraperConfigService:
         assert "user3" in usernames
         assert "user2" not in usernames
 
-    async def test_get_all_follows_with_inactive(self, async_session):
+    async def test_get_all_follows_with_inactive(self, tmp_path):
         """测试包含禁用账号时返回所有账号。"""
         # Arrange
-        repository = ScraperConfigRepository(async_session)
+        repository = FileFollowStore(tmp_path)
         service = ScraperConfigService(repository)
         await service.add_scraper_follow("user1", "原因1", "admin")
         await service.add_scraper_follow("user2", "原因2", "admin")
@@ -98,10 +95,10 @@ class TestScraperConfigService:
         assert "user1" in usernames
         assert "user2" in usernames
 
-    async def test_update_follow_reason(self, async_session):
+    async def test_update_follow_reason(self, tmp_path):
         """测试更新抓取账号的理由。"""
         # Arrange
-        repository = ScraperConfigRepository(async_session)
+        repository = FileFollowStore(tmp_path)
         service = ScraperConfigService(repository)
         await service.add_scraper_follow("testuser", "原始理由", "admin")
 
@@ -115,10 +112,10 @@ class TestScraperConfigService:
         assert result.reason == "更新后的理由"
         assert result.is_active is True  # 状态未变
 
-    async def test_update_follow_is_active(self, async_session):
+    async def test_update_follow_is_active(self, tmp_path):
         """测试禁用/启用抓取账号。"""
         # Arrange
-        repository = ScraperConfigRepository(async_session)
+        repository = FileFollowStore(tmp_path)
         service = ScraperConfigService(repository)
         await service.add_scraper_follow("testuser", "理由", "admin")
 
@@ -140,10 +137,10 @@ class TestScraperConfigService:
         # Assert
         assert result.is_active is True
 
-    async def test_update_follow_not_found_raises_error(self, async_session):
+    async def test_update_follow_not_found_raises_error(self, tmp_path):
         """测试更新不存在的账号时抛出错误。"""
         # Arrange
-        repository = ScraperConfigRepository(async_session)
+        repository = FileFollowStore(tmp_path)
         service = ScraperConfigService(repository)
 
         # Act & Assert
@@ -154,10 +151,10 @@ class TestScraperConfigService:
             )
         assert "nonexistent" in str(exc_info.value)
 
-    async def test_deactivate_follow_success(self, async_session):
+    async def test_deactivate_follow_success(self, tmp_path):
         """测试成功禁用抓取账号。"""
         # Arrange
-        repository = ScraperConfigRepository(async_session)
+        repository = FileFollowStore(tmp_path)
         service = ScraperConfigService(repository)
         await service.add_scraper_follow("testuser", "理由", "admin")
 
@@ -169,10 +166,10 @@ class TestScraperConfigService:
         testuser = next(f for f in result if f.username == "testuser")
         assert testuser.is_active is False
 
-    async def test_deactivate_follow_not_found_raises_error(self, async_session):
+    async def test_deactivate_follow_not_found_raises_error(self, tmp_path):
         """测试禁用不存在的账号时抛出错误。"""
         # Arrange
-        repository = ScraperConfigRepository(async_session)
+        repository = FileFollowStore(tmp_path)
         service = ScraperConfigService(repository)
 
         # Act & Assert
@@ -180,10 +177,10 @@ class TestScraperConfigService:
             await service.deactivate_follow("nonexistent")
         assert "nonexistent" in str(exc_info.value)
 
-    async def test_is_username_in_follows_true(self, async_session):
+    async def test_is_username_in_follows_true(self, tmp_path):
         """测试检查存在的用户名返回 True。"""
         # Arrange
-        repository = ScraperConfigRepository(async_session)
+        repository = FileFollowStore(tmp_path)
         service = ScraperConfigService(repository)
         await service.add_scraper_follow("testuser", "理由", "admin")
 
@@ -193,10 +190,10 @@ class TestScraperConfigService:
         # Assert
         assert result is True
 
-    async def test_is_username_in_follows_false(self, async_session):
+    async def test_is_username_in_follows_false(self, tmp_path):
         """测试检查不存在的用户名返回 False。"""
         # Arrange
-        repository = ScraperConfigRepository(async_session)
+        repository = FileFollowStore(tmp_path)
         service = ScraperConfigService(repository)
 
         # Act
@@ -205,10 +202,10 @@ class TestScraperConfigService:
         # Assert
         assert result is False
 
-    async def test_is_username_in_follows_inactive_account(self, async_session):
+    async def test_is_username_in_follows_inactive_account(self, tmp_path):
         """测试检查禁用的账号（active_only=True 时返回 False）。"""
         # Arrange
-        repository = ScraperConfigRepository(async_session)
+        repository = FileFollowStore(tmp_path)
         service = ScraperConfigService(repository)
         await service.add_scraper_follow("testuser", "理由", "admin")
         await service.deactivate_follow("testuser")

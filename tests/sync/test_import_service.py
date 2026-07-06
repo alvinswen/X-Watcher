@@ -1,12 +1,19 @@
 """Import 服务测试。"""
 
+import asyncio
 from datetime import datetime, timezone
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.database.models import Base, ScraperFollow
+from src.preference.domain.models import ScraperFollow as FollowDomain
+from src.preference.infrastructure.file_follow_repository import FileFollowStore
+from src.scraper.domain.models import Tweet
+from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
 from src.scraper.infrastructure.models import TweetOrm
+from src.summarization.domain.models import SummaryRecord
+from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
 from src.summarization.infrastructure.models import SummaryOrm
 from src.sync.domain.models import (
     ConflictStrategy,
@@ -34,6 +41,49 @@ def _make_package(data: dict, categories: list[str] | None = None) -> ExportPack
         ),
         data=data,
     )
+
+
+def _seed_file_roundtrip_data(root) -> None:
+    async def _seed() -> None:
+        await FileFollowStore(root).seed([
+            FollowDomain(
+                id=1,
+                username="alice",
+                reason="KOL",
+                added_by="admin",
+                added_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                is_active=True,
+            )
+        ])
+        await FileTweetStore(root).save_tweets(
+            [
+                Tweet(
+                    tweet_id="tw_001",
+                    text="Hello",
+                    author_username="alice",
+                    created_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
+                )
+            ],
+            early_stop_threshold=0,
+        )
+        await FileSummaryStore(root).seed([
+            SummaryRecord(
+                summary_id="sum_001",
+                tweet_id="tw_001",
+                summary_text="摘要",
+                model_provider="openrouter",
+                model_name="gpt-4",
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+                cost_usd=0.01,
+                content_hash="hash1",
+                created_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
+                updated_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
+            )
+        ])
+
+    asyncio.run(_seed())
 
 
 class TestImportConfig:
@@ -284,52 +334,21 @@ class TestCategoryFiltering:
 class TestFullRoundtrip:
     """完整 export → import 往返测试。"""
 
-    def test_export_then_import(self):
+    def test_export_then_import(self, monkeypatch, tmp_path):
         """导出数据库内容，清空后导入，验证数据一致性。"""
         from src.sync.services.export_service import ExportService
 
-        # 创建源数据库并填充数据
+        # 导出源已固定文件层。
+        monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+        monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+        _seed_file_roundtrip_data(tmp_path)
         src_engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(src_engine)
-
-        with Session(src_engine) as session:
-            session.add(
-                ScraperFollow(
-                    username="alice",
-                    reason="KOL",
-                    added_by="admin",
-                    added_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
-                )
-            )
-            session.add(
-                TweetOrm(
-                    tweet_id="tw_001",
-                    text="Hello",
-                    author_username="alice",
-                    created_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
-                )
-            )
-            session.add(
-                SummaryOrm(
-                    summary_id="sum_001",
-                    tweet_id="tw_001",
-                    summary_text="摘要",
-                    model_provider="openrouter",
-                    model_name="gpt-4",
-                    prompt_tokens=100,
-                    completion_tokens=50,
-                    total_tokens=150,
-                    cost_usd=0.01,
-                    content_hash="hash1",
-                )
-            )
-            session.commit()
-
-        # 导出
         with Session(src_engine) as session:
             pkg = ExportService(session).export(instance_id="source")
 
         # 创建目标数据库并导入
+        monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
         dst_engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(dst_engine)
         dst_factory = sessionmaker(bind=dst_engine)
