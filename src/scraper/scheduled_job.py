@@ -5,11 +5,15 @@
 
 import asyncio
 import logging
+from collections.abc import Coroutine
+from typing import Any, TypeVar
 
 logger = logging.getLogger(__name__)
 
+_T = TypeVar("_T")
 
-def _run_async(coro):
+
+def _run_async(coro: Coroutine[Any, Any, _T]) -> _T:
     """在后台线程中安全运行 async coroutine。
 
     后台线程通常没有 running event loop，可以直接 asyncio.run()。
@@ -60,7 +64,7 @@ def _pending_backfill_sync_query() -> list[str]:
         return [row[0] for row in result]
 
 
-async def get_active_follows_async() -> list[dict]:
+async def get_active_follows_async() -> list[dict[str, Any]]:
     """异步获取活跃关注(含 manual_limit),供 async 上下文(running loop)直接 await。
 
     file 模式走文件层;sqlalchemy 模式复用同步直查(保持原行为 + 兼容 sync 测试隔离)。
@@ -99,7 +103,7 @@ async def get_pending_backfill_users_async() -> list[str]:
         return []
 
 
-def get_active_follows_from_db() -> list[dict]:
+def get_active_follows_from_db() -> list[dict[str, Any]]:
     """同步桥:供后台调度线程(无 running loop)调用。
 
     file 模式经 _run_async(asyncio.run)桥接文件层;sqlalchemy 模式走原同步直查。

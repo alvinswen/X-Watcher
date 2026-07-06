@@ -11,6 +11,7 @@ import threading
 import uuid
 from datetime import datetime, timedelta
 from enum import Enum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +79,7 @@ class TaskRegistry:
     def __init__(self) -> None:
         """初始化任务注册表。"""
         if not TaskRegistry._initialized:
-            self._tasks: dict[str, dict] = {}
+            self._tasks: dict[str, dict[str, Any]] = {}
             self._task_lock = threading.RLock()
             TaskRegistry._initialized = True
             logger.debug("TaskRegistry 单例已初始化")
@@ -95,7 +96,7 @@ class TaskRegistry:
     def create_task(
         self,
         task_name: str,
-        metadata: dict | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> str:
         """创建一个新任务。
 
@@ -138,7 +139,7 @@ class TaskRegistry:
         self,
         task_id: str,
         status: TaskStatus,
-        result: dict | None = None,
+        result: dict[str, Any] | None = None,
         error: str | None = None,
     ) -> None:
         """更新任务状态。
@@ -205,7 +206,7 @@ class TaskRegistry:
         if task_snapshot is not None:
             self._persist_task(task_snapshot)
 
-    def _persist_task(self, task_data: dict) -> None:
+    def _persist_task(self, task_data: dict[str, Any]) -> None:
         """将任务状态持久化到数据库（RUNNING/COMPLETED/FAILED）。
 
         RUNNING 状态也持久化，用于跨重启恢复僵尸任务检测。
@@ -301,7 +302,7 @@ class TaskRegistry:
                 "percentage": round(percentage, 2),
             }
 
-    def get_task_status(self, task_id: str) -> dict | None:
+    def get_task_status(self, task_id: str) -> dict[str, Any] | None:
         """获取任务状态。
 
         Args:
@@ -318,7 +319,7 @@ class TaskRegistry:
             # 返回副本以避免外部修改
             return self._copy_task_data(task)
 
-    def get_all_tasks(self) -> list[dict]:
+    def get_all_tasks(self) -> list[dict[str, Any]]:
         """获取所有任务。
 
         Returns:
@@ -327,7 +328,7 @@ class TaskRegistry:
         with self._task_lock:
             return [self._copy_task_data(task) for task in self._tasks.values()]
 
-    def get_tasks_by_status(self, status: TaskStatus) -> list[dict]:
+    def get_tasks_by_status(self, status: TaskStatus) -> list[dict[str, Any]]:
         """获取指定状态的所有任务。
 
         Args:
@@ -498,7 +499,7 @@ class TaskRegistry:
             self._tasks.clear()
         logger.info("清空所有任务")
 
-    def _copy_task_data(self, task: dict) -> dict:
+    def _copy_task_data(self, task: dict[str, Any]) -> dict[str, Any]:
         """创建任务数据的副本。
 
         Args:

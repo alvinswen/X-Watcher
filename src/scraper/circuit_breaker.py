@@ -8,6 +8,7 @@ import logging
 import threading
 import time
 from enum import Enum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +108,7 @@ class CircuitBreaker:
                     self.recovery_timeout,
                 )
 
-    def get_status(self) -> dict:
+    def get_status(self) -> dict[str, Any]:
         """获取熔断器状态摘要（用于健康检查/监控）。"""
         with self._lock:
             if self._state == CircuitState.OPEN:

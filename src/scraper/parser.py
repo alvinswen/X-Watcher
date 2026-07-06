@@ -5,6 +5,7 @@
 
 import logging
 from datetime import timezone
+from typing import Any
 
 from src.scraper.domain.models import ArticlePreview, Media, ReferenceType, Tweet
 
@@ -17,7 +18,7 @@ class TweetParser:
     负责将 Twitter API v2 的 JSON 响应解析为 Tweet 领域模型。
     """
 
-    def parse_tweet_response(self, raw_data: dict) -> list[Tweet]:
+    def parse_tweet_response(self, raw_data: dict[str, Any]) -> list[Tweet]:
         """解析推文响应。
 
         Args:
@@ -33,7 +34,7 @@ class TweetParser:
         includes = raw_data.get("includes", {})
 
         # 构建用户 ID 到用户信息的映射
-        users_map = {}
+        users_map: dict[str, dict[str, Any]] = {}
         for user in includes.get("users", []):
             users_map[user["id"]] = {
                 "username": user.get("username"),
@@ -42,7 +43,7 @@ class TweetParser:
             }
 
         # 构建媒体 key 到媒体信息的映射
-        media_map = {}
+        media_map: dict[str, dict[str, Any]] = {}
         for media in includes.get("media", []):
             media_map[media["media_key"]] = {
                 "type": media.get("type"),
@@ -69,9 +70,9 @@ class TweetParser:
 
     def _parse_single_tweet(
         self,
-        tweet_data: dict,
-        users_map: dict,
-        media_map: dict,
+        tweet_data: dict[str, Any],
+        users_map: dict[str, dict[str, Any]],
+        media_map: dict[str, dict[str, Any]],
     ) -> Tweet | None:
         """解析单条推文。
 
@@ -181,7 +182,7 @@ class TweetParser:
     def _parse_media(
         self,
         media_keys: list[str],
-        media_map: dict,
+        media_map: dict[str, dict[str, Any]],
     ) -> list[Media]:
         """解析媒体附件。
 
@@ -212,7 +213,7 @@ class TweetParser:
 
         return media_list
 
-    def _parse_datetime(self, datetime_str: str):
+    def _parse_datetime(self, datetime_str: str) -> Any:
         """解析日期时间字符串。
 
         Args:

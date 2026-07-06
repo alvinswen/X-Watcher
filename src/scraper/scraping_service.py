@@ -9,7 +9,7 @@ import logging
 import threading
 import time
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, cast
 
 from returns.result import Failure, Success
 
@@ -136,7 +136,10 @@ class ScrapingService:
             await self._sync_user_profiles(usernames)
 
             # 汇总结果
-            summary = self._summarize_results(usernames, results)
+            summary = self._summarize_results(
+                usernames,
+                cast(list[dict[str, Any] | Exception], results),
+            )
 
             elapsed = time.time() - start_time
 
@@ -222,7 +225,7 @@ class ScrapingService:
                 "error_message": str | None,
             }
         """
-        result = {
+        result: dict[str, Any] = {
             "username": username,
             "success": False,
             "fetched": 0,
@@ -470,7 +473,7 @@ class ScrapingService:
         Returns:
             dict: 回溯结果 {username, success, fetched, new, skipped, pages}
         """
-        result = {
+        result: dict[str, Any] = {
             "username": username,
             "success": False,
             "fetched": 0,
@@ -576,7 +579,7 @@ class ScrapingService:
         except Exception as e:
             logger.warning("更新回溯状态失败: username=%s, status=%s, error=%s", username, status, e)
 
-    async def _get_fetch_stats(self, username: str):
+    async def _get_fetch_stats(self, username: str) -> Any:
         """查询用户的历史抓取统计。
 
         Args:
@@ -600,7 +603,7 @@ class ScrapingService:
     async def _update_fetch_stats(
         self,
         username: str,
-        old_stats,
+        old_stats: Any,
         fetched_count: int,
         new_count: int,
     ) -> None:
@@ -657,7 +660,7 @@ class ScrapingService:
             dict: 额外页面的抓取统计 {fetched, new, skipped}
         """
         totals = {"fetched": 0, "new": 0, "skipped": 0}
-        cursor = next_cursor
+        cursor: str | None = next_cursor
 
         for page_num in range(1, max_extra_pages + 1):
             logger.info(
@@ -974,11 +977,14 @@ class ScrapingService:
                 # 提交事务
                 await session.commit()
 
-                return result
+                return cast(SaveResult, result)
         else:
             # 如果已经有 repository，由调用者管理事务
-            return await self._repository.save_tweets(
-                tweets, early_stop_threshold=early_stop
+            return cast(
+                SaveResult,
+                await self._repository.save_tweets(
+                    tweets, early_stop_threshold=early_stop
+                ),
             )
 
     async def _backfill_platform_user_id(
@@ -1054,7 +1060,7 @@ class ScrapingService:
                 if not new_username:
                     return None
 
-                new_username = new_username.lower()
+                new_username = cast(str, new_username).lower()
 
                 if new_username == old_username.lower():
                     logger.info(
@@ -1123,7 +1129,7 @@ class ScrapingService:
                 # 转换为领域模型
                 now = datetime.now(timezone.utc).replace(tzinfo=None)
                 profiles = []
-                raw_data_map: dict[str, dict] = {}
+                raw_data_map: dict[str, dict[str, Any]] = {}
                 for u in users_data:
                     profile = XUserProfile.from_api_response(u, fetched_at=now)
                     if profile.platform_user_id:
@@ -1144,7 +1150,7 @@ class ScrapingService:
     def _summarize_results(
         self,
         usernames: list[str],
-        results: list[dict | Exception],
+        results: list[dict[str, Any] | Exception],
     ) -> dict[str, Any]:
         """汇总抓取结果。
 
@@ -1155,7 +1161,7 @@ class ScrapingService:
         Returns:
             dict: 汇总统计
         """
-        summary = {
+        summary: dict[str, Any] = {
             "successful": 0,
             "failed": 0,
             "total_tweets": 0,

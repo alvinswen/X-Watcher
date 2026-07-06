@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from src.scraper.domain.models import Article
 from src.storage.atomic import shard_lock
@@ -23,14 +24,14 @@ class FileArticleStore:
     def __init__(self, data_root: Path) -> None:
         self._path = Path(data_root) / "articles" / "articles.json"
 
-    def _load(self) -> dict:
+    def _load(self) -> dict[str, Any]:
         doc = read_doc(self._path)
         if doc is None:
             return {"articles": {}}
         return doc
 
     @staticmethod
-    def _to_domain(rec: dict) -> Article:
+    def _to_domain(rec: dict[str, Any]) -> Article:
         return Article(**rec)
 
     # —— 测试种子(非契约方法):按列表顺序写入,控制插入序 ——
@@ -75,7 +76,7 @@ class FileArticleStore:
         """枚举全部文章记录(无序;Export 全量读)。"""
         return [self._to_domain(r) for r in self._load()["articles"].values()]
 
-    async def overwrite_article(self, fields: dict) -> None:
+    async def overwrite_article(self, fields: dict[str, Any]) -> None:
         """按 tweet_id 插入或全字段覆盖(import 写底座;fields=导出格式 8 字段)。"""
         async with shard_lock(self._path):
             doc = self._load()

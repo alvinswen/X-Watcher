@@ -6,6 +6,7 @@
 import logging
 import re
 from collections.abc import Sequence
+from typing import Any
 
 from datetime import timezone
 
@@ -62,7 +63,7 @@ class TweetValidator:
 
         try:
             # 创建清理后的推文副本
-            update_dict: dict = {
+            update_dict: dict[str, Any] = {
                 "text": self._clean_text(tweet.text),
                 "created_at": self._standardize_datetime(tweet.created_at),
             }
@@ -154,7 +155,7 @@ class TweetValidator:
 
         return cleaned
 
-    def _standardize_datetime(self, dt):
+    def _standardize_datetime(self, dt: Any) -> Any:
         """标准化日期时间。
 
         确保 datetime 对象带有时区信息。

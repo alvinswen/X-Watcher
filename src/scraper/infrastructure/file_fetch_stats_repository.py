@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from src.scraper.domain.fetch_stats import FetchStats
 from src.storage.atomic import shard_lock
@@ -24,14 +25,14 @@ class FileFetchStatsStore:
     def __init__(self, data_root: Path) -> None:
         self._path = Path(data_root) / "fetch_stats" / "fetch_stats.json"
 
-    def _load(self) -> dict:
+    def _load(self) -> dict[str, Any]:
         doc = read_doc(self._path)
         if doc is None:
             return {"fetch_stats": {}}
         return doc
 
     @staticmethod
-    def _to_domain(rec: dict) -> FetchStats:
+    def _to_domain(rec: dict[str, Any]) -> FetchStats:
         return FetchStats(**rec)
 
     # —— 测试种子(非契约方法):按列表批量写入(fetch_stats 按 username key 访问,无顺序依赖) ——
