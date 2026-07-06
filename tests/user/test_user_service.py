@@ -2,9 +2,15 @@
 
 import pytest
 
-from src.user.domain.models import UserDomain, ApiKeyInfo
-from src.user.infrastructure.repository import DuplicateError, NotFoundError
+from src.user.domain.models import ApiKeyInfo, UserDomain
+from src.user.infrastructure.user_store import DuplicateError, NotFoundError
 from src.user.services.user_service import UserService
+
+
+@pytest.fixture(autouse=True)
+def file_user_store(monkeypatch, tmp_path):
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
 
 
 @pytest.mark.asyncio
@@ -81,9 +87,11 @@ async def test_change_password_success(async_session):
 
     # 新密码可以验证
     from src.user.services.auth_service import AuthService
+
     auth = AuthService()
-    orm_user = await svc._repo.get_user_orm_by_id(user.id)
-    assert await auth.verify_password("NewSecurePass123", orm_user.password_hash)
+    password_hash = await svc._repo.get_password_hash_by_id(user.id)
+    assert password_hash is not None
+    assert await auth.verify_password("NewSecurePass123", password_hash)
 
 
 @pytest.mark.asyncio
@@ -105,6 +113,8 @@ async def test_reset_password(async_session):
 
     # 新临时密码可以验证
     from src.user.services.auth_service import AuthService
+
     auth = AuthService()
-    orm_user = await svc._repo.get_user_orm_by_id(user.id)
-    assert await auth.verify_password(new_temp, orm_user.password_hash)
+    password_hash = await svc._repo.get_password_hash_by_id(user.id)
+    assert password_hash is not None
+    assert await auth.verify_password(new_temp, password_hash)

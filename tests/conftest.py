@@ -47,7 +47,6 @@ _remove_file_handlers()
 # 导入所有 ORM 模型以确保它们被注册到 Base.metadata
 # 这些导入不会在代码中使用，但确保 SQLAlchemy 能够找到所有表
 from src.scraper.infrastructure.models import TweetOrm  # noqa: F401
-from src.scraper.infrastructure.fetch_stats_models import FetchStatsOrm  # noqa: F401
 from src.scraper.infrastructure.article_models import ArticleOrm  # noqa: F401
 from src.summarization.infrastructure.models import SummaryOrm  # noqa: F401
 

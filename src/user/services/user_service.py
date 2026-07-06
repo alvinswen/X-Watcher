@@ -4,7 +4,7 @@ import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.user.domain.models import UserDomain, ApiKeyInfo
-from src.user.infrastructure.repository import NotFoundError
+from src.user.infrastructure.user_store import NotFoundError
 from src.data_layer.provider import get_user_repo
 from src.user.services.auth_service import AuthService
 
@@ -82,7 +82,7 @@ class UserService:
         if is_admin is False:
             current_user = await self._repo.get_user_by_id(user_id)
             if current_user is None:
-                from src.user.infrastructure.repository import NotFoundError
+                from src.user.infrastructure.user_store import NotFoundError
                 raise NotFoundError("用户不存在")
             if current_user.is_admin:
                 admin_count = await self._repo.count_admins()

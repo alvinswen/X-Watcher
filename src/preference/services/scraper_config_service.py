@@ -6,10 +6,10 @@
 import logging
 
 from src.preference.domain.models import ScraperFollow
-from src.preference.infrastructure.scraper_config_repository import (
-    ScraperConfigRepository,
-    NotFoundError,
+from src.preference.infrastructure.follow_store import (
     DuplicateError,
+    FollowStore,
+    NotFoundError,
 )
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,7 @@ class ScraperConfigService:
     管理员维护的平台级 Twitter 关注列表的业务逻辑层。
     """
 
-    def __init__(self, repository: ScraperConfigRepository) -> None:
+    def __init__(self, repository: FollowStore) -> None:
         """初始化服务。
 
         Args:

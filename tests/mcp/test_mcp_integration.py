@@ -12,7 +12,9 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.models import ScraperFollow
-from src.database.x_user_profile_model import XUserProfileOrm
+from src.preference.domain.models import XUserProfile
+from src.preference.infrastructure.file_follow_repository import FileFollowStore
+from src.preference.infrastructure.file_profile_repository import FileProfileStore
 from src.scraper.infrastructure.models import TweetOrm
 from src.subjects.models import SubjectMatch
 from src.subjects.store import FileSubjectStore
@@ -204,6 +206,19 @@ async def seed_follows(async_session: AsyncSession):
     async_session.add_all(follows)
     await async_session.commit()
     return follows
+
+
+@pytest.fixture
+async def seed_file_follows(monkeypatch, tmp_path):
+    """准备文件层关注列表数据。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    store = FileFollowStore(tmp_path)
+    alice = await store.create_scraper_follow("alice", "KOL", "test")
+    bob = await store.create_scraper_follow("bob", "Developer", "test")
+    charlie = await store.create_scraper_follow("charlie", "Analyst", "test")
+    await store.deactivate_follow("charlie")
+    return [alice, bob, charlie]
 
 
 # ── get_feed 集成测试 ─────────────────────────────────────────────
@@ -467,7 +482,7 @@ class TestBrowseIntegration:
 
 class TestAdminToolsIntegration:
     @pytest.mark.asyncio
-    async def test_manage_follows_list(self, tool_funcs, test_session_factory, seed_follows):
+    async def test_manage_follows_list(self, tool_funcs, test_session_factory, seed_file_follows):
         """测试列出关注列表。"""
         with (
             patch(
@@ -488,7 +503,7 @@ class TestAdminToolsIntegration:
 
     @pytest.mark.asyncio
     async def test_manage_follows_list_include_inactive(
-        self, tool_funcs, test_session_factory, seed_follows
+        self, tool_funcs, test_session_factory, seed_file_follows
     ):
         """测试列出关注列表（含非活跃）。"""
         with (
@@ -553,22 +568,25 @@ class TestSystemStatusIntegration:
 class TestFollowAccountsInfoIntegration:
     @pytest.mark.asyncio
     async def test_profiles_returns_cached_profile_fields(
-        self, tool_funcs, async_session, test_session_factory
+        self, tool_funcs, monkeypatch, tmp_path, test_session_factory
     ):
         """测试 profiles 类型返回档案字段（bio 映射 description、tweet_count 映射 statuses_count）。"""
-        async_session.add(
-            XUserProfileOrm(
-                platform_user_id="uid_tony",
-                username="tdinh_me",
-                display_name="Tony Dinh",
-                description="Indie hacker building apps",
-                followers_count=150000,
-                following_count=300,
-                statuses_count=417,
-                fetched_at=datetime(2026, 6, 1, 0, 0, 0),
-            )
+        monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+        monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+        await FileProfileStore(tmp_path).seed(
+            [
+                XUserProfile(
+                    platform_user_id="uid_tony",
+                    username="tdinh_me",
+                    display_name="Tony Dinh",
+                    description="Indie hacker building apps",
+                    followers_count=150000,
+                    following_count=300,
+                    statuses_count=417,
+                    fetched_at=datetime(2026, 6, 1, 0, 0, 0),
+                )
+            ]
         )
-        await async_session.commit()
 
         with (
             patch(

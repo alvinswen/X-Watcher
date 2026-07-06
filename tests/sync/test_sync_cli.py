@@ -1,5 +1,6 @@
 """Sync CLI 命令测试。"""
 
+import asyncio
 import json
 from datetime import datetime, timezone
 from unittest.mock import patch
@@ -10,7 +11,13 @@ from sqlalchemy.orm import Session
 
 from src.cli.main import cli
 from src.database.models import Base, ScraperFollow
+from src.preference.domain.models import ScraperFollow as FollowDomain
+from src.preference.infrastructure.file_follow_repository import FileFollowStore
+from src.scraper.domain.models import Tweet
+from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
 from src.scraper.infrastructure.models import TweetOrm
+from src.summarization.domain.models import SummaryRecord
+from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
 from src.summarization.infrastructure.models import SummaryOrm
 
 
@@ -18,6 +25,18 @@ def _make_test_engine():
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
     Base.metadata.create_all(engine)
     return engine
+
+
+def _seed_file_data(root, *, follows=None, tweets=None, summaries=None) -> None:
+    async def _seed() -> None:
+        if follows:
+            await FileFollowStore(root).seed(follows)
+        if tweets:
+            await FileTweetStore(root).save_tweets(tweets, early_stop_threshold=0)
+        if summaries:
+            await FileSummaryStore(root).seed(summaries)
+
+    asyncio.run(_seed())
 
 
 class TestExportCommand:
@@ -29,19 +48,23 @@ class TestExportCommand:
         assert "--since" in result.output
         assert "--pretty" in result.output
 
-    def test_export_creates_file(self, tmp_path):
+    def test_export_creates_file(self, monkeypatch, tmp_path):
         engine = _make_test_engine()
-
-        with Session(engine) as session:
-            session.add(
-                ScraperFollow(
+        monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+        monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+        _seed_file_data(
+            tmp_path,
+            follows=[
+                FollowDomain(
+                    id=1,
                     username="alice",
                     reason="KOL",
                     added_by="admin",
                     added_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    is_active=True,
                 )
-            )
-            session.commit()
+            ],
+        )
 
         output_path = str(tmp_path / "test-export.json")
 
@@ -70,8 +93,10 @@ class TestExportCommand:
         assert data["metadata"]["source_instance_id"] == "test-server"
         assert len(data["data"]["config"]["scraper_follows"]) == 1
 
-    def test_export_pretty(self, tmp_path):
+    def test_export_pretty(self, monkeypatch, tmp_path):
         engine = _make_test_engine()
+        monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+        monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
         output_path = str(tmp_path / "pretty.json")
 
         with patch("src.database.models.get_engine", return_value=engine):
@@ -90,27 +115,27 @@ class TestExportCommand:
         content = open(output_path, "r", encoding="utf-8").read()
         assert "\n  " in content
 
-    def test_export_with_since_filter(self, tmp_path):
+    def test_export_with_since_filter(self, monkeypatch, tmp_path):
         engine = _make_test_engine()
-
-        with Session(engine) as session:
-            session.add(
-                TweetOrm(
+        monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+        monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+        _seed_file_data(
+            tmp_path,
+            tweets=[
+                Tweet(
                     tweet_id="tw_old",
                     text="Old tweet",
                     author_username="alice",
                     created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
-                )
-            )
-            session.add(
-                TweetOrm(
+                ),
+                Tweet(
                     tweet_id="tw_new",
                     text="New tweet",
                     author_username="alice",
                     created_at=datetime(2026, 2, 15, tzinfo=timezone.utc),
-                )
-            )
-            session.commit()
+                ),
+            ],
+        )
 
         output_path = str(tmp_path / "filtered.json")
 
@@ -260,28 +285,34 @@ class TestImportDataCommand:
 class TestEndToEnd:
     """完整 export → import-data 端到端测试。"""
 
-    def test_export_then_import(self, tmp_path):
-        # 源数据库
+    def test_export_then_import(self, monkeypatch, tmp_path):
+        # 导出源已固定文件层。
+        source_root = tmp_path / "source-data"
+        monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+        monkeypatch.setenv("XWATCHER_DATA_ROOT", str(source_root))
         src_engine = _make_test_engine()
-        with Session(src_engine) as session:
-            session.add(
-                ScraperFollow(
+        _seed_file_data(
+            source_root,
+            follows=[
+                FollowDomain(
+                    id=1,
                     username="alice",
                     reason="KOL",
                     added_by="admin",
                     added_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    is_active=True,
                 )
-            )
-            session.add(
-                TweetOrm(
+            ],
+            tweets=[
+                Tweet(
                     tweet_id="tw_001",
                     text="Hello",
                     author_username="alice",
                     created_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
                 )
-            )
-            session.add(
-                SummaryOrm(
+            ],
+            summaries=[
+                SummaryRecord(
                     summary_id="sum_001",
                     tweet_id="tw_001",
                     summary_text="摘要",
@@ -292,9 +323,11 @@ class TestEndToEnd:
                     total_tokens=150,
                     cost_usd=0.01,
                     content_hash="hash1",
+                    created_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
+                    updated_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
                 )
-            )
-            session.commit()
+            ],
+        )
 
         # Export
         export_path = str(tmp_path / "export.json")
@@ -304,6 +337,7 @@ class TestEndToEnd:
         assert result.exit_code == 0, f"Export failed: {result.output}"
 
         # Import to new database
+        monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
         dst_engine = _make_test_engine()
         with patch("src.database.models.get_engine", return_value=dst_engine):
             result = runner.invoke(cli, ["import-data", export_path])

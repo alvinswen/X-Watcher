@@ -25,7 +25,7 @@ from src.preference.api.schemas import (
     UpdateScraperFollowRequest,
     XUserProfileResponse,
 )
-from src.preference.infrastructure.scraper_config_repository import (
+from src.preference.infrastructure.follow_store import (
     DuplicateError,
     NotFoundError,
 )

@@ -2,15 +2,16 @@
 
 import os
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import jwt as pyjwt
 import pytest
 
 from src.config import clear_settings_cache
-from src.database.models import User as UserOrm, ApiKey as ApiKeyOrm
-from src.user.api.auth import get_current_user, get_current_admin_user
+from src.user.api.auth import get_current_admin_user, get_current_user
 from src.user.domain.models import BOOTSTRAP_ADMIN
+from src.user.infrastructure.file_user_repository import FileUserStore
 from src.user.services.auth_service import AuthService
 
 
@@ -19,22 +20,25 @@ ADMIN_API_KEY_VALUE = "test-admin-api-key-12345"
 
 
 @pytest.fixture(autouse=True)
-def setup_env():
+def setup_env(tmp_path):
     """设置测试环境变量。"""
-    original_jwt = os.environ.get("JWT_SECRET_KEY")
-    original_admin = os.environ.get("ADMIN_API_KEY")
+    originals = {
+        "JWT_SECRET_KEY": os.environ.get("JWT_SECRET_KEY"),
+        "ADMIN_API_KEY": os.environ.get("ADMIN_API_KEY"),
+        "XWATCHER_DATA_LAYER": os.environ.get("XWATCHER_DATA_LAYER"),
+        "XWATCHER_DATA_ROOT": os.environ.get("XWATCHER_DATA_ROOT"),
+    }
     os.environ["JWT_SECRET_KEY"] = JWT_SECRET
     os.environ["ADMIN_API_KEY"] = ADMIN_API_KEY_VALUE
+    os.environ["XWATCHER_DATA_LAYER"] = "file"
+    os.environ["XWATCHER_DATA_ROOT"] = str(tmp_path)
     clear_settings_cache()
     yield
-    if original_jwt is None:
-        os.environ.pop("JWT_SECRET_KEY", None)
-    else:
-        os.environ["JWT_SECRET_KEY"] = original_jwt
-    if original_admin is None:
-        os.environ.pop("ADMIN_API_KEY", None)
-    else:
-        os.environ["ADMIN_API_KEY"] = original_admin
+    for key, value in originals.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
     clear_settings_cache()
 
 
@@ -45,55 +49,43 @@ def auth_svc():
 
 @pytest.fixture
 async def normal_user_with_key(async_session, auth_svc):
-    """创建普通用户和对应的 API Key，返回 (user_orm, raw_key)。"""
+    """创建普通用户和对应的 API Key，返回 (user, raw_key)。"""
     pw_hash = await auth_svc.hash_password("password123")
-    user = UserOrm(name="alice", email="alice@test.com", password_hash=pw_hash, is_admin=False)
-    async_session.add(user)
-    await async_session.flush()
+    store = FileUserStore(Path(os.environ["XWATCHER_DATA_ROOT"]))
+    user = await store.create_user("alice", "alice@test.com", pw_hash)
 
     raw_key, key_hash, key_prefix = auth_svc.generate_api_key()
-    api_key = ApiKeyOrm(
-        user_id=user.id, key_hash=key_hash, key_prefix=key_prefix, name="default"
-    )
-    async_session.add(api_key)
-    await async_session.flush()
+    await store.create_api_key(user.id, key_hash, key_prefix, name="default")
 
     return user, raw_key
 
 
 @pytest.fixture
 async def admin_user_with_key(async_session, auth_svc):
-    """创建管理员用户和对应的 API Key，返回 (user_orm, raw_key)。"""
+    """创建管理员用户和对应的 API Key，返回 (user, raw_key)。"""
     pw_hash = await auth_svc.hash_password("adminpass123")
-    user = UserOrm(name="admin", email="admin@test.com", password_hash=pw_hash, is_admin=True)
-    async_session.add(user)
-    await async_session.flush()
+    store = FileUserStore(Path(os.environ["XWATCHER_DATA_ROOT"]))
+    user = await store.create_user("admin", "admin@test.com", pw_hash)
+    user = await store.update_user(user.id, is_admin=True)
 
     raw_key, key_hash, key_prefix = auth_svc.generate_api_key()
-    api_key = ApiKeyOrm(
-        user_id=user.id, key_hash=key_hash, key_prefix=key_prefix, name="admin-key"
-    )
-    async_session.add(api_key)
-    await async_session.flush()
+    await store.create_api_key(user.id, key_hash, key_prefix, name="admin-key")
 
     return user, raw_key
 
 
 @pytest.fixture
 async def inactive_key_user(async_session, auth_svc):
-    """创建用户和一个非活跃的 API Key，返回 (user_orm, raw_key)。"""
+    """创建用户和一个非活跃的 API Key，返回 (user, raw_key)。"""
     pw_hash = await auth_svc.hash_password("password123")
-    user = UserOrm(name="bob", email="bob@test.com", password_hash=pw_hash, is_admin=False)
-    async_session.add(user)
-    await async_session.flush()
+    store = FileUserStore(Path(os.environ["XWATCHER_DATA_ROOT"]))
+    user = await store.create_user("bob", "bob@test.com", pw_hash)
 
     raw_key, key_hash, key_prefix = auth_svc.generate_api_key()
-    api_key = ApiKeyOrm(
-        user_id=user.id, key_hash=key_hash, key_prefix=key_prefix,
-        name="inactive", is_active=False,
+    api_key = await store.create_api_key(
+        user.id, key_hash, key_prefix, name="inactive"
     )
-    async_session.add(api_key)
-    await async_session.flush()
+    await store.deactivate_key(api_key.id)
 
     return user, raw_key
 

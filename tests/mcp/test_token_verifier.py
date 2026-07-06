@@ -61,40 +61,28 @@ async def test_verify_token_file_mode_admin_scope(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_verify_token_sqlalchemy_mode(monkeypatch):
-    """默认 sqlalchemy 模式两步走 provider 等价(patch session_maker 到内存库)。"""
+async def test_verify_token_ignores_sqlalchemy_layer(monkeypatch, tmp_path):
+    """user repo 下线 SQLAlchemy 后,即使 env=sqlalchemy 也走文件层认证。"""
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     monkeypatch.delenv("ADMIN_API_KEY", raising=False)
     from src.config import clear_settings_cache
 
     clear_settings_cache()
 
-    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from src.user.infrastructure.file_user_repository import FileUserStore
 
-    from src.database.models import ApiKey, Base, User
-
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    maker = async_sessionmaker(engine, expire_on_commit=False)
     token = "sql-token"
     key_hash = hashlib.sha256(token.encode()).hexdigest()
-    async with maker() as s:
-        u = User(name="Bob", email="bob@x.com", is_admin=False)
-        s.add(u)
-        await s.flush()
-        s.add(
-            ApiKey(user_id=u.id, key_hash=key_hash, key_prefix="sql-to", name="t", is_active=True)
-        )
-        await s.commit()
-    monkeypatch.setattr("src.database.async_session.get_async_session_maker", lambda: maker)
+    store = FileUserStore(tmp_path)
+    user = await store.create_user("Bob", "bob@x.com", "h")
+    await store.create_api_key(user.id, key_hash, key_prefix="sql-to", name="t")
 
     from src.mcp.token_verifier import XWatcherTokenVerifier
 
     ok = await XWatcherTokenVerifier().verify_token(token)
     assert ok is not None and ok.client_id == "Bob" and ok.scopes == ["user"]
     assert await XWatcherTokenVerifier().verify_token("nope") is None
-    await engine.dispose()
 
 
 @pytest.mark.asyncio

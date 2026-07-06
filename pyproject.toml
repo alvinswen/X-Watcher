@@ -199,10 +199,3 @@ module = [
     "returns.*",
 ]
 ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-# benchmark 工具代码非生产逻辑不纳入 strict
-module = [
-    "src.data_layer.bench.*",
-]
-ignore_errors = true

@@ -917,11 +917,10 @@ class TestBackfillArticlesForUser:
         TaskRegistry._initialized = False
 
     @pytest.fixture(autouse=True)
-    def _pin_sqlalchemy_layer(self, monkeypatch):
-        """钉 sqlalchemy 模式:本组按 ArticleRepository + get_async_session_maker 的
-        mock 编写,走真 session 路径,不受本地 .env 的 XWATCHER_DATA_LAYER=file 污染
-        (否则 get_article_repo 经 provider 返回 FileArticleStore、绕过 patch)。"""
+    def _pin_sqlalchemy_layer(self, monkeypatch, tmp_path):
+        """钉写侧 sqlalchemy 模式,同时给固定 file 的 article read 门面提供数据根。"""
         monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
+        monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
 
     @pytest.fixture
     def mock_client(self):
@@ -941,15 +940,31 @@ class TestBackfillArticlesForUser:
         )
 
     @pytest.mark.asyncio
-    async def test_backfill_finds_articles(self, service, mock_client):
+    async def test_backfill_finds_articles(self, service, mock_client, tmp_path):
         """测试回溯发现并保存 Article。"""
-        # Mock DB 查询返回推文 ID（不 mock TweetOrm/ArticleOrm，让 select() 正常构建）
-        mock_rows = [("tweet_001",), ("tweet_002",)]
+        from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
+
+        await FileTweetStore(tmp_path).save_tweets(
+            [
+                Tweet(
+                    tweet_id="tweet_001",
+                    text="tweet 001",
+                    created_at=datetime(2024, 1, 2, 12, 0),
+                    author_username="testuser",
+                ),
+                Tweet(
+                    tweet_id="tweet_002",
+                    text="tweet 002",
+                    created_at=datetime(2024, 1, 1, 12, 0),
+                    author_username="testuser",
+                ),
+            ],
+            early_stop_threshold=0,
+        )
 
         mock_session = AsyncMock()
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=None)
-        mock_session.execute = AsyncMock(return_value=mock_rows)
         mock_session.commit = AsyncMock()
 
         mock_session_maker = Mock(return_value=mock_session)

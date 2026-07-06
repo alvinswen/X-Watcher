@@ -1,13 +1,15 @@
 """登录 API (POST /api/auth/login) 测试。"""
 
 import os
+from pathlib import Path
 
 import pytest
 from httpx import AsyncClient, ASGITransport
 
 from src.config import clear_settings_cache
-from src.database.models import Base, User as UserOrm
+from src.database.models import Base
 from src.main import app
+from src.user.infrastructure.file_user_repository import FileUserStore
 from src.user.services.auth_service import AuthService
 
 
@@ -15,16 +17,23 @@ JWT_SECRET = "test-auth-api-jwt-secret-key-32bytes!"
 
 
 @pytest.fixture(autouse=True)
-def setup_env():
+def setup_env(tmp_path):
     """设置测试环境变量。"""
-    original_jwt = os.environ.get("JWT_SECRET_KEY")
+    originals = {
+        "JWT_SECRET_KEY": os.environ.get("JWT_SECRET_KEY"),
+        "XWATCHER_DATA_LAYER": os.environ.get("XWATCHER_DATA_LAYER"),
+        "XWATCHER_DATA_ROOT": os.environ.get("XWATCHER_DATA_ROOT"),
+    }
     os.environ["JWT_SECRET_KEY"] = JWT_SECRET
+    os.environ["XWATCHER_DATA_LAYER"] = "file"
+    os.environ["XWATCHER_DATA_ROOT"] = str(tmp_path)
     clear_settings_cache()
     yield
-    if original_jwt is None:
-        os.environ.pop("JWT_SECRET_KEY", None)
-    else:
-        os.environ["JWT_SECRET_KEY"] = original_jwt
+    for key, value in originals.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
     clear_settings_cache()
 
 
@@ -69,15 +78,17 @@ async def client_and_session(test_session):
 @pytest.fixture
 async def seeded_client(client_and_session):
     """创建测试用户并返回 (client, user_email, user_password)。"""
-    client, session = client_and_session
+    client, _ = client_and_session
     auth_svc = AuthService()
 
     password = "TestPassword123"
     pw_hash = await auth_svc.hash_password(password)
-    user = UserOrm(name="testuser", email="test@example.com", password_hash=pw_hash, is_admin=False)
-    session.add(user)
-    await session.flush()
-    await session.commit()
+    store = FileUserStore(Path(os.environ["XWATCHER_DATA_ROOT"]))
+    await store.create_user(
+        name="testuser",
+        email="test@example.com",
+        password_hash=pw_hash,
+    )
 
     return client, "test@example.com", password
 

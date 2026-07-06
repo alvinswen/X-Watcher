@@ -15,7 +15,7 @@ from src.user.domain.schemas import (
     CreateApiKeyResponse,
     UserResponse,
 )
-from src.user.infrastructure.repository import NotFoundError
+from src.user.infrastructure.user_store import NotFoundError
 from src.user.services.user_service import UserService
 
 logger = logging.getLogger(__name__)

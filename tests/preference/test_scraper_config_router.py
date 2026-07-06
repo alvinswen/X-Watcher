@@ -4,16 +4,25 @@
 但不能通过管理员端点进行增、改、删操作。
 """
 
+import os
+from pathlib import Path
+
 import pytest
 from datetime import datetime, timezone
 from httpx import AsyncClient, ASGITransport
 from fastapi import FastAPI, HTTPException, status
 
 from src.preference.api.scraper_config_router import public_router, router as admin_router
-from src.preference.infrastructure.scraper_config_repository import ScraperConfigRepository
+from src.preference.infrastructure.file_follow_repository import FileFollowStore
 from src.database.async_session import get_async_session
 from src.user.api.auth import get_current_user, get_current_admin_user
 from src.user.domain.models import UserDomain
+
+
+@pytest.fixture(autouse=True)
+def file_data_layer(monkeypatch, tmp_path):
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
 
 
 class TestPublicScraperFollowsAPI:
@@ -66,10 +75,9 @@ class TestPublicScraperFollowsAPI:
     async def test_regular_user_can_read_scraper_follows(self, client, async_session):
         """测试普通用户可以读取抓取账号列表。"""
         # Arrange - 先通过 repository 添加测试数据
-        repo = ScraperConfigRepository(async_session)
+        repo = FileFollowStore(Path(os.environ["XWATCHER_DATA_ROOT"]))
         await repo.create_scraper_follow("elonmusk", "科技领袖", "admin")
         await repo.create_scraper_follow("openai", "AI 研究机构", "admin")
-        await async_session.commit()
 
         # Act
         response = await client.get("/api/scraping/follows")
@@ -86,9 +94,8 @@ class TestPublicScraperFollowsAPI:
     async def test_response_contains_reason_field(self, client, async_session):
         """测试响应包含 reason（描述信息）字段。"""
         # Arrange
-        repo = ScraperConfigRepository(async_session)
+        repo = FileFollowStore(Path(os.environ["XWATCHER_DATA_ROOT"]))
         await repo.create_scraper_follow("elonmusk", "Tesla/SpaceX CEO", "admin")
-        await async_session.commit()
 
         # Act
         response = await client.get("/api/scraping/follows")
@@ -107,11 +114,10 @@ class TestPublicScraperFollowsAPI:
     async def test_only_active_follows_returned(self, client, async_session):
         """测试只返回活跃账号（不含已禁用的）。"""
         # Arrange
-        repo = ScraperConfigRepository(async_session)
+        repo = FileFollowStore(Path(os.environ["XWATCHER_DATA_ROOT"]))
         await repo.create_scraper_follow("active_user", "活跃账号", "admin")
         await repo.create_scraper_follow("inactive_user", "已禁用账号", "admin")
         await repo.deactivate_follow("inactive_user")
-        await async_session.commit()
 
         # Act
         response = await client.get("/api/scraping/follows")

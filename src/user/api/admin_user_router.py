@@ -15,7 +15,7 @@ from src.user.domain.schemas import (
     UpdateUserRequest,
     UserResponse,
 )
-from src.user.infrastructure.repository import DuplicateError, NotFoundError
+from src.user.infrastructure.user_store import DuplicateError, NotFoundError
 from src.user.services.user_service import UserService
 
 logger = logging.getLogger(__name__)
