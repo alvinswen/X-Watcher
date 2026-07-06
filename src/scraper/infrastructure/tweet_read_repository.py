@@ -37,6 +37,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 
 class FileTweetReadStore:
@@ -45,7 +46,7 @@ class FileTweetReadStore:
     def __init__(self, data_root: Path) -> None:
         self._root = Path(data_root)
 
-    def _item(self, tw, has_summary: bool) -> dict:
+    def _item(self, tw: Any, has_summary: bool) -> dict[str, Any]:
         media = (
             [m.model_dump(mode="json", exclude_none=True) for m in tw.media]
             if tw.media
@@ -80,7 +81,7 @@ class FileTweetReadStore:
         author: str | None = None,
         created_after: datetime | None = None,
         created_before: datetime | None = None,
-    ) -> tuple[list[dict], int]:
+    ) -> tuple[list[dict[str, Any]], int]:
         from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
 
         tweets = await FileTweetStore(self._root).get_all_tweets()
@@ -110,7 +111,7 @@ class FileTweetReadStore:
         ]
         return items, total
 
-    async def get_tweet_detail(self, tweet_id: str) -> dict | None:
+    async def get_tweet_detail(self, tweet_id: str) -> dict[str, Any] | None:
         from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
 
         tweets = await FileTweetStore(self._root).get_all_tweets()

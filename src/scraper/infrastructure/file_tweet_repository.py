@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from datetime import date, datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from src.scraper.domain.models import SaveResult, Tweet
 from src.scraper.domain.pagination import Feed, Page
@@ -18,18 +19,18 @@ from src.storage.jsonl_store import read_shard, upsert
 _PERSISTED_EXCLUDE = {"article_preview"}
 
 
-def _to_record(tweet: Tweet) -> dict:
+def _to_record(tweet: Tweet) -> dict[str, Any]:
     t = tweet
     if t.created_at.tzinfo is None:
         t = t.model_copy(update={"created_at": t.created_at.replace(tzinfo=timezone.utc)})
     return t.model_dump(mode="json", exclude=_PERSISTED_EXCLUDE)
 
 
-def _to_domain(record: dict) -> Tweet:
+def _to_domain(record: dict[str, Any]) -> Tweet:
     return Tweet(**record)
 
 
-def _parse(record: dict) -> datetime:
+def _parse(record: dict[str, Any]) -> datetime:
     return paths.as_utc(datetime.fromisoformat(record["created_at"]))
 
 
@@ -73,8 +74,8 @@ class FileTweetStore:
             saved_ids.append(tweet.tweet_id)
             success += 1
 
-        groups: dict[Path, list[dict]] = {}
-        written: list[dict] = []
+        groups: dict[Path, list[dict[str, Any]]] = {}
+        written: list[dict[str, Any]] = []
         for tw in to_write:
             rec = _to_record(tw)
             written.append(rec)
@@ -97,7 +98,7 @@ class FileTweetStore:
 
     async def get_tweets_by_author(self, author_username: str, limit: int = 100) -> list[Tweet]:
         wanted = author_username.lower()
-        records: list[dict] = []
+        records: list[dict[str, Any]] = []
         for shard in paths.author_shards(self._root, author_username):
             records.extend(read_shard(shard))
         records = [r for r in records if r.get("author_username", "").lower() == wanted]
@@ -110,7 +111,7 @@ class FileTweetStore:
             return []
         try:
             wanted = {u.lower() for u in usernames}
-            records: list[dict] = []
+            records: list[dict[str, Any]] = []
             for u in wanted:
                 for shard in paths.author_shards(self._root, u):
                     records.extend(read_shard(shard))
@@ -138,7 +139,7 @@ class FileTweetStore:
                                   min_text_length: int = 0, page: int = 1, page_size: int = 50) -> Page[Tweet]:
         since, until = paths.as_utc(since), paths.as_utc(until)
         wanted = author_username.lower()
-        records: list[dict] = []
+        records: list[dict[str, Any]] = []
         for shard in paths.author_shards(self._root, author_username):
             records.extend(read_shard(shard))
         matched = [
@@ -167,18 +168,18 @@ class FileTweetStore:
 
     async def get_all_tweets(self) -> list[Tweet]:
         """枚举全部 canonical 分片的推文(无序;Export 全量读,调用方再过滤/对账靠 normalize 排序)。"""
-        records: list[dict] = []
+        records: list[dict[str, Any]] = []
         for shard in paths.iter_canonical_shards(self._root):
             records.extend(read_shard(shard))
         return [_to_domain(r) for r in records]
 
-    async def upsert_tweets(self, records: list[dict]) -> None:
+    async def upsert_tweets(self, records: list[dict[str, Any]]) -> None:
         """按 tweet_id 插入或全字段覆盖(import 写底座;records=导出格式 12 字段,直调
         jsonl upsert 无 skip)。⚠️ 仅写命中 author/月分片:fixtures overwrite 须保持
         author_username+created_at 稳定(同分片),否则旧分片残留致 get_all_tweets 重复。"""
         if not records:
             return
-        groups: dict[Path, list[dict]] = {}
+        groups: dict[Path, list[dict[str, Any]]] = {}
         for rec in records:
             created = datetime.fromisoformat(rec["created_at"])
             shard = paths.canonical_shard(self._root, rec["author_username"], created)

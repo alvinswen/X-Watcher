@@ -44,7 +44,7 @@ def _convert_twitterapi_date_to_iso(date_str: str | None) -> str | None:
         return date_str  # 返回原始字符串
 
 
-def _extract_media_from_tweet_obj(tweet_obj: dict) -> list[dict]:
+def _extract_media_from_tweet_obj(tweet_obj: dict[str, Any]) -> list[dict[str, Any]]:
     """从 TwitterAPI.io 推文对象中提取媒体数据。
 
     支持多种 TwitterAPI.io 媒体字段格式：
@@ -61,7 +61,7 @@ def _extract_media_from_tweet_obj(tweet_obj: dict) -> list[dict]:
         return []
 
     # 尝试多种路径获取媒体数组
-    media_list: list[dict] = []
+    media_list: list[dict[str, Any]] = []
 
     # 路径 1: tweet.media (TwitterAPI.io 常见格式)
     raw_media = tweet_obj.get("media")
@@ -86,7 +86,7 @@ def _extract_media_from_tweet_obj(tweet_obj: dict) -> list[dict]:
     if not media_list:
         return []
 
-    result = []
+    result: list[dict[str, Any]] = []
     for idx, m in enumerate(media_list):
         if not isinstance(m, dict):
             continue
@@ -122,7 +122,7 @@ def _extract_media_from_tweet_obj(tweet_obj: dict) -> list[dict]:
     return result
 
 
-def _extract_full_text(tweet_obj: dict) -> str | None:
+def _extract_full_text(tweet_obj: dict[str, Any]) -> str | None:
     """从推文对象中提取最完整的文本。
 
     TwitterAPI.io 可能在不同字段中提供完整文本：
@@ -708,7 +708,7 @@ class TwitterClient:
                             # 转换 TwitterAPI.io 格式为标准 Twitter API v2 格式
                             tweets_data = []
                             users_map = {}
-                            all_media: list[dict] = []  # 收集所有媒体
+                            all_media: list[dict[str, Any]] = []  # 收集所有媒体
 
                             for tweet in tweets_array:
                                 # 从 tweet 中提取基本信息
