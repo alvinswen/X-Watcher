@@ -5,7 +5,8 @@
 """
 
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 from fastapi import status
@@ -17,7 +18,8 @@ from src.config import clear_settings_cache
 from src.database.async_session import get_db_session
 from src.database.models import Base
 from src.main import app
-from src.scraper.infrastructure.models import TweetOrm
+from src.scraper.domain.models import Tweet
+from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
 from src.user.api.auth import get_current_admin_user
 from src.user.domain.models import BOOTSTRAP_ADMIN
 
@@ -105,15 +107,20 @@ def client(_isolated_db) -> TestClient:
     clear_settings_cache()
 
 
-@pytest.fixture(scope="module")
-def seed_test_tweets(_isolated_db) -> list[TweetOrm]:
-    """准备测试推文数据（模块级共享）。"""
-    from datetime import timedelta
+@pytest.fixture(autouse=True)
+def tweet_file_data_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """Route tests now exercise the file-backed tweet read provider."""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    return tmp_path
 
-    session_maker, loop = _isolated_db
+
+@pytest.fixture
+def seed_test_tweets(tweet_file_data_root: Path) -> list[Tweet]:
+    """准备测试推文数据。"""
     now = datetime.now(timezone.utc)
     tweets = [
-        TweetOrm(
+        Tweet(
             tweet_id="tweet1",
             text="First test tweet",
             created_at=now,
@@ -121,7 +128,7 @@ def seed_test_tweets(_isolated_db) -> list[TweetOrm]:
             author_display_name="User One",
             media=None,
         ),
-        TweetOrm(
+        Tweet(
             tweet_id="tweet2",
             text="Second test tweet",
             created_at=now - timedelta(seconds=1),
@@ -129,7 +136,7 @@ def seed_test_tweets(_isolated_db) -> list[TweetOrm]:
             author_display_name="User One",
             media=None,
         ),
-        TweetOrm(
+        Tweet(
             tweet_id="tweet3",
             text="Tweet from user2",
             created_at=now - timedelta(seconds=2),
@@ -139,15 +146,13 @@ def seed_test_tweets(_isolated_db) -> list[TweetOrm]:
         ),
     ]
 
-    async def insert():
-        async with session_maker() as session:
-            for tweet in tweets:
-                session.add(tweet)
-            await session.commit()
-            for tweet in tweets:
-                await session.refresh(tweet)
+    import asyncio
 
-    loop.run_until_complete(insert())
+    asyncio.run(
+        FileTweetStore(tweet_file_data_root).save_tweets(
+            tweets, early_stop_threshold=0
+        )
+    )
 
     return tweets
 
@@ -156,7 +161,7 @@ class TestTweetListAPI:
     """测试推文列表 API。"""
 
     def test_list_tweets_default_params(
-        self, client: TestClient, seed_test_tweets: list[TweetOrm]
+        self, client: TestClient, seed_test_tweets: list[Tweet]
     ) -> None:
         """测试默认参数获取推文列表。"""
         response = client.get("/api/tweets")
@@ -178,7 +183,7 @@ class TestTweetListAPI:
         assert len(data["items"]) == 3
 
     def test_list_tweets_with_pagination(
-        self, client: TestClient, seed_test_tweets: list[TweetOrm]
+        self, client: TestClient, seed_test_tweets: list[Tweet]
     ) -> None:
         """测试分页参数。"""
         response = client.get("/api/tweets?page=1&page_size=2")
@@ -193,7 +198,7 @@ class TestTweetListAPI:
         assert len(data["items"]) == 2
 
     def test_list_tweets_filter_by_author(
-        self, client: TestClient, seed_test_tweets: list[TweetOrm]
+        self, client: TestClient, seed_test_tweets: list[Tweet]
     ) -> None:
         """测试按作者筛选。"""
         response = client.get("/api/tweets?author=user1")
@@ -205,7 +210,7 @@ class TestTweetListAPI:
         assert all(item["author_username"] == "user1" for item in data["items"])
 
     def test_list_tweets_empty_author_filter(
-        self, client: TestClient, seed_test_tweets: list[TweetOrm]
+        self, client: TestClient, seed_test_tweets: list[Tweet]
     ) -> None:
         """测试筛选不存在的作者。"""
         response = client.get("/api/tweets?author=nonexistent")
@@ -217,7 +222,7 @@ class TestTweetListAPI:
         assert len(data["items"]) == 0
 
     def test_list_tweets_invalid_page(
-        self, client: TestClient, seed_test_tweets: list[TweetOrm]
+        self, client: TestClient, seed_test_tweets: list[Tweet]
     ) -> None:
         """测试无效的页码。"""
         response = client.get("/api/tweets?page=0")
@@ -225,7 +230,7 @@ class TestTweetListAPI:
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     def test_list_tweets_invalid_page_size(
-        self, client: TestClient, seed_test_tweets: list[TweetOrm]
+        self, client: TestClient, seed_test_tweets: list[Tweet]
     ) -> None:
         """测试无效的 page_size。"""
         response = client.get("/api/tweets?page_size=0")
@@ -237,7 +242,7 @@ class TestTweetListAPI:
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     def test_list_tweets_ordering(
-        self, client: TestClient, seed_test_tweets: list[TweetOrm]
+        self, client: TestClient, seed_test_tweets: list[Tweet]
     ) -> None:
         """测试推文按时间倒序排列。"""
         response = client.get("/api/tweets")
@@ -257,7 +262,7 @@ class TestTweetDetailAPI:
     """测试推文详情 API。"""
 
     def test_get_tweet_detail_success(
-        self, client: TestClient, seed_test_tweets: list[TweetOrm]
+        self, client: TestClient, seed_test_tweets: list[Tweet]
     ) -> None:
         """测试成功获取推文详情。"""
         response = client.get("/api/tweets/tweet1")

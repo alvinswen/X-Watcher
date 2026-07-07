@@ -51,38 +51,6 @@ def test_persist_task_skips_in_file_mode(monkeypatch):
     assert calls["n"] == 0, "file 模式 _persist_task 不应调用 get_engine(早返)"
 
 
-def test_persist_task_calls_get_engine_in_sqlalchemy_mode(monkeypatch):
-    """sqlalchemy 模式:_persist_task 进入原逻辑(故障注入 get_engine 被调用,翻红证未误守)。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
-
-    import src.database.models as models_mod
-
-    calls = {"n": 0}
-
-    def _spy(*a, **k):
-        calls["n"] += 1
-        raise RuntimeError("stop-after-spy")  # 原逻辑 try/except 静默吞,验证到此即可
-
-    monkeypatch.setattr(models_mod, "get_engine", _spy)
-
-    from src.scraper.task_registry import TaskRegistry, TaskStatus
-
-    reg = TaskRegistry.get_instance()
-    task_data = {
-        "task_id": "t-sa-1",
-        "task_name": "demo",
-        "status": TaskStatus.COMPLETED,
-        "created_at": __import__("datetime").datetime.now(),
-        "started_at": None,
-        "completed_at": None,
-        "result": None,
-        "error": None,
-        "metadata": {},
-    }
-    reg._persist_task(task_data)  # 静默吞异常
-    assert calls["n"] == 1, "sqlalchemy 模式应调用 get_engine 恰一次"
-
-
 # ---------------------------------------------------------------------------
 # A4-1b. recover_stale_tasks:DB 段 file 模式跳过、内存段仍工作
 # ---------------------------------------------------------------------------

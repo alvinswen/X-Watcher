@@ -567,15 +567,11 @@ class ScrapingService:
         """更新用户的回溯状态。"""
         try:
             from src.data_layer.provider import get_follows_repo
-            from src.database.async_session import get_async_session_maker
 
-            session_maker = get_async_session_maker()
-            async with session_maker() as session:
-                repo = get_follows_repo(session)
-                await repo.update_backfill_status(
-                    username, status, completed_at=completed_at,
-                )
-                await session.commit()
+            repo = get_follows_repo()
+            await repo.update_backfill_status(
+                username, status, completed_at=completed_at,
+            )
         except Exception as e:
             logger.warning("更新回溯状态失败: username=%s, status=%s, error=%s", username, status, e)
 
@@ -590,12 +586,9 @@ class ScrapingService:
         """
         try:
             from src.data_layer.provider import get_fetch_stats_repo
-            from src.database.async_session import get_async_session_maker
 
-            session_maker = get_async_session_maker()
-            async with session_maker() as session:
-                repo = get_fetch_stats_repo(session)
-                return await repo.get_stats(username)
+            repo = get_fetch_stats_repo()
+            return await repo.get_stats(username)
         except Exception as e:
             logger.warning("查询抓取统计失败（使用默认 limit）: %s", e)
             return None
@@ -617,7 +610,6 @@ class ScrapingService:
         """
         try:
             from src.data_layer.provider import get_fetch_stats_repo
-            from src.database.async_session import get_async_session_maker
 
             updated = self._limit_calculator.update_stats_after_fetch(
                 stats=old_stats,
@@ -626,11 +618,8 @@ class ScrapingService:
                 new_count=new_count,
             )
 
-            session_maker = get_async_session_maker()
-            async with session_maker() as session:
-                repo = get_fetch_stats_repo(session)
-                await repo.upsert_stats(updated)
-                await session.commit()
+            repo = get_fetch_stats_repo()
+            await repo.upsert_stats(updated)
 
             logger.debug(
                 "用户 %s 统计已更新: avg_rate=%.2f, empty=%d",
@@ -743,19 +732,28 @@ class ScrapingService:
         logger.info("检测到 %d 条推文含 Article（via article 字段），开始获取", len(article_tweets))
 
         try:
-            from src.data_layer.provider import get_article_repo
-            from src.database.async_session import get_async_session_maker
+            from src.data_layer.provider import get_article_repo, is_file_mode
             from src.scraper.domain.models import Article
 
-            session_maker = get_async_session_maker()
+            file_mode = is_file_mode()
+            session_maker: Any = None
+            if not file_mode:
+                from src.database.async_session import get_async_session_maker
+
+                session_maker = get_async_session_maker()
 
             for tweet in article_tweets:
                 try:
                     # 检查是否已存在
-                    async with session_maker() as session:
-                        repo = get_article_repo(session)
+                    if file_mode:
+                        repo = get_article_repo()
                         if await repo.article_exists(tweet.tweet_id):
                             continue
+                    else:
+                        async with session_maker() as session:
+                            repo = get_article_repo(session)
+                            if await repo.article_exists(tweet.tweet_id):
+                                continue
 
                     # 调用 /article API 获取全文
                     api_result = await self._client.fetch_article(tweet.tweet_id)
@@ -804,10 +802,14 @@ class ScrapingService:
                             fetched_at=datetime.now(timezone.utc),
                         )
 
-                    async with session_maker() as session:
-                        repo = get_article_repo(session)
+                    if file_mode:
+                        repo = get_article_repo()
                         saved = await repo.save_article(article)
-                        await session.commit()
+                    else:
+                        async with session_maker() as session:
+                            repo = get_article_repo(session)
+                            saved = await repo.save_article(article)
+                            await session.commit()
 
                     if saved:
                         logger.info(
@@ -855,10 +857,9 @@ class ScrapingService:
                 get_article_repo,
                 is_file_mode,
             )
-            from src.database.async_session import get_async_session_maker
             from src.scraper.domain.models import Article
 
-            session_maker = get_async_session_maker()
+            session_maker: Any = None
 
             # 1. 查询该用户尚无 article 记录的推文 ID(file 模式走文件层反连接门面)
             if is_file_mode():
@@ -866,6 +867,9 @@ class ScrapingService:
                     username, max_tweets=max_tweets
                 )
             else:
+                from src.database.async_session import get_async_session_maker
+
+                session_maker = get_async_session_maker()
                 async with session_maker() as session:
                     tweet_ids = await get_article_read_repo(session).get_unarticled_tweets(
                         username, max_tweets=max_tweets
@@ -923,10 +927,14 @@ class ScrapingService:
                         fetched_at=datetime.now(timezone.utc),
                     )
 
-                    async with session_maker() as session:
-                        repo = get_article_repo(session)
+                    if is_file_mode():
+                        repo = get_article_repo()
                         saved = await repo.save_article(article)
-                        await session.commit()
+                    else:
+                        async with session_maker() as session:
+                            repo = get_article_repo(session)
+                            saved = await repo.save_article(article)
+                            await session.commit()
 
                     if saved:
                         result["found"] += 1
@@ -966,11 +974,16 @@ class ScrapingService:
 
         if self._repository is None:
             # 延迟导入避免循环依赖
-            from src.data_layer.provider import get_tweet_repo
+            from src.data_layer.provider import get_tweet_repo, is_file_mode
+
+            if is_file_mode():
+                repo = get_tweet_repo()
+                result = await repo.save_tweets(tweets, early_stop_threshold=early_stop)
+                return cast(SaveResult, result)
+
             from src.database.async_session import get_async_session_maker
 
             session_maker = get_async_session_maker()
-
             async with session_maker() as session:
                 repo = get_tweet_repo(session)
                 result = await repo.save_tweets(tweets, early_stop_threshold=early_stop)
@@ -997,16 +1010,12 @@ class ScrapingService:
         """
         try:
             from src.data_layer.provider import get_follows_repo
-            from src.database.async_session import get_async_session_maker
 
-            session_maker = get_async_session_maker()
-            async with session_maker() as session:
-                repo = get_follows_repo(session)
-                await repo.update_platform_user_id(username, user_id)
-                await session.commit()
-                logger.info(
-                    "已回填 platform_user_id: %s -> %s", username, user_id
-                )
+            repo = get_follows_repo()
+            await repo.update_platform_user_id(username, user_id)
+            logger.info(
+                "已回填 platform_user_id: %s -> %s", username, user_id
+            )
         except Exception as e:
             logger.warning("回填 platform_user_id 失败（不影响抓取结果）: %s", e)
 
@@ -1022,61 +1031,57 @@ class ScrapingService:
         """
         try:
             from src.data_layer.provider import get_follows_repo
-            from src.database.async_session import get_async_session_maker
 
-            session_maker = get_async_session_maker()
-            async with session_maker() as session:
-                repo = get_follows_repo(session)
-                follow = await repo.get_follow_by_username(old_username)
+            repo = get_follows_repo()
+            follow = await repo.get_follow_by_username(old_username)
 
-                if not follow or not follow.platform_user_id:
-                    logger.warning(
-                        "用户 %s 不存在或无 platform_user_id，无法检测改名",
-                        old_username,
-                    )
-                    return None
-
-                # 调用 batch_info_by_ids 查询最新用户信息
-                user_info_result = await self._client.fetch_user_info_by_ids(
-                    [follow.platform_user_id]
+            if not follow or not follow.platform_user_id:
+                logger.warning(
+                    "用户 %s 不存在或无 platform_user_id，无法检测改名",
+                    old_username,
                 )
+                return None
 
-                if isinstance(user_info_result, Failure):
-                    logger.error(
-                        "查询用户信息失败: %s",
-                        user_info_result.failure().message,
-                    )
-                    return None
+            # 调用 batch_info_by_ids 查询最新用户信息
+            user_info_result = await self._client.fetch_user_info_by_ids(
+                [follow.platform_user_id]
+            )
 
-                users = user_info_result.unwrap()
-                if not users:
-                    logger.warning(
-                        "platform_user_id %s 查询无结果（账号可能已被删除）",
-                        follow.platform_user_id,
-                    )
-                    return None
+            if isinstance(user_info_result, Failure):
+                logger.error(
+                    "查询用户信息失败: %s",
+                    user_info_result.failure().message,
+                )
+                return None
 
-                new_username = users[0].get("userName") or users[0].get("username")
-                if not new_username:
-                    return None
+            users = user_info_result.unwrap()
+            if not users:
+                logger.warning(
+                    "platform_user_id %s 查询无结果（账号可能已被删除）",
+                    follow.platform_user_id,
+                )
+                return None
 
-                new_username = cast(str, new_username).lower()
+            new_username = users[0].get("userName") or users[0].get("username")
+            if not new_username:
+                return None
 
-                if new_username == old_username.lower():
-                    logger.info(
-                        "用户名未变化，404 非改名导致: %s", old_username
-                    )
-                    return None
+            new_username = cast(str, new_username).lower()
 
-                # 更新数据库中的 username
-                await repo.update_username(old_username, new_username)
-                await session.commit()
-
+            if new_username == old_username.lower():
                 logger.info(
-                    "用户改名已修复: %s -> %s (user_id=%s)",
-                    old_username, new_username, follow.platform_user_id,
+                    "用户名未变化，404 非改名导致: %s", old_username
                 )
-                return new_username
+                return None
+
+            # 更新 username
+            await repo.update_username(old_username, new_username)
+
+            logger.info(
+                "用户改名已修复: %s -> %s (user_id=%s)",
+                old_username, new_username, follow.platform_user_id,
+            )
+            return new_username
 
         except Exception as e:
             logger.error("改名检测失败: %s", e)
@@ -1093,56 +1098,52 @@ class ScrapingService:
         """
         try:
             from src.data_layer.provider import get_follows_repo, get_profile_repo
-            from src.database.async_session import get_async_session_maker
             from src.preference.domain.models import XUserProfile
 
-            session_maker = get_async_session_maker()
-            async with session_maker() as session:
-                config_repo = get_follows_repo(session)
+            config_repo = get_follows_repo()
 
-                # 查询这些用户名对应的 platform_user_id
-                user_ids: list[str] = []
-                for username in usernames:
-                    follow = await config_repo.get_follow_by_username(username)
-                    if follow and follow.platform_user_id:
-                        user_ids.append(follow.platform_user_id)
+            # 查询这些用户名对应的 platform_user_id
+            user_ids: list[str] = []
+            for username in usernames:
+                follow = await config_repo.get_follow_by_username(username)
+                if follow and follow.platform_user_id:
+                    user_ids.append(follow.platform_user_id)
 
-                if not user_ids:
-                    logger.debug("档案同步: 无可用 platform_user_id，跳过")
-                    return
+            if not user_ids:
+                logger.debug("档案同步: 无可用 platform_user_id，跳过")
+                return
 
-                # 批量获取用户信息
-                result = await self._client.fetch_user_info_by_ids(user_ids)
+            # 批量获取用户信息
+            result = await self._client.fetch_user_info_by_ids(user_ids)
 
-                if isinstance(result, Failure):
-                    logger.warning(
-                        "档案同步: API 调用失败: %s",
-                        result.failure().message,
-                    )
-                    return
-
-                users_data = result.unwrap()
-                if not users_data:
-                    logger.debug("档案同步: API 返回空结果")
-                    return
-
-                # 转换为领域模型
-                now = datetime.now(timezone.utc).replace(tzinfo=None)
-                profiles = []
-                raw_data_map: dict[str, dict[str, Any]] = {}
-                for u in users_data:
-                    profile = XUserProfile.from_api_response(u, fetched_at=now)
-                    if profile.platform_user_id:
-                        profiles.append(profile)
-                        raw_data_map[profile.platform_user_id] = u
-
-                # 持久化
-                profile_repo = get_profile_repo(session)
-                count = await profile_repo.upsert_profiles(
-                    profiles, raw_data_map=raw_data_map
+            if isinstance(result, Failure):
+                logger.warning(
+                    "档案同步: API 调用失败: %s",
+                    result.failure().message,
                 )
-                await session.commit()
-                logger.info("档案同步完成: %d 个用户档案已更新", count)
+                return
+
+            users_data = result.unwrap()
+            if not users_data:
+                logger.debug("档案同步: API 返回空结果")
+                return
+
+            # 转换为领域模型
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            profiles = []
+            raw_data_map: dict[str, dict[str, Any]] = {}
+            for u in users_data:
+                profile = XUserProfile.from_api_response(u, fetched_at=now)
+                if profile.platform_user_id:
+                    profiles.append(profile)
+                    raw_data_map[profile.platform_user_id] = u
+
+            # 持久化
+            profile_repo = get_profile_repo()
+            count = await profile_repo.upsert_profiles(
+                profiles, raw_data_map=raw_data_map
+            )
+            logger.info("档案同步完成: %d 个用户档案已更新", count)
 
         except Exception as e:
             logger.warning("档案同步失败（不影响抓取结果）: %s", e)

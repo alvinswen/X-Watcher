@@ -4,28 +4,37 @@
 """
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 from fastapi import status
 from httpx import AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.scraper.infrastructure.models import TweetOrm
+from src.scraper.domain.models import Tweet
+from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
+
+
+@pytest.fixture(autouse=True)
+def tweet_file_data_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """Route tests now exercise the file-backed tweet read provider."""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    return tmp_path
 
 
 @pytest.fixture
-async def seed_test_tweets(async_session: AsyncSession) -> list[TweetOrm]:
+async def seed_test_tweets(tweet_file_data_root: Path) -> list[Tweet]:
     """准备测试推文数据。
 
     Args:
-        async_session: 异步数据库会话
+        tweet_file_data_root: 文件数据层根目录
 
     Returns:
-        创建的推文 ORM 列表
+        创建的推文领域对象列表
     """
     now = datetime.now(timezone.utc)
     tweets = [
-        TweetOrm(
+        Tweet(
             tweet_id="tweet1",
             text="First test tweet",
             created_at=now,
@@ -33,7 +42,7 @@ async def seed_test_tweets(async_session: AsyncSession) -> list[TweetOrm]:
             author_display_name="User One",
             media=None,
         ),
-        TweetOrm(
+        Tweet(
             tweet_id="tweet2",
             text="Second test tweet",
             created_at=now - timedelta(days=1),  # 早 1 天
@@ -41,7 +50,7 @@ async def seed_test_tweets(async_session: AsyncSession) -> list[TweetOrm]:
             author_display_name="User One",
             media=None,
         ),
-        TweetOrm(
+        Tweet(
             tweet_id="tweet3",
             text="Tweet from user2",
             created_at=now - timedelta(days=2),  # 早 2 天
@@ -49,7 +58,7 @@ async def seed_test_tweets(async_session: AsyncSession) -> list[TweetOrm]:
             author_display_name="User Two",
             media=None,
         ),
-        TweetOrm(
+        Tweet(
             tweet_id="tweet4",
             text="Old tweet from user2",
             created_at=now - timedelta(days=3),  # 早 3 天
@@ -59,16 +68,15 @@ async def seed_test_tweets(async_session: AsyncSession) -> list[TweetOrm]:
         ),
     ]
 
-    for tweet in tweets:
-        async_session.add(tweet)
-
-    await async_session.commit()
-
-    # 刷新以获取数据库生成的值
-    for tweet in tweets:
-        await async_session.refresh(tweet)
-
+    await FileTweetStore(tweet_file_data_root).save_tweets(
+        tweets, early_stop_threshold=0
+    )
     return tweets
+
+
+def _query_dt(dt: datetime) -> str:
+    """Render an aware UTC datetime safely for raw query-string interpolation."""
+    return dt.isoformat().replace("+00:00", "Z")
 
 
 @pytest.mark.asyncio
@@ -76,7 +84,7 @@ class TestTweetListAPI:
     """测试推文列表 API。"""
 
     async def test_list_tweets_default_params(
-        self, async_client: AsyncClient, seed_test_tweets: list[TweetOrm]
+        self, async_client: AsyncClient, seed_test_tweets: list[Tweet]
     ) -> None:
         """测试默认参数获取推文列表。"""
         response = await async_client.get("/api/tweets")
@@ -98,7 +106,7 @@ class TestTweetListAPI:
         assert len(data["items"]) == 4
 
     async def test_list_tweets_with_pagination(
-        self, async_client: AsyncClient, seed_test_tweets: list[TweetOrm]
+        self, async_client: AsyncClient, seed_test_tweets: list[Tweet]
     ) -> None:
         """测试分页参数。"""
         response = await async_client.get("/api/tweets?page=1&page_size=2")
@@ -113,7 +121,7 @@ class TestTweetListAPI:
         assert len(data["items"]) == 2
 
     async def test_list_tweets_filter_by_author(
-        self, async_client: AsyncClient, seed_test_tweets: list[TweetOrm]
+        self, async_client: AsyncClient, seed_test_tweets: list[Tweet]
     ) -> None:
         """测试按作者筛选。"""
         response = await async_client.get("/api/tweets?author=user1")
@@ -125,7 +133,7 @@ class TestTweetListAPI:
         assert all(item["author_username"] == "user1" for item in data["items"])
 
     async def test_list_tweets_empty_author_filter(
-        self, async_client: AsyncClient, seed_test_tweets: list[TweetOrm]
+        self, async_client: AsyncClient, seed_test_tweets: list[Tweet]
     ) -> None:
         """测试筛选不存在的作者。"""
         response = await async_client.get("/api/tweets?author=nonexistent")
@@ -137,7 +145,7 @@ class TestTweetListAPI:
         assert len(data["items"]) == 0
 
     async def test_list_tweets_invalid_page(
-        self, async_client: AsyncClient, seed_test_tweets: list[TweetOrm]
+        self, async_client: AsyncClient, seed_test_tweets: list[Tweet]
     ) -> None:
         """测试无效的页码。"""
         response = await async_client.get("/api/tweets?page=0")
@@ -145,7 +153,7 @@ class TestTweetListAPI:
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     async def test_list_tweets_invalid_page_size(
-        self, async_client: AsyncClient, seed_test_tweets: list[TweetOrm]
+        self, async_client: AsyncClient, seed_test_tweets: list[Tweet]
     ) -> None:
         """测试无效的 page_size。"""
         response = await async_client.get("/api/tweets?page_size=0")
@@ -157,7 +165,7 @@ class TestTweetListAPI:
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     async def test_list_tweets_ordering(
-        self, async_client: AsyncClient, seed_test_tweets: list[TweetOrm]
+        self, async_client: AsyncClient, seed_test_tweets: list[Tweet]
     ) -> None:
         """测试推文按时间倒序排列。"""
         response = await async_client.get("/api/tweets")
@@ -178,11 +186,11 @@ class TestTweetListAPI:
     # ========== 时间范围过滤测试 (Task 2.2) ==========
 
     async def test_list_tweets_filter_by_created_after(
-        self, async_client: AsyncClient, seed_test_tweets: list[TweetOrm]
+        self, async_client: AsyncClient, seed_test_tweets: list[Tweet]
     ) -> None:
         """测试仅提供 created_after 的单边过滤（含）。"""
         # 使用 tweet2 的创建时间作为 created_after，应返回 tweet1 和 tweet2
-        created_after = seed_test_tweets[1].created_at.isoformat()
+        created_after = _query_dt(seed_test_tweets[1].created_at)
         response = await async_client.get(f"/api/tweets?created_after={created_after}")
 
         assert response.status_code == status.HTTP_200_OK
@@ -193,11 +201,11 @@ class TestTweetListAPI:
         assert tweet_ids == {"tweet1", "tweet2"}
 
     async def test_list_tweets_filter_by_created_before(
-        self, async_client: AsyncClient, seed_test_tweets: list[TweetOrm]
+        self, async_client: AsyncClient, seed_test_tweets: list[Tweet]
     ) -> None:
         """测试仅提供 created_before 的单边过滤（不含）。"""
         # 使用 tweet2 的创建时间作为 created_before，应返回 tweet3 和 tweet4
-        created_before = seed_test_tweets[1].created_at.isoformat()
+        created_before = _query_dt(seed_test_tweets[1].created_at)
         response = await async_client.get(f"/api/tweets?created_before={created_before}")
 
         assert response.status_code == status.HTTP_200_OK
@@ -208,12 +216,12 @@ class TestTweetListAPI:
         assert tweet_ids == {"tweet3", "tweet4"}
 
     async def test_list_tweets_filter_by_date_range(
-        self, async_client: AsyncClient, seed_test_tweets: list[TweetOrm]
+        self, async_client: AsyncClient, seed_test_tweets: list[Tweet]
     ) -> None:
         """测试同时提供 created_after 和 created_before 的双边过滤。"""
         # [tweet3.created_at, tweet1.created_at) → 应返回 tweet2 和 tweet3
-        created_after = seed_test_tweets[2].created_at.isoformat()
-        created_before = seed_test_tweets[0].created_at.isoformat()
+        created_after = _query_dt(seed_test_tweets[2].created_at)
+        created_before = _query_dt(seed_test_tweets[0].created_at)
         response = await async_client.get(
             f"/api/tweets?created_after={created_after}&created_before={created_before}"
         )
@@ -229,11 +237,11 @@ class TestTweetListAPI:
     # ========== 组合过滤与分页测试 (Task 2.3) ==========
 
     async def test_list_tweets_filter_combined_author_and_date_range(
-        self, async_client: AsyncClient, seed_test_tweets: list[TweetOrm]
+        self, async_client: AsyncClient, seed_test_tweets: list[Tweet]
     ) -> None:
         """测试作者筛选与时间范围过滤组合使用。"""
         # author=user1 AND created_after=tweet1.created_at → 仅 tweet1
-        created_after = seed_test_tweets[0].created_at.isoformat()
+        created_after = _query_dt(seed_test_tweets[0].created_at)
         response = await async_client.get(
             f"/api/tweets?author=user1&created_after={created_after}"
         )
@@ -246,11 +254,11 @@ class TestTweetListAPI:
         assert data["items"][0]["author_username"] == "user1"
 
     async def test_list_tweets_date_range_with_pagination(
-        self, async_client: AsyncClient, seed_test_tweets: list[TweetOrm]
+        self, async_client: AsyncClient, seed_test_tweets: list[Tweet]
     ) -> None:
         """测试时间范围过滤与分页参数的组合。"""
         # created_after=tweet3.created_at → 3 条结果 (tweet1, tweet2, tweet3)
-        created_after = seed_test_tweets[2].created_at.isoformat()
+        created_after = _query_dt(seed_test_tweets[2].created_at)
         response = await async_client.get(
             f"/api/tweets?created_after={created_after}&page_size=1&page=1"
         )
@@ -275,7 +283,7 @@ class TestTweetListAPI:
     # ========== 输入验证与向后兼容测试 (Task 2.4) ==========
 
     async def test_list_tweets_invalid_date_format(
-        self, async_client: AsyncClient, seed_test_tweets: list[TweetOrm]
+        self, async_client: AsyncClient, seed_test_tweets: list[Tweet]
     ) -> None:
         """测试无效日期格式返回 422。"""
         response = await async_client.get("/api/tweets?created_after=not-a-date")
@@ -283,7 +291,7 @@ class TestTweetListAPI:
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     async def test_list_tweets_invalid_date_range(
-        self, async_client: AsyncClient, seed_test_tweets: list[TweetOrm]
+        self, async_client: AsyncClient, seed_test_tweets: list[Tweet]
     ) -> None:
         """测试 created_after >= created_before 返回 422。"""
         now = datetime.now(timezone.utc)
@@ -308,7 +316,7 @@ class TestTweetListAPI:
         assert response2.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     async def test_list_tweets_no_date_params_backward_compatible(
-        self, async_client: AsyncClient, seed_test_tweets: list[TweetOrm]
+        self, async_client: AsyncClient, seed_test_tweets: list[Tweet]
     ) -> None:
         """测试不提供时间参数时行为与原来完全一致。"""
         response = await async_client.get("/api/tweets")
@@ -331,7 +339,7 @@ class TestTweetDetailAPI:
     """测试推文详情 API。"""
 
     async def test_get_tweet_detail_success(
-        self, async_client: AsyncClient, seed_test_tweets: list[TweetOrm]
+        self, async_client: AsyncClient, seed_test_tweets: list[Tweet]
     ) -> None:
         """测试成功获取推文详情。"""
         response = await async_client.get("/api/tweets/tweet1")
