@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import threading
 import uuid
@@ -222,60 +221,6 @@ class TaskRegistry:
         if is_file_mode():
             # file 模式:任务历史仅内存,不写 pg(owner 定 accept-no-persist)
             return
-        try:
-            from sqlalchemy import select
-            from sqlalchemy.orm import Session as SyncSession
-
-            from src.database.models import TaskExecutionLog, get_engine
-
-            engine = get_engine()
-            status_value = task_data["status"].value if isinstance(task_data["status"], TaskStatus) else task_data["status"]
-
-            with SyncSession(engine) as session:
-                # 计算执行时长
-                duration = None
-                if task_data.get("started_at") and task_data.get("completed_at"):
-                    delta = task_data["completed_at"] - task_data["started_at"]
-                    duration = delta.total_seconds()
-
-                result_json = json.dumps(task_data.get("result"), ensure_ascii=False, default=str) if task_data.get("result") else None
-                error_text = task_data.get("error")
-                metadata_json = json.dumps(task_data.get("metadata"), ensure_ascii=False, default=str) if task_data.get("metadata") else None
-
-                # upsert: 查找已有记录（RUNNING → COMPLETED/FAILED 时更新）
-                existing = session.execute(
-                    select(TaskExecutionLog).where(
-                        TaskExecutionLog.task_id == task_data["task_id"]
-                    )
-                ).scalar_one_or_none()
-
-                if existing:
-                    existing.status = status_value
-                    existing.started_at = task_data.get("started_at")
-                    existing.completed_at = task_data.get("completed_at")
-                    existing.duration_seconds = duration
-                    existing.result_json = result_json
-                    existing.error = error_text
-                    existing.metadata_json = metadata_json
-                else:
-                    log_entry = TaskExecutionLog(
-                        task_id=task_data["task_id"],
-                        task_name=task_data["task_name"],
-                        status=status_value,
-                        created_at=task_data["created_at"],
-                        started_at=task_data.get("started_at"),
-                        completed_at=task_data.get("completed_at"),
-                        duration_seconds=duration,
-                        result_json=result_json,
-                        error=error_text,
-                        metadata_json=metadata_json,
-                    )
-                    session.add(log_entry)
-
-                session.commit()
-                logger.debug(f"任务已持久化: {task_data['task_id']} (status={status_value})")
-        except Exception as e:
-            logger.warning(f"任务历史持久化失败（不影响任务执行）: {e}")
 
     def update_progress(
         self,
@@ -414,35 +359,6 @@ class TaskRegistry:
         if is_file_mode():
             # file 模式:无 pg 持久化跨进程僵尸记录,DB 残留段跳过(内存段已工作)
             return recovered
-        try:
-            from sqlalchemy import select, update
-            from sqlalchemy.orm import Session as SyncSession
-
-            from src.database.models import TaskExecutionLog, get_engine
-
-            engine = get_engine()
-            with SyncSession(engine) as session:
-                cutoff = now - timedelta(seconds=max_running_seconds)
-                result = session.execute(
-                    update(TaskExecutionLog)
-                    .where(
-                        TaskExecutionLog.status == "running",
-                        TaskExecutionLog.started_at < cutoff,
-                    )
-                    .values(
-                        status="failed",
-                        completed_at=now,
-                        error=f"进程重启恢复: 任务在上次运行中未正常结束",
-                    )
-                )
-                db_recovered = result.rowcount
-                session.commit()
-
-                if db_recovered > 0:
-                    recovered += db_recovered
-                    logger.warning(f"僵尸任务恢复: {db_recovered} 条数据库残留 RUNNING 记录已标记为 FAILED")
-        except Exception as e:
-            logger.warning(f"数据库僵尸任务恢复失败: {e}")
 
         return recovered
 
