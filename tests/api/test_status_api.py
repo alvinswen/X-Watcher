@@ -3,49 +3,34 @@
 测试完整调用链：HTTP 请求 → 认证 → 聚合查询 → 响应格式验证。
 """
 
+import os
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
 from fastapi import status
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import StaticPool
 
-from src.database.models import Base, ScraperFollow
+from src.config import clear_settings_cache
 from src.main import app
-from src.scraper.infrastructure.models import TweetOrm
-from src.summarization.infrastructure.models import SummaryOrm
+from src.preference.domain.models import ScraperFollow
+from src.preference.infrastructure.file_follow_repository import FileFollowStore
+from src.scraper.domain.models import Tweet
+from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
+from src.summarization.domain.models import SummaryRecord
+from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
 from src.user.domain.models import UserDomain
 
 
-@pytest.fixture
-async def status_test_engine():
-    """独立的异步数据库引擎 fixture（StaticPool 确保内存 SQLite 多 session 共享连接）。"""
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    yield engine
-    await engine.dispose()
-
-
-@pytest.fixture
-async def status_test_session_maker(status_test_engine):
-    """异步 session maker fixture。"""
-    return async_sessionmaker(status_test_engine, class_=AsyncSession, expire_on_commit=False)
-
-
-@pytest.fixture
-async def status_test_session(status_test_session_maker):
-    """独立的异步数据库会话 fixture（用于数据种子和旧式 DI 覆盖）。"""
-    async with status_test_session_maker() as session:
-        yield session
+@pytest.fixture(autouse=True)
+def file_data_layer(monkeypatch, tmp_path):
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    clear_settings_cache()
+    yield
+    clear_settings_cache()
 
 
 @pytest.fixture
@@ -67,7 +52,7 @@ def mock_start_time() -> datetime:
 
 
 @pytest.fixture
-async def status_client(status_test_session_maker, mock_user, mock_start_time):
+async def status_client(mock_user, mock_start_time):
     """Status API 集成测试客户端（带认证 + mock start_time）。"""
     from src.user.api.auth import get_current_user
 
@@ -77,15 +62,9 @@ async def status_client(status_test_session_maker, mock_user, mock_start_time):
     app.dependency_overrides[get_current_user] = override_get_current_user
 
     transport = ASGITransport(app=app)
-    with (
-        patch(
-            "src.api.routes.status.get_server_start_time",
-            return_value=mock_start_time,
-        ),
-        patch(
-            "src.database.async_session.get_async_session_maker",
-            return_value=status_test_session_maker,
-        ),
+    with patch(
+        "src.api.routes.status.get_server_start_time",
+        return_value=mock_start_time,
     ):
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             yield ac
@@ -94,7 +73,7 @@ async def status_client(status_test_session_maker, mock_user, mock_start_time):
 
 
 @pytest.fixture
-async def seed_status_data(status_test_session: AsyncSession):
+async def seed_status_data():
     """准备 Status 测试数据。
 
     - 5 条推文（3 条今日、2 条昨天）
@@ -105,8 +84,9 @@ async def seed_status_data(status_test_session: AsyncSession):
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
     # 今日推文
+    tweets = []
     for i in range(3):
-        tweet = TweetOrm(
+        tweet = Tweet(
             tweet_id=f"today_tweet_{i}",
             text=f"Today tweet {i}",
             created_at=today_start + timedelta(hours=i + 1),
@@ -114,11 +94,11 @@ async def seed_status_data(status_test_session: AsyncSession):
             author_display_name="Alice",
             media=None,
         )
-        status_test_session.add(tweet)
+        tweets.append(tweet)
 
     # 昨日推文
     for i in range(2):
-        tweet = TweetOrm(
+        tweet = Tweet(
             tweet_id=f"yesterday_tweet_{i}",
             text=f"Yesterday tweet {i}",
             created_at=today_start - timedelta(hours=i + 1),
@@ -126,13 +106,15 @@ async def seed_status_data(status_test_session: AsyncSession):
             author_display_name="Bob",
             media=None,
         )
-        status_test_session.add(tweet)
+        tweets.append(tweet)
 
-    await status_test_session.flush()
+    root = Path(os.environ["XWATCHER_DATA_ROOT"])
+    await FileTweetStore(root).save_tweets(tweets, early_stop_threshold=0)
 
     # 摘要（覆盖 3 条推文，2 条无摘要）
+    summaries = []
     for i in range(3):
-        summary = SummaryOrm(
+        summary = SummaryRecord(
             summary_id=str(uuid4()),
             tweet_id=f"today_tweet_{i}",
             summary_text=f"摘要 {i}",
@@ -146,36 +128,41 @@ async def seed_status_data(status_test_session: AsyncSession):
             cached=False,
             is_generated_summary=True,
             content_hash=f"status_hash_{i}",
+            created_at=now,
+            updated_at=now,
         )
-        status_test_session.add(summary)
+        summaries.append(summary)
+    await FileSummaryStore(root).seed(summaries)
 
     # 关注账号
-    status_test_session.add(
-        ScraperFollow(
-            username="alice",
-            reason="test",
-            added_by="admin",
-            is_active=True,
-        )
+    await FileFollowStore(root).seed(
+        [
+            ScraperFollow(
+                id=1,
+                username="alice",
+                added_at=now,
+                reason="test",
+                added_by="admin",
+                is_active=True,
+            ),
+            ScraperFollow(
+                id=2,
+                username="bob",
+                added_at=now + timedelta(seconds=1),
+                reason="test",
+                added_by="admin",
+                is_active=True,
+            ),
+            ScraperFollow(
+                id=3,
+                username="charlie",
+                added_at=now + timedelta(seconds=2),
+                reason="test",
+                added_by="admin",
+                is_active=False,
+            ),
+        ]
     )
-    status_test_session.add(
-        ScraperFollow(
-            username="bob",
-            reason="test",
-            added_by="admin",
-            is_active=True,
-        )
-    )
-    status_test_session.add(
-        ScraperFollow(
-            username="charlie",
-            reason="test",
-            added_by="admin",
-            is_active=False,
-        )
-    )
-
-    await status_test_session.commit()
 
 
 class TestStatusOverviewSuccess:

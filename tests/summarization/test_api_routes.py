@@ -88,14 +88,10 @@ class TestGetTweetSummaryEndpoint:
 
     def test_get_nonexistent_summary_returns_404(self, client: TestClient):
         """测试 GET /tweets/{id} 不存在返回 404。"""
-        mock_session = MagicMock()
         mock_repo = MagicMock()
         mock_repo.get_summary_by_tweet = AsyncMock(return_value=None)
 
         with patch(
-            "src.summarization.api.routes.get_async_session_maker",
-            return_value=lambda: mock_session,
-        ), patch(
             "src.summarization.api.routes.get_summary_repo",
             return_value=mock_repo,
         ):

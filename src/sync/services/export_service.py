@@ -4,8 +4,7 @@
 """
 
 from datetime import datetime, timezone
-
-from sqlalchemy.orm import Session
+from typing import Any
 
 from src.sync.domain.models import (
     ExportFilters,
@@ -19,7 +18,7 @@ from src.data_layer.provider import get_export_repo
 class ExportService:
     """编排数据导出流程。"""
 
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Any = None) -> None:
         self._repo = get_export_repo(session)
 
     def export(

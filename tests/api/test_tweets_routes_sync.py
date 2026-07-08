@@ -11,99 +11,23 @@ from pathlib import Path
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
 from src.config import clear_settings_cache
-from src.database.async_session import get_db_session
-from src.database.models import Base
 from src.main import app
 from src.scraper.domain.models import Tweet
 from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
 from src.user.api.auth import get_current_admin_user
 from src.user.domain.models import BOOTSTRAP_ADMIN
 
-# 导入所有 ORM 模型以确保表注册
-from src.summarization.infrastructure.models import SummaryOrm  # noqa: F401
-
-
-# 同步测试用引擎
-_sync_test_engine = create_engine(
-    "sqlite:///",
-    connect_args={"check_same_thread": False},
-)
-_SyncTestSession = sessionmaker(
-    autocommit=False, autoflush=False, bind=_sync_test_engine
-)
-
-
 @pytest.fixture(scope="module")
-def _isolated_db():
-    """创建隔离的测试数据库并覆盖 FastAPI 依赖（模块级共享）。"""
-    # 创建表
-    Base.metadata.create_all(bind=_sync_test_engine)
-
-    # 创建同步 session（供 seed 使用）
-    sync_session = _SyncTestSession()
-
-    # 覆盖 get_db_session 依赖，返回异步包装
-    # TestClient 内部会创建事件循环来运行异步依赖
-    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-
-    async_engine = create_async_engine(
-        "sqlite+aiosqlite:///",
-        connect_args={"check_same_thread": False},
-    )
-
-    async def _setup_async():
-        async with async_engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-
-    import asyncio
-    loop = asyncio.new_event_loop()
-    loop.run_until_complete(_setup_async())
-
-    async_session_maker = async_sessionmaker(
-        async_engine, class_=AsyncSession, expire_on_commit=False
-    )
-
-    # 共享一个 session 实例使 seed 和 API 路由看到同一数据
-    _shared_session = None
-
-    async def override_get_db_session():
-        nonlocal _shared_session
-        if _shared_session is None:
-            _shared_session = async_session_maker()
-        yield _shared_session
-
-    app.dependency_overrides[get_db_session] = override_get_db_session
-    app.dependency_overrides[get_current_admin_user] = lambda: BOOTSTRAP_ADMIN
-
-    yield async_session_maker, loop
-
-    # 清理
-    app.dependency_overrides.pop(get_db_session, None)
-    app.dependency_overrides.pop(get_current_admin_user, None)
-
-    async def _cleanup():
-        if _shared_session:
-            await _shared_session.close()
-        await async_engine.dispose()
-
-    loop.run_until_complete(_cleanup())
-    loop.close()
-
-    sync_session.close()
-    Base.metadata.drop_all(bind=_sync_test_engine)
-
-
-@pytest.fixture(scope="module")
-def client(_isolated_db) -> TestClient:
+def client() -> TestClient:
     """模块级 FastAPI 测试客户端，禁用调度器避免 lifespan 阻塞。"""
     os.environ["SCRAPER_ENABLED"] = "false"
     clear_settings_cache()
+    app.dependency_overrides[get_current_admin_user] = lambda: BOOTSTRAP_ADMIN
     with TestClient(app) as test_client:
         yield test_client
+    app.dependency_overrides.pop(get_current_admin_user, None)
     clear_settings_cache()
 
 

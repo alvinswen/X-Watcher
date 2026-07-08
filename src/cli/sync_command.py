@@ -40,9 +40,6 @@ def export(
     pretty: bool,
 ) -> None:
     """导出数据库数据为 JSON 文件。"""
-    from sqlalchemy.orm import Session
-
-    from src.database.models import get_engine
     from src.sync.format.json_format import write_export_file
     from src.sync.services.export_service import ExportService
 
@@ -58,16 +55,14 @@ def export(
         output_path = f"x-watcher-export-{ts}.json"
 
     # 执行导出
-    engine = get_engine()
-    with Session(engine) as session:
-        svc = ExportService(session)
-        pkg = svc.export(
-            categories=cats,
-            since=since_dt,
-            until=until_dt,
-            authors=author_list,
-            instance_id=inst_id,
-        )
+    svc = ExportService()
+    pkg = svc.export(
+        categories=cats,
+        since=since_dt,
+        until=until_dt,
+        authors=author_list,
+        instance_id=inst_id,
+    )
 
     path = Path(output_path)
     write_export_file(pkg, path, pretty=pretty)
@@ -103,9 +98,6 @@ def import_data(
     force: bool,
 ) -> None:
     """从 JSON 文件导入数据到数据库。"""
-    from sqlalchemy.orm import sessionmaker
-
-    from src.database.models import get_engine
     from src.sync.format.json_format import read_export_file
     from src.sync.services.import_service import ImportService
 
@@ -131,9 +123,7 @@ def import_data(
         click.echo("\n[预览模式] 不会实际修改数据库")
 
     # 执行导入
-    engine = get_engine()
-    factory = sessionmaker(bind=engine)
-    svc = ImportService(factory)
+    svc = ImportService()
     result = svc.import_data(
         package=pkg,
         categories=cats,

@@ -8,10 +8,8 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_settings
-from src.database.async_session import get_async_session, get_async_session_maker
 from src.user.domain.models import BOOTSTRAP_ADMIN, UserDomain
 from src.data_layer.provider import get_user_repo
 from src.user.services.auth_service import AuthService
@@ -28,10 +26,9 @@ _auth_service = AuthService()
 async def get_current_user(
     api_key: Annotated[str | None, Depends(api_key_header)] = None,
     bearer: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)] = None,
-    session: AsyncSession = Depends(get_async_session),
 ) -> UserDomain:
     """统一认证依赖：优先 API Key，其次 JWT。两者均无效则 401。"""
-    repo = get_user_repo(session)
+    repo = get_user_repo()
 
     # 1. 尝试 API Key 认证
     if api_key:
@@ -39,14 +36,9 @@ async def get_current_user(
         result = await repo.get_active_key_by_hash(key_hash)
         if result is not None:
             key_info, user_id = result
-            # 更新 last_used_at（使用独立 session 并立即 commit，
-            # 避免与路由的业务 session 竞争 SQLite 写锁导致死锁）
+            # 更新失败不影响认证。
             try:
-                session_maker = get_async_session_maker()
-                async with session_maker() as update_session:
-                    update_repo = get_user_repo(update_session)
-                    await update_repo.update_key_last_used(key_info.id)
-                    await update_session.commit()
+                await get_user_repo().update_key_last_used(key_info.id)
             except Exception:
                 logger.debug(f"更新 API Key last_used_at 失败（不影响认证）: key_id={key_info.id}")
             user = await repo.get_user_by_id(user_id)
@@ -106,7 +98,6 @@ async def get_current_user(
 async def get_current_admin_user(
     api_key: Annotated[str | None, Depends(api_key_header)] = None,
     bearer: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)] = None,
-    session: AsyncSession = Depends(get_async_session),
 ) -> UserDomain:
     """管理员认证依赖。
 
@@ -118,9 +109,7 @@ async def get_current_admin_user(
     # 1. 先尝试标准用户认证（API Key 或 JWT）
     if api_key or bearer:
         try:
-            user = await get_current_user(
-                api_key=api_key, bearer=bearer, session=session
-            )
+            user = await get_current_user(api_key=api_key, bearer=bearer)
             if not user.is_admin:
                 logger.warning(f"权限不足: user_id={user.id} 不是管理员")
                 raise HTTPException(

@@ -7,8 +7,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy.orm import Session, sessionmaker
-
 from src.sync.domain.models import (
     ConflictStrategy,
     ExportPackage,
@@ -21,7 +19,7 @@ from src.data_layer.provider import get_import_repo
 class ImportService:
     """编排数据导入流程。"""
 
-    def __init__(self, session_factory: sessionmaker) -> None:
+    def __init__(self, session_factory: Any = None) -> None:
         self._session_factory = session_factory
 
     def import_data(
@@ -61,7 +59,7 @@ class ImportService:
         result: ImportResult,
     ) -> None:
         """在独立事务中导入一个 category。"""
-        session: Session = self._session_factory()
+        session: Any = self._session_factory() if self._session_factory is not None else None
         repo = get_import_repo(session, dry_run=dry_run)
         try:
             if category == "config":
@@ -69,18 +67,21 @@ class ImportService:
             elif category == "content":
                 self._import_content(repo, data, strategy, result)
 
-            if dry_run:
-                session.rollback()
-            else:
-                session.commit()
+            if session is not None:
+                if dry_run:
+                    session.rollback()
+                else:
+                    session.commit()
         except Exception as e:
-            session.rollback()
+            if session is not None:
+                session.rollback()
             result.success = False
             result.errors.append(f"[{category}] {e}")
         finally:
             if hasattr(repo, "close"):
                 repo.close()
-            session.close()
+            if session is not None:
+                session.close()
 
     def _import_config(
         self,

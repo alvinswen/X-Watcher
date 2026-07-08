@@ -1,7 +1,7 @@
 """用户生命周期编排服务。"""
 
 import logging
-from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Any
 
 from src.user.domain.models import UserDomain, ApiKeyInfo
 from src.user.infrastructure.user_store import NotFoundError
@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 class UserService:
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: Any = None):
         self._session = session
         self._repo = get_user_repo(session)
         self._auth = AuthService()

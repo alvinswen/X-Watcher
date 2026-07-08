@@ -7,10 +7,8 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_settings
-from src.database.async_session import get_db_session
 from src.data_layer.provider import get_feed_repo
 from src.feed.api.schemas import FeedResponse, FeedTweetItem
 from src.user.api.auth import get_current_user
@@ -46,7 +44,6 @@ async def get_feed(
         None, description="关键词过滤（搜索推文正文、摘要、翻译）"
     ),
     current_user: UserDomain = Depends(get_current_user),
-    session: AsyncSession = Depends(get_db_session),
 ) -> FeedResponse:
     """获取指定时间区间内的推文列表。"""
     # author 和 authors 互斥
@@ -90,7 +87,7 @@ async def get_feed(
             )
 
         # 执行查询
-        result = await get_feed_repo(session).get_feed(
+        result = await get_feed_repo().get_feed(
             since=since,
             until=actual_until,
             limit=actual_limit,

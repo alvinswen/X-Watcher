@@ -14,7 +14,6 @@ from fastapi import FastAPI, HTTPException, status
 
 from src.preference.api.scraper_config_router import public_router, router as admin_router
 from src.preference.infrastructure.file_follow_repository import FileFollowStore
-from src.database.async_session import get_async_session
 from src.user.api.auth import get_current_user, get_current_admin_user
 from src.user.domain.models import UserDomain
 
@@ -29,16 +28,12 @@ class TestPublicScraperFollowsAPI:
     """测试公共只读抓取账号端点。"""
 
     @pytest.fixture
-    def app(self, async_session):
+    def app(self):
         """创建测试应用（同时包含管理员和公共路由）。"""
         app = FastAPI()
         app.include_router(admin_router)
         app.include_router(public_router)
 
-        async def get_session_override():
-            yield async_session
-
-        app.dependency_overrides[get_async_session] = get_session_override
         yield app
         app.dependency_overrides.clear()
 
@@ -148,16 +143,11 @@ class TestRegularUserCannotAccessAdminEndpoints:
     """测试普通用户不能访问管理员端点（增/改/删）。"""
 
     @pytest.fixture
-    def app(self, async_session):
+    def app(self):
         """创建测试应用。"""
         app = FastAPI()
         app.include_router(admin_router)
         app.include_router(public_router)
-
-        async def get_session_override():
-            yield async_session
-
-        app.dependency_overrides[get_async_session] = get_session_override
 
         # Mock 管理员认证依赖 -> 403
         async def override_get_current_admin_user():

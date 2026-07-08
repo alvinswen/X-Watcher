@@ -3,28 +3,16 @@
 import asyncio
 import json
 from datetime import datetime, timezone
-from unittest.mock import patch
 
 from click.testing import CliRunner
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import Session
 
 from src.cli.main import cli
-from src.database.models import Base, ScraperFollow
 from src.preference.domain.models import ScraperFollow as FollowDomain
 from src.preference.infrastructure.file_follow_repository import FileFollowStore
 from src.scraper.domain.models import Tweet
 from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
-from src.scraper.infrastructure.models import TweetOrm
 from src.summarization.domain.models import SummaryRecord
 from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
-from src.summarization.infrastructure.models import SummaryOrm
-
-
-def _make_test_engine():
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
-    Base.metadata.create_all(engine)
-    return engine
 
 
 def _seed_file_data(root, *, follows=None, tweets=None, summaries=None) -> None:
@@ -49,7 +37,6 @@ class TestExportCommand:
         assert "--pretty" in result.output
 
     def test_export_creates_file(self, monkeypatch, tmp_path):
-        engine = _make_test_engine()
         monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
         monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
         _seed_file_data(
@@ -68,20 +55,19 @@ class TestExportCommand:
 
         output_path = str(tmp_path / "test-export.json")
 
-        with patch("src.database.models.get_engine", return_value=engine):
-            runner = CliRunner()
-            result = runner.invoke(
-                cli,
-                [
-                    "export",
-                    "--output",
-                    output_path,
-                    "--categories",
-                    "config",
-                    "--instance-id",
-                    "test-server",
-                ],
-            )
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "export",
+                "--output",
+                output_path,
+                "--categories",
+                "config",
+                "--instance-id",
+                "test-server",
+            ],
+        )
 
         assert result.exit_code == 0, f"Failed: {result.output}"
         assert "导出完成" in result.output
@@ -94,29 +80,26 @@ class TestExportCommand:
         assert len(data["data"]["config"]["scraper_follows"]) == 1
 
     def test_export_pretty(self, monkeypatch, tmp_path):
-        engine = _make_test_engine()
         monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
         monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
         output_path = str(tmp_path / "pretty.json")
 
-        with patch("src.database.models.get_engine", return_value=engine):
-            runner = CliRunner()
-            result = runner.invoke(
-                cli,
-                [
-                    "export",
-                    "--output",
-                    output_path,
-                    "--pretty",
-                ],
-            )
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "export",
+                "--output",
+                output_path,
+                "--pretty",
+            ],
+        )
 
         assert result.exit_code == 0
         content = open(output_path, "r", encoding="utf-8").read()
         assert "\n  " in content
 
     def test_export_with_since_filter(self, monkeypatch, tmp_path):
-        engine = _make_test_engine()
         monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
         monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
         _seed_file_data(
@@ -139,20 +122,19 @@ class TestExportCommand:
 
         output_path = str(tmp_path / "filtered.json")
 
-        with patch("src.database.models.get_engine", return_value=engine):
-            runner = CliRunner()
-            result = runner.invoke(
-                cli,
-                [
-                    "export",
-                    "--output",
-                    output_path,
-                    "--categories",
-                    "content",
-                    "--since",
-                    "2026-02-01",
-                ],
-            )
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "export",
+                "--output",
+                output_path,
+                "--categories",
+                "content",
+                "--since",
+                "2026-02-01",
+            ],
+        )
 
         assert result.exit_code == 0
         with open(output_path, "r", encoding="utf-8") as f:
@@ -169,8 +151,9 @@ class TestImportDataCommand:
         assert "--dry-run" in result.output
         assert "--force" in result.output
 
-    def test_import_data_from_file(self, tmp_path):
-        engine = _make_test_engine()
+    def test_import_data_from_file(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+        monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
 
         # 创建导出文件
         export_data = {
@@ -201,28 +184,27 @@ class TestImportDataCommand:
         file_path = tmp_path / "import.json"
         file_path.write_text(json.dumps(export_data), encoding="utf-8")
 
-        with patch("src.database.models.get_engine", return_value=engine):
-            runner = CliRunner()
-            result = runner.invoke(
-                cli,
-                [
-                    "import-data",
-                    str(file_path),
-                ],
-            )
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "import-data",
+                str(file_path),
+            ],
+        )
 
         assert result.exit_code == 0, f"Failed: {result.output}"
         assert "导入完成" in result.output
         assert "插入 1" in result.output
 
         # 验证数据
-        with Session(engine) as session:
-            follows = session.execute(select(ScraperFollow)).scalars().all()
-            assert len(follows) == 1
-            assert follows[0].username == "alice"
+        follows = asyncio.run(FileFollowStore(tmp_path).get_all_follows(include_inactive=True))
+        assert len(follows) == 1
+        assert follows[0].username == "alice"
 
-    def test_import_dry_run(self, tmp_path):
-        engine = _make_test_engine()
+    def test_import_dry_run(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+        monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
 
         export_data = {
             "metadata": {
@@ -244,24 +226,22 @@ class TestImportDataCommand:
         file_path = tmp_path / "import.json"
         file_path.write_text(json.dumps(export_data), encoding="utf-8")
 
-        with patch("src.database.models.get_engine", return_value=engine):
-            runner = CliRunner()
-            result = runner.invoke(
-                cli,
-                [
-                    "import-data",
-                    str(file_path),
-                    "--dry-run",
-                ],
-            )
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "import-data",
+                str(file_path),
+                "--dry-run",
+            ],
+        )
 
         assert result.exit_code == 0
         assert "预览模式" in result.output
 
         # dry-run 不应写入数据
-        with Session(engine) as session:
-            follows = session.execute(select(ScraperFollow)).scalars().all()
-            assert len(follows) == 0
+        follows = asyncio.run(FileFollowStore(tmp_path).get_all_follows(include_inactive=True))
+        assert len(follows) == 0
 
     def test_import_invalid_schema_version(self, tmp_path):
         export_data = {
@@ -290,7 +270,6 @@ class TestEndToEnd:
         source_root = tmp_path / "source-data"
         monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
         monkeypatch.setenv("XWATCHER_DATA_ROOT", str(source_root))
-        src_engine = _make_test_engine()
         _seed_file_data(
             source_root,
             follows=[
@@ -331,26 +310,24 @@ class TestEndToEnd:
 
         # Export
         export_path = str(tmp_path / "export.json")
-        with patch("src.database.models.get_engine", return_value=src_engine):
-            runner = CliRunner()
-            result = runner.invoke(cli, ["export", "--output", export_path, "--pretty"])
+        runner = CliRunner()
+        result = runner.invoke(cli, ["export", "--output", export_path, "--pretty"])
         assert result.exit_code == 0, f"Export failed: {result.output}"
 
-        # Import to new database
-        monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
-        dst_engine = _make_test_engine()
-        with patch("src.database.models.get_engine", return_value=dst_engine):
-            result = runner.invoke(cli, ["import-data", export_path])
+        # Import to new file data root
+        dest_root = tmp_path / "dest-data"
+        monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+        monkeypatch.setenv("XWATCHER_DATA_ROOT", str(dest_root))
+        result = runner.invoke(cli, ["import-data", export_path])
         assert result.exit_code == 0, f"Import failed: {result.output}"
         assert "导入完成" in result.output
 
         # 验证数据
-        with Session(dst_engine) as session:
-            follows = session.execute(select(ScraperFollow)).scalars().all()
-            assert len(follows) == 1
+        follows = asyncio.run(FileFollowStore(dest_root).get_all_follows(include_inactive=True))
+        assert len(follows) == 1
 
-            tweets = session.execute(select(TweetOrm)).scalars().all()
-            assert len(tweets) == 1
+        tweets = asyncio.run(FileTweetStore(dest_root).get_all_tweets())
+        assert len(tweets) == 1
 
-            summaries = session.execute(select(SummaryOrm)).scalars().all()
-            assert len(summaries) == 1
+        summary = asyncio.run(FileSummaryStore(dest_root).get_summary_by_tweet("tw_001"))
+        assert summary is not None

@@ -3,22 +3,36 @@
 测试推文浏览 API 端点的完整调用链：HTTP → 认证 → 查询 → 响应格式。
 """
 
+import os
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status
 
-from src.database.models import ScraperFollow
+from src.config import clear_settings_cache
 from src.main import app
-from src.scraper.infrastructure.models import TweetOrm
-from src.summarization.infrastructure.models import SummaryOrm
+from src.preference.domain.models import ScraperFollow
+from src.preference.infrastructure.file_follow_repository import FileFollowStore
+from src.scraper.domain.models import Media, Tweet
+from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
+from src.summarization.domain.models import SummaryRecord
+from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
+
+
+@pytest.fixture(autouse=True)
+def file_data_layer(monkeypatch, tmp_path):
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    clear_settings_cache()
+    yield
+    clear_settings_cache()
 
 
 @pytest.fixture
-async def seed_browse_data(async_session: AsyncSession):
+async def seed_browse_data():
     """准备浏览测试数据。
 
     创建跨两天、两个作者的推文，部分推文有摘要。
@@ -30,29 +44,26 @@ async def seed_browse_data(async_session: AsyncSession):
 
     tweets = [
         # Day 1: user_a 2条, user_b 1条
-        TweetOrm(
+        Tweet(
             tweet_id="browse_t1",
             text="Day 1 tweet 1 from user_a",
             created_at=day1,
-            db_created_at=day1,
             author_username="user_a",
             author_display_name="User A",
             media=None,
         ),
-        TweetOrm(
+        Tweet(
             tweet_id="browse_t2",
             text="Day 1 tweet 2 from user_a",
             created_at=day1 + timedelta(hours=2),
-            db_created_at=day1 + timedelta(hours=2),
             author_username="user_a",
             author_display_name="User A",
-            media=[{"url": "https://example.com/img.jpg", "type": "photo"}],
+            media=[Media(media_key="browse_m1", url="https://example.com/img.jpg", type="photo")],
         ),
-        TweetOrm(
+        Tweet(
             tweet_id="browse_t3",
             text="Day 1 tweet from user_b",
             created_at=day1 + timedelta(hours=3),
-            db_created_at=day1 + timedelta(hours=3),
             author_username="user_b",
             author_display_name="User B",
             media=None,
@@ -62,23 +73,21 @@ async def seed_browse_data(async_session: AsyncSession):
             referenced_tweet_author_username="original_author",
         ),
         # Day 2: user_a 1条
-        TweetOrm(
+        Tweet(
             tweet_id="browse_t4",
             text="Day 2 tweet from user_a",
             created_at=day2,
-            db_created_at=day2,
             author_username="user_a",
             author_display_name="User A Updated",
             media=None,
         ),
     ]
 
-    for tweet in tweets:
-        async_session.add(tweet)
-    await async_session.flush()
+    root = Path(os.environ["XWATCHER_DATA_ROOT"])
+    await FileTweetStore(root).save_tweets(tweets, early_stop_threshold=0)
 
     # 为第1条推文添加摘要
-    summary = SummaryOrm(
+    summary = SummaryRecord(
         summary_id=str(uuid4()),
         tweet_id="browse_t1",
         summary_text="这是第一条推文的摘要",
@@ -93,27 +102,30 @@ async def seed_browse_data(async_session: AsyncSession):
         is_generated_summary=True,
         content_hash="test_hash_browse_t1",
         created_at=day1,
+        updated_at=day1,
     )
-    async_session.add(summary)
+    await FileSummaryStore(root).seed([summary])
 
     # 添加 ScraperFollow 记录（作者简介）
     follows = [
         ScraperFollow(
+            id=1,
             username="user_a",
+            added_at=day1,
             reason="AI researcher, focus on LLMs",
             added_by="admin",
             is_active=True,
         ),
         ScraperFollow(
+            id=2,
             username="user_b",
+            added_at=day1 + timedelta(minutes=1),
             reason="Crypto analyst",
             added_by="admin",
             is_active=True,
         ),
     ]
-    for follow in follows:
-        async_session.add(follow)
-    await async_session.commit()
+    await FileFollowStore(root).seed(follows)
 
 
 @pytest.mark.asyncio
@@ -230,21 +242,21 @@ class TestBrowseAuthors:
         assert user_a["author_display_name"] == "User A"
 
     async def test_authors_reason_missing(
-        self, async_client: AsyncClient, async_session: AsyncSession
+        self, async_client: AsyncClient
     ):
         """没有 ScraperFollow 记录的作者，reason 应为 null。"""
         day = datetime(2026, 3, 1, 10, 0, 0, tzinfo=timezone.utc)
-        tweet = TweetOrm(
+        tweet = Tweet(
             tweet_id="browse_orphan",
             text="Tweet from unknown author",
             created_at=day,
-            db_created_at=day,
             author_username="unknown_user",
             author_display_name="Unknown",
             media=None,
         )
-        async_session.add(tweet)
-        await async_session.commit()
+        await FileTweetStore(Path(os.environ["XWATCHER_DATA_ROOT"])).save_tweets(
+            [tweet], early_stop_threshold=0
+        )
 
         response = await async_client.get(
             "/api/browse/authors", params={"date": "2026-03-01"}
@@ -397,14 +409,8 @@ class TestBrowseTweets:
 class TestBrowseAuth:
     """测试认证。"""
 
-    async def test_no_auth_returns_error(self, async_session: AsyncSession):
+    async def test_no_auth_returns_error(self):
         """无认证访问返回错误。"""
-        from src.database.async_session import get_db_session
-
-        async def override_get_db_session():
-            yield async_session
-
-        app.dependency_overrides[get_db_session] = override_get_db_session
         # 不覆写 admin auth，应使用原始的认证逻辑
 
         transport = ASGITransport(app=app)
@@ -417,5 +423,3 @@ class TestBrowseAuth:
                 status.HTTP_401_UNAUTHORIZED,
                 status.HTTP_403_FORBIDDEN,
             )
-
-        app.dependency_overrides.pop(get_db_session, None)

@@ -8,7 +8,6 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from src.data_layer.provider import get_summary_repo
-from src.database.async_session import get_async_session_maker
 from src.summarization.api.schemas import ErrorResponse, SummaryResponse
 from src.user.api.auth import get_current_admin_user
 from src.user.domain.models import UserDomain
@@ -31,20 +30,17 @@ async def get_tweet_summary(
     _admin: UserDomain = Depends(get_current_admin_user),
 ) -> SummaryResponse:
     """查询单条推文的摘要。"""
-    session_maker = get_async_session_maker()
-
     try:
-        async with session_maker() as session:
-            repository = get_summary_repo(session)
-            summary = await repository.get_summary_by_tweet(tweet_id)
+        repository = get_summary_repo()
+        summary = await repository.get_summary_by_tweet(tweet_id)
 
-            if summary is None:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"推文摘要不存在: {tweet_id}",
-                )
+        if summary is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"推文摘要不存在: {tweet_id}",
+            )
 
-            return SummaryResponse.from_domain(summary)
+        return SummaryResponse.from_domain(summary)
 
     except HTTPException:
         raise

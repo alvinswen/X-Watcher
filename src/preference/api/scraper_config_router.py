@@ -8,10 +8,8 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.data_layer.provider import get_follows_repo
-from src.database.async_session import get_async_session
 from src.preference.api.schemas import (
     CreateScraperFollowRequest,
     DeleteResponse,
@@ -48,18 +46,14 @@ public_router = APIRouter(
 )
 
 
-async def _get_scraper_config_service(
-    session: AsyncSession = Depends(get_async_session),
-) -> ScraperConfigService:
+async def _get_scraper_config_service() -> ScraperConfigService:
     """获取 ScraperConfigService 实例。
 
     Args:
-        session: 数据库会话
-
     Returns:
         ScraperConfigService: 服务实例
     """
-    repository = get_follows_repo(session)
+    repository = get_follows_repo()
     return ScraperConfigService(repository)
 
 
@@ -179,7 +173,6 @@ async def get_scraper_follows(
     },
 )
 async def get_follows_stats(
-    session: AsyncSession = Depends(get_async_session),
     admin: UserDomain = Depends(get_current_admin_user),
 ) -> list[FollowStatsResponse]:
     """获取所有活跃账号的运行时统计。
@@ -199,7 +192,7 @@ async def get_follows_stats(
 
     try:
         # 1. 获取所有活跃账号
-        service = await _get_scraper_config_service(session)
+        service = await _get_scraper_config_service()
         follows = await service.get_all_follows(include_inactive=False)
         usernames = [f.username for f in follows]
 
@@ -207,7 +200,7 @@ async def get_follows_stats(
             return []
 
         # 2. 批量查 FetchStats → 计算 effective_limit
-        stats_repo = get_fetch_stats_repo(session)
+        stats_repo = get_fetch_stats_repo()
         stats_map = await stats_repo.batch_get_stats(usernames)
         calculator = LimitCalculator()
 
@@ -215,7 +208,7 @@ async def get_follows_stats(
         #    tweet 聚合走 provider:sqlalchemy 路径转调原 (username, period_bucket) 分组 SQL;
         #    file 路径用 round-half-up 整数分桶复刻生产 PG cast 进位(⚠️ #7 round 陷阱,见门面)。
         num_periods = 14
-        scraper_stats = get_scraper_stats_repo(session)
+        scraper_stats = get_scraper_stats_repo()
         max_12h_map = await scraper_stats.max_period_counts(usernames, 12, num_periods)
         max_24h_map = await scraper_stats.max_period_counts(usernames, 24, num_periods)
 
@@ -252,7 +245,6 @@ async def get_follows_stats(
     },
 )
 async def get_follows_tweet_time_range(
-    session: AsyncSession = Depends(get_async_session),
     admin: UserDomain = Depends(get_current_admin_user),
 ) -> list[TweetTimeRangeResponse]:
     """获取所有活跃账号的推文时间范围。
@@ -270,7 +262,7 @@ async def get_follows_tweet_time_range(
 
     try:
         # 1. 获取所有活跃账号
-        service = await _get_scraper_config_service(session)
+        service = await _get_scraper_config_service()
         follows = await service.get_all_follows(include_inactive=False)
         usernames = [f.username for f in follows]
 
@@ -279,7 +271,7 @@ async def get_follows_tweet_time_range(
 
         # 2. 按 author 聚合 min/max/count(走 provider:sqlalchemy 转调原 group_by min/max/count SQL;
         #    file 组合 FileTweetStore Python 聚合)。大小写不敏感匹配(lower),无 round 陷阱。
-        rows = await get_scraper_stats_repo(session).tweet_time_range(usernames)
+        rows = await get_scraper_stats_repo().tweet_time_range(usernames)
 
         # 3. 组装结果（包括无推文的账号），通过 lower() 键匹配
         return [
@@ -311,7 +303,6 @@ async def get_follows_tweet_time_range(
     },
 )
 async def get_user_profiles(
-    session: AsyncSession = Depends(get_async_session),
     admin: UserDomain = Depends(get_current_admin_user),
 ) -> list[XUserProfileResponse]:
     """获取所有已缓存的用户档案信息。
@@ -321,7 +312,7 @@ async def get_user_profiles(
     from src.data_layer.provider import get_profile_repo
 
     try:
-        repo = get_profile_repo(session)
+        repo = get_profile_repo()
         profiles = await repo.get_all_profiles()
         return [
             XUserProfileResponse(
@@ -366,7 +357,6 @@ async def get_user_profiles(
     },
 )
 async def sync_user_profiles(
-    session: AsyncSession = Depends(get_async_session),
     admin: UserDomain = Depends(get_current_admin_user),
 ) -> SyncProfilesResponse:
     """手动触发用户档案同步。
@@ -380,7 +370,7 @@ async def sync_user_profiles(
 
     try:
         # 获取所有有 platform_user_id 的活跃 follows
-        config_repo = get_follows_repo(session)
+        config_repo = get_follows_repo()
         follows = await config_repo.get_all_follows(include_inactive=False)
         user_ids = [f.platform_user_id for f in follows if f.platform_user_id]
 
@@ -417,7 +407,7 @@ async def sync_user_profiles(
                 profiles.append(profile)
                 raw_data_map[profile.platform_user_id] = u
 
-        profile_repo = get_profile_repo(session)
+        profile_repo = get_profile_repo()
         count = await profile_repo.upsert_profiles(profiles, raw_data_map=raw_data_map)
 
         return SyncProfilesResponse(
@@ -446,14 +436,13 @@ async def sync_user_profiles(
 )
 async def get_user_profile(
     username: str,
-    session: AsyncSession = Depends(get_async_session),
     admin: UserDomain = Depends(get_current_admin_user),
 ) -> XUserProfileResponse:
     """获取指定用户的档案信息。"""
     from src.data_layer.provider import get_profile_repo
 
     try:
-        repo = get_profile_repo(session)
+        repo = get_profile_repo()
         profile = await repo.get_profile_by_username(username)
 
         if profile is None:
@@ -615,7 +604,6 @@ async def get_follow_analysis(
     username: str,
     interval_hours: int = Query(12, ge=12, le=24, description="周期间隔（12 或 24 小时）"),
     periods: int = Query(14, ge=1, le=30, description="查询周期数"),
-    session: AsyncSession = Depends(get_async_session),
     admin: UserDomain = Depends(get_current_admin_user),
 ) -> FetchAnalysisResponse:
     """获取指定账号的抓取结果分析。
@@ -634,7 +622,7 @@ async def get_follow_analysis(
     try:
         # 显式窗口逐周期 count 走 provider(sqlalchemy 转调原 per-period count SQL;
         # file 组合 FileTweetStore Python 计数)。已正序(最早在前),无 round 陷阱。
-        windows = await get_scraper_stats_repo(session).period_analysis(
+        windows = await get_scraper_stats_repo().period_analysis(
             username, interval_hours, periods
         )
 
@@ -719,7 +707,6 @@ async def get_scraper_follows_public(
     },
 )
 async def get_user_profiles_public(
-    session: AsyncSession = Depends(get_async_session),
     current_user: UserDomain = Depends(get_current_user),
 ) -> list[XUserProfileResponse]:
     """获取用户档案列表（只读）。
@@ -729,7 +716,7 @@ async def get_user_profiles_public(
     from src.data_layer.provider import get_profile_repo
 
     try:
-        repo = get_profile_repo(session)
+        repo = get_profile_repo()
         profiles = await repo.get_all_profiles()
         return [
             XUserProfileResponse(

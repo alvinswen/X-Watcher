@@ -321,7 +321,7 @@ async def test_endpoints_file_mode_smoke(monkeypatch, tmp_path):
     class _Admin:
         pass
 
-    res8 = await rt.get_follows_tweet_time_range(session=None, admin=_Admin())
+    res8 = await rt.get_follows_tweet_time_range(admin=_Admin())
     assert len(res8) == 1
     assert res8[0].username == "alice"
     assert res8[0].tweet_count == 2
@@ -329,7 +329,7 @@ async def test_endpoints_file_mode_smoke(monkeypatch, tmp_path):
 
     # #9 端点:follow-analysis(直接 username,无 follows 依赖)
     res9 = await rt.get_follow_analysis(
-        username="alice", interval_hours=12, periods=3, session=None, admin=_Admin()
+        username="alice", interval_hours=12, periods=3, admin=_Admin()
     )
     assert res9.username == "alice"
     assert res9.total_new_tweets == 2
