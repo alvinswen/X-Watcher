@@ -5,38 +5,29 @@
 
 import os
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
 from fastapi import status
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.config import clear_settings_cache
-from src.database.models import Base
 from src.main import app
-from src.scraper.infrastructure.models import TweetOrm
-from src.summarization.infrastructure.models import SummaryOrm
+from src.scraper.domain.models import Tweet
+from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
+from src.summarization.domain.models import SummaryRecord
+from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
 from src.user.domain.models import UserDomain
 
 
-@pytest.fixture
-async def feed_test_session():
-    """独立的异步数据库会话 fixture。"""
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-    )
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    session_maker = async_sessionmaker(
-        engine, class_=AsyncSession, expire_on_commit=False
-    )
-    async with session_maker() as session:
-        yield session
-
-    await engine.dispose()
+@pytest.fixture(autouse=True)
+def file_data_layer(monkeypatch, tmp_path):
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    clear_settings_cache()
+    yield
+    clear_settings_cache()
 
 
 @pytest.fixture
@@ -52,52 +43,32 @@ def mock_user() -> UserDomain:
 
 
 @pytest.fixture
-async def feed_client(feed_test_session, mock_user):
+async def feed_client(mock_user):
     """Feed API 集成测试客户端（带认证）。"""
-    from src.database.async_session import get_db_session
     from src.user.api.auth import get_current_user
-
-    async def override_get_db_session():
-        yield feed_test_session
 
     async def override_get_current_user():
         return mock_user
 
-    app.dependency_overrides[get_db_session] = override_get_db_session
     app.dependency_overrides[get_current_user] = override_get_current_user
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
 
-    app.dependency_overrides.pop(get_db_session, None)
     app.dependency_overrides.pop(get_current_user, None)
 
 
 @pytest.fixture
-async def feed_client_no_auth(feed_test_session):
+async def feed_client_no_auth():
     """无认证覆盖的客户端（用于测试 401 场景）。"""
-    from src.database.async_session import get_async_session, get_db_session
-
-    async def override_get_db_session():
-        yield feed_test_session
-
-    async def override_get_async_session():
-        yield feed_test_session
-
-    app.dependency_overrides[get_db_session] = override_get_db_session
-    app.dependency_overrides[get_async_session] = override_get_async_session
-
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
 
-    app.dependency_overrides.pop(get_db_session, None)
-    app.dependency_overrides.pop(get_async_session, None)
-
 
 @pytest.fixture
-async def seed_feed_data(feed_test_session: AsyncSession):
+async def seed_feed_data():
     """准备 Feed 测试数据。
 
     created_at（Feed 时间过滤基准）: base+50, +40, +30, +20, +10 min
@@ -108,21 +79,20 @@ async def seed_feed_data(feed_test_session: AsyncSession):
 
     tweets = []
     for i in range(5):
-        tweet = TweetOrm(
+        tweet = Tweet(
             tweet_id=f"api_tweet_{i}",
             text=f"Tweet number {i}",
             created_at=base_time + timedelta(minutes=50 - i * 10),
-            db_created_at=base_time + timedelta(minutes=10 + i * 10),
             author_username="testuser",
             author_display_name="Test User",
             media=None,
         )
-        feed_test_session.add(tweet)
         tweets.append(tweet)
 
-    await feed_test_session.flush()
+    root = Path(os.environ["XWATCHER_DATA_ROOT"])
+    await FileTweetStore(root).save_tweets(tweets, early_stop_threshold=0)
 
-    summary = SummaryOrm(
+    summary = SummaryRecord(
         summary_id=str(uuid4()),
         tweet_id="api_tweet_0",
         summary_text="测试摘要",
@@ -136,15 +106,16 @@ async def seed_feed_data(feed_test_session: AsyncSession):
         cached=False,
         is_generated_summary=True,
         content_hash="api_hash_0",
+        created_at=now,
+        updated_at=now,
     )
-    feed_test_session.add(summary)
-    await feed_test_session.commit()
+    await FileSummaryStore(root).seed([summary])
 
     return {"tweets": tweets, "base_time": base_time}
 
 
 @pytest.fixture
-async def seed_multi_author_data(feed_test_session: AsyncSession):
+async def seed_multi_author_data():
     """准备多作者 Feed 测试数据。
 
     - alice: 2 条推文（text 含 "alpha"）
@@ -155,40 +126,36 @@ async def seed_multi_author_data(feed_test_session: AsyncSession):
     base_time = now - timedelta(hours=2)
 
     tweets = [
-        TweetOrm(
+        Tweet(
             tweet_id="ma_tweet_1",
             text="alpha content from alice",
             created_at=base_time + timedelta(minutes=30),
-            db_created_at=base_time + timedelta(minutes=10),
             author_username="alice",
             author_display_name="Alice",
             media=None,
         ),
-        TweetOrm(
+        Tweet(
             tweet_id="ma_tweet_2",
             text="alpha again from alice",
             created_at=base_time + timedelta(minutes=20),
-            db_created_at=base_time + timedelta(minutes=20),
             author_username="alice",
             author_display_name="Alice",
             media=None,
         ),
-        TweetOrm(
+        Tweet(
             tweet_id="ma_tweet_3",
             text="beta content from bob",
             created_at=base_time + timedelta(minutes=10),
-            db_created_at=base_time + timedelta(minutes=30),
             author_username="bob",
             author_display_name="Bob",
             media=None,
         ),
     ]
 
-    for tweet in tweets:
-        feed_test_session.add(tweet)
-    await feed_test_session.flush()
+    root = Path(os.environ["XWATCHER_DATA_ROOT"])
+    await FileTweetStore(root).save_tweets(tweets, early_stop_threshold=0)
 
-    summary = SummaryOrm(
+    summary = SummaryRecord(
         summary_id=str(uuid4()),
         tweet_id="ma_tweet_1",
         summary_text="alice 的摘要",
@@ -202,9 +169,10 @@ async def seed_multi_author_data(feed_test_session: AsyncSession):
         cached=False,
         is_generated_summary=True,
         content_hash="ma_hash_1",
+        created_at=now,
+        updated_at=now,
     )
-    feed_test_session.add(summary)
-    await feed_test_session.commit()
+    await FileSummaryStore(root).seed([summary])
 
     return {"tweets": tweets, "base_time": base_time}
 

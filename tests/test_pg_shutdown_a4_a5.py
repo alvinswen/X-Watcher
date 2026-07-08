@@ -242,26 +242,6 @@ def test_init_database_skips_create_all_in_file_mode(monkeypatch):
     assert calls["n"] == 0
 
 
-def test_init_database_calls_create_all_in_sqlalchemy_mode(monkeypatch, tmp_path):
-    """sqlalchemy 模式:_init_database 调 create_all 恰一次(故障注入翻红证未误守)。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
-    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path}/probe.db")
-
-    import src.database.models as models_mod
-
-    calls = {"n": 0}
-    monkeypatch.setattr(
-        models_mod.Base.metadata,
-        "create_all",
-        lambda *a, **k: calls.__setitem__("n", calls["n"] + 1),
-    )
-
-    from src.cli.init_command import _init_database
-
-    _init_database()
-    assert calls["n"] == 1
-
-
 # ---------------------------------------------------------------------------
 # A5-2. _create_admin file 走文件层
 # ---------------------------------------------------------------------------

@@ -7,7 +7,6 @@ import pytest
 from httpx import AsyncClient, ASGITransport
 
 from src.config import clear_settings_cache
-from src.database.models import Base
 from src.main import app
 from src.user.infrastructure.file_user_repository import FileUserStore
 from src.user.services.auth_service import AuthService
@@ -38,41 +37,11 @@ def setup_env(tmp_path):
 
 
 @pytest.fixture
-async def test_session():
-    """独立异步数据库会话。"""
-    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-    )
-
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
-    async with session_maker() as session:
-        yield session
-
-    await engine.dispose()
-
-
-@pytest.fixture
-async def client_and_session(test_session):
+async def client_and_session():
     """提供 async_client 和 session。"""
-    from src.database.async_session import get_async_session
-
-    async def override_get_async_session():
-        yield test_session
-
-    app.dependency_overrides[get_async_session] = override_get_async_session
-
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        yield ac, test_session
-
-    app.dependency_overrides.pop(get_async_session, None)
+        yield ac, None
 
 
 @pytest.fixture

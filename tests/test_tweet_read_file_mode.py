@@ -251,7 +251,7 @@ async def test_endpoints_file_mode_via_handler(monkeypatch, tmp_path):
     # list_tweets handler:session 传 None(file 门面忽略)
     resp = await tweets_route.list_tweets(
         page=1, page_size=1, author=None, created_after=None, created_before=None,
-        session=None, _admin=None)
+        _admin=None)
     assert resp.total == 2
     assert resp.total_pages == 2
     assert len(resp.items) == 1
@@ -264,13 +264,13 @@ async def test_endpoints_file_mode_via_handler(monkeypatch, tmp_path):
 
     # get_tweet_detail handler:命中(含 summary 部分仍走 get_summary_repo,file-safe)
     detail = await tweets_route.get_tweet_detail(
-        tweet_id="e1", session=None, _admin=None)
+        tweet_id="e1", _admin=None)
     assert detail.tweet_id == "e1"
     assert detail.has_summary is True          # summary 部分 file-safe 拼装
 
     # 404
     with pytest.raises(HTTPException) as ei:
-        await tweets_route.get_tweet_detail(tweet_id="nope", session=None, _admin=None)
+        await tweets_route.get_tweet_detail(tweet_id="nope", _admin=None)
     assert ei.value.status_code == 404
 
 

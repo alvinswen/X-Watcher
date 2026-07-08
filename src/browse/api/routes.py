@@ -8,7 +8,6 @@ import math
 import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.browse.api.schemas import (
     AuthorInfo,
@@ -20,7 +19,6 @@ from src.browse.api.schemas import (
     DailyStatsResponse,
 )
 from src.browse.services.browse_service import BrowseService
-from src.database.async_session import get_db_session
 from src.user.api.auth import get_current_user
 from src.user.domain.models import UserDomain
 
@@ -42,13 +40,12 @@ async def get_daily_stats(
     tz_offset: int = Query(0, ge=-720, le=840, description="时区偏移（分钟），来自 JS getTimezoneOffset()"),
     min_text_length: int | None = Query(None, ge=1, description="最小推文长度（字符数）"),
     _user: UserDomain = Depends(get_current_user),
-    session: AsyncSession = Depends(get_db_session),
 ) -> DailyStatsResponse:
     """按年月查询该月内每天的推文数量（按用户本地时区分组）。"""
     try:
         from src.data_layer.provider import get_browse_repo
 
-        days = await get_browse_repo(session).get_daily_stats(year, month, tz_offset, min_text_length)
+        days = await get_browse_repo().get_daily_stats(year, month, tz_offset, min_text_length)
         return DailyStatsResponse(
             year=year,
             month=month,
@@ -74,7 +71,6 @@ async def get_authors(
     tz_offset: int = Query(0, ge=-720, le=840, description="时区偏移（分钟），来自 JS getTimezoneOffset()"),
     min_text_length: int | None = Query(None, ge=1, description="最小推文长度（字符数）"),
     _user: UserDomain = Depends(get_current_user),
-    session: AsyncSession = Depends(get_db_session),
 ) -> AuthorListResponse:
     """查询指定日期有推文的所有作者。"""
     if not DATE_PATTERN.match(date):
@@ -86,7 +82,7 @@ async def get_authors(
     try:
         from src.data_layer.provider import get_browse_repo
 
-        authors = await get_browse_repo(session).get_authors(date, tz_offset, min_text_length)
+        authors = await get_browse_repo().get_authors(date, tz_offset, min_text_length)
         return AuthorListResponse(
             authors=[AuthorInfo(**a) for a in authors],
             total=len(authors),
@@ -114,7 +110,6 @@ async def get_tweets(
     tz_offset: int = Query(0, ge=-720, le=840, description="时区偏移（分钟），来自 JS getTimezoneOffset()"),
     min_text_length: int | None = Query(None, ge=1, description="最小推文长度（字符数）"),
     _user: UserDomain = Depends(get_current_user),
-    session: AsyncSession = Depends(get_db_session),
 ) -> BrowseTweetListResponse:
     """查询指定日期（可选作者）的推文列表，含摘要和翻译。"""
     if not DATE_PATTERN.match(date):
@@ -126,7 +121,7 @@ async def get_tweets(
     try:
         from src.data_layer.provider import get_browse_repo
 
-        items, total = await get_browse_repo(session).get_tweets(date, author, page, page_size, tz_offset, min_text_length)
+        items, total = await get_browse_repo().get_tweets(date, author, page, page_size, tz_offset, min_text_length)
         total_pages = math.ceil(total / page_size) if total > 0 else 0
 
         return BrowseTweetListResponse(
@@ -160,7 +155,6 @@ async def get_author_timeline(
     tz_offset: int = Query(0, ge=-720, le=840, description="时区偏移（分钟），来自 JS getTimezoneOffset()"),
     min_text_length: int | None = Query(None, ge=1, description="最小推文长度（字符数）"),
     _user: UserDomain = Depends(get_current_user),
-    session: AsyncSession = Depends(get_db_session),
 ) -> AuthorTimelineResponse:
     """查询指定作者在时间范围内的推文列表，含摘要和翻译。"""
     for date_str, label in [(since, "since"), (until, "until")]:
@@ -177,7 +171,7 @@ async def get_author_timeline(
     try:
         from src.data_layer.provider import get_browse_repo
 
-        author_meta, items, total = await get_browse_repo(session).get_author_timeline(
+        author_meta, items, total = await get_browse_repo().get_author_timeline(
             author, since_utc, until_utc, page, page_size, min_text_length
         )
         total_pages = math.ceil(total / page_size) if total > 0 else 0

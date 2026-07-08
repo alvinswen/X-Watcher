@@ -72,21 +72,15 @@ async def get_status_overview(
 ) -> StatusOverviewResponse:
     """获取系统状态概览。"""
     from src.data_layer.provider import get_status_repo
-    from src.database.async_session import get_async_session_maker
-
-    session_maker = get_async_session_maker()
 
     async def _tweets():
-        async with session_maker() as s:
-            return await get_status_repo(s).get_tweet_stats()
+        return await get_status_repo().get_tweet_stats()
 
     async def _follows():
-        async with session_maker() as s:
-            return await get_status_repo(s).get_follow_stats()
+        return await get_status_repo().get_follow_stats()
 
     async def _summaries():
-        async with session_maker() as s:
-            return await get_status_repo(s).get_summary_stats()
+        return await get_status_repo().get_summary_stats()
 
     tweets, follows, summaries = await asyncio.gather(
         _tweets(),

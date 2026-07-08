@@ -10,7 +10,6 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session, sessionmaker
 
 from src.sync.domain.models import (
     ConflictStrategy,
@@ -26,13 +25,6 @@ from src.user.domain.models import UserDomain
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin/sync", tags=["sync"])
-
-
-def _get_sync_engine():
-    """获取同步数据库引擎。"""
-    from src.database.models import get_engine
-
-    return get_engine()
 
 
 def _parse_categories_str(value: str | None) -> list[SyncCategory] | None:
@@ -143,16 +135,14 @@ async def export_data(
     instance_id = params.get("instance_id") or "web-export"
 
     def _do_export():
-        engine = _get_sync_engine()
-        with Session(engine) as session:
-            svc = ExportService(session)
-            return svc.export(
-                categories=categories,
-                since=since,
-                until=until,
-                authors=authors,
-                instance_id=instance_id,
-            )
+        svc = ExportService()
+        return svc.export(
+            categories=categories,
+            since=since,
+            until=until,
+            authors=authors,
+            instance_id=instance_id,
+        )
 
     pkg = await asyncio.to_thread(_do_export)
 
@@ -186,9 +176,7 @@ async def import_preview(
     conflict_strategy = _parse_strategy(strategy)
 
     def _do_preview():
-        engine = _get_sync_engine()
-        factory = sessionmaker(bind=engine)
-        svc = ImportService(factory)
+        svc = ImportService()
         return svc.import_data(
             package=pkg,
             categories=cats,
@@ -232,9 +220,7 @@ async def import_execute(
     conflict_strategy = _parse_strategy(strategy)
 
     def _do_import():
-        engine = _get_sync_engine()
-        factory = sessionmaker(bind=engine)
-        svc = ImportService(factory)
+        svc = ImportService()
         return svc.import_data(
             package=pkg,
             categories=cats,

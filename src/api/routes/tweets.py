@@ -9,9 +9,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database.async_session import get_db_session
 from src.shared.schemas import UTCDatetimeModel
 from src.user.api.auth import get_current_admin_user
 from src.user.domain.models import UserDomain
@@ -89,7 +87,6 @@ async def list_tweets(
     author: str | None = Query(None, description="按作者用户名筛选"),
     created_after: datetime | None = Query(None, description="推文创建时间起始（含），ISO 8601 格式"),
     created_before: datetime | None = Query(None, description="推文创建时间截止（不含），ISO 8601 格式"),
-    session: AsyncSession = Depends(get_db_session),
     _admin: UserDomain = Depends(get_current_admin_user),
 ) -> TweetListResponse:
     """获取推文列表。
@@ -125,7 +122,7 @@ async def list_tweets(
         # 经数据层 provider 取 tweet 读门面(file/sqlalchemy 切换;pg 下线后 file-safe)
         from src.data_layer.provider import get_tweet_read_repo
 
-        rows, total = await get_tweet_read_repo(session).list_tweets(
+        rows, total = await get_tweet_read_repo().list_tweets(
             page=page,
             page_size=page_size,
             author=author,
@@ -180,7 +177,6 @@ async def list_tweets(
 )
 async def get_tweet_detail(
     tweet_id: str,
-    session: AsyncSession = Depends(get_db_session),
     _admin: UserDomain = Depends(get_current_admin_user),
 ) -> TweetDetailResponse:
     """获取推文详情。
@@ -201,7 +197,7 @@ async def get_tweet_detail(
         # 经数据层 provider 取 tweet 读门面(file/sqlalchemy 切换;pg 下线后 file-safe)
         from src.data_layer.provider import get_tweet_read_repo
 
-        tweet_dict = await get_tweet_read_repo(session).get_tweet_detail(tweet_id)
+        tweet_dict = await get_tweet_read_repo().get_tweet_detail(tweet_id)
 
         if tweet_dict is None:
             raise HTTPException(
@@ -214,7 +210,7 @@ async def get_tweet_detail(
         try:
             from src.data_layer.provider import get_summary_repo
 
-            summary_repo = get_summary_repo(session)
+            summary_repo = get_summary_repo()
             summary_record = await summary_repo.get_summary_by_tweet(tweet_id)
 
             if summary_record:

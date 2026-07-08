@@ -3,9 +3,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database.async_session import get_async_session
 from src.user.api.auth import get_current_user
 from src.user.domain.models import UserDomain
 from src.user.domain.schemas import (
@@ -45,12 +43,11 @@ async def get_me(
 async def create_api_key(
     request: CreateApiKeyRequest = None,
     current_user: UserDomain = Depends(get_current_user),
-    session: AsyncSession = Depends(get_async_session),
 ) -> CreateApiKeyResponse:
     """创建新的 API Key。"""
     if request is None:
         request = CreateApiKeyRequest()
-    service = UserService(session)
+    service = UserService()
     key_info, raw_key = await service.create_api_key(current_user.id, request.name)
     return CreateApiKeyResponse(
         id=key_info.id,
@@ -63,10 +60,9 @@ async def create_api_key(
 @router.get("/me/api-keys", response_model=list[ApiKeyResponse])
 async def list_api_keys(
     current_user: UserDomain = Depends(get_current_user),
-    session: AsyncSession = Depends(get_async_session),
 ) -> list[ApiKeyResponse]:
     """列出当前用户的 API Key。"""
-    service = UserService(session)
+    service = UserService()
     keys = await service.list_api_keys(current_user.id)
     return [
         ApiKeyResponse(
@@ -85,10 +81,9 @@ async def list_api_keys(
 async def revoke_api_key(
     key_id: int,
     current_user: UserDomain = Depends(get_current_user),
-    session: AsyncSession = Depends(get_async_session),
 ) -> Response:
     """撤销 API Key。"""
-    service = UserService(session)
+    service = UserService()
     try:
         await service.revoke_api_key(current_user.id, key_id)
     except NotFoundError:
@@ -103,10 +98,9 @@ async def revoke_api_key(
 async def change_password(
     request: ChangePasswordRequest,
     current_user: UserDomain = Depends(get_current_user),
-    session: AsyncSession = Depends(get_async_session),
 ):
     """修改密码。"""
-    service = UserService(session)
+    service = UserService()
     try:
         await service.change_password(
             current_user.id, request.old_password, request.new_password

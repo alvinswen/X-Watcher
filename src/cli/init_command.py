@@ -185,15 +185,8 @@ def _write_env(path: str, content: str) -> None:
 
 def _init_database() -> None:
     """初始化数据库表。"""
-    from src.data_layer.provider import is_file_mode
-
-    if is_file_mode():
-        click.echo("  file 模式:跳过建表(数据层为文件)")
-        return
-    from src.database.models import Base, get_engine
-
-    engine = get_engine()
-    Base.metadata.create_all(engine)
+    click.echo("  file 模式:跳过建表(数据层为文件)")
+    return
 
 
 def _create_admin(email: str, password: str) -> str | None:
@@ -203,47 +196,9 @@ def _create_admin(email: str, password: str) -> str | None:
         raw API Key（用户已存在时返回 None）。
     """
     from scripts.seed_admin import _hash_password
-    from src.data_layer.provider import is_file_mode
     from src.user.services.auth_service import AuthService
 
-    if is_file_mode():
-        return _create_admin_file(email, password, _hash_password, AuthService)
-
-    from sqlalchemy.orm import Session
-
-    from src.database.models import ApiKey, User, get_engine
-
-    engine = get_engine()
-    with Session(engine) as session:
-        existing = session.query(User).filter_by(email=email).first()
-        if existing:
-            click.echo(f"  管理员账户已存在: {email}")
-            if not existing.is_admin:
-                existing.is_admin = True
-                session.commit()
-                click.echo("  已将现有账户设置为管理员")
-            return None
-
-        admin_user = User(
-            name="System Administrator",
-            email=email,
-            is_admin=True,
-            password_hash=_hash_password(password),
-        )
-        session.add(admin_user)
-        session.flush()  # 获取 admin_user.id
-
-        # 生成默认 API Key
-        auth_svc = AuthService()
-        raw_key, key_hash, key_prefix = auth_svc.generate_api_key()
-        session.add(ApiKey(
-            user_id=admin_user.id,
-            key_hash=key_hash,
-            key_prefix=key_prefix,
-            name="default",
-        ))
-        session.commit()
-        return raw_key
+    return _create_admin_file(email, password, _hash_password, AuthService)
 
 
 def _create_admin_file(email, password, hash_password, auth_service_cls) -> str | None:

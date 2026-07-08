@@ -1,37 +1,30 @@
 """搜索 API 集成测试。"""
 
+import os
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
 from fastapi import status
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from src.database.models import Base
+from src.config import clear_settings_cache
 from src.main import app
-from src.scraper.infrastructure.models import TweetOrm
-from src.summarization.infrastructure.models import SummaryOrm
+from src.scraper.domain.models import Tweet
+from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
+from src.summarization.domain.models import SummaryRecord
+from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
 from src.user.domain.models import UserDomain
 
 
-@pytest.fixture
-async def search_test_session():
-    """独立的异步数据库会话。"""
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-    )
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    session_maker = async_sessionmaker(
-        engine, class_=AsyncSession, expire_on_commit=False
-    )
-    async with session_maker() as session:
-        yield session
-
-    await engine.dispose()
+@pytest.fixture(autouse=True)
+def file_data_layer(monkeypatch, tmp_path):
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    clear_settings_cache()
+    yield
+    clear_settings_cache()
 
 
 @pytest.fixture
@@ -47,92 +40,68 @@ def mock_user() -> UserDomain:
 
 
 @pytest.fixture
-async def search_client(search_test_session, mock_user):
+async def search_client(mock_user):
     """搜索 API 测试客户端（带认证）。"""
-    from src.database.async_session import get_db_session
     from src.user.api.auth import get_current_user
-
-    async def override_get_db_session():
-        yield search_test_session
 
     async def override_get_current_user():
         return mock_user
 
-    app.dependency_overrides[get_db_session] = override_get_db_session
     app.dependency_overrides[get_current_user] = override_get_current_user
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
 
-    app.dependency_overrides.pop(get_db_session, None)
     app.dependency_overrides.pop(get_current_user, None)
 
 
 @pytest.fixture
-async def search_client_no_auth(search_test_session):
+async def search_client_no_auth():
     """无认证覆盖的客户端。"""
-    from src.database.async_session import get_async_session, get_db_session
-
-    async def override_get_db_session():
-        yield search_test_session
-
-    async def override_get_async_session():
-        yield search_test_session
-
-    app.dependency_overrides[get_db_session] = override_get_db_session
-    app.dependency_overrides[get_async_session] = override_get_async_session
-
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
 
-    app.dependency_overrides.pop(get_db_session, None)
-    app.dependency_overrides.pop(get_async_session, None)
-
 
 @pytest.fixture
-async def seed_search_data(search_test_session: AsyncSession):
+async def seed_search_data():
     """准备搜索测试数据。"""
     now = datetime.now(timezone.utc)
     base_time = now - timedelta(hours=2)
 
     tweets = [
-        TweetOrm(
+        Tweet(
             tweet_id="api_s1",
             text="Python is great for AI",
             created_at=base_time + timedelta(minutes=40),
-            db_created_at=base_time + timedelta(minutes=10),
             author_username="alice",
             author_display_name="Alice",
             referenced_tweet_text="deep learning frameworks",
             media=None,
         ),
-        TweetOrm(
+        Tweet(
             tweet_id="api_s2",
             text="FastAPI web framework",
             created_at=base_time + timedelta(minutes=30),
-            db_created_at=base_time + timedelta(minutes=20),
             author_username="alice",
             author_display_name="Alice",
             media=None,
         ),
-        TweetOrm(
+        Tweet(
             tweet_id="api_s3",
             text="Rust performance",
             created_at=base_time + timedelta(minutes=20),
-            db_created_at=base_time + timedelta(minutes=30),
             author_username="bob",
             author_display_name="Bob",
             media=None,
         ),
     ]
 
-    for tweet in tweets:
-        search_test_session.add(tweet)
-    await search_test_session.flush()
+    root = Path(os.environ["XWATCHER_DATA_ROOT"])
+    await FileTweetStore(root).save_tweets(tweets, early_stop_threshold=0)
 
-    summary = SummaryOrm(
+    summary = SummaryRecord(
         summary_id=str(uuid4()),
         tweet_id="api_s1",
         summary_text="Python AI 开发摘要",
@@ -146,9 +115,10 @@ async def seed_search_data(search_test_session: AsyncSession):
         cached=False,
         is_generated_summary=True,
         content_hash="api_hash_s1",
+        created_at=now,
+        updated_at=now,
     )
-    search_test_session.add(summary)
-    await search_test_session.commit()
+    await FileSummaryStore(root).seed([summary])
 
     return {"tweets": tweets, "base_time": base_time}
 

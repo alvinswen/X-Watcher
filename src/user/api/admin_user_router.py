@@ -3,9 +3,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database.async_session import get_async_session
 from src.user.api.auth import get_current_admin_user
 from src.user.domain.models import UserDomain
 from src.user.domain.schemas import (
@@ -31,10 +29,9 @@ router = APIRouter(prefix="/api/admin/users", tags=["admin-users"])
 async def create_user(
     request: CreateUserRequest,
     admin: UserDomain = Depends(get_current_admin_user),
-    session: AsyncSession = Depends(get_async_session),
 ) -> CreateUserResponse:
     """创建用户（管理员）。"""
-    service = UserService(session)
+    service = UserService()
     try:
         user, temp_password, raw_key = await service.create_user(
             request.name, request.email
@@ -60,10 +57,9 @@ async def create_user(
 @router.get("", response_model=list[UserResponse])
 async def list_users(
     admin: UserDomain = Depends(get_current_admin_user),
-    session: AsyncSession = Depends(get_async_session),
 ) -> list[UserResponse]:
     """列出所有用户（管理员）。"""
-    service = UserService(session)
+    service = UserService()
     users = await service.list_users()
     return [
         UserResponse(
@@ -82,10 +78,9 @@ async def update_user(
     user_id: int,
     request: UpdateUserRequest,
     admin: UserDomain = Depends(get_current_admin_user),
-    session: AsyncSession = Depends(get_async_session),
 ) -> UserResponse:
     """更新用户信息（管理员）。"""
-    service = UserService(session)
+    service = UserService()
     try:
         user = await service.update_user(
             user_id,
@@ -124,10 +119,9 @@ async def update_user(
 async def reset_password(
     user_id: int,
     admin: UserDomain = Depends(get_current_admin_user),
-    session: AsyncSession = Depends(get_async_session),
 ) -> ResetPasswordResponse:
     """重置用户密码（管理员）。"""
-    service = UserService(session)
+    service = UserService()
     try:
         temp_password = await service.reset_password(user_id)
     except NotFoundError:

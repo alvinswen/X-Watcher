@@ -4,10 +4,8 @@ import logging
 import math
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.data_layer.provider import get_search_repo
-from src.database.async_session import get_db_session
 from src.search.api.schemas import SearchResponse, SearchTweetItem
 from src.user.api.auth import get_current_user
 from src.user.domain.models import UserDomain
@@ -35,7 +33,6 @@ async def search_tweets(
     page_size: int = Query(20, ge=1, le=100, description="每页条数"),
     include_summary: bool = Query(True, description="是否包含摘要和翻译"),
     current_user: UserDomain = Depends(get_current_user),
-    session: AsyncSession = Depends(get_db_session),
 ) -> SearchResponse:
     """搜索推文。"""
     # author 和 authors 互斥
@@ -79,7 +76,7 @@ async def search_tweets(
         )
 
     try:
-        result = await get_search_repo(session).search_tweets(
+        result = await get_search_repo().search_tweets(
             q=q,
             page=page,
             page_size=page_size,

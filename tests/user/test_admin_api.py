@@ -6,10 +6,8 @@ from datetime import datetime, timezone
 import pytest
 from fastapi import HTTPException, status
 from httpx import AsyncClient, ASGITransport
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.config import clear_settings_cache
-from src.database.models import Base
 from src.main import app
 from src.user.domain.models import UserDomain
 
@@ -38,23 +36,6 @@ def setup_env(tmp_path):
     clear_settings_cache()
 
 
-@pytest.fixture
-async def test_session():
-    """独立的异步内存数据库会话。"""
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-    )
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    async with session_maker() as session:
-        yield session
-
-    await engine.dispose()
-
-
 def _make_admin_user(user_id: int = 1) -> UserDomain:
     """构造管理员 UserDomain 对象。"""
     return UserDomain(
@@ -78,38 +59,28 @@ def _make_normal_user(user_id: int = 2) -> UserDomain:
 
 
 @pytest.fixture
-async def admin_client(test_session):
-    """提供管理员认证的 async_client，覆盖 get_async_session 和 get_current_admin_user。"""
-    from src.database.async_session import get_async_session
+async def admin_client():
+    """提供管理员认证的 async_client，覆盖 get_current_admin_user。"""
     from src.user.api.auth import get_current_admin_user
 
     admin_user = _make_admin_user()
 
-    async def override_get_async_session():
-        yield test_session
-
     async def override_get_current_admin_user():
         return admin_user
 
-    app.dependency_overrides[get_async_session] = override_get_async_session
     app.dependency_overrides[get_current_admin_user] = override_get_current_admin_user
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        yield ac, test_session
+        yield ac, None
 
-    app.dependency_overrides.pop(get_async_session, None)
     app.dependency_overrides.pop(get_current_admin_user, None)
 
 
 @pytest.fixture
-async def non_admin_client(test_session):
+async def non_admin_client():
     """提供非管理员认证的 async_client（覆盖 get_current_admin_user 抛出 403）。"""
-    from src.database.async_session import get_async_session
     from src.user.api.auth import get_current_admin_user
-
-    async def override_get_async_session():
-        yield test_session
 
     async def override_get_current_admin_user():
         raise HTTPException(
@@ -117,14 +88,12 @@ async def non_admin_client(test_session):
             detail="需要管理员权限",
         )
 
-    app.dependency_overrides[get_async_session] = override_get_async_session
     app.dependency_overrides[get_current_admin_user] = override_get_current_admin_user
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
 
-    app.dependency_overrides.pop(get_async_session, None)
     app.dependency_overrides.pop(get_current_admin_user, None)
 
 
@@ -226,18 +195,11 @@ async def test_reset_password(admin_client):
 
 
 @pytest.mark.asyncio
-async def test_admin_api_key_bootstrap(test_session, monkeypatch):
+async def test_admin_api_key_bootstrap(monkeypatch):
     """ADMIN_API_KEY 环境变量可执行管理操作。"""
-    from src.database.async_session import get_async_session
-
     monkeypatch.setenv("ADMIN_API_KEY", "test-bootstrap-key")
     monkeypatch.setenv("JWT_SECRET_KEY", JWT_SECRET)
     clear_settings_cache()
-
-    async def override_get_async_session():
-        yield test_session
-
-    app.dependency_overrides[get_async_session] = override_get_async_session
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -246,8 +208,6 @@ async def test_admin_api_key_bootstrap(test_session, monkeypatch):
             json={"name": "bootstrap_user", "email": "bootstrap@example.com"},
             headers={"X-API-Key": "test-bootstrap-key"},
         )
-
-    app.dependency_overrides.pop(get_async_session, None)
 
     assert resp.status_code == 201
     data = resp.json()

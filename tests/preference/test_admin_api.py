@@ -13,7 +13,6 @@ from fastapi import FastAPI, status
 
 from src.preference.api.routes import scraper_config_router
 from src.preference.infrastructure.file_follow_repository import FileFollowStore
-from src.database.async_session import get_async_session
 from src.user.api.auth import get_current_admin_user
 from src.user.domain.models import UserDomain
 
@@ -28,15 +27,11 @@ class TestAdminAuth:
     """测试管理员认证。"""
 
     @pytest.fixture
-    def app(self, async_session):
+    def app(self):
         """创建测试应用（不 mock 管理员认证）。"""
         app = FastAPI()
         app.include_router(scraper_config_router)
 
-        async def get_session_override():
-            yield async_session
-
-        app.dependency_overrides[get_async_session] = get_session_override
         yield app
         app.dependency_overrides.clear()
 
@@ -53,7 +48,7 @@ class TestAdminAuth:
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     @pytest.mark.asyncio
-    async def test_non_admin_user_returns_403(self, app, async_session):
+    async def test_non_admin_user_returns_403(self, app):
         """测试非管理员用户返回 403。"""
         from fastapi import HTTPException
 
@@ -77,15 +72,11 @@ class TestScraperConfigAPI:
     """测试抓取配置 API 端点。"""
 
     @pytest.fixture
-    def app(self, async_session):
+    def app(self):
         """创建测试应用。"""
         app = FastAPI()
         app.include_router(scraper_config_router)
 
-        async def get_session_override():
-            yield async_session
-
-        app.dependency_overrides[get_async_session] = get_session_override
         yield app
         app.dependency_overrides.clear()
 

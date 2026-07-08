@@ -65,24 +65,10 @@ async def _check_twitter_api() -> dict:
 
 async def _check_database() -> dict:
     """检查数据库连接。"""
-    from src.data_layer.provider import data_root, is_file_mode
+    from src.data_layer.provider import data_root
 
-    if is_file_mode():
-        # file 模式(pg 下线守卫):不连 pg,改探数据目录存在性
-        root = data_root()
-        if root.exists():
-            return {"status": "healthy", "mode": "file", "data_root": str(root)}
-        return {"status": "unhealthy", "error": f"data_root 不存在: {root}"}
-    try:
-        from sqlalchemy import text
-
-        from src.database.async_session import get_async_session_maker
-
-        session_maker = get_async_session_maker()
-        start = time.monotonic()
-        async with session_maker() as session:
-            await session.execute(text("SELECT 1"))
-        latency_ms = int((time.monotonic() - start) * 1000)
-        return {"status": "healthy", "latency_ms": latency_ms}
-    except Exception as e:
-        return {"status": "unhealthy", "error": str(e)[:200]}
+    # file 模式(pg 下线守卫):不连 pg,改探数据目录存在性
+    root = data_root()
+    if root.exists():
+        return {"status": "healthy", "mode": "file", "data_root": str(root)}
+    return {"status": "unhealthy", "error": f"data_root 不存在: {root}"}

@@ -95,41 +95,6 @@ class TestCheckTwitterAPI:
         assert "DNS" in result["error"]
 
 
-class TestCheckDatabase:
-    """测试 _check_database 内部函数。"""
-
-    @pytest.mark.asyncio
-    async def test_healthy_database(self):
-        """测试数据库连接正常时返回 healthy。"""
-        mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(return_value=None)
-        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_session.__aexit__ = AsyncMock(return_value=None)
-
-        mock_session_maker = MagicMock(return_value=mock_session)
-
-        with patch(
-            "src.database.async_session.get_async_session_maker",
-            return_value=mock_session_maker,
-        ):
-            result = await _check_database()
-
-        assert result["status"] == "healthy"
-        assert "latency_ms" in result
-
-    @pytest.mark.asyncio
-    async def test_database_connection_error(self):
-        """测试数据库连接失败时返回 unhealthy。"""
-        with patch(
-            "src.database.async_session.get_async_session_maker",
-            side_effect=Exception("无法连接数据库"),
-        ):
-            result = await _check_database()
-
-        assert result["status"] == "unhealthy"
-        assert "无法连接数据库" in result["error"]
-
-
 class TestValidateConfigEndpointAuth:
     """测试 /api/admin/config/validate 端点的认证要求。"""
 
