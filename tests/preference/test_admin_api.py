@@ -143,7 +143,7 @@ class TestScraperConfigAPI:
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     @pytest.mark.asyncio
-    async def test_create_scraper_follow_duplicate_returns_409(self, client, async_session):
+    async def test_create_scraper_follow_duplicate_returns_409(self, client):
         """测试重复创建返回 409。"""
         repo = FileFollowStore(Path(os.environ["XWATCHER_DATA_ROOT"]))
         await repo.create_scraper_follow(
@@ -167,7 +167,7 @@ class TestScraperConfigAPI:
         assert "已存在" in response.json()["detail"] or "conflict" in response.json()["detail"].lower()
 
     @pytest.mark.asyncio
-    async def test_get_scraper_follows_success(self, client, async_session):
+    async def test_get_scraper_follows_success(self, client):
         """测试获取抓取列表成功。"""
         repo = FileFollowStore(Path(os.environ["XWATCHER_DATA_ROOT"]))
         await repo.create_scraper_follow("user1", "理由1", "admin1")
@@ -185,7 +185,7 @@ class TestScraperConfigAPI:
         assert "user2" in usernames
 
     @pytest.mark.asyncio
-    async def test_get_scraper_follows_include_inactive(self, client, async_session):
+    async def test_get_scraper_follows_include_inactive(self, client):
         """测试获取包含非活跃账号的列表。"""
         repo = FileFollowStore(Path(os.environ["XWATCHER_DATA_ROOT"]))
         follow = await repo.create_scraper_follow("inactive_user", "测试", "admin")
@@ -208,7 +208,7 @@ class TestScraperConfigAPI:
         assert any(item["username"] == "inactive_user" for item in data)
 
     @pytest.mark.asyncio
-    async def test_update_scraper_follow_success(self, client, async_session):
+    async def test_update_scraper_follow_success(self, client):
         """测试更新抓取账号成功。"""
         repo = FileFollowStore(Path(os.environ["XWATCHER_DATA_ROOT"]))
         await repo.create_scraper_follow("updatable", "原理由", "admin")
@@ -241,7 +241,7 @@ class TestScraperConfigAPI:
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     @pytest.mark.asyncio
-    async def test_delete_scraper_follow_success(self, client, async_session):
+    async def test_delete_scraper_follow_success(self, client):
         """测试软删除抓取账号成功。"""
         repo = FileFollowStore(Path(os.environ["XWATCHER_DATA_ROOT"]))
         await repo.create_scraper_follow("deletable", "测试", "admin")

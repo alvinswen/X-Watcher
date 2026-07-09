@@ -67,7 +67,7 @@ class TestPublicScraperFollowsAPI:
             yield ac
 
     @pytest.mark.asyncio
-    async def test_regular_user_can_read_scraper_follows(self, client, async_session):
+    async def test_regular_user_can_read_scraper_follows(self, client):
         """测试普通用户可以读取抓取账号列表。"""
         # Arrange - 先通过 repository 添加测试数据
         repo = FileFollowStore(Path(os.environ["XWATCHER_DATA_ROOT"]))
@@ -86,7 +86,7 @@ class TestPublicScraperFollowsAPI:
         assert "openai" in usernames
 
     @pytest.mark.asyncio
-    async def test_response_contains_reason_field(self, client, async_session):
+    async def test_response_contains_reason_field(self, client):
         """测试响应包含 reason（描述信息）字段。"""
         # Arrange
         repo = FileFollowStore(Path(os.environ["XWATCHER_DATA_ROOT"]))
@@ -106,7 +106,7 @@ class TestPublicScraperFollowsAPI:
         assert "added_at" in data[0]
 
     @pytest.mark.asyncio
-    async def test_only_active_follows_returned(self, client, async_session):
+    async def test_only_active_follows_returned(self, client):
         """测试只返回活跃账号（不含已禁用的）。"""
         # Arrange
         repo = FileFollowStore(Path(os.environ["XWATCHER_DATA_ROOT"]))

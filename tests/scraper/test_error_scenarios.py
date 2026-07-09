@@ -105,12 +105,12 @@ class TestDatabaseErrors:
     """测试数据库错误回滚。"""
 
     @pytest.mark.asyncio
-    async def test_save_returns_result_summary(self, async_session):
+    async def test_save_returns_result_summary(self, tmp_path):
         """测试保存返回结果汇总。"""
         from src.scraper.domain.models import Tweet
-        from src.scraper.infrastructure.repository import TweetRepository
+        from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
 
-        repo = TweetRepository(async_session)
+        repo = FileTweetStore(tmp_path)
 
         tweets = [
             Tweet(

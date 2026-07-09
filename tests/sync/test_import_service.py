@@ -3,18 +3,12 @@
 import asyncio
 from datetime import datetime, timezone
 
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import Session, sessionmaker
-
-from src.database.models import Base, ScraperFollow
 from src.preference.domain.models import ScraperFollow as FollowDomain
 from src.preference.infrastructure.file_follow_repository import FileFollowStore
 from src.scraper.domain.models import Tweet
 from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
-from src.scraper.infrastructure.models import TweetOrm
 from src.summarization.domain.models import SummaryRecord
 from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
-from src.summarization.infrastructure.models import SummaryOrm
 from src.sync.domain.models import (
     ConflictStrategy,
     ExportMetadata,
@@ -22,12 +16,6 @@ from src.sync.domain.models import (
     SyncCategory,
 )
 from src.sync.services.import_service import ImportService
-
-
-def _make_session_factory():
-    engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
-    return sessionmaker(bind=engine), engine
 
 
 def _make_package(data: dict, categories: list[str] | None = None) -> ExportPackage:
@@ -41,6 +29,32 @@ def _make_package(data: dict, categories: list[str] | None = None) -> ExportPack
         ),
         data=data,
     )
+
+
+def _pin_file_root(monkeypatch, root) -> None:
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(root))
+
+
+def _follow_seed(username: str, reason: str, *, id: int = 1) -> FollowDomain:
+    return FollowDomain(
+        id=id,
+        username=username,
+        reason=reason,
+        added_by="admin",
+        added_at=datetime(2026, 1, id, tzinfo=timezone.utc),
+        is_active=True,
+    )
+
+
+def _follow_item(username: str, reason: str, added_by: str = "admin") -> dict:
+    return {
+        "username": username,
+        "reason": reason,
+        "added_by": added_by,
+        "added_at": "2026-01-01T00:00:00+00:00",
+        "is_active": True,
+    }
 
 
 def _seed_file_roundtrip_data(root) -> None:
@@ -87,101 +101,82 @@ def _seed_file_roundtrip_data(root) -> None:
 
 
 class TestImportConfig:
-    def test_import_follows_insert(self):
-        factory, engine = _make_session_factory()
+    def test_import_follows_insert(self, monkeypatch, tmp_path):
+        _pin_file_root(monkeypatch, tmp_path)
         pkg = _make_package(
             {
                 "config": {
                     "scraper_follows": [
-                        {
-                            "username": "alice",
-                            "reason": "KOL",
-                            "added_by": "admin",
-                            "is_active": True,
-                        },
-                        {
-                            "username": "bob",
-                            "reason": "Dev",
-                            "added_by": "admin",
-                            "is_active": True,
-                        },
+                        _follow_item("alice", "KOL"),
+                        _follow_item("bob", "Dev"),
                     ],
                 }
             }
         )
 
-        svc = ImportService(factory)
+        svc = ImportService(None)
         result = svc.import_data(pkg)
 
         assert result.success
         assert result.stats["scraper_follows"].inserted == 2
 
-        with Session(engine) as session:
-            follows = session.execute(select(ScraperFollow)).scalars().all()
-            assert len(follows) == 2
+        follows = asyncio.run(FileFollowStore(tmp_path).get_all_follows(include_inactive=True))
+        assert len(follows) == 2
 
-    def test_import_follows_skip_existing(self):
-        factory, engine = _make_session_factory()
+    def test_import_follows_skip_existing(self, monkeypatch, tmp_path):
+        _pin_file_root(monkeypatch, tmp_path)
 
         # 预插入 alice
-        with Session(engine) as session:
-            session.add(ScraperFollow(username="alice", reason="Existing", added_by="admin"))
-            session.commit()
+        asyncio.run(FileFollowStore(tmp_path).seed([_follow_seed("alice", "Existing")]))
 
         pkg = _make_package(
             {
                 "config": {
                     "scraper_follows": [
-                        {"username": "alice", "reason": "New", "added_by": "admin"},
+                        _follow_item("alice", "New"),
                     ],
                 }
             }
         )
 
-        svc = ImportService(factory)
+        svc = ImportService(None)
         result = svc.import_data(pkg, strategy=ConflictStrategy.skip)
 
         assert result.stats["scraper_follows"].skipped == 1
 
         # 验证未被覆盖
-        with Session(engine) as session:
-            alice = session.execute(
-                select(ScraperFollow).where(ScraperFollow.username == "alice")
-            ).scalar_one()
-            assert alice.reason == "Existing"
+        alice = asyncio.run(FileFollowStore(tmp_path).get_follow_by_username("alice"))
+        assert alice is not None
+        assert alice.reason == "Existing"
 
-    def test_import_follows_overwrite(self):
-        factory, engine = _make_session_factory()
+    def test_import_follows_overwrite(self, monkeypatch, tmp_path):
+        _pin_file_root(monkeypatch, tmp_path)
 
-        with Session(engine) as session:
-            session.add(ScraperFollow(username="alice", reason="Old", added_by="admin"))
-            session.commit()
+        asyncio.run(FileFollowStore(tmp_path).seed([_follow_seed("alice", "Old")]))
 
         pkg = _make_package(
             {
                 "config": {
                     "scraper_follows": [
-                        {"username": "alice", "reason": "New", "added_by": "import"},
+                        _follow_item("alice", "New", "import"),
                     ],
                 }
             }
         )
 
-        svc = ImportService(factory)
+        svc = ImportService(None)
         result = svc.import_data(pkg, strategy=ConflictStrategy.overwrite)
 
         assert result.stats["scraper_follows"].updated == 1
 
-        with Session(engine) as session:
-            alice = session.execute(
-                select(ScraperFollow).where(ScraperFollow.username == "alice")
-            ).scalar_one()
-            assert alice.reason == "New"
+        alice = asyncio.run(FileFollowStore(tmp_path).get_follow_by_username("alice"))
+        assert alice is not None
+        assert alice.reason == "New"
 
 
 class TestImportContent:
-    def test_import_tweets_and_summaries(self):
-        factory, engine = _make_session_factory()
+    def test_import_tweets_and_summaries(self, monkeypatch, tmp_path):
+        _pin_file_root(monkeypatch, tmp_path)
 
         pkg = _make_package(
             {
@@ -206,6 +201,7 @@ class TestImportContent:
                             "total_tokens": 150,
                             "cost_usd": 0.01,
                             "content_hash": "hash1",
+                            "created_at": "2026-02-01T00:00:00+00:00",
                         },
                     ],
                     "articles": [
@@ -219,7 +215,7 @@ class TestImportContent:
             }
         )
 
-        svc = ImportService(factory)
+        svc = ImportService(None)
         result = svc.import_data(pkg)
 
         assert result.success
@@ -227,20 +223,23 @@ class TestImportContent:
         assert result.stats["summaries"].inserted == 1
         assert result.stats["articles"].inserted == 1
 
-    def test_tweets_merge_skips_existing(self):
+    def test_tweets_merge_skips_existing(self, monkeypatch, tmp_path):
         """merge 策略下 tweets 不可变，已存在则跳过。"""
-        factory, engine = _make_session_factory()
+        _pin_file_root(monkeypatch, tmp_path)
 
-        with Session(engine) as session:
-            session.add(
-                TweetOrm(
-                    tweet_id="tw_001",
-                    text="Original",
-                    created_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
-                    author_username="alice",
-                )
+        asyncio.run(
+            FileTweetStore(tmp_path).save_tweets(
+                [
+                    Tweet(
+                        tweet_id="tw_001",
+                        text="Original",
+                        created_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
+                        author_username="alice",
+                    )
+                ],
+                early_stop_threshold=0,
             )
-            session.commit()
+        )
 
         pkg = _make_package(
             {
@@ -259,53 +258,50 @@ class TestImportContent:
             }
         )
 
-        svc = ImportService(factory)
+        svc = ImportService(None)
         result = svc.import_data(pkg, strategy=ConflictStrategy.merge)
 
         assert result.stats["tweets"].skipped == 1
 
-        with Session(engine) as session:
-            tweet = session.execute(
-                select(TweetOrm).where(TweetOrm.tweet_id == "tw_001")
-            ).scalar_one()
-            assert tweet.text == "Original"
+        tweets = asyncio.run(FileTweetStore(tmp_path).get_all_tweets())
+        tweet = next(t for t in tweets if t.tweet_id == "tw_001")
+        assert tweet.text == "Original"
 
 
 class TestDryRun:
-    def test_dry_run_does_not_persist(self):
-        factory, engine = _make_session_factory()
+    def test_dry_run_does_not_persist(self, monkeypatch, tmp_path):
+        _pin_file_root(monkeypatch, tmp_path)
 
         pkg = _make_package(
             {
                 "config": {
                     "scraper_follows": [
-                        {"username": "alice", "reason": "KOL", "added_by": "admin"},
+                        _follow_item("alice", "KOL"),
                     ],
                 }
             }
         )
 
-        svc = ImportService(factory)
+        svc = ImportService(None)
         result = svc.import_data(pkg, dry_run=True)
 
         assert result.dry_run
         assert result.stats["scraper_follows"].inserted == 1  # 统计仍然计数
 
         # 但数据库中没有数据
-        with Session(engine) as session:
-            follows = session.execute(select(ScraperFollow)).scalars().all()
-            assert len(follows) == 0
+        follows = asyncio.run(FileFollowStore(tmp_path).get_all_follows(include_inactive=True))
+        assert len(follows) == 0
 
 
 class TestCategoryFiltering:
-    def test_import_only_config(self):
-        factory, engine = _make_session_factory()
+    def test_import_only_config(self, monkeypatch, tmp_path):
+        _pin_file_root(monkeypatch, tmp_path)
 
         pkg = _make_package(
             {
                 "config": {
                     "scraper_follows": [
-                        {"username": "alice", "reason": "KOL", "added_by": "admin"},
+                        _follow_item("alice", "KOL"),
                     ],
                 },
                 "content": {
@@ -324,7 +320,7 @@ class TestCategoryFiltering:
             categories=["config", "content"],
         )
 
-        svc = ImportService(factory)
+        svc = ImportService(None)
         result = svc.import_data(pkg, categories=[SyncCategory.config])
 
         assert "scraper_follows" in result.stats
@@ -339,32 +335,27 @@ class TestFullRoundtrip:
         from src.sync.services.export_service import ExportService
 
         # 导出源已固定文件层。
+        src_root = tmp_path / "source"
         monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
-        monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-        _seed_file_roundtrip_data(tmp_path)
-        src_engine = create_engine("sqlite:///:memory:")
-        Base.metadata.create_all(src_engine)
-        with Session(src_engine) as session:
-            pkg = ExportService(session).export(instance_id="source")
+        monkeypatch.setenv("XWATCHER_DATA_ROOT", str(src_root))
+        _seed_file_roundtrip_data(src_root)
+        pkg = ExportService(None).export(instance_id="source")
 
-        # 创建目标数据库并导入
-        monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
-        dst_engine = create_engine("sqlite:///:memory:")
-        Base.metadata.create_all(dst_engine)
-        dst_factory = sessionmaker(bind=dst_engine)
+        # 创建目标文件根并导入
+        dst_root = tmp_path / "target"
+        monkeypatch.setenv("XWATCHER_DATA_ROOT", str(dst_root))
 
-        result = ImportService(dst_factory).import_data(pkg)
+        result = ImportService(None).import_data(pkg)
         assert result.success
 
         # 验证数据一致性
-        with Session(dst_engine) as session:
-            follows = session.execute(select(ScraperFollow)).scalars().all()
-            assert len(follows) == 1
-            assert follows[0].username == "alice"
+        follows = asyncio.run(FileFollowStore(dst_root).get_all_follows(include_inactive=True))
+        assert len(follows) == 1
+        assert follows[0].username == "alice"
 
-            tweets = session.execute(select(TweetOrm)).scalars().all()
-            assert len(tweets) == 1
-            assert tweets[0].tweet_id == "tw_001"
+        tweets = asyncio.run(FileTweetStore(dst_root).get_all_tweets())
+        assert len(tweets) == 1
+        assert tweets[0].tweet_id == "tw_001"
 
-            summaries = session.execute(select(SummaryOrm)).scalars().all()
-            assert len(summaries) == 1
+        summaries = asyncio.run(FileSummaryStore(dst_root).get_all_summaries())
+        assert len(summaries) == 1

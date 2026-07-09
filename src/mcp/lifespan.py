@@ -1,6 +1,6 @@
 """MCP 服务轻量级生命周期管理。
 
-仅初始化数据库，不启动后台队列。
+仅初始化日志，不启动后台队列。
 """
 
 import logging
@@ -56,40 +56,3 @@ def init_mcp_logging(*, stderr_only: bool = True) -> None:
             log_file_max_bytes=settings.log_file_max_bytes,
             log_file_backup_count=settings.log_file_backup_count,
         )
-
-
-def init_database() -> None:
-    """初始化数据库：建表。
-
-    从 src/main.py 的 lifespan() 中提取的 DB 初始化逻辑，
-    不启动 CORS/SPA 中间件。
-
-    file 模式(pg 下线守卫):整体早返——跳过 create_all + async engine 预热。
-    预热仅为 stdio 模式 stdout handler 副作用注册,
-    file 模式不使用 pg async engine,无需预热(不连 pg)。
-    """
-    from src.data_layer.provider import is_file_mode
-
-    if is_file_mode():
-        logger.info("file 模式:跳过 MCP init_database(create_all + async engine 预热,pg 下线守卫)")
-        return
-
-    from src.database.models import Base, get_engine
-
-    # 确保所有 ORM 模型在 create_all 前已注册到 Base.metadata
-    from src.database.x_user_profile_model import XUserProfileOrm  # noqa: F401
-    from src.scraper.infrastructure.article_models import ArticleOrm  # noqa: F401
-    from src.scraper.infrastructure.models import TweetOrm  # noqa: F401
-    from src.summarization.infrastructure.models import SummaryOrm  # noqa: F401
-
-    eng = get_engine()
-
-    # 引擎创建时 echo=True 会添加指向 stdout 的 handler，立即重定向
-    if _stdio_mode:
-        _redirect_all_handlers_to_stderr()
-
-    # 创建所有表
-    Base.metadata.create_all(eng)
-    logger.info("数据库表已创建/验证")
-
-    logger.info("MCP 数据库初始化完成")

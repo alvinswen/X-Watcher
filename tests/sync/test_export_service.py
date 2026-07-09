@@ -4,10 +4,7 @@ import asyncio
 from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
 
-from src.database.models import Base
 from src.preference.domain.models import ScraperFollow
 from src.preference.infrastructure.file_follow_repository import FileFollowStore
 from src.scraper.domain.models import Article, Tweet
@@ -17,12 +14,6 @@ from src.summarization.domain.models import SummaryRecord
 from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
 from src.sync.domain.models import SyncCategory
 from src.sync.services.export_service import ExportService
-
-
-def _make_engine():
-    engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
-    return engine
 
 
 def _seed_file_data(root) -> None:
@@ -100,12 +91,10 @@ def file_export_root(monkeypatch, tmp_path):
 
 class TestExportService:
     def test_export_all(self, tmp_path):
-        engine = _make_engine()
         _seed_file_data(tmp_path)
 
-        with Session(engine) as session:
-            svc = ExportService(session)
-            pkg = svc.export(instance_id="test-server")
+        svc = ExportService(None)
+        pkg = svc.export(instance_id="test-server")
 
         assert pkg.metadata.source_instance_id == "test-server"
         assert set(pkg.metadata.categories) == {"config", "content"}
@@ -123,27 +112,23 @@ class TestExportService:
         assert pkg.metadata.counts["tweets"] == 2
 
     def test_export_single_category(self, tmp_path):
-        engine = _make_engine()
         _seed_file_data(tmp_path)
 
-        with Session(engine) as session:
-            svc = ExportService(session)
-            pkg = svc.export(categories=[SyncCategory.config])
+        svc = ExportService(None)
+        pkg = svc.export(categories=[SyncCategory.config])
 
         assert pkg.metadata.categories == ["config"]
         assert "config" in pkg.data
         assert "content" not in pkg.data
 
     def test_export_content_with_since_filter(self, tmp_path):
-        engine = _make_engine()
         _seed_file_data(tmp_path)
 
-        with Session(engine) as session:
-            svc = ExportService(session)
-            pkg = svc.export(
-                categories=[SyncCategory.content],
-                since=datetime(2026, 2, 5, tzinfo=timezone.utc),
-            )
+        svc = ExportService(None)
+        pkg = svc.export(
+            categories=[SyncCategory.content],
+            since=datetime(2026, 2, 5, tzinfo=timezone.utc),
+        )
 
         # 只有 bob 的推文在 2026-02-10
         assert len(pkg.data["content"]["tweets"]) == 1
@@ -153,24 +138,20 @@ class TestExportService:
         assert len(pkg.data["content"]["articles"]) == 0
 
     def test_export_content_with_authors_filter(self, tmp_path):
-        engine = _make_engine()
         _seed_file_data(tmp_path)
 
-        with Session(engine) as session:
-            svc = ExportService(session)
-            pkg = svc.export(
-                categories=[SyncCategory.content],
-                authors=["alice"],
-            )
+        svc = ExportService(None)
+        pkg = svc.export(
+            categories=[SyncCategory.content],
+            authors=["alice"],
+        )
 
         assert len(pkg.data["content"]["tweets"]) == 1
         assert pkg.data["content"]["tweets"][0]["author_username"] == "alice"
         assert len(pkg.data["content"]["summaries"]) == 1
 
     def test_export_empty_database(self):
-        engine = _make_engine()
-        with Session(engine) as session:
-            svc = ExportService(session)
+        svc = ExportService(None)
         pkg = svc.export()
 
         assert len(pkg.data["config"]["scraper_follows"]) == 0

@@ -10,9 +10,6 @@ import pytest
 from src.preference.domain.models import (
     ScraperFollow,
 )
-from src.database.models import (
-    ScraperFollow as ScraperFollowORM,
-)
 
 
 class TestScraperFollow:
@@ -42,21 +39,6 @@ class TestScraperFollow:
         sample_scraper_follow_data["is_active"] = False
         follow = ScraperFollow(**sample_scraper_follow_data)
         assert follow.is_active is False
-
-    def test_scraper_follow_from_orm(self, sample_scraper_follow_data):
-        """测试从 ORM 模型转换。"""
-        orm = ScraperFollowORM(
-            id=1,
-            username="karpathy",
-            added_at=datetime.now(timezone.utc),
-            reason="AI 研究相关",
-            added_by="admin@metalight.ai",
-            is_active=True,
-        )
-        domain = ScraperFollow.from_orm(orm)
-        assert domain.id == orm.id
-        assert domain.username == orm.username
-        assert domain.reason == orm.reason
 
     def test_scraper_follow_to_dict(self, sample_scraper_follow_data):
         """测试转换为字典。"""
