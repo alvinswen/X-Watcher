@@ -129,67 +129,6 @@ async def test_pagination_and_empty_file_mode(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_cross_mode_browse_equivalence(monkeypatch, tmp_path):
-    now = datetime.now(timezone.utc)
-    base = now.replace(hour=12, minute=0, second=0, microsecond=0) - timedelta(days=1)
-    date_str = base.strftime("%Y-%m-%d")
-    tw_specs = [("t1","alice",base+timedelta(minutes=1)), ("t2","alice",base+timedelta(minutes=2)),
-                ("t3","bob",base+timedelta(minutes=3))]
-    sum_tids = ["t2"]
-    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    await _seed_file(tmp_path, [_tweet(t,a,c) for (t,a,c) in tw_specs],
-                     summaries=[_summary(t) for t in sum_tids], follows=[("alice","r")])
-
-    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-    from src.database.models import Base, ScraperFollow
-    from src.scraper.infrastructure.models import TweetOrm
-    from src.summarization.infrastructure.models import SummaryOrm
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    session = async_sessionmaker(engine, expire_on_commit=False)()
-    session.add(ScraperFollow(username="alice", reason="r", added_by="admin", is_active=True))
-    for (t,a,c) in tw_specs:
-        session.add(TweetOrm(tweet_id=t, text="hello world", created_at=c, db_created_at=now,
-                             author_username=a, author_display_name=f"{a} disp", media=None))
-    for t in sum_tids:
-        session.add(SummaryOrm(summary_id=f"s-{t}", tweet_id=t, summary_text=f"摘要{t}",
-                               translation_text=f"译文{t}", content_hash=f"h-{t}", model_provider="p",
-                               model_name="m", prompt_tokens=1, completion_tokens=1, total_tokens=2, cost_usd=0.0))
-    await session.commit()
-
-    from src.data_layer.provider import get_browse_repo
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
-    f_items, f_total = await get_browse_repo().get_tweets(date_str, None, 1, 20, 0)
-    f_meta, f_ti, f_tt = await get_browse_repo().get_author_timeline("alice", base, base+timedelta(days=1), 1, 20)
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
-    s_items, s_total = await get_browse_repo(session).get_tweets(date_str, None, 1, 20, 0)
-    s_meta, s_ti, s_tt = await get_browse_repo(session).get_author_timeline("alice", base, base+timedelta(days=1), 1, 20)
-    await session.close(); await engine.dispose()
-
-    # ⚠️ SQLite(aiosqlite)回读 created_at 为 naive,生产 pg 为 aware → 对 created_at 的 tz 表示
-    # 不可对 SQLite 逐字比(SQLite≠pg,同 A1-1 oracle 陷阱)。按 instant 归一比其余等价;
-    # created_at 的生产语义(aware +00:00)由下方单独钉。
-    def _norm(items):
-        out = []
-        for it in items:
-            d = dict(it)
-            ca = d["created_at"]
-            if ca is not None and ca.tzinfo is not None:
-                d["created_at"] = ca.astimezone(timezone.utc).replace(tzinfo=None)
-            out.append(d)
-        return out
-
-    assert f_total == s_total == 3
-    assert _norm(f_items) == _norm(s_items), f"get_tweets 不等\nfile={f_items}\nsql={s_items}"
-    assert f_meta == s_meta and f_tt == s_tt
-    assert _norm(f_ti) == _norm(s_ti), f"timeline 不等\nfile={f_ti}\nsql={s_ti}"
-    # 钉生产语义:file created_at 必须 aware "+00:00"(匹配生产 pg,非 SQLite naive)
-    assert all(i["created_at"].tzinfo is not None for i in f_items + f_ti)
-    assert f_items[0]["created_at"].isoformat().endswith("+00:00")
-
-
-@pytest.mark.asyncio
 async def test_mcp_browse_tweets_file_mode(monkeypatch, tmp_path):
     import json
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
@@ -255,38 +194,6 @@ async def test_get_daily_stats_min_text_length(monkeypatch, tmp_path):
     from src.data_layer.provider import get_browse_repo
     days = await get_browse_repo().get_daily_stats(2026, 5, tz_offset=0, min_text_length=5)
     assert days == [{"date": "2026-05-02", "count": 1}]
-
-
-@pytest.mark.asyncio
-async def test_get_daily_stats_cross_mode(monkeypatch, tmp_path):
-    """file vs sqlalchemy(SQLite)产同 daily_stats。SQLite 是有效 oracle(日期截断无 div/cast)。"""
-    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    specs = [("c1", "alice", datetime(2026, 5, 2, 3, 0, tzinfo=timezone.utc)),
-             ("c2", "bob", datetime(2026, 5, 2, 9, 0, tzinfo=timezone.utc)),
-             ("c3", "alice", datetime(2026, 5, 4, 1, 0, tzinfo=timezone.utc))]
-    await _seed_file(tmp_path, [_tweet(t, a, c) for (t, a, c) in specs])
-
-    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-    from src.database.models import Base
-    from src.scraper.infrastructure.models import TweetOrm
-    now = datetime.now(timezone.utc)
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    session = async_sessionmaker(engine, expire_on_commit=False)()
-    for (t, a, c) in specs:
-        session.add(TweetOrm(tweet_id=t, text="hello world", created_at=c, db_created_at=now,
-                             author_username=a, author_display_name=f"{a} disp", media=None))
-    await session.commit()
-
-    from src.data_layer.provider import get_browse_repo
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
-    f_days = await get_browse_repo().get_daily_stats(2026, 5, tz_offset=0)
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
-    s_days = await get_browse_repo(session).get_daily_stats(2026, 5, tz_offset=0)
-    await session.close(); await engine.dispose()
-    assert f_days == s_days, f"daily_stats 跨模式不等\nfile={f_days}\nsql={s_days}"
-    assert f_days == [{"date": "2026-05-02", "count": 2}, {"date": "2026-05-04", "count": 1}]
 
 
 @pytest.mark.asyncio
@@ -373,52 +280,6 @@ async def test_get_authors_reason_exact_username(monkeypatch, tmp_path):
     authors = await get_browse_repo().get_authors("2026-05-10", tz_offset=0)
     assert len(authors) == 1 and authors[0]["author_username"] == "alice"
     assert authors[0]["reason"] is None   # follow "Alice" ≠ author "alice"(精确匹配,非 lower)
-
-
-@pytest.mark.asyncio
-async def test_get_authors_cross_mode(monkeypatch, tmp_path):
-    """file vs sqlalchemy(SQLite)产同 authors。SQLite 有效 oracle(COUNT/MAX 无 div/cast)。
-    last_tweet_at 按 instant 比(SQLite naive vs file aware),单独钉 file aware "+00:00"。"""
-    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    day = datetime(2026, 5, 10, 3, 0, tzinfo=timezone.utc)
-    specs = [("x1", "alice", day), ("x2", "alice", day.replace(hour=5)), ("x3", "bob", day.replace(hour=8))]
-    await _seed_file(tmp_path, [_tweet(t, a, c) for (t, a, c) in specs], follows=[("alice", "AI")])
-
-    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-    from src.database.models import Base, ScraperFollow
-    from src.scraper.infrastructure.models import TweetOrm
-    now = datetime.now(timezone.utc)
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    session = async_sessionmaker(engine, expire_on_commit=False)()
-    session.add(ScraperFollow(username="alice", reason="AI", added_by="admin", is_active=True))
-    for (t, a, c) in specs:
-        session.add(TweetOrm(tweet_id=t, text="hello world", created_at=c, db_created_at=now,
-                             author_username=a, author_display_name=f"{a} disp", media=None))
-    await session.commit()
-
-    def _norm_authors(rows):
-        out = []
-        for r in rows:
-            d = dict(r)
-            lt = d["last_tweet_at"]
-            if lt is not None and lt.tzinfo is not None:
-                d["last_tweet_at"] = lt.astimezone(timezone.utc).replace(tzinfo=None)
-            out.append(d)
-        return out
-
-    from src.data_layer.provider import get_browse_repo
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
-    f_authors = await get_browse_repo().get_authors("2026-05-10", tz_offset=0)
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
-    s_authors = await get_browse_repo(session).get_authors("2026-05-10", tz_offset=0)
-    await session.close(); await engine.dispose()
-    assert _norm_authors(f_authors) == _norm_authors(s_authors), \
-        f"authors 跨模式不等\nfile={f_authors}\nsql={s_authors}"
-    assert [a["author_username"] for a in f_authors] == ["bob", "alice"]
-    assert all(a["last_tweet_at"].tzinfo is not None for a in f_authors)
-    assert f_authors[0]["last_tweet_at"].isoformat().endswith("+00:00")
 
 
 @pytest.mark.asyncio

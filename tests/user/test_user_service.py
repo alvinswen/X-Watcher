@@ -14,8 +14,8 @@ def file_user_store(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_create_user_success(async_session):
-    svc = UserService(async_session)
+async def test_create_user_success():
+    svc = UserService()
     user, temp_password, raw_api_key = await svc.create_user("Alice", "alice@example.com")
 
     assert isinstance(user, UserDomain)
@@ -26,8 +26,8 @@ async def test_create_user_success(async_session):
 
 
 @pytest.mark.asyncio
-async def test_create_user_duplicate_email(async_session):
-    svc = UserService(async_session)
+async def test_create_user_duplicate_email():
+    svc = UserService()
     await svc.create_user("Alice", "alice@example.com")
 
     with pytest.raises(DuplicateError):
@@ -35,8 +35,8 @@ async def test_create_user_duplicate_email(async_session):
 
 
 @pytest.mark.asyncio
-async def test_create_api_key(async_session):
-    svc = UserService(async_session)
+async def test_create_api_key():
+    svc = UserService()
     user, _, _ = await svc.create_user("Alice", "alice@example.com")
 
     key_info, raw_key = await svc.create_api_key(user.id, "second-key")
@@ -50,8 +50,8 @@ async def test_create_api_key(async_session):
 
 
 @pytest.mark.asyncio
-async def test_revoke_api_key_success(async_session):
-    svc = UserService(async_session)
+async def test_revoke_api_key_success():
+    svc = UserService()
     user, _, _ = await svc.create_user("Alice", "alice@example.com")
 
     key_info, _ = await svc.create_api_key(user.id, "to-revoke")
@@ -65,8 +65,8 @@ async def test_revoke_api_key_success(async_session):
 
 
 @pytest.mark.asyncio
-async def test_revoke_api_key_wrong_user(async_session):
-    svc = UserService(async_session)
+async def test_revoke_api_key_wrong_user():
+    svc = UserService()
     user1, _, _ = await svc.create_user("Alice", "alice@example.com")
     user2, _, _ = await svc.create_user("Bob", "bob@example.com")
 
@@ -78,8 +78,8 @@ async def test_revoke_api_key_wrong_user(async_session):
 
 
 @pytest.mark.asyncio
-async def test_change_password_success(async_session):
-    svc = UserService(async_session)
+async def test_change_password_success():
+    svc = UserService()
     user, temp_password, _ = await svc.create_user("Alice", "alice@example.com")
 
     # 用临时密码修改为新密码
@@ -95,8 +95,8 @@ async def test_change_password_success(async_session):
 
 
 @pytest.mark.asyncio
-async def test_change_password_wrong_old(async_session):
-    svc = UserService(async_session)
+async def test_change_password_wrong_old():
+    svc = UserService()
     user, _, _ = await svc.create_user("Alice", "alice@example.com")
 
     with pytest.raises(ValueError, match="旧密码不正确"):
@@ -104,8 +104,8 @@ async def test_change_password_wrong_old(async_session):
 
 
 @pytest.mark.asyncio
-async def test_reset_password(async_session):
-    svc = UserService(async_session)
+async def test_reset_password():
+    svc = UserService()
     user, _, _ = await svc.create_user("Alice", "alice@example.com")
 
     new_temp = await svc.reset_password(user.id)

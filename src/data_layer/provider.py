@@ -55,14 +55,13 @@ def get_profile_repo(session: Any = None) -> Any:
 
 
 def get_tweet_repo(session: Any = None) -> Any:
-    """返回 TweetStore 形态 repo。file:FileTweetStore(忽略 session);sqlalchemy:TweetRepository(session)。"""
-    if _data_layer() == "file":
-        from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
+    """返回 TweetStore 形态 repo。
 
-        return FileTweetStore(_data_root())
-    from src.scraper.infrastructure.repository import TweetRepository
+    固定返回 FileTweetStore(_data_root()),忽略 session。
+    """
+    from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
 
-    return TweetRepository(session)
+    return FileTweetStore(_data_root())
 
 
 def get_tweet_read_repo(session: Any = None) -> Any:
@@ -76,14 +75,13 @@ def get_tweet_read_repo(session: Any = None) -> Any:
 
 
 def get_article_repo(session: Any = None) -> Any:
-    """返回 ArticleStore 形态 repo。file:FileArticleStore;sqlalchemy:ArticleRepository(session)。"""
-    if _data_layer() == "file":
-        from src.scraper.infrastructure.file_article_repository import FileArticleStore
+    """返回 ArticleStore 形态 repo。
 
-        return FileArticleStore(_data_root())
-    from src.scraper.infrastructure.article_repository import ArticleRepository
+    固定返回 FileArticleStore(_data_root()),忽略 session。
+    """
+    from src.scraper.infrastructure.file_article_repository import FileArticleStore
 
-    return ArticleRepository(session)
+    return FileArticleStore(_data_root())
 
 
 def get_article_read_repo(session: Any = None) -> Any:
@@ -111,12 +109,13 @@ def get_summary_repo(session: Any = None) -> Any:
 
 
 def get_subject_repo(session: Any = None) -> Any:
-    """返回 SubjectStore 形态 repo。file:FileSubjectStore;sqlalchemy:一期不实现。"""
-    if _data_layer() == "file":
-        from src.subjects.store import FileSubjectStore
+    """返回 SubjectStore 形态 repo。
 
-        return FileSubjectStore(_data_root())
-    raise NotImplementedError("SubjectStore sqlalchemy 模式尚未实现；本期仅支持 file 数据层")
+    固定返回 FileSubjectStore(_data_root()),忽略 session。
+    """
+    from src.subjects.store import FileSubjectStore
+
+    return FileSubjectStore(_data_root())
 
 
 def get_summarization_read_repo(session: Any = None) -> Any:
@@ -242,91 +241,59 @@ class _FileImportSyncAdapter:
 def get_import_repo(session: Any = None, dry_run: bool = False) -> Any:
     """返回 import 门面(import_*→ImportStats)。
 
-    file 模式:_FileImportSyncAdapter(asyncio.run 桥;dry_run=True copytree 隔离写,真数据未动)。
-    sqlalchemy 模式:旧 ImportRepository(session)(dry_run 由 import_service session.rollback 处理)。
+    固定返回 _FileImportSyncAdapter(asyncio.run 桥;dry_run=True copytree 隔离写,真数据未动),
+    忽略 session。
     """
-    if _data_layer() == "file":
-        return _FileImportSyncAdapter(_data_root(), dry_run=dry_run)
-    from src.sync.infrastructure.import_repository import ImportRepository
-
-    return ImportRepository(session)
+    return _FileImportSyncAdapter(_data_root(), dry_run=dry_run)
 
 
 def get_browse_repo(session: Any = None) -> Any:
     """返回 browse 读门面(get_tweets / get_author_timeline 列表面 + get_daily_stats / get_authors 聚合两法)。
 
-    file 模式:FileBrowseReadStore(_data_root())(组合 file store;列表面 summary JOIN,聚合两法纯 tweet 计数/分组)。
-    sqlalchemy 模式:BrowseService(session)(现有服务不动)。
+    固定返回 FileBrowseReadStore(_data_root()),忽略 session。
     """
-    if _data_layer() == "file":
-        from src.browse.infrastructure.file_browse_read_repository import FileBrowseReadStore
+    from src.browse.infrastructure.file_browse_read_repository import FileBrowseReadStore
 
-        return FileBrowseReadStore(_data_root())
-    from src.browse.services.browse_service import BrowseService
-
-    return BrowseService(session)
+    return FileBrowseReadStore(_data_root())
 
 
 def get_feed_repo(session: Any = None) -> Any:
     """返回 feed 读门面(get_feed 时间窗增量 + author/keyword + summary JOIN)。
 
-    file 模式:FileFeedReadStore(_data_root())(组合 file store + summary JOIN;db_created_at→None)。
-    sqlalchemy 模式:FeedService(session)(现有服务不动,零行为变化)。
+    固定返回 FileFeedReadStore(_data_root()),忽略 session。
     """
-    if _data_layer() == "file":
-        from src.feed.infrastructure.file_feed_read_repository import FileFeedReadStore
+    from src.feed.infrastructure.file_feed_read_repository import FileFeedReadStore
 
-        return FileFeedReadStore(_data_root())
-    from src.feed.services.feed_service import FeedService
-
-    return FeedService(session)
+    return FileFeedReadStore(_data_root())
 
 
 def get_search_repo(session: Any = None) -> Any:
     """返回 search 读门面(search_tweets 多词 AND 全文 + 时间窗/author + summary JOIN)。
 
-    file 模式:FileSearchReadStore(_data_root())(窗口快路径/全扫 + 多词 AND;db_created_at→None)。
-    sqlalchemy 模式:SearchService(session)(现有服务不动,零行为变化)。
+    固定返回 FileSearchReadStore(_data_root()),忽略 session。
     """
-    if _data_layer() == "file":
-        from src.search.infrastructure.file_search_read_repository import FileSearchReadStore
+    from src.search.infrastructure.file_search_read_repository import FileSearchReadStore
 
-        return FileSearchReadStore(_data_root())
-    from src.search.services.search_service import SearchService
-
-    return SearchService(session)
+    return FileSearchReadStore(_data_root())
 
 
 def get_scraper_stats_repo(session: Any = None) -> Any:
     """返回 scraper_config 账号聚合读门面(max_period_counts / tweet_time_range / period_analysis)。
 
-    file 模式:FileScraperStatsReadStore(_data_root())(组合 FileTweetStore Python 槽聚合;
-      ⚠️ max_period_counts 用 round-half-up 整数分桶复刻生产 PG cast 进位,非 floor)。
-    sqlalchemy 模式:SqlalchemyScraperStatsReadStore(session)(转调与原端点等价内联 SQL,SQL 零变化)。
+    固定返回 FileScraperStatsReadStore(_data_root()),忽略 session。
     """
-    if _data_layer() == "file":
-        from src.preference.infrastructure.scraper_stats_read_repository import (
-            FileScraperStatsReadStore,
-        )
-
-        return FileScraperStatsReadStore(_data_root())
     from src.preference.infrastructure.scraper_stats_read_repository import (
-        SqlalchemyScraperStatsReadStore,
+        FileScraperStatsReadStore,
     )
 
-    return SqlalchemyScraperStatsReadStore(session)
+    return FileScraperStatsReadStore(_data_root())
 
 
 def get_status_repo(session: Any = None) -> Any:
     """返回 status 统计读门面(get_tweet_stats / get_follow_stats / get_summary_stats)。
 
-    file 模式:FileStatusReadStore(_data_root())(组合 file store 在 Python 槽 count/max/反连接,忽略 session)。
-    sqlalchemy 模式:SqlalchemyStatusReadStore(session)(薄 wrapper 转调旧 _get_*_stats,SQL 字节零变化)。
+    固定返回 FileStatusReadStore(_data_root()),忽略 session。
     """
-    if _data_layer() == "file":
-        from src.api.status_read_repository import FileStatusReadStore
+    from src.api.status_read_repository import FileStatusReadStore
 
-        return FileStatusReadStore(_data_root())
-    from src.api.status_read_repository import SqlalchemyStatusReadStore
-
-    return SqlalchemyStatusReadStore(session)
+    return FileStatusReadStore(_data_root())

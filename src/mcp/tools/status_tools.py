@@ -55,7 +55,7 @@ def register(mcp: FastMCP) -> None:
             )
 
             # 系统信息
-            from src.database.dialect import get_database_size_mb
+            from src.data_layer.disk_usage import get_database_size_mb
 
             database_size_mb = get_database_size_mb()
 

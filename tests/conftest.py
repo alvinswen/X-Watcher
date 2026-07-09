@@ -1,6 +1,13 @@
 """Pytest 配置文件。
 
 提供测试 Fixtures 和配置。
+
+⚠️ 测试基座 = file 模式（CHG-021 起 · 与生产一致）：
+- 全局钉 XWATCHER_DATA_LAYER=file，中和本机 gitignored .env 的污染
+  （沿 sqlalchemy 时代同款"本机挂 CI 绿"历史事故防御，只是钉的值换成 file）；
+- 全局钉一次性临时数据目录 XWATCHER_DATA_ROOT，堵死"未显式设 data_root 的测试
+  误读写生产数据目录（data_migrated）"的全部路径；需要数据隔离的测试仍自行
+  monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path)) opt-in 覆盖（覆盖 + 测试后还原）。
 """
 
 import logging
@@ -8,23 +15,20 @@ import os
 import tempfile
 from logging.handlers import QueueHandler
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import sessionmaker
 
 from src.config import clear_settings_cache, get_settings
 from src.logging_config import shutdown_logging
-from src.database.models import Base, reset_engine
-from src.database.async_session import reset_async_engine
 
 os.environ.setdefault("TWITTER_API_KEY", "test-twitter-key")
 os.environ.setdefault("TWITTER_BEARER_TOKEN", "test-bearer-token")
-os.environ["DATABASE_URL"] = "sqlite:///:memory:"
-os.environ["XWATCHER_DATA_LAYER"] = "sqlalchemy"
+os.environ["XWATCHER_DATA_LAYER"] = "file"
+# 全局一次性临时数据目录：所有未显式 opt-in 覆盖 XWATCHER_DATA_ROOT 的测试都落在这里，
+# 杜绝任何测试路径读写真实生产数据目录（data_migrated）。
+_session_data_root = tempfile.mkdtemp(prefix="xwatcher-conftest-data-")
+os.environ["XWATCHER_DATA_ROOT"] = _session_data_root
 os.environ["JWT_SECRET_KEY"] = "test-jwt-secret-key-with-at-least-32-chars"
 clear_settings_cache()
 
@@ -44,90 +48,16 @@ def _remove_file_handlers() -> None:
 
 _remove_file_handlers()
 
-# 导入所有 ORM 模型以确保它们被注册到 Base.metadata
-# 这些导入不会在代码中使用，但确保 SQLAlchemy 能够找到所有表
-from src.scraper.infrastructure.models import TweetOrm  # noqa: F401
-from src.scraper.infrastructure.article_models import ArticleOrm  # noqa: F401
-from src.summarization.infrastructure.models import SummaryOrm  # noqa: F401
-
 # 在测试开始时加载 .env 文件
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# ⚠️ 测试套件默认钉 sqlalchemy 模式,中和本机 gitignored .env 的 XWATCHER_DATA_LAYER=file 污染。
-# .env 经 load_dotenv 灌入 os.environ;pg 下线接线后(analytics/browse/preference/scraper/...)
-# route/MCP/集成测试若未显式钉模式,会在 file 模式下走文件层 data_migrated 而非测试种的 sqlite/内存库
-# → 漂移失败(本机无前缀跑出现、CI/干净检出 sqlalchemy 默认则不出现)。统一在此钉 sqlalchemy 基线
-# 使套件 env-无关;file 模式测试自行 monkeypatch.setenv("XWATCHER_DATA_LAYER","file") opt-in(覆盖
-# 本默认 + 测试后还原)。注:运行全套 file 模式非受支持场景(各测试假设 sqlalchemy ORM patch/种子)。
-os.environ["XWATCHER_DATA_LAYER"] = "sqlalchemy"
-
-# ⚠️ 同时钉 DATABASE_URL=sqlite,防"未被隔离 patch 命中的引擎路径"落到真实 pg。
-# 典型漏点:module/class 作用域的 TestClient fixture 会在 **function 作用域** 的引擎隔离 patch
-# 生效前触发 app lifespan 的 create_all(engine()),该 engine 由 settings.database_url 懒建 →
-# 此前落到真实 pg、把已 DROP 的表重建出来。钉 sqlite 后即便 patch 时序没赶上,也只建到 sqlite。
-os.environ["DATABASE_URL"] = "sqlite:///:memory:"
-clear_settings_cache()  # 让上面的 DATABASE_URL 覆盖对懒建的 get_engine/get_settings 即时生效
-
-
-# 全局同步测试引擎 - 所有通过 get_engine() 获取引擎的代码路径都将被重定向到此处
-_sync_test_engine = create_engine(
-    "sqlite:///:memory:",
-    connect_args={"check_same_thread": False},
-)
-Base.metadata.create_all(bind=_sync_test_engine)
-
-
-# 全局异步测试引擎 - 所有通过 get_async_engine()/get_async_session_maker() 的代码路径
-# 都将被重定向到此处,杜绝任何测试经异步路径碰真实 pg(DATABASE_URL)。
-# ⚠️ 建表需事件循环,而本模块级 + autouse fixture 是同步上下文 → 用"同步 sqlite 连接预建表
-# + 异步引擎读同一文件"避开 loop。用 file-based sqlite(而非 :memory:),因 :memory: 跨连接
-# 不共享、且异步建表要 loop;file 共享 + 同步预建表最稳。
-_async_test_db_path = tempfile.mktemp(suffix="-conftest-async-test.sqlite")
-_async_table_creator = create_engine(f"sqlite:///{_async_test_db_path}")
-Base.metadata.create_all(bind=_async_table_creator)  # 同步建表,无需 loop
-_async_table_creator.dispose()
-_async_test_engine = create_async_engine(f"sqlite+aiosqlite:///{_async_test_db_path}")
-_async_test_maker = async_sessionmaker(
-    _async_test_engine, class_=AsyncSession, expire_on_commit=False
-)
-
-
-@pytest.fixture(autouse=True)
-def _isolate_database_singletons():
-    """隔离数据库单例，防止测试泄漏写入生产数据库。
-
-    通过 patch get_engine() 使所有同步数据库操作（TaskRegistry._persist_task、
-    TaskRegistry._persist_task、get_active_follows_from_db 等）
-    使用内存测试数据库而非生产 news_agent.db。
-
-    同时 patch get_async_engine()/get_async_session_maker() 使所有异步数据库代码路径
-    (route/MCP/集成测试在默认 sqlalchemy 模式下的 get_async_session_maker() 调用)使用
-    隔离的 sqlite 异步引擎,而非连接真实 pg(DATABASE_URL)。镜像同步引擎的隔离方式。
-
-    同时在测试前后重置引擎单例，确保测试之间完全隔离。
-    """
-    # 重置单例，防止上一个测试的引擎被复用
-    reset_engine()
-    reset_async_engine()
-
-    # Patch get_engine 使所有 lazy import(函数内 import)路径都返回测试引擎。
-    # ⚠️ src.main 在模块级 `from src.database.models import get_engine as engine` 绑定了原函数
-    # 引用(import 时定型),patch 源模块的 get_engine 覆盖不到该绑定名 → main.py 的 lifespan
-    # 启动期 _init_db_if_needed() 会用未被 patch 的真实 pg sync engine 对真实 pg create_all
-    # 重建表。故必须额外 patch src.main.engine 这一绑定名,堵住该同步路径的 pg 泄漏。
-    with (
-        patch("src.database.models.get_engine", return_value=_sync_test_engine),
-        patch("src.main.engine", return_value=_sync_test_engine),
-        patch("src.database.async_session.get_async_engine", return_value=_async_test_engine),
-        patch("src.database.async_session.get_async_session_maker", return_value=_async_test_maker),
-    ):
-        yield
-
-    # 测试后再次重置单例
-    reset_engine()
-    reset_async_engine()
+# ⚠️ load_dotenv（默认不覆盖已有 env）后再显式钉一次，双保险：
+# 测试套件必须 env-无关（本机 .env 有无、值为何均不改变测试行为）。
+os.environ["XWATCHER_DATA_LAYER"] = "file"
+os.environ["XWATCHER_DATA_ROOT"] = _session_data_root
+clear_settings_cache()
 
 
 @pytest.fixture(autouse=True)
@@ -148,46 +78,9 @@ def reset_env_before_each_test():
     clear_settings_cache()
 
 
-# 测试数据库引擎 - 使用 SQLite 内存模式（用于 db_session fixture）
-test_engine = create_engine(
-    "sqlite:///:memory:",
-    connect_args={"check_same_thread": False},
-)
-
-# 创建测试会话工厂
-TestSessionLocal = sessionmaker(
-    autocommit=False,
-    autoflush=False,
-    bind=test_engine,
-)
-
-
 @pytest.fixture(scope="function")
-def db_session():
-    """数据库会话 Fixture。
-
-    每个测试函数使用独立的内存数据库。
-    """
-    # 创建所有表
-    Base.metadata.create_all(bind=test_engine)
-
-    # 创建会话
-    session = TestSessionLocal()
-
-    try:
-        yield session
-    finally:
-        session.close()
-        # 清理：删除所有表
-        Base.metadata.drop_all(bind=test_engine)
-
-
-@pytest.fixture(scope="function")
-def client(db_session):  # noqa: ARG001 - 保留参数以确 fixture 顺序
-    """FastAPI 测试客户端 Fixture。
-
-    使用测试数据库会话。
-    """
+def client():
+    """FastAPI 测试客户端 Fixture。"""
     # 清除配置缓存，使用测试环境变量
     clear_settings_cache()
 
@@ -284,78 +177,19 @@ def clean_registry():
 
 
 @pytest.fixture(scope="function")
-async def _test_db_engine():
-    """内部 fixture：创建共享的测试数据库引擎。
-
-    每个测试函数使用独立的内存数据库。
-    async_session 和 test_session_factory 共享同一个引擎。
-    """
-    from sqlalchemy.ext.asyncio import create_async_engine
-
-    test_engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-    )
-
-    # 创建所有表
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    yield test_engine
-
-    # 清理
-    await test_engine.dispose()
-
-
-@pytest.fixture(scope="function")
-async def async_session(_test_db_engine):
-    """异步数据库会话 Fixture。
-
-    每个测试函数使用独立的内存数据库。
-    """
-    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
-    test_session_maker = async_sessionmaker(
-        _test_db_engine, class_=AsyncSession, expire_on_commit=False
-    )
-
-    async with test_session_maker() as session:
-        yield session
-
-
-@pytest.fixture(scope="function")
-async def test_session_factory(_test_db_engine):
-    """异步会话工厂 Fixture。
-
-    返回 async_sessionmaker 实例，适用于需要 session_factory 的测试
-    （如 SummarizationService 的新接口）。
-    与 async_session 共享同一个内存数据库引擎。
-    """
-    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
-    factory = async_sessionmaker(_test_db_engine, class_=AsyncSession, expire_on_commit=False)
-
-    yield factory
-
-
-@pytest.fixture(scope="function")
-async def async_client(async_session):
+async def async_client():
     """异步 HTTP 客户端 Fixture（带管理员认证）。
 
     使用 httpx.AsyncClient 测试 FastAPI 应用。
     自动注入管理员认证，适用于需要认证的 API 端点。
     """
-    from httpx import AsyncClient, ASGITransport
-    from src.database.async_session import get_db_session
+    from httpx import ASGITransport, AsyncClient
+
     from src.user.api.auth import get_current_admin_user, get_current_user
     from src.user.domain.models import BOOTSTRAP_ADMIN
 
     # 使用 ASGI 传输
     transport = ASGITransport(app=app)
-
-    # 覆写依赖注入，返回测试会话
-    async def override_get_db_session():
-        yield async_session
 
     async def override_get_current_admin_user():
         return BOOTSTRAP_ADMIN
@@ -364,10 +198,8 @@ async def async_client(async_session):
         return BOOTSTRAP_ADMIN
 
     # 使用 FastAPI 的 app.dependency_overrides
-    original_db_override = app.dependency_overrides.get(get_db_session)
     original_admin_override = app.dependency_overrides.get(get_current_admin_user)
     original_user_override = app.dependency_overrides.get(get_current_user)
-    app.dependency_overrides[get_db_session] = override_get_db_session
     app.dependency_overrides[get_current_admin_user] = override_get_current_admin_user
     app.dependency_overrides[get_current_user] = override_get_current_user
 
@@ -376,10 +208,6 @@ async def async_client(async_session):
             yield ac
     finally:
         # 恢复原始依赖
-        if original_db_override:
-            app.dependency_overrides[get_db_session] = original_db_override
-        else:
-            app.dependency_overrides.pop(get_db_session, None)
         if original_admin_override:
             app.dependency_overrides[get_current_admin_user] = original_admin_override
         else:

@@ -47,7 +47,7 @@ class TestGetFeed:
         mock_result.has_more = False
 
         with patch(
-            "src.feed.services.feed_service.FeedService.get_feed",
+            "src.feed.infrastructure.file_feed_read_repository.FileFeedReadStore.get_feed",
             new_callable=AsyncMock,
             return_value=mock_result,
         ):
@@ -80,7 +80,7 @@ class TestGetFeed:
         mock_result.has_more = False
 
         with patch(
-            "src.feed.services.feed_service.FeedService.get_feed",
+            "src.feed.infrastructure.file_feed_read_repository.FileFeedReadStore.get_feed",
             new_callable=AsyncMock,
             return_value=mock_result,
         ):
@@ -104,7 +104,7 @@ class TestSearchTweets:
         mock_result.total = 1
 
         with patch(
-            "src.search.services.search_service.SearchService.search_tweets",
+            "src.search.infrastructure.file_search_read_repository.FileSearchReadStore.search_tweets",
             new_callable=AsyncMock,
             return_value=mock_result,
         ):
@@ -145,7 +145,7 @@ class TestGetDailyStats:
         ]
 
         with patch(
-            "src.browse.services.browse_service.BrowseService.get_daily_stats",
+            "src.browse.infrastructure.file_browse_read_repository.FileBrowseReadStore.get_daily_stats",
             new_callable=AsyncMock,
             return_value=mock_stats,
         ):
@@ -182,7 +182,7 @@ class TestGetAuthorsForDate:
         ]
 
         with patch(
-            "src.browse.services.browse_service.BrowseService.get_authors",
+            "src.browse.infrastructure.file_browse_read_repository.FileBrowseReadStore.get_authors",
             new_callable=AsyncMock,
             return_value=mock_authors,
         ):
@@ -197,14 +197,6 @@ class TestGetAuthorsForDate:
 
 
 class TestBrowseTweets:
-    @pytest.fixture(autouse=True)
-    def _pin_sqlalchemy_layer(self, monkeypatch):
-        """钉 sqlalchemy:本组 patch BrowseService.get_tweets(=测 ORM 路径)。A1-2 接线后
-        browse_tweets 走 get_browse_repo,若本机 .env=file 则返 FileBrowseReadStore 绕过
-        patch、命中真数据 → 漂移。钉 sqlalchemy 使 get_browse_repo 返 BrowseService、patch 命中
-        (沿 A1-1 I-1 / 3aa66d2 范式)。"""
-        monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
-
     @pytest.mark.asyncio
     async def test_success(self, tool_funcs):
         """测试正常浏览推文。"""
@@ -212,7 +204,7 @@ class TestBrowseTweets:
         mock_total = 1
 
         with patch(
-            "src.browse.services.browse_service.BrowseService.get_tweets",
+            "src.browse.infrastructure.file_browse_read_repository.FileBrowseReadStore.get_tweets",
             new_callable=AsyncMock,
             return_value=(mock_items, mock_total),
         ):

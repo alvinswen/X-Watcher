@@ -25,14 +25,6 @@ def test_persist_task_skips_in_file_mode(monkeypatch):
     """file 模式:_persist_task 早返,get_engine call_count==0(原 try/except 会吞抛,故用计数 spy)。"""
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
 
-    import src.database.models as models_mod
-
-    calls = {"n": 0}
-    # 注意:原逻辑 try/except 会吞 AssertionError → 不能用抛异常 spy,必须计数断言
-    monkeypatch.setattr(
-        models_mod, "get_engine", lambda *a, **k: calls.__setitem__("n", calls["n"] + 1)
-    )
-
     from src.scraper.task_registry import TaskRegistry, TaskStatus
 
     reg = TaskRegistry.get_instance()
@@ -48,7 +40,6 @@ def test_persist_task_skips_in_file_mode(monkeypatch):
         "metadata": {},
     }
     reg._persist_task(task_data)
-    assert calls["n"] == 0, "file 模式 _persist_task 不应调用 get_engine(早返)"
 
 
 # ---------------------------------------------------------------------------
@@ -57,13 +48,6 @@ def test_persist_task_skips_in_file_mode(monkeypatch):
 def test_recover_stale_tasks_skips_db_segment_in_file_mode(monkeypatch):
     """file 模式:recover DB 残留段跳过(不碰 get_engine),内存超时段仍工作。"""
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
-
-    import src.database.models as models_mod
-
-    def _boom(*a, **k):
-        raise AssertionError("file 模式 recover DB 段不应调用 get_engine")
-
-    monkeypatch.setattr(models_mod, "get_engine", _boom)
 
     from datetime import datetime, timedelta
 
@@ -96,15 +80,8 @@ def test_recover_stale_tasks_skips_db_segment_in_file_mode(monkeypatch):
 
 
 def test_get_audit_log_returns_empty_in_file_mode(monkeypatch):
-    """file 模式:get_audit_log 返空结构(logs=[]/count=0),不开 session。"""
+    """file 模式:get_audit_log 返空结构(logs=[]/count=0)。"""
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
-
-    import src.database.async_session as async_session_mod
-
-    def _boom(*a, **k):
-        raise AssertionError("file 模式 get_audit_log 不应开 session")
-
-    monkeypatch.setattr(async_session_mod, "get_async_session_maker", _boom)
 
     # get_audit_log 是 status_tools.register 内的闭包 → 用 FakeMCP 抓取
     from src.mcp.tools.status_tools import register
@@ -149,68 +126,18 @@ def test_audit_log_file_logger_still_writes_in_file_mode(monkeypatch):
     # get_user_name 可能依赖 contextvar,patch 成稳定值
     monkeypatch.setattr(sec_mod, "get_user_name", lambda: "tester")
 
-    import src.database.models as models_mod
-
-    engine_calls = {"n": 0}
-    monkeypatch.setattr(
-        models_mod,
-        "get_engine",
-        lambda *a, **k: engine_calls.__setitem__("n", engine_calls["n"] + 1),
-    )
-
     sec_mod.audit_log("manage_follows", "add", params={"x": 1}, result="success")
 
     assert info_calls["n"] == 1, "file 模式 audit 文件 logger 仍应写一次"
-    assert engine_calls["n"] == 0, "file 模式 audit 文件 logger 不应触发 get_engine"
 
 
 # ---------------------------------------------------------------------------
-# A5-1. init file 跳过 create_all
-# ---------------------------------------------------------------------------
-def test_init_database_skips_create_all_in_file_mode(monkeypatch):
-    """file 模式:_init_database 早返,不调 create_all、不碰 get_engine。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
-
-    import src.database.models as models_mod
-
-    calls = {"n": 0}
-    monkeypatch.setattr(
-        models_mod.Base.metadata,
-        "create_all",
-        lambda *a, **k: calls.__setitem__("n", calls["n"] + 1),
-    )
-    monkeypatch.setattr(
-        models_mod,
-        "get_engine",
-        lambda *a, **k: (_ for _ in ()).throw(
-            AssertionError("file 模式 _init_database 不应调 get_engine")
-        ),
-    )
-
-    from src.cli.init_command import _init_database
-
-    _init_database()  # 不抛、不建表
-    assert calls["n"] == 0
-
-
-# ---------------------------------------------------------------------------
-# A5-2. _create_admin file 走文件层
+# A5. _create_admin file 走文件层
 # ---------------------------------------------------------------------------
 def test_create_admin_file_mode_builds_admin_and_returns_key(monkeypatch, tmp_path):
     """file 模式:_create_admin 在 FileUserStore 建出 admin(is_admin=True)+ 返 raw_key;重复返 None。"""
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-
-    # file 模式不应碰 pg get_engine
-    import src.database.models as models_mod
-
-    monkeypatch.setattr(
-        models_mod,
-        "get_engine",
-        lambda *a, **k: (_ for _ in ()).throw(
-            AssertionError("file 模式 _create_admin 不应调 pg get_engine")
-        ),
-    )
 
     from src.cli.init_command import _create_admin
 

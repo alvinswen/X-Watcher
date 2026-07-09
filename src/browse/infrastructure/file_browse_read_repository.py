@@ -5,7 +5,7 @@
 
 ⚠️ created_at 保 aware(+00:00):实测生产 pg(timestamptz)返 aware、data_migrated 存
 "...+00:00"、文件层 _to_domain 回读 aware → file 与生产 pg 一致(MCP 路径 isoformat 均出
-"+00:00")。**不可归一到 naive 去迎合 SQLite 测试**(aiosqlite 回读 DateTime(tz) 为 naive
+"+00:00")。**不可归一到 naive 去迎合 SQLite 测试**(SQLite 回读 DateTime(tz) 为 naive
 是测试 oracle 工件,非生产语义——同 A1-1 SQLite-vs-PG 陷阱)。跨模式对账对 created_at 按
 instant 比对 + 单独钉 file 为 aware "+00:00"。
 """

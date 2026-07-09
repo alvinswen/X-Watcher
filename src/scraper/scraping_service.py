@@ -732,28 +732,15 @@ class ScrapingService:
         logger.info("检测到 %d 条推文含 Article（via article 字段），开始获取", len(article_tweets))
 
         try:
-            from src.data_layer.provider import get_article_repo, is_file_mode
+            from src.data_layer.provider import get_article_repo
             from src.scraper.domain.models import Article
-
-            file_mode = is_file_mode()
-            session_maker: Any = None
-            if not file_mode:
-                from src.database.async_session import get_async_session_maker
-
-                session_maker = get_async_session_maker()
 
             for tweet in article_tweets:
                 try:
                     # 检查是否已存在
-                    if file_mode:
-                        repo = get_article_repo()
-                        if await repo.article_exists(tweet.tweet_id):
-                            continue
-                    else:
-                        async with session_maker() as session:
-                            repo = get_article_repo(session)
-                            if await repo.article_exists(tweet.tweet_id):
-                                continue
+                    repo = get_article_repo()
+                    if await repo.article_exists(tweet.tweet_id):
+                        continue
 
                     # 调用 /article API 获取全文
                     api_result = await self._client.fetch_article(tweet.tweet_id)
@@ -802,14 +789,8 @@ class ScrapingService:
                             fetched_at=datetime.now(timezone.utc),
                         )
 
-                    if file_mode:
-                        repo = get_article_repo()
-                        saved = await repo.save_article(article)
-                    else:
-                        async with session_maker() as session:
-                            repo = get_article_repo(session)
-                            saved = await repo.save_article(article)
-                            await session.commit()
+                    repo = get_article_repo()
+                    saved = await repo.save_article(article)
 
                     if saved:
                         logger.info(
@@ -855,25 +836,13 @@ class ScrapingService:
             from src.data_layer.provider import (
                 get_article_read_repo,
                 get_article_repo,
-                is_file_mode,
             )
             from src.scraper.domain.models import Article
 
-            session_maker: Any = None
-
             # 1. 查询该用户尚无 article 记录的推文 ID(file 模式走文件层反连接门面)
-            if is_file_mode():
-                tweet_ids = await get_article_read_repo().get_unarticled_tweets(
-                    username, max_tweets=max_tweets
-                )
-            else:
-                from src.database.async_session import get_async_session_maker
-
-                session_maker = get_async_session_maker()
-                async with session_maker() as session:
-                    tweet_ids = await get_article_read_repo(session).get_unarticled_tweets(
-                        username, max_tweets=max_tweets
-                    )
+            tweet_ids = await get_article_read_repo().get_unarticled_tweets(
+                username, max_tweets=max_tweets
+            )
 
             if not tweet_ids:
                 logger.info("用户 %s 无需回溯的推文", username)
@@ -927,14 +896,8 @@ class ScrapingService:
                         fetched_at=datetime.now(timezone.utc),
                     )
 
-                    if is_file_mode():
-                        repo = get_article_repo()
-                        saved = await repo.save_article(article)
-                    else:
-                        async with session_maker() as session:
-                            repo = get_article_repo(session)
-                            saved = await repo.save_article(article)
-                            await session.commit()
+                    repo = get_article_repo()
+                    saved = await repo.save_article(article)
 
                     if saved:
                         result["found"] += 1
@@ -974,23 +937,11 @@ class ScrapingService:
 
         if self._repository is None:
             # 延迟导入避免循环依赖
-            from src.data_layer.provider import get_tweet_repo, is_file_mode
+            from src.data_layer.provider import get_tweet_repo
 
-            if is_file_mode():
-                repo = get_tweet_repo()
-                result = await repo.save_tweets(tweets, early_stop_threshold=early_stop)
-                return cast(SaveResult, result)
-
-            from src.database.async_session import get_async_session_maker
-
-            session_maker = get_async_session_maker()
-            async with session_maker() as session:
-                repo = get_tweet_repo(session)
-                result = await repo.save_tweets(tweets, early_stop_threshold=early_stop)
-                # 提交事务
-                await session.commit()
-
-                return cast(SaveResult, result)
+            repo = get_tweet_repo()
+            result = await repo.save_tweets(tweets, early_stop_threshold=early_stop)
+            return cast(SaveResult, result)
         else:
             # 如果已经有 repository，由调用者管理事务
             return cast(

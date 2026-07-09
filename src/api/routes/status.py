@@ -5,18 +5,13 @@
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_settings
-from src.database.models import ScraperFollow
-from src.scraper.infrastructure.models import TweetOrm
 from src.shared.schemas import UTCDatetimeModel
-from src.summarization.infrastructure.models import SummaryOrm
 from src.user.api.auth import get_current_user
 from src.user.domain.models import UserDomain
 
@@ -127,62 +122,6 @@ async def get_twitter_balance(
     )
 
 
-# ── 查询辅助函数 ──────────────────────────────────────────
-
-
-async def _get_tweet_stats(session: AsyncSession) -> TweetStats:
-    """推文统计。"""
-    total_result = await session.execute(select(func.count()).select_from(TweetOrm))
-    total = total_result.scalar() or 0
-
-    latest_result = await session.execute(select(func.max(TweetOrm.created_at)))
-    latest_tweet_at = latest_result.scalar()
-
-    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    today_result = await session.execute(
-        select(func.count()).select_from(TweetOrm).where(TweetOrm.created_at >= today_start)
-    )
-    today_count = today_result.scalar() or 0
-
-    return TweetStats(
-        total=total,
-        latest_tweet_at=latest_tweet_at,
-        today_count=today_count,
-    )
-
-
-async def _get_follow_stats(session: AsyncSession) -> FollowStats:
-    """关注账号统计。"""
-    total_result = await session.execute(select(func.count()).select_from(ScraperFollow))
-    total = total_result.scalar() or 0
-
-    active_result = await session.execute(
-        select(func.count())
-        .select_from(ScraperFollow)
-        .where(ScraperFollow.is_active == True)  # noqa: E712
-    )
-    active = active_result.scalar() or 0
-
-    return FollowStats(total=total, active=active, inactive=total - active)
-
-
-async def _get_summary_stats(session: AsyncSession) -> SummaryStats:
-    """摘要统计。"""
-    total_result = await session.execute(select(func.count()).select_from(SummaryOrm))
-    total = total_result.scalar() or 0
-
-    # 使用 LEFT JOIN + IS NULL 查找待摘要推文
-    pending_result = await session.execute(
-        select(func.count())
-        .select_from(TweetOrm)
-        .outerjoin(SummaryOrm, TweetOrm.tweet_id == SummaryOrm.tweet_id)
-        .where(SummaryOrm.summary_id == None)  # noqa: E711
-    )
-    pending_tweets = pending_result.scalar() or 0
-
-    return SummaryStats(total=total, pending_tweets=pending_tweets)
-
-
 def get_server_start_time():
     """惰性委派 src.main，避免 status↔main 模块级循环（python -m src.main 双载触发）；
     保留为本模块级属性，以兼容测试对 src.api.routes.status.get_server_start_time 的 patch。"""
@@ -193,7 +132,7 @@ def get_server_start_time():
 
 def _get_system_stats() -> SystemStats:
     """系统统计。"""
-    from src.database.dialect import get_database_size_mb
+    from src.data_layer.disk_usage import get_database_size_mb
 
     server_start_time = get_server_start_time()
     database_size_mb = get_database_size_mb()

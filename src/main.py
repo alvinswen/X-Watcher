@@ -8,8 +8,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.config import get_settings, validate_jwt_secret_strength
-from src.database.models import Base
-from src.database.models import get_engine as engine
 from src.logging_config import setup_logging
 
 # 配置应用层日志：结构化格式 + 文件轮转 + trace_id 支持
@@ -33,34 +31,13 @@ def get_server_start_time() -> datetime | None:
     return _server_start_time
 
 
-def _init_db_if_needed():
-    """启动期 DB 初始化:建表。
-
-    file 模式(pg 下线守卫):跳过 create_all,避免重建已 DROP 的 pg 表。
-    """
-    from src.data_layer.provider import is_file_mode
-
-    if is_file_mode():
-        logger.info("file 模式:跳过 create_all(pg 下线守卫)")
-        return
-
-    Base.metadata.create_all(engine())
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # noqa: ARG001 - app 参数是 FastAPI 要求的
     """应用生命周期管理。
 
-    启动时创建数据库表并执行启动安全检查。
+    启动时执行启动安全检查。
     """
     settings = get_settings()
-
-    # 确保所有 ORM 模型在 create_all 前已注册到 Base.metadata
-    # （分散在各子模块的模型需显式导入，否则 create_all 不会建表）
-    from src.scraper.infrastructure.article_models import ArticleOrm  # noqa: F401
-
-    # 启动时创建数据库表 + 内联迁移（file 模式跳过，pg 下线守卫）
-    _init_db_if_needed()
 
     # 安全检查：JWT 弱密钥直接拒绝启动
     validate_jwt_secret_strength(settings)
@@ -114,38 +91,24 @@ async def health_check():
     检查数据库连接，返回组件健康信息。
     始终返回 HTTP 200 以兼容 Docker HEALTHCHECK。
     """
-    from sqlalchemy import text
-
-    from src.data_layer.provider import is_file_mode
-    from src.database.async_session import get_async_session_maker
 
     components = {}
 
-    # 1. 数据库连接检查
-    if is_file_mode():
-        # file 模式(pg 下线守卫):不连 pg,改探数据目录存在性
-        from src.data_layer.provider import data_root
+    # 1. 数据目录检查
+    from src.data_layer.provider import data_root
 
-        root = data_root()
-        if root.exists():
-            components["database"] = {
-                "status": "healthy",
-                "mode": "file",
-                "data_root": str(root),
-            }
-        else:
-            components["database"] = {
-                "status": "unhealthy",
-                "error": f"data_root 不存在: {root}",
-            }
+    root = data_root()
+    if root.exists():
+        components["database"] = {
+            "status": "healthy",
+            "mode": "file",
+            "data_root": str(root),
+        }
     else:
-        try:
-            session_maker = get_async_session_maker()
-            async with session_maker() as session:
-                await session.execute(text("SELECT 1"))
-            components["database"] = {"status": "healthy"}
-        except Exception as e:
-            components["database"] = {"status": "unhealthy", "error": str(e)}
+        components["database"] = {
+            "status": "unhealthy",
+            "error": f"data_root 不存在: {root}",
+        }
 
     # 2. 整体状态判定
     overall = "healthy"

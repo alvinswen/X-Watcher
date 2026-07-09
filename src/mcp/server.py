@@ -10,7 +10,7 @@ from mcp.server.fastmcp import FastMCP
 
 from src.config import validate_jwt_secret_strength
 from src.mcp.auth import configure_transport, get_transport, is_admin
-from src.mcp.lifespan import init_database, init_mcp_logging
+from src.mcp.lifespan import init_mcp_logging
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,6 @@ async def mcp_lifespan(server: FastMCP):
         get_transport(),
         is_admin(),
     )
-    init_database()
     from src.mcp.security import log_action_guard_config
 
     log_action_guard_config()

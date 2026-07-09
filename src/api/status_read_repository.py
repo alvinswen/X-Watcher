@@ -21,9 +21,6 @@ from src.storage import paths
 
 # 注:status 统计模型已抽到 src/api/status_schemas.py(无 main 依赖),file 门面从那 import
 # 断 status→main→status 循环(冷 import/MCP/CLI 上下文安全);仍方法内延迟 import(承 lazy 纪律)。
-# sqlalchemy wrapper 转调的 _get_*_stats 仍在 status.py,仅 sqlalchemy 模式(main-first)用,无环。
-
-
 class FileStatusReadStore:
     def __init__(self, data_root: Path) -> None:
         self._root = Path(data_root)
@@ -75,29 +72,3 @@ class FileStatusReadStore:
         pending_tweets = sum(1 for t in tweets if t.tweet_id not in summarized_ids)
 
         return SummaryStats(total=total, pending_tweets=pending_tweets)
-
-
-class SqlalchemyStatusReadStore:
-    """sqlalchemy 模式薄 wrapper:转调旧 `_get_*_stats(session)`,SQL 字节零变化。
-
-    保持旧 status route 的 ORM count/max/反连接查询逐字不动 → 零行为变化;
-    仅把存活聚合统一收到一个门面对象,使 status 消费者改走 provider。
-    """
-
-    def __init__(self, session) -> None:
-        self._session = session
-
-    async def get_tweet_stats(self):
-        from src.api.routes.status import _get_tweet_stats
-
-        return await _get_tweet_stats(self._session)
-
-    async def get_follow_stats(self):
-        from src.api.routes.status import _get_follow_stats
-
-        return await _get_follow_stats(self._session)
-
-    async def get_summary_stats(self):
-        from src.api.routes.status import _get_summary_stats
-
-        return await _get_summary_stats(self._session)

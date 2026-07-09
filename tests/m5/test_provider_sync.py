@@ -32,15 +32,6 @@ def test_get_import_repo_file_mode(monkeypatch, tmp_path):
     assert isinstance(repo, _FileImportSyncAdapter)
 
 
-def test_get_import_repo_default_is_sqlalchemy(monkeypatch):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
-    from src.data_layer.provider import get_import_repo
-    from src.sync.infrastructure.import_repository import ImportRepository
-
-    repo = get_import_repo(session=None, dry_run=False)  # ImportRepository(None),不触 DB
-    assert isinstance(repo, ImportRepository)
-
-
 def test_file_import_adapter_real_write_persists(monkeypatch, tmp_path):
     """非 dry_run:import_follows 真写 data_root,follows.json 落地。"""
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")

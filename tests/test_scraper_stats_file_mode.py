@@ -183,44 +183,6 @@ async def test_tweet_time_range_file_mode(monkeypatch, tmp_path):
     assert _norm_instant(amax2) == _norm_instant(new_latest) and acnt2 == 4
 
 
-@pytest.mark.asyncio
-async def test_cross_mode_tweet_time_range_equivalence(monkeypatch, tmp_path):
-    """同数据 file vs sqlalchemy(SQLite)产同 min/max/count(SQLite 有效 oracle,无 round 陷阱)。"""
-    base = datetime(2024, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
-    specs = [
-        ("a1", "alice", base + timedelta(days=5)),
-        ("a2", "alice", base),
-        ("a3", "alice", base + timedelta(days=10)),
-        ("b1", "bob", base + timedelta(days=2)),
-        ("b2", "bob", base + timedelta(days=8)),
-    ]
-    usernames = ["alice", "bob", "carol"]
-
-    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    await _seed_tweets(tmp_path, [_tweet(t, a, c) for (t, a, c) in specs])
-
-    engine, session = await _build_sqlite_session()
-    await _seed_sqlite_tweets(session, specs)
-
-    from src.data_layer.provider import get_scraper_stats_repo
-
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
-    f_res = await get_scraper_stats_repo().tweet_time_range(usernames)
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
-    s_res = await get_scraper_stats_repo(session).tweet_time_range(usernames)
-
-    assert set(f_res.keys()) == set(s_res.keys()) == {"alice", "bob"}
-    for u in ("alice", "bob"):
-        fmin, fmax, fcnt = f_res[u]
-        smin, smax, scnt = s_res[u]
-        assert fcnt == scnt
-        assert _norm_instant(fmin) == _norm_instant(smin)
-        assert _norm_instant(fmax) == _norm_instant(smax)
-
-    await session.close()
-    await engine.dispose()
-
-
 # ── #9 period_analysis(显式窗口逐周期 count)────────────────
 
 
@@ -254,39 +216,6 @@ async def test_period_analysis_file_mode(monkeypatch, tmp_path):
     # 故障注入:大小写不敏感——用 ALICE 查应得同结果
     windows_upper = await get_scraper_stats_repo().period_analysis("ALICE", 12, 3)
     assert [c for (_a, _b, c) in windows_upper] == [0, 1, 2]
-
-
-@pytest.mark.asyncio
-async def test_cross_mode_period_analysis_equivalence(monkeypatch, tmp_path):
-    """同数据 file vs sqlalchemy(SQLite)产同逐周期 count + 同窗口边界(SQLite 有效 oracle)。"""
-    base_now_anchor = datetime.now(timezone.utc)
-    specs = [
-        ("p0a", "alice", base_now_anchor - timedelta(hours=2)),
-        ("p0b", "alice", base_now_anchor - timedelta(hours=6)),
-        ("p1a", "alice", base_now_anchor - timedelta(hours=18)),
-        ("p3a", "alice", base_now_anchor - timedelta(hours=40)),
-        ("noise", "bob", base_now_anchor - timedelta(hours=3)),
-    ]
-    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    await _seed_tweets(tmp_path, [_tweet(t, a, c) for (t, a, c) in specs])
-
-    engine, session = await _build_sqlite_session()
-    await _seed_sqlite_tweets(session, specs)
-
-    from src.data_layer.provider import get_scraper_stats_repo
-
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
-    f_windows = await get_scraper_stats_repo().period_analysis("alice", 12, 4)
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
-    s_windows = await get_scraper_stats_repo(session).period_analysis("alice", 12, 4)
-
-    # 逐周期 count 一致(窗口锚 now 各路独立取,但相对边界相同 → count 应同;
-    # 数据点距边界足够远,now 微小漂移不跨界)
-    assert [c for (_a, _b, c) in f_windows] == [c for (_a, _b, c) in s_windows]
-    assert len(f_windows) == len(s_windows) == 4
-
-    await session.close()
-    await engine.dispose()
 
 
 # ── 端点级 file 模式冒烟(经路由组装响应模型)──────────────────
@@ -334,29 +263,3 @@ async def test_endpoints_file_mode_smoke(monkeypatch, tmp_path):
     assert res9.username == "alice"
     assert res9.total_new_tweets == 2
     assert len(res9.periods) == 3
-
-
-# ── 跨模式 SQLite 助手 ───────────────────────────────────────
-
-
-async def _build_sqlite_session():
-    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-    from src.database.models import Base
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    session = async_sessionmaker(engine, expire_on_commit=False)()
-    return engine, session
-
-
-async def _seed_sqlite_tweets(session, specs):
-    from src.scraper.infrastructure.models import TweetOrm
-    now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
-    for (t, a, c) in specs:
-        session.add(TweetOrm(
-            tweet_id=t, text="x",
-            created_at=c.replace(tzinfo=None) if c.tzinfo else c,
-            db_created_at=now_naive,
-            author_username=a, author_display_name=f"{a} disp", media=None,
-        ))
-    await session.commit()
