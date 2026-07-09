@@ -24,35 +24,29 @@ def register(mcp: FastMCP) -> None:
         """
         try:
             from src.data_layer.provider import get_status_repo
-            from src.database.async_session import get_async_session_maker
-
-            session_maker = get_async_session_maker()
 
             async def _tweet_stats():
-                async with session_maker() as s:
-                    stats = await get_status_repo(s).get_tweet_stats()
-                    return {
-                        "total": stats.total,
-                        "latest_tweet_at": stats.latest_tweet_at,
-                        "today_count": stats.today_count,
-                    }
+                stats = await get_status_repo().get_tweet_stats()
+                return {
+                    "total": stats.total,
+                    "latest_tweet_at": stats.latest_tweet_at,
+                    "today_count": stats.today_count,
+                }
 
             async def _follow_stats():
-                async with session_maker() as s:
-                    stats = await get_status_repo(s).get_follow_stats()
-                    return {
-                        "total": stats.total,
-                        "active": stats.active,
-                        "inactive": stats.inactive,
-                    }
+                stats = await get_status_repo().get_follow_stats()
+                return {
+                    "total": stats.total,
+                    "active": stats.active,
+                    "inactive": stats.inactive,
+                }
 
             async def _summary_stats():
-                async with session_maker() as s:
-                    stats = await get_status_repo(s).get_summary_stats()
-                    return {
-                        "total": stats.total,
-                        "pending_tweets": stats.pending_tweets,
-                    }
+                stats = await get_status_repo().get_summary_stats()
+                return {
+                    "total": stats.total,
+                    "pending_tweets": stats.pending_tweets,
+                }
 
             tweets, follows, summaries = await asyncio.gather(
                 _tweet_stats(),
@@ -120,55 +114,9 @@ def register(mcp: FastMCP) -> None:
                         "note": "file 模式审计仅文件日志,无 DB 查询",
                     }
                 )
-
-            import json
-
-            from sqlalchemy import select
-
-            from src.database.async_session import get_async_session_maker
-            from src.database.models import AuditLog
-            from src.mcp.helpers import parse_datetime_optional
-
-            clamped_limit = min(max(limit, 1), 200)
-            since_dt = parse_datetime_optional(since)
-            until_dt = parse_datetime_optional(until)
-
-            session_maker = get_async_session_maker()
-            async with session_maker() as session:
-                query = select(AuditLog).order_by(AuditLog.timestamp.desc())
-
-                if tool:
-                    query = query.where(AuditLog.tool == tool)
-                if action:
-                    query = query.where(AuditLog.action == action)
-                if since_dt:
-                    query = query.where(AuditLog.timestamp >= since_dt)
-                if until_dt:
-                    query = query.where(AuditLog.timestamp < until_dt)
-
-                query = query.limit(clamped_limit)
-                result = await session.execute(query)
-                logs = result.scalars().all()
-
-                return success_response(
-                    {
-                        "logs": [
-                            {
-                                "id": log.id,
-                                "timestamp": log.timestamp.isoformat() if log.timestamp else None,
-                                "tool": log.tool,
-                                "action": log.action,
-                                "user": log.user,
-                                "params": json.loads(log.params_json) if log.params_json else None,
-                                "result": log.result,
-                                "error": log.error,
-                                "source": log.source,
-                            }
-                            for log in logs
-                        ],
-                        "count": len(logs),
-                    }
-                )
+            return error_response(
+                "审计日志 DB 查询已下线(数据层为 file 模式专用)", "internal"
+            )
         except Exception as e:
             logger.error("get_audit_log 失败: %s", e, exc_info=True)
             return error_response(f"查询审计日志失败: {e}")

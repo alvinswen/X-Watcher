@@ -26,14 +26,11 @@ def register(mcp: FastMCP) -> None:
         """当前系统健康状态和关键统计。"""
         try:
             from src.data_layer.provider import get_status_repo
-            from src.database.async_session import get_async_session_maker
 
-            session_maker = get_async_session_maker()
-            async with session_maker() as session:
-                repo = get_status_repo(session)
-                tweet_count = (await repo.get_tweet_stats()).total
-                follow_count = (await repo.get_follow_stats()).total
-                summary_count = (await repo.get_summary_stats()).total
+            repo = get_status_repo()
+            tweet_count = (await repo.get_tweet_stats()).total
+            follow_count = (await repo.get_follow_stats()).total
+            summary_count = (await repo.get_summary_stats()).total
 
             return json.dumps(
                 {
@@ -51,12 +48,11 @@ def register(mcp: FastMCP) -> None:
         """正在监控的 X 账号列表。"""
         try:
             from src.data_layer.provider import get_follows_repo
-            from src.database.async_session import get_async_session_maker
 
-            session_maker = get_async_session_maker()
-            async with session_maker() as session:
-                # 源无 is_active 过滤=返全部 → include_inactive=True
-                all_follows = await get_follows_repo(session).get_all_follows(include_inactive=True)
+            # 源无 is_active 过滤=返全部 → include_inactive=True
+            all_follows = await get_follows_repo().get_all_follows(
+                include_inactive=True
+            )
 
             # 保留源行为:按 username 升序(repo 默认 added_at DESC)
             all_follows = sorted(all_follows, key=lambda f: f.username)

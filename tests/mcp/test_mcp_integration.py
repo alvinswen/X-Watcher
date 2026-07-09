@@ -9,16 +9,16 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database.models import ScraperFollow
 from src.preference.domain.models import XUserProfile
 from src.preference.infrastructure.file_follow_repository import FileFollowStore
 from src.preference.infrastructure.file_profile_repository import FileProfileStore
-from src.scraper.infrastructure.models import TweetOrm
+from src.scraper.domain.models import Tweet
+from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
 from src.subjects.models import SubjectMatch
 from src.subjects.store import FileSubjectStore
-from src.summarization.infrastructure.models import SummaryOrm
+from src.summarization.domain.models import SummaryRecord
+from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
 
 # ── 辅助 ──────────────────────────────────────────────────────────
 
@@ -98,52 +98,51 @@ def tool_funcs():
 
 
 @pytest.fixture
-async def seed_tweets(async_session: AsyncSession):
-    """准备推文和摘要测试数据。"""
+async def seed_file_tweets(monkeypatch, tmp_path):
+    """准备文件层推文和摘要测试数据。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     base_time = datetime(2026, 2, 20, 10, 0, 0, tzinfo=UTC)
 
     tweets = [
-        TweetOrm(
+        Tweet(
             tweet_id="integ_t1",
             text="Integration test tweet about Bitcoin from alice",
             created_at=base_time,
-            db_created_at=base_time,
             author_username="alice",
             author_display_name="Alice",
             media=None,
         ),
-        TweetOrm(
+        Tweet(
             tweet_id="integ_t2",
             text="Another tweet about Ethereum from alice",
             created_at=base_time + timedelta(hours=2),
-            db_created_at=base_time + timedelta(hours=2),
             author_username="alice",
             author_display_name="Alice",
             media=None,
         ),
-        TweetOrm(
+        Tweet(
             tweet_id="integ_t3",
             text="Bob talks about AI and machine learning",
             created_at=base_time + timedelta(hours=3),
-            db_created_at=base_time + timedelta(hours=3),
             author_username="bob",
             author_display_name="Bob",
             media=None,
         ),
-        TweetOrm(
+        Tweet(
             tweet_id="integ_t4",
             text="Short tweet",
             created_at=base_time + timedelta(days=1),
-            db_created_at=base_time + timedelta(days=1),
             author_username="bob",
             author_display_name="Bob",
             media=None,
         ),
     ]
-    async_session.add_all(tweets)
+    await FileTweetStore(tmp_path).save_tweets(tweets, early_stop_threshold=0)
 
+    now = datetime.now(UTC)
     summaries = [
-        SummaryOrm(
+        SummaryRecord(
             summary_id="sum_integ_1",
             tweet_id="integ_t1",
             summary_text="关于比特币的集成测试推文",
@@ -157,8 +156,10 @@ async def seed_tweets(async_session: AsyncSession):
             cached=False,
             is_generated_summary=True,
             content_hash="hash_integ_1",
+            created_at=now,
+            updated_at=now,
         ),
-        SummaryOrm(
+        SummaryRecord(
             summary_id="sum_integ_2",
             tweet_id="integ_t3",
             summary_text="Bob 谈论 AI 和机器学习",
@@ -172,40 +173,13 @@ async def seed_tweets(async_session: AsyncSession):
             cached=False,
             is_generated_summary=True,
             content_hash="hash_integ_2",
+            created_at=now,
+            updated_at=now,
         ),
     ]
-    async_session.add_all(summaries)
-    await async_session.commit()
+    await FileSummaryStore(tmp_path).seed(summaries)
 
     return tweets
-
-
-@pytest.fixture
-async def seed_follows(async_session: AsyncSession):
-    """准备关注列表数据。"""
-    follows = [
-        ScraperFollow(
-            username="alice",
-            reason="KOL",
-            is_active=True,
-            added_by="test",
-        ),
-        ScraperFollow(
-            username="bob",
-            reason="Developer",
-            is_active=True,
-            added_by="test",
-        ),
-        ScraperFollow(
-            username="charlie",
-            reason="Analyst",
-            is_active=False,
-            added_by="test",
-        ),
-    ]
-    async_session.add_all(follows)
-    await async_session.commit()
-    return follows
 
 
 @pytest.fixture
@@ -226,33 +200,25 @@ async def seed_file_follows(monkeypatch, tmp_path):
 
 class TestGetFeedIntegration:
     @pytest.mark.asyncio
-    async def test_feed_returns_real_tweets(self, tool_funcs, test_session_factory, seed_tweets):
+    async def test_feed_returns_real_tweets(self, tool_funcs, seed_file_tweets):
         """测试 get_feed 从真实数据库查询推文。"""
-        with patch(
-            "src.database.async_session.get_async_session_maker",
-            return_value=test_session_factory,
-        ):
-            result = await tool_funcs["get_feed"](
-                since="2026-02-20T00:00:00Z",
-                until="2026-02-22T00:00:00Z",
-            )
+        result = await tool_funcs["get_feed"](
+            since="2026-02-20T00:00:00Z",
+            until="2026-02-22T00:00:00Z",
+        )
 
         data = json.loads(result)
         assert data["success"] is True
         assert data["data"]["total"] >= 3  # 至少有 3 条在这个范围内
 
     @pytest.mark.asyncio
-    async def test_feed_filter_by_author(self, tool_funcs, test_session_factory, seed_tweets):
+    async def test_feed_filter_by_author(self, tool_funcs, seed_file_tweets):
         """测试按作者过滤 feed。"""
-        with patch(
-            "src.database.async_session.get_async_session_maker",
-            return_value=test_session_factory,
-        ):
-            result = await tool_funcs["get_feed"](
-                since="2026-02-20T00:00:00Z",
-                until="2026-02-22T00:00:00Z",
-                author="alice",
-            )
+        result = await tool_funcs["get_feed"](
+            since="2026-02-20T00:00:00Z",
+            until="2026-02-22T00:00:00Z",
+            author="alice",
+        )
 
         data = json.loads(result)
         assert data["success"] is True
@@ -267,14 +233,10 @@ class TestGetFeedIntegration:
 class TestSearchTweetsIntegration:
     @pytest.mark.asyncio
     async def test_search_finds_matching_tweets(
-        self, tool_funcs, test_session_factory, seed_tweets
+        self, tool_funcs, seed_file_tweets
     ):
         """测试搜索能找到匹配的推文。"""
-        with patch(
-            "src.database.async_session.get_async_session_maker",
-            return_value=test_session_factory,
-        ):
-            result = await tool_funcs["search_tweets"](q="Bitcoin")
+        result = await tool_funcs["search_tweets"](q="Bitcoin")
 
         data = json.loads(result)
         assert data["success"] is True
@@ -282,13 +244,9 @@ class TestSearchTweetsIntegration:
         assert data["data"]["q"] == "Bitcoin"
 
     @pytest.mark.asyncio
-    async def test_search_no_results(self, tool_funcs, test_session_factory, seed_tweets):
+    async def test_search_no_results(self, tool_funcs, seed_file_tweets):
         """测试搜索无结果时的返回。"""
-        with patch(
-            "src.database.async_session.get_async_session_maker",
-            return_value=test_session_factory,
-        ):
-            result = await tool_funcs["search_tweets"](q="nonexistent_keyword_xyz")
+        result = await tool_funcs["search_tweets"](q="nonexistent_keyword_xyz")
 
         data = json.loads(result)
         assert data["success"] is True
@@ -444,14 +402,10 @@ class TestSubjectToolsIntegration:
 
 class TestBrowseIntegration:
     @pytest.mark.asyncio
-    async def test_daily_stats_with_real_data(self, tool_funcs, test_session_factory, seed_tweets):
+    async def test_daily_stats_with_real_data(self, tool_funcs, seed_file_tweets):
         """测试真实数据的每日统计。"""
-        with patch(
-            "src.database.async_session.get_async_session_maker",
-            return_value=test_session_factory,
-        ):
-            # 使用 tz_offset=0 (UTC) 简化测试
-            result = await tool_funcs["get_daily_stats"](year=2026, month=2, tz_offset=0)
+        # 使用 tz_offset=0 (UTC) 简化测试
+        result = await tool_funcs["get_daily_stats"](year=2026, month=2, tz_offset=0)
 
         data = json.loads(result)
         assert data["success"] is True
@@ -462,14 +416,10 @@ class TestBrowseIntegration:
 
     @pytest.mark.asyncio
     async def test_browse_tweets_with_real_data(
-        self, tool_funcs, test_session_factory, seed_tweets
+        self, tool_funcs, seed_file_tweets
     ):
         """测试真实数据的推文浏览。"""
-        with patch(
-            "src.database.async_session.get_async_session_maker",
-            return_value=test_session_factory,
-        ):
-            result = await tool_funcs["browse_tweets"](date="2026-02-20", tz_offset=0)
+        result = await tool_funcs["browse_tweets"](date="2026-02-20", tz_offset=0)
 
         data = json.loads(result)
         assert data["success"] is True
@@ -482,15 +432,9 @@ class TestBrowseIntegration:
 
 class TestAdminToolsIntegration:
     @pytest.mark.asyncio
-    async def test_manage_follows_list(self, tool_funcs, test_session_factory, seed_file_follows):
+    async def test_manage_follows_list(self, tool_funcs, seed_file_follows):
         """测试列出关注列表。"""
-        with (
-            patch(
-                "src.database.async_session.get_async_session_maker",
-                return_value=test_session_factory,
-            ),
-            patch("src.mcp.tools.admin_tools.require_admin", return_value=None),
-        ):
+        with patch("src.mcp.tools.admin_tools.require_admin", return_value=None):
             result = await tool_funcs["manage_follows"](action="list")
 
         data = json.loads(result)
@@ -503,16 +447,10 @@ class TestAdminToolsIntegration:
 
     @pytest.mark.asyncio
     async def test_manage_follows_list_include_inactive(
-        self, tool_funcs, test_session_factory, seed_file_follows
+        self, tool_funcs, seed_file_follows
     ):
         """测试列出关注列表（含非活跃）。"""
-        with (
-            patch(
-                "src.database.async_session.get_async_session_maker",
-                return_value=test_session_factory,
-            ),
-            patch("src.mcp.tools.admin_tools.require_admin", return_value=None),
-        ):
+        with patch("src.mcp.tools.admin_tools.require_admin", return_value=None):
             result = await tool_funcs["manage_follows"](action="list", include_inactive=True)
 
         data = json.loads(result)
@@ -543,18 +481,10 @@ class TestAdminToolsIntegration:
 class TestSystemStatusIntegration:
     @pytest.mark.asyncio
     async def test_status_with_real_data(
-        self, tool_funcs, test_session_factory, seed_tweets, seed_follows
+        self, tool_funcs, seed_file_tweets, seed_file_follows
     ):
         """测试系统状态返回真实数据统计。"""
-        with (
-            patch(
-                "src.database.async_session.get_async_session_maker",
-                return_value=test_session_factory,
-            ),
-            patch("src.config.get_settings") as mock_settings,
-        ):
-            mock_settings.return_value.database_url = "sqlite:///:memory:"
-            result = await tool_funcs["get_system_status"]()
+        result = await tool_funcs["get_system_status"]()
 
         data = json.loads(result)
         assert data["success"] is True
@@ -568,7 +498,7 @@ class TestSystemStatusIntegration:
 class TestFollowAccountsInfoIntegration:
     @pytest.mark.asyncio
     async def test_profiles_returns_cached_profile_fields(
-        self, tool_funcs, monkeypatch, tmp_path, test_session_factory
+        self, tool_funcs, monkeypatch, tmp_path
     ):
         """测试 profiles 类型返回档案字段（bio 映射 description、tweet_count 映射 statuses_count）。"""
         monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
@@ -588,13 +518,7 @@ class TestFollowAccountsInfoIntegration:
             ]
         )
 
-        with (
-            patch(
-                "src.database.async_session.get_async_session_maker",
-                return_value=test_session_factory,
-            ),
-            patch("src.mcp.tools.admin_tools.require_admin", return_value=None),
-        ):
+        with patch("src.mcp.tools.admin_tools.require_admin", return_value=None):
             result = await tool_funcs["get_follow_accounts_info"](info_type="profiles")
 
         data = json.loads(result)

@@ -73,11 +73,8 @@ async def resolve_user_list(usernames: str | None) -> list[str]:
     if usernames:
         return [u.strip() for u in usernames.split(",") if u.strip()]
 
-    from src.database.async_session import get_async_session_maker
     from src.data_layer.provider import get_follows_repo
 
-    session_maker = get_async_session_maker()
-    async with session_maker() as session:
-        repo = get_follows_repo(session)
-        follows = await repo.get_active_follows()
-        return [f.username for f in follows]
+    repo = get_follows_repo()
+    follows = await repo.get_active_follows()
+    return [f.username for f in follows]

@@ -89,7 +89,7 @@ def audit_log(
     source: str = "mcp",
     user: str | None = None,
 ) -> None:
-    """记录审计日志（文件 + 数据库双写）。
+    """记录审计日志。
 
     Args:
         tool: 工具/端点名称
@@ -118,68 +118,6 @@ def audit_log(
         audit_logger.info(msg)
     else:
         audit_logger.warning(msg)
-
-    # 在线程池中持久化到数据库（fire-and-forget，不阻塞事件循环）
-    import asyncio
-
-    try:
-        loop = asyncio.get_running_loop()
-        loop.run_in_executor(
-            None,
-            _persist_audit_log,
-            tool,
-            action,
-            user,
-            params,
-            result,
-            error,
-            source,
-            now,
-        )
-    except RuntimeError:
-        # 没有运行中的事件循环（同步调用场景），直接同步写入
-        _persist_audit_log(tool, action, user, params, result, error, source, now)
-
-
-def _persist_audit_log(
-    tool: str,
-    action: str,
-    user: str,
-    params: dict | None,
-    result: str,
-    error: str | None,
-    source: str,
-    timestamp: datetime,
-) -> None:
-    """将审计日志持久化到数据库（静默失败）。"""
-    from src.data_layer.provider import is_file_mode
-
-    if is_file_mode():
-        # file 模式:审计仅文件 logger(audit_log 主函数已写),不写 pg(owner 定 accept-no-persist)
-        return
-    try:
-        import json
-
-        from sqlalchemy.orm import Session as SyncSession
-
-        from src.database.models import AuditLog, get_engine
-
-        engine = get_engine()
-        with SyncSession(engine) as session:
-            entry = AuditLog(
-                timestamp=timestamp.replace(tzinfo=None),
-                tool=tool,
-                action=action,
-                user=user,
-                params_json=json.dumps(params, ensure_ascii=False, default=str) if params else None,
-                result=result,
-                error=error,
-                source=source,
-            )
-            session.add(entry)
-            session.commit()
-    except Exception as e:
-        audit_logger.debug(f"审计日志 DB 持久化失败（不影响功能）: {e}")
 
 
 def log_action_guard_config() -> None:
