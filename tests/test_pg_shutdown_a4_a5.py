@@ -5,9 +5,9 @@ owner 定 A4 = accept-no-persist(file 模式跳过 pg 写、守卫读侧返空;a
 默认 sqlalchemy 模式零行为变化。
 
 覆盖:
-1. A4 写 file 跳过:file 模式 _persist_task / _persist_audit_log / recover DB 段不碰 get_engine。
+1. A4 写 file 跳过:file 模式 _persist_task / recover DB 段不碰 get_engine。
 2. A4 读 file 返空:get_task_history 返 []、get_audit_log 返空结构,均不开 session。
-3. A4 audit 文件 logger 仍写:file 模式 audit_log 主函数 audit_logger 仍被调,仅 pg 写跳。
+3. A4 audit 文件 logger 仍写:file 模式 audit_log 主函数 audit_logger 仍被调。
 4. A5 init file 跳过 create_all。
 5. A5 _create_admin file 走文件层:建出 admin(get_user_by_email 查得 + is_admin)+ 返 raw_key;重复返 None。
 
@@ -95,54 +95,6 @@ def test_recover_stale_tasks_skips_db_segment_in_file_mode(monkeypatch):
     reg.clear_all()
 
 
-# ---------------------------------------------------------------------------
-# A4-1c. _persist_audit_log:file 模式早返,不碰 get_engine
-# ---------------------------------------------------------------------------
-def test_persist_audit_log_skips_in_file_mode(monkeypatch):
-    """file 模式:_persist_audit_log 早返,get_engine call_count==0(原 try/except 会吞抛,故计数)。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
-
-    import src.database.models as models_mod
-
-    calls = {"n": 0}
-    monkeypatch.setattr(
-        models_mod, "get_engine", lambda *a, **k: calls.__setitem__("n", calls["n"] + 1)
-    )
-
-    from datetime import datetime, timezone
-
-    from src.mcp.security import _persist_audit_log
-
-    _persist_audit_log(
-        "tool", "act", "user", None, "success", None, "mcp", datetime.now(timezone.utc)
-    )
-    assert calls["n"] == 0, "file 模式 _persist_audit_log 不应调用 get_engine(早返)"
-
-
-def test_persist_audit_log_calls_get_engine_in_sqlalchemy_mode(monkeypatch):
-    """sqlalchemy 模式:_persist_audit_log 进入原逻辑(get_engine 被调,翻红证未误守)。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
-
-    import src.database.models as models_mod
-
-    calls = {"n": 0}
-
-    def _spy(*a, **k):
-        calls["n"] += 1
-        raise RuntimeError("stop-after-spy")
-
-    monkeypatch.setattr(models_mod, "get_engine", _spy)
-
-    from datetime import datetime, timezone
-
-    from src.mcp.security import _persist_audit_log
-
-    _persist_audit_log(
-        "tool", "act", "user", None, "success", None, "mcp", datetime.now(timezone.utc)
-    )
-    assert calls["n"] == 1
-
-
 def test_get_audit_log_returns_empty_in_file_mode(monkeypatch):
     """file 模式:get_audit_log 返空结构(logs=[]/count=0),不开 session。"""
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
@@ -182,7 +134,7 @@ def test_get_audit_log_returns_empty_in_file_mode(monkeypatch):
 # A4-3. audit 文件 logger 仍写(file 模式只跳 pg 写,文件日志必须仍执行)
 # ---------------------------------------------------------------------------
 def test_audit_log_file_logger_still_writes_in_file_mode(monkeypatch):
-    """file 模式:audit_log 主函数 audit_logger.info 仍被调,仅 pg 写跳。"""
+    """file 模式:audit_log 主函数 audit_logger.info 仍被调。"""
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
 
     import src.mcp.security as sec_mod
@@ -197,7 +149,6 @@ def test_audit_log_file_logger_still_writes_in_file_mode(monkeypatch):
     # get_user_name 可能依赖 contextvar,patch 成稳定值
     monkeypatch.setattr(sec_mod, "get_user_name", lambda: "tester")
 
-    # _persist_audit_log 内部有 try/except 吞抛 → 必须计数断言 get_engine 未被调(不能用抛异常 spy)
     import src.database.models as models_mod
 
     engine_calls = {"n": 0}
@@ -210,7 +161,7 @@ def test_audit_log_file_logger_still_writes_in_file_mode(monkeypatch):
     sec_mod.audit_log("manage_follows", "add", params={"x": 1}, result="success")
 
     assert info_calls["n"] == 1, "file 模式 audit 文件 logger 仍应写一次"
-    assert engine_calls["n"] == 0, "file 模式 audit pg 写应被跳过(get_engine 未调)"
+    assert engine_calls["n"] == 0, "file 模式 audit 文件 logger 不应触发 get_engine"
 
 
 # ---------------------------------------------------------------------------

@@ -48,31 +48,27 @@ class XWatcherTokenVerifier(TokenVerifier):
         # 2. 查询数据库中的用户 API Key
         try:
             from src.data_layer.provider import get_user_repo
-            from src.database.async_session import get_async_session_maker
 
             key_hash = hashlib.sha256(token.encode()).hexdigest()
-            session_maker = get_async_session_maker()
-
-            async with session_maker() as session:
-                repo = get_user_repo(session)
-                key_result = await repo.get_active_key_by_hash(key_hash)
-                if key_result is not None:
-                    _key_info, user_id = key_result
-                    user = await repo.get_user_by_id(user_id)
-                    if user is not None:
-                        is_admin = bool(user.is_admin)
-                        user_name = user.name or "mcp_user"
-                        scopes = ["admin", "user", "subjects:write"] if is_admin else ["user"]
-                        logger.debug(
-                            "Token 验证通过: 数据库用户 %s (admin=%s)",
-                            user_name,
-                            is_admin,
-                        )
-                        return AccessToken(
-                            token=token,
-                            client_id=user_name,
-                            scopes=scopes,
-                        )
+            repo = get_user_repo()
+            key_result = await repo.get_active_key_by_hash(key_hash)
+            if key_result is not None:
+                _key_info, user_id = key_result
+                user = await repo.get_user_by_id(user_id)
+                if user is not None:
+                    is_admin = bool(user.is_admin)
+                    user_name = user.name or "mcp_user"
+                    scopes = ["admin", "user", "subjects:write"] if is_admin else ["user"]
+                    logger.debug(
+                        "Token 验证通过: 数据库用户 %s (admin=%s)",
+                        user_name,
+                        is_admin,
+                    )
+                    return AccessToken(
+                        token=token,
+                        client_id=user_name,
+                        scopes=scopes,
+                    )
         except Exception as e:
             logger.warning("Token 数据库验证失败: %s", e)
 

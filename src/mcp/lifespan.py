@@ -92,17 +92,4 @@ def init_database() -> None:
     Base.metadata.create_all(eng)
     logger.info("数据库表已创建/验证")
 
-    # 预热异步引擎：stdio 模式下必须在 redirect 前强制初始化异步引擎。
-    # 所有 MCP 工具通过 get_async_session_maker() 使用异步引擎，该引擎默认懒初始化。
-    # 若不预热，第一次工具调用时引擎才被创建，此时 echo=True 会添加 StreamHandler(stdout)，
-    # 而 _redirect 已经运行完毕，新 handler 无法被拦截，导致 MCP 协议被污染。
-    if _stdio_mode:
-        from src.database.async_session import get_async_engine
-
-        get_async_engine()  # 触发懒初始化，此时 SQLAlchemy 注册 stdout handler
-
-    # 引擎创建后（同步 + 异步），统一拦截所有 stdout handler 重定向到 stderr
-    if _stdio_mode:
-        _redirect_all_handlers_to_stderr()
-
     logger.info("MCP 数据库初始化完成")

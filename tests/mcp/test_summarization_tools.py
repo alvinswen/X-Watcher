@@ -34,14 +34,6 @@ def file_data_root(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
 
 
-def _mock_session_maker(mock_session):
-    """创建 mock session_maker。"""
-    sm = MagicMock()
-    sm.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-    sm.return_value.__aexit__ = AsyncMock(return_value=False)
-    return sm
-
-
 async def _seed_tweets(tweets: list[Tweet]) -> None:
     from src.summarization.infrastructure.file_summarization_read_repository import (
         FileSummarizationReadStore,
@@ -68,13 +60,7 @@ class TestGetUnsummarizedTweets:
             )
         ])
 
-        mock_session = AsyncMock()
-        mock_sm = _mock_session_maker(mock_session)
-
-        with (
-            patch("src.mcp.tools.summarization_tools.require_admin", return_value=None),
-            patch("src.database.async_session.get_async_session_maker", return_value=mock_sm),
-        ):
+        with patch("src.mcp.tools.summarization_tools.require_admin", return_value=None):
             result_json = await get_unsummarized(limit=10)
 
         result = json.loads(result_json)
@@ -90,16 +76,7 @@ class TestGetUnsummarizedTweets:
         """测试所有推文都有摘要时返回空列表。"""
         get_unsummarized = tool_funcs["get_unsummarized_tweets"]
 
-        mock_session = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.fetchall.return_value = []
-        mock_session.execute = AsyncMock(return_value=mock_result)
-        mock_sm = _mock_session_maker(mock_session)
-
-        with (
-            patch("src.mcp.tools.summarization_tools.require_admin", return_value=None),
-            patch("src.database.async_session.get_async_session_maker", return_value=mock_sm),
-        ):
+        with patch("src.mcp.tools.summarization_tools.require_admin", return_value=None):
             result_json = await get_unsummarized(limit=10)
 
         result = json.loads(result_json)
@@ -112,16 +89,7 @@ class TestGetUnsummarizedTweets:
         """测试 limit 被限制在 200 以内。"""
         get_unsummarized = tool_funcs["get_unsummarized_tweets"]
 
-        mock_session = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.fetchall.return_value = []
-        mock_session.execute = AsyncMock(return_value=mock_result)
-        mock_sm = _mock_session_maker(mock_session)
-
-        with (
-            patch("src.mcp.tools.summarization_tools.require_admin", return_value=None),
-            patch("src.database.async_session.get_async_session_maker", return_value=mock_sm),
-        ):
+        with patch("src.mcp.tools.summarization_tools.require_admin", return_value=None):
             result_json = await get_unsummarized(limit=999)
 
         # 验证 SQL 中使用了 clamped limit（通过成功执行即可，
@@ -147,13 +115,7 @@ class TestGetUnsummarizedTweets:
             )
         ])
 
-        mock_session = AsyncMock()
-        mock_sm = _mock_session_maker(mock_session)
-
-        with (
-            patch("src.mcp.tools.summarization_tools.require_admin", return_value=None),
-            patch("src.database.async_session.get_async_session_maker", return_value=mock_sm),
-        ):
+        with patch("src.mcp.tools.summarization_tools.require_admin", return_value=None):
             result_json = await get_unsummarized(limit=10)
 
         result = json.loads(result_json)
@@ -171,18 +133,9 @@ class TestSaveSummaries:
         """测试保存单条摘要(原生 list 形态——推荐入参)。"""
         save_summaries = tool_funcs["save_summaries"]
 
-        mock_session = AsyncMock()
-        mock_session.commit = AsyncMock()
-        # 验证门会批量回查原文；默认返回空 → 各项降级放行
-        _origin_result = MagicMock()
-        _origin_result.fetchall.return_value = []
-        mock_session.execute = AsyncMock(return_value=_origin_result)
-        mock_sm = _mock_session_maker(mock_session)
-
         mock_record = MagicMock()
         with (
             patch("src.mcp.tools.summarization_tools.require_admin", return_value=None),
-            patch("src.database.async_session.get_async_session_maker", return_value=mock_sm),
             patch(
                 "src.summarization.infrastructure.file_summary_repository.FileSummaryStore.save_summary_record",
                 new_callable=AsyncMock,
@@ -218,18 +171,9 @@ class TestSaveSummaries:
         """测试批量保存摘要。"""
         save_summaries = tool_funcs["save_summaries"]
 
-        mock_session = AsyncMock()
-        mock_session.commit = AsyncMock()
-        # 验证门会批量回查原文；默认返回空 → 各项降级放行
-        _origin_result = MagicMock()
-        _origin_result.fetchall.return_value = []
-        mock_session.execute = AsyncMock(return_value=_origin_result)
-        mock_sm = _mock_session_maker(mock_session)
-
         mock_record = MagicMock()
         with (
             patch("src.mcp.tools.summarization_tools.require_admin", return_value=None),
-            patch("src.database.async_session.get_async_session_maker", return_value=mock_sm),
             patch(
                 "src.summarization.infrastructure.file_summary_repository.FileSummaryStore.save_summary_record",
                 new_callable=AsyncMock,
@@ -255,18 +199,9 @@ class TestSaveSummaries:
         """测试 JSON 字符串形态仍兼容(为旧调用方保留的退路)。"""
         save_summaries = tool_funcs["save_summaries"]
 
-        mock_session = AsyncMock()
-        mock_session.commit = AsyncMock()
-        # 验证门会批量回查原文；默认返回空 → 各项降级放行
-        _origin_result = MagicMock()
-        _origin_result.fetchall.return_value = []
-        mock_session.execute = AsyncMock(return_value=_origin_result)
-        mock_sm = _mock_session_maker(mock_session)
-
         mock_record = MagicMock()
         with (
             patch("src.mcp.tools.summarization_tools.require_admin", return_value=None),
-            patch("src.database.async_session.get_async_session_maker", return_value=mock_sm),
             patch(
                 "src.summarization.infrastructure.file_summary_repository.FileSummaryStore.save_summary_record",
                 new_callable=AsyncMock,
@@ -298,18 +233,9 @@ class TestSaveSummaries:
         """测试缺少必填字段时记录失败但不中断批处理。"""
         save_summaries = tool_funcs["save_summaries"]
 
-        mock_session = AsyncMock()
-        mock_session.commit = AsyncMock()
-        # 验证门会批量回查原文；默认返回空 → 各项降级放行
-        _origin_result = MagicMock()
-        _origin_result.fetchall.return_value = []
-        mock_session.execute = AsyncMock(return_value=_origin_result)
-        mock_sm = _mock_session_maker(mock_session)
-
         mock_record = MagicMock()
         with (
             patch("src.mcp.tools.summarization_tools.require_admin", return_value=None),
-            patch("src.database.async_session.get_async_session_maker", return_value=mock_sm),
             patch(
                 "src.summarization.infrastructure.file_summary_repository.FileSummaryStore.save_summary_record",
                 new_callable=AsyncMock,
@@ -347,13 +273,8 @@ class TestSaveSummaries:
                 created_at=datetime(2026, 4, 1, 10, 0, tzinfo=timezone.utc),
             )
         ])
-        mock_session = AsyncMock()
-        mock_session.commit = AsyncMock()
-        mock_sm = _mock_session_maker(mock_session)
-
         with (
             patch("src.mcp.tools.summarization_tools.require_admin", return_value=None),
-            patch("src.database.async_session.get_async_session_maker", return_value=mock_sm),
             patch(
                 "src.summarization.infrastructure.file_summary_repository.FileSummaryStore.save_summary_record",
                 new_callable=AsyncMock,

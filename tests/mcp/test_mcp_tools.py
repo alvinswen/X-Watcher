@@ -26,14 +26,6 @@ def tool_funcs():
     return _get_tool_funcs()
 
 
-def _mock_session_maker(mock_session):
-    """创建 mock session_maker，使 async with session_maker() as session 工作。"""
-    sm = MagicMock()
-    sm.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-    sm.return_value.__aexit__ = AsyncMock(return_value=False)
-    return sm
-
-
 # ── get_feed 测试 ─────────────────────────────────────────────────
 
 
@@ -54,19 +46,10 @@ class TestGetFeed:
         mock_result.total = 1
         mock_result.has_more = False
 
-        mock_session = AsyncMock()
-        mock_sm = _mock_session_maker(mock_session)
-
-        with (
-            patch(
-                "src.database.async_session.get_async_session_maker",
-                return_value=mock_sm,
-            ),
-            patch(
-                "src.feed.services.feed_service.FeedService.get_feed",
-                new_callable=AsyncMock,
-                return_value=mock_result,
-            ),
+        with patch(
+            "src.feed.services.feed_service.FeedService.get_feed",
+            new_callable=AsyncMock,
+            return_value=mock_result,
         ):
             result = await tool_funcs["get_feed"](
                 since="2026-02-24T00:00:00Z",
@@ -96,19 +79,10 @@ class TestGetFeed:
         mock_result.total = 0
         mock_result.has_more = False
 
-        mock_session = AsyncMock()
-        mock_sm = _mock_session_maker(mock_session)
-
-        with (
-            patch(
-                "src.database.async_session.get_async_session_maker",
-                return_value=mock_sm,
-            ),
-            patch(
-                "src.feed.services.feed_service.FeedService.get_feed",
-                new_callable=AsyncMock,
-                return_value=mock_result,
-            ),
+        with patch(
+            "src.feed.services.feed_service.FeedService.get_feed",
+            new_callable=AsyncMock,
+            return_value=mock_result,
         ):
             result = await tool_funcs["get_feed"](
                 since="2026-02-24T00:00:00Z",
@@ -129,19 +103,10 @@ class TestSearchTweets:
         mock_result.items = [{"tweet_id": "456", "text": "test tweet"}]
         mock_result.total = 1
 
-        mock_session = AsyncMock()
-        mock_sm = _mock_session_maker(mock_session)
-
-        with (
-            patch(
-                "src.database.async_session.get_async_session_maker",
-                return_value=mock_sm,
-            ),
-            patch(
-                "src.search.services.search_service.SearchService.search_tweets",
-                new_callable=AsyncMock,
-                return_value=mock_result,
-            ),
+        with patch(
+            "src.search.services.search_service.SearchService.search_tweets",
+            new_callable=AsyncMock,
+            return_value=mock_result,
         ):
             result = await tool_funcs["search_tweets"](q="test")
 
@@ -179,19 +144,10 @@ class TestGetDailyStats:
             {"date": "2026-02-25", "count": 5},
         ]
 
-        mock_session = AsyncMock()
-        mock_sm = _mock_session_maker(mock_session)
-
-        with (
-            patch(
-                "src.database.async_session.get_async_session_maker",
-                return_value=mock_sm,
-            ),
-            patch(
-                "src.browse.services.browse_service.BrowseService.get_daily_stats",
-                new_callable=AsyncMock,
-                return_value=mock_stats,
-            ),
+        with patch(
+            "src.browse.services.browse_service.BrowseService.get_daily_stats",
+            new_callable=AsyncMock,
+            return_value=mock_stats,
         ):
             result = await tool_funcs["get_daily_stats"](year=2026, month=2)
 
@@ -225,19 +181,10 @@ class TestGetAuthorsForDate:
             }
         ]
 
-        mock_session = AsyncMock()
-        mock_sm = _mock_session_maker(mock_session)
-
-        with (
-            patch(
-                "src.database.async_session.get_async_session_maker",
-                return_value=mock_sm,
-            ),
-            patch(
-                "src.browse.services.browse_service.BrowseService.get_authors",
-                new_callable=AsyncMock,
-                return_value=mock_authors,
-            ),
+        with patch(
+            "src.browse.services.browse_service.BrowseService.get_authors",
+            new_callable=AsyncMock,
+            return_value=mock_authors,
         ):
             result = await tool_funcs["get_authors_for_date"](date="2026-02-24")
 
@@ -264,19 +211,10 @@ class TestBrowseTweets:
         mock_items = [{"tweet_id": "789", "text": "Hello"}]
         mock_total = 1
 
-        mock_session = AsyncMock()
-        mock_sm = _mock_session_maker(mock_session)
-
-        with (
-            patch(
-                "src.database.async_session.get_async_session_maker",
-                return_value=mock_sm,
-            ),
-            patch(
-                "src.browse.services.browse_service.BrowseService.get_tweets",
-                new_callable=AsyncMock,
-                return_value=(mock_items, mock_total),
-            ),
+        with patch(
+            "src.browse.services.browse_service.BrowseService.get_tweets",
+            new_callable=AsyncMock,
+            return_value=(mock_items, mock_total),
         ):
             result = await tool_funcs["browse_tweets"](date="2026-02-24")
 
@@ -298,35 +236,11 @@ class TestBrowseTweets:
 
 class TestGetSystemStatus:
     @pytest.mark.asyncio
-    async def test_success(self, tool_funcs):
+    async def test_success(self, tool_funcs, monkeypatch, tmp_path):
         """测试正常获取系统状态。"""
-        mock_session = AsyncMock()
-
-        # Mock execute 返回不同的 scalar/first 值
-        call_count = 0
-
-        async def mock_execute(stmt):
-            nonlocal call_count
-            call_count += 1
-            result = MagicMock()
-            result.scalar.return_value = 100
-            result.first.return_value = None
-            return result
-
-        mock_session.execute = mock_execute
-        mock_sm = _mock_session_maker(mock_session)
-
-        with (
-            patch(
-                "src.database.async_session.get_async_session_maker",
-                return_value=mock_sm,
-            ),
-            patch(
-                "src.config.get_settings",
-            ) as mock_settings,
-        ):
-            mock_settings.return_value.database_url = "sqlite:///./test.db"
-            result = await tool_funcs["get_system_status"]()
+        monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+        monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+        result = await tool_funcs["get_system_status"]()
 
         data = json.loads(result)
         assert data["success"] is True

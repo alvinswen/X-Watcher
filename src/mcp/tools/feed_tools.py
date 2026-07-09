@@ -60,31 +60,28 @@ def register(mcp: FastMCP) -> None:
         try:
             from src.config import get_settings
             from src.data_layer.provider import get_feed_repo
-            from src.database.async_session import get_async_session_maker
 
             # 钳制 limit 到配置上限，防止 OOM
             max_limit = get_settings().feed_max_tweets
             clamped_limit = min(max(limit, 1), max_limit)
 
-            session_maker = get_async_session_maker()
-            async with session_maker() as session:
-                result = await get_feed_repo(session).get_feed(
-                    since=since_dt,
-                    until=until_dt,
-                    limit=clamped_limit,
-                    include_summary=include_summary,
-                    author=author,
-                    authors=authors_list,
-                    keyword=keyword,
-                )
-                return success_response({
-                    "items": result.items,
-                    "count": result.count,
-                    "total": result.total,
-                    "has_more": result.has_more,
-                    "since": since_dt.isoformat(),
-                    "until": until_dt.isoformat(),
-                })
+            result = await get_feed_repo().get_feed(
+                since=since_dt,
+                until=until_dt,
+                limit=clamped_limit,
+                include_summary=include_summary,
+                author=author,
+                authors=authors_list,
+                keyword=keyword,
+            )
+            return success_response({
+                "items": result.items,
+                "count": result.count,
+                "total": result.total,
+                "has_more": result.has_more,
+                "since": since_dt.isoformat(),
+                "until": until_dt.isoformat(),
+            })
         except Exception as e:
             logger.error("get_feed 失败: %s", e, exc_info=True)
             return error_response(f"查询失败: {e}")
@@ -131,37 +128,34 @@ def register(mcp: FastMCP) -> None:
 
         try:
             from src.data_layer.provider import get_search_repo
-            from src.database.async_session import get_async_session_maker
 
             # 钳制 page_size 到合理范围
             clamped_page_size = min(max(page_size, 1), 100)
 
-            session_maker = get_async_session_maker()
-            async with session_maker() as session:
-                result = await get_search_repo(session).search_tweets(
-                    q=q.strip(),
-                    page=page,
-                    page_size=clamped_page_size,
-                    include_summary=include_summary,
-                    author=author,
-                    authors=authors_list,
-                    since=since_dt,
-                    until=until_dt,
-                )
-                total_pages = (
-                    (result.total + clamped_page_size - 1) // clamped_page_size
-                    if result.total > 0
-                    else 0
-                )
-                return success_response({
-                    "items": result.items,
-                    "total": result.total,
-                    "count": len(result.items),
-                    "page": page,
-                    "page_size": clamped_page_size,
-                    "total_pages": total_pages,
-                    "q": q.strip(),
-                })
+            result = await get_search_repo().search_tweets(
+                q=q.strip(),
+                page=page,
+                page_size=clamped_page_size,
+                include_summary=include_summary,
+                author=author,
+                authors=authors_list,
+                since=since_dt,
+                until=until_dt,
+            )
+            total_pages = (
+                (result.total + clamped_page_size - 1) // clamped_page_size
+                if result.total > 0
+                else 0
+            )
+            return success_response({
+                "items": result.items,
+                "total": result.total,
+                "count": len(result.items),
+                "page": page,
+                "page_size": clamped_page_size,
+                "total_pages": total_pages,
+                "q": q.strip(),
+            })
         except Exception as e:
             logger.error("search_tweets 失败: %s", e, exc_info=True)
             return error_response(f"搜索失败: {e}")

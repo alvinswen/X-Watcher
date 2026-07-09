@@ -37,22 +37,19 @@ def register(mcp: FastMCP) -> None:
 
         try:
             from src.data_layer.provider import get_browse_repo
-            from src.database.async_session import get_async_session_maker
 
-            session_maker = get_async_session_maker()
-            async with session_maker() as session:
-                stats = await get_browse_repo(session).get_daily_stats(
-                    year=year,
-                    month=month,
-                    tz_offset=tz_offset,
-                    min_text_length=min_text_length,
-                )
-                return success_response({
-                    "year": year,
-                    "month": month,
-                    "tz_offset": tz_offset,
-                    "daily_stats": stats,
-                })
+            stats = await get_browse_repo().get_daily_stats(
+                year=year,
+                month=month,
+                tz_offset=tz_offset,
+                min_text_length=min_text_length,
+            )
+            return success_response({
+                "year": year,
+                "month": month,
+                "tz_offset": tz_offset,
+                "daily_stats": stats,
+            })
         except Exception as e:
             logger.error("get_daily_stats 失败: %s", e, exc_info=True)
             return error_response(f"查询失败: {e}")
@@ -72,21 +69,18 @@ def register(mcp: FastMCP) -> None:
         """
         try:
             from src.data_layer.provider import get_browse_repo
-            from src.database.async_session import get_async_session_maker
 
-            session_maker = get_async_session_maker()
-            async with session_maker() as session:
-                authors = await get_browse_repo(session).get_authors(
-                    date=date,
-                    tz_offset=tz_offset,
-                    min_text_length=min_text_length,
-                )
-                return success_response({
-                    "date": date,
-                    "tz_offset": tz_offset,
-                    "authors": authors,
-                    "count": len(authors),
-                })
+            authors = await get_browse_repo().get_authors(
+                date=date,
+                tz_offset=tz_offset,
+                min_text_length=min_text_length,
+            )
+            return success_response({
+                "date": date,
+                "tz_offset": tz_offset,
+                "authors": authors,
+                "count": len(authors),
+            })
         except ValueError as e:
             return error_response(f"日期格式无效: {e}", "validation")
         except Exception as e:
@@ -122,31 +116,28 @@ def register(mcp: FastMCP) -> None:
 
         try:
             from src.data_layer.provider import get_browse_repo
-            from src.database.async_session import get_async_session_maker
 
-            session_maker = get_async_session_maker()
-            async with session_maker() as session:
-                items, total = await get_browse_repo(session).get_tweets(
-                    date=date,
-                    author=author,
-                    page=page,
-                    page_size=clamped_page_size,
-                    tz_offset=tz_offset,
-                    min_text_length=min_text_length,
-                )
-                total_pages = (
-                    (total + clamped_page_size - 1) // clamped_page_size if total > 0 else 0
-                )
-                return success_response({
-                    "items": items,
-                    "total": total,
-                    "count": len(items),
-                    "page": page,
-                    "page_size": clamped_page_size,
-                    "total_pages": total_pages,
-                    "date": date,
-                    "author": author,
-                })
+            items, total = await get_browse_repo().get_tweets(
+                date=date,
+                author=author,
+                page=page,
+                page_size=clamped_page_size,
+                tz_offset=tz_offset,
+                min_text_length=min_text_length,
+            )
+            total_pages = (
+                (total + clamped_page_size - 1) // clamped_page_size if total > 0 else 0
+            )
+            return success_response({
+                "items": items,
+                "total": total,
+                "count": len(items),
+                "page": page,
+                "page_size": clamped_page_size,
+                "total_pages": total_pages,
+                "date": date,
+                "author": author,
+            })
         except ValueError as e:
             return error_response(f"日期格式无效: {e}", "validation")
         except Exception as e:

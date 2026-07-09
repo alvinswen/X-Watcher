@@ -60,123 +60,116 @@ def register(mcp: FastMCP) -> None:
 
         try:
             from src.data_layer.provider import get_follows_repo
-            from src.database.async_session import get_async_session_maker
             from src.preference.services.scraper_config_service import (
                 ScraperConfigService,
             )
 
-            session_maker = get_async_session_maker()
+            repo = get_follows_repo()
+            service = ScraperConfigService(repo)
 
-            async with session_maker() as session:
-                repo = get_follows_repo(session)
-                service = ScraperConfigService(repo)
+            if action == "list":
+                follows = await service.get_all_follows(include_inactive=include_inactive)
+                return success_response(
+                    {
+                        "follows": [
+                            {
+                                "username": f.username,
+                                "reason": f.reason,
+                                "is_active": f.is_active,
+                                "added_at": f.added_at,
+                                "added_by": f.added_by,
+                                "manual_limit": f.manual_limit,
+                                "brief_intro": f.brief_intro,
+                                "backfill_status": f.backfill_status,
+                            }
+                            for f in follows
+                        ],
+                        "count": len(follows),
+                    }
+                )
 
-                if action == "list":
-                    follows = await service.get_all_follows(include_inactive=include_inactive)
-                    return success_response(
-                        {
-                            "follows": [
-                                {
-                                    "username": f.username,
-                                    "reason": f.reason,
-                                    "is_active": f.is_active,
-                                    "added_at": f.added_at,
-                                    "added_by": f.added_by,
-                                    "manual_limit": f.manual_limit,
-                                    "brief_intro": f.brief_intro,
-                                    "backfill_status": f.backfill_status,
-                                }
-                                for f in follows
-                            ],
-                            "count": len(follows),
-                        }
-                    )
+            elif action == "add":
+                if not username:
+                    return error_response("添加时 username 必填", "validation")
+                if not reason:
+                    return error_response("添加时 reason 必填", "validation")
+                follow = await service.add_scraper_follow(
+                    username=username, reason=reason, added_by="mcp_admin"
+                )
+                audit_log("manage_follows", "add", params={"username": username})
+                return success_response(
+                    {
+                        "action": "added",
+                        "username": follow.username,
+                    }
+                )
 
-                elif action == "add":
-                    if not username:
-                        return error_response("添加时 username 必填", "validation")
-                    if not reason:
-                        return error_response("添加时 reason 必填", "validation")
-                    follow = await service.add_scraper_follow(
-                        username=username, reason=reason, added_by="mcp_admin"
-                    )
-                    await session.commit()
-                    audit_log("manage_follows", "add", params={"username": username})
-                    return success_response(
-                        {
-                            "action": "added",
-                            "username": follow.username,
-                        }
-                    )
+            elif action == "update":
+                if not username:
+                    return error_response("更新时 username 必填", "validation")
+                # 记录变更前状态
+                old_follow = await repo.get_follow_by_username(username)
+                old_values = (
+                    {
+                        "reason": old_follow.reason,
+                        "is_active": old_follow.is_active,
+                        "manual_limit": old_follow.manual_limit,
+                        "brief_intro": old_follow.brief_intro,
+                    }
+                    if old_follow
+                    else None
+                )
 
-                elif action == "update":
-                    if not username:
-                        return error_response("更新时 username 必填", "validation")
-                    # 记录变更前状态
-                    old_follow = await repo.get_follow_by_username(username)
-                    old_values = (
-                        {
-                            "reason": old_follow.reason,
-                            "is_active": old_follow.is_active,
-                            "manual_limit": old_follow.manual_limit,
-                            "brief_intro": old_follow.brief_intro,
-                        }
-                        if old_follow
-                        else None
-                    )
-
-                    follow = await service.update_follow(
-                        username=username,
-                        reason=reason,
-                        is_active=is_active,
-                        manual_limit=manual_limit,
-                        brief_intro=brief_intro,
-                    )
-                    await session.commit()
-                    audit_log(
-                        "manage_follows",
-                        "update",
-                        params={
-                            "username": username,
-                            "old": old_values,
-                            "new": {
-                                "reason": reason,
-                                "is_active": is_active,
-                                "manual_limit": manual_limit,
-                                "brief_intro": brief_intro,
-                            },
+                follow = await service.update_follow(
+                    username=username,
+                    reason=reason,
+                    is_active=is_active,
+                    manual_limit=manual_limit,
+                    brief_intro=brief_intro,
+                )
+                audit_log(
+                    "manage_follows",
+                    "update",
+                    params={
+                        "username": username,
+                        "old": old_values,
+                        "new": {
+                            "reason": reason,
+                            "is_active": is_active,
+                            "manual_limit": manual_limit,
+                            "brief_intro": brief_intro,
                         },
-                    )
-                    return success_response(
-                        {
-                            "action": "updated",
-                            "username": follow.username,
-                        }
-                    )
+                    },
+                )
+                return success_response(
+                    {
+                        "action": "updated",
+                        "username": follow.username,
+                    }
+                )
 
-                elif action == "deactivate":
-                    if not username:
-                        return error_response("停用时 username 必填", "validation")
-                    # 记录变更前状态
-                    old_follow = await repo.get_follow_by_username(username)
-                    old_active = old_follow.is_active if old_follow else None
+            elif action == "deactivate":
+                if not username:
+                    return error_response("停用时 username 必填", "validation")
+                # 记录变更前状态
+                old_follow = await repo.get_follow_by_username(username)
+                old_active = old_follow.is_active if old_follow else None
 
-                    await service.deactivate_follow(username=username)
-                    await session.commit()
-                    audit_log(
-                        "manage_follows",
-                        "deactivate",
-                        params={
-                            "username": username,
-                            "old": {"is_active": old_active},
-                        },
-                    )
-                    return success_response(
-                        {
-                            "action": "deactivated",
-                            "username": username,
-                        }
-                    )
+                await service.deactivate_follow(username=username)
+                audit_log(
+                    "manage_follows",
+                    "deactivate",
+                    params={
+                        "username": username,
+                        "old": {"is_active": old_active},
+                    },
+                )
+                return success_response(
+                    {
+                        "action": "deactivated",
+                        "username": username,
+                    }
+                )
 
         except Exception as e:
             audit_log("manage_follows", action, result="failure", error=str(e))
@@ -375,17 +368,13 @@ def register(mcp: FastMCP) -> None:
                 get_profile_repo,
                 get_scraper_stats_repo,
             )
-            from src.database.async_session import get_async_session_maker
-
-            session_maker = get_async_session_maker()
 
             if info_type == "profiles":
                 # 档案走 profile 门面(file 模式忽略 session)。领域模型携 fetched_at
                 # (无 updated_at 列),沿用 router 既有约定以 fetched_at 充 updated_at 键;
                 # 保 username 升序(逐档案排序,复刻原 order_by(username))。
-                async with session_maker() as session:
-                    repo = get_profile_repo(session)
-                    domain_profiles = await repo.get_all_profiles()
+                repo = get_profile_repo()
+                domain_profiles = await repo.get_all_profiles()
                 domain_profiles = sorted(domain_profiles, key=lambda p: p.username)
                 profiles = [
                     {
@@ -409,16 +398,15 @@ def register(mcp: FastMCP) -> None:
             elif info_type == "stats":
                 # 活跃账号走 follows 门面;每账号总推文走 tweet 聚合门面
                 # tweet_time_range 的 count 槽(大小写不敏感 lower 键匹配)。
-                async with session_maker() as session:
-                    follows = await get_follows_repo(session).get_all_follows(
-                        include_inactive=False
-                    )
-                    usernames = [f.username for f in follows]
-                    ranges = (
-                        await get_scraper_stats_repo(session).tweet_time_range(usernames)
-                        if usernames
-                        else {}
-                    )
+                follows = await get_follows_repo().get_all_follows(
+                    include_inactive=False
+                )
+                usernames = [f.username for f in follows]
+                ranges = (
+                    await get_scraper_stats_repo().tweet_time_range(usernames)
+                    if usernames
+                    else {}
+                )
 
                 stats = [
                     {
@@ -434,16 +422,15 @@ def register(mcp: FastMCP) -> None:
 
             elif info_type == "tweet_time_range":
                 # 活跃账号 min/max/count 走 tweet 聚合门面(lower 键匹配)。
-                async with session_maker() as session:
-                    follows = await get_follows_repo(session).get_all_follows(
-                        include_inactive=False
-                    )
-                    usernames = [f.username for f in follows]
-                    rows = (
-                        await get_scraper_stats_repo(session).tweet_time_range(usernames)
-                        if usernames
-                        else {}
-                    )
+                follows = await get_follows_repo().get_all_follows(
+                    include_inactive=False
+                )
+                usernames = [f.username for f in follows]
+                rows = (
+                    await get_scraper_stats_repo().tweet_time_range(usernames)
+                    if usernames
+                    else {}
+                )
 
                 ranges = [
                     {
@@ -467,10 +454,9 @@ def register(mcp: FastMCP) -> None:
 
                 # 逐周期 count 走 tweet 聚合门面(12h × 14 周期)。门面正序(最早在前),
                 # 此处 reverse 成最近在前,复刻原 i=0 最新逐周期追加的 DESC 输出。
-                async with session_maker() as session:
-                    windows = await get_scraper_stats_repo(session).period_analysis(
-                        username, 12, 14
-                    )
+                windows = await get_scraper_stats_repo().period_analysis(
+                    username, 12, 14
+                )
 
                 periods_data = [
                     {
