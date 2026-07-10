@@ -4,7 +4,9 @@
 """
 
 import logging
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
@@ -16,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def mcp_lifespan(server: FastMCP):
+async def mcp_lifespan(server: FastMCP) -> AsyncIterator[None]:
     """MCP 服务生命周期管理。
 
     启动时初始化数据库，关闭时清理资源。
@@ -48,7 +50,7 @@ def create_mcp_server(
         port: HTTP 模式监听端口
         use_auth: 是否启用 per-request 认证（HTTP 模式）
     """
-    kwargs: dict = {
+    kwargs: dict[str, Any] = {
         "name": "x-watcher",
         "instructions": (
             "X-watcher 是面向 AI Agent 的 X(Twitter) 平台智能信息监控服务。"

@@ -15,6 +15,7 @@ import shutil
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from src.storage import paths
 from src.storage.atomic import shard_lock
@@ -147,7 +148,7 @@ class FileSubjectStore:
         subject = await self.get_subject(subject_id)
         if subject is None:
             return None
-        changes: dict = {}
+        changes: dict[str, Any] = {}
         if name is not None:
             changes["name"] = name.strip()
         if nl_description is not None:
@@ -221,7 +222,7 @@ class FileSubjectStore:
         return sorted(base.glob("*.jsonl"))
 
     async def upsert_matches(self, matches: Iterable[SubjectMatch]) -> list[SubjectMatch]:
-        grouped: dict[Path, list[dict]] = {}
+        grouped: dict[Path, list[dict[str, Any]]] = {}
         saved: list[SubjectMatch] = []
         for match in matches:
             if not match.relevant:
@@ -243,7 +244,7 @@ class FileSubjectStore:
         since: datetime | None = None,
         until: datetime | None = None,
     ) -> list[SubjectMatch]:
-        records: list[dict] = []
+        records: list[dict[str, Any]] = []
         for shard in self._match_shards(subject_id):
             records.extend(read_shard(shard))
         matches = [SubjectMatch(**record) for record in records]
@@ -411,7 +412,7 @@ class FileSubjectStore:
                 reviews.append(SubjectReview(**doc))
         return reviews
 
-    async def get_tweets_by_ids(self, tweet_ids: list[str]) -> tuple[list[dict], list[str]]:
+    async def get_tweets_by_ids(self, tweet_ids: list[str]) -> tuple[list[dict[str, Any]], list[str]]:
         from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
         from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
 
@@ -423,7 +424,7 @@ class FileSubjectStore:
             summary.tweet_id: summary
             for summary in await FileSummaryStore(self._root).get_all_summaries()
         }
-        items: list[dict] = []
+        items: list[dict[str, Any]] = []
         missing: list[str] = []
         for tweet_id in wanted:
             tweet = tweet_map.get(tweet_id)
@@ -513,7 +514,7 @@ class FileSubjectStore:
         until: datetime | None = None,
         limit: int = 200,
         time_axis: str = "ingest",
-    ) -> dict:
+    ) -> dict[str, Any]:
         if await self.get_subject(subject_id) is None:
             return {
                 "items": [],
@@ -547,9 +548,9 @@ class FileSubjectStore:
             "last_classified_at": latest_match_at.isoformat() if latest_match_at else None,
         }
 
-    async def get_updates(self, since_cursor: str | None = None, limit: int = 200) -> dict:
+    async def get_updates(self, since_cursor: str | None = None, limit: int = 200) -> dict[str, Any]:
         since = parse_dt(since_cursor) if since_cursor else utc_now() - timedelta(hours=24)
-        updates: list[dict] = []
+        updates: list[dict[str, Any]] = []
         active_subjects = await self.list_active_subjects()
         subject_names = {subject.subject_id: subject.name for subject in active_subjects}
         for subject in active_subjects:

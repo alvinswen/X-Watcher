@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -40,11 +41,11 @@ async def _to_response(subject: Subject) -> SubjectResponse:
     )
 
 
-def _digest_public(digest) -> dict:
-    return digest.model_dump(mode="json", exclude={"generated_by"})
+def _digest_public(digest: Any) -> dict[str, Any]:
+    return cast(dict[str, Any], digest.model_dump(mode="json", exclude={"generated_by"}))
 
 
-def _review_service():
+def _review_service() -> SubjectReviewService:
     return SubjectReviewService(get_subject_repo())
 
 
@@ -52,7 +53,7 @@ def _review_service():
 async def list_subjects(
     status_filter: str | None = Query(default=None, alias="status", pattern="^(active|paused)$"),
     _user: UserDomain = Depends(get_current_admin_user),
-):
+) -> list[SubjectResponse]:
     repo = get_subject_repo()
     subjects = await repo.list_subjects(status_filter)
     return [await _to_response(subject) for subject in subjects]
@@ -62,7 +63,7 @@ async def list_subjects(
 async def create_subject(
     request: SubjectCreateRequest,
     _user: UserDomain = Depends(get_current_admin_user),
-):
+) -> SubjectCreateResponse:
     repo = get_subject_repo()
     if await repo.active_count() >= 20:
         raise HTTPException(
@@ -82,7 +83,7 @@ async def create_subject(
 async def get_subject(
     subject_id: str,
     _user: UserDomain = Depends(get_current_admin_user),
-):
+) -> SubjectResponse:
     repo = get_subject_repo()
     subject = await repo.get_subject(subject_id)
     if subject is None:
@@ -95,7 +96,7 @@ async def update_subject(
     subject_id: str,
     request: SubjectUpdateRequest,
     _user: UserDomain = Depends(get_current_admin_user),
-):
+) -> SubjectResponse:
     repo = get_subject_repo()
     subject = await repo.get_subject(subject_id)
     if subject is None:
@@ -125,7 +126,7 @@ async def update_subject(
 async def delete_subject(
     subject_id: str,
     _user: UserDomain = Depends(get_current_admin_user),
-):
+) -> None:
     repo = get_subject_repo()
     subject = await repo.get_subject(subject_id)
     if subject is None:
@@ -137,7 +138,7 @@ async def delete_subject(
 
 
 @router.get("/{subject_id}/feed")
-async def get_subject_feed(
+async def get_subject_feed(  # type: ignore[no-untyped-def]  # 无 response_model，补返回标注会漂移，保持无标注
     subject_id: str,
     since: str | None = None,
     until: str | None = None,
@@ -160,7 +161,7 @@ async def get_subject_feed(
 
 
 @router.get("/{subject_id}/digests")
-async def get_subject_digests(
+async def get_subject_digests(  # type: ignore[no-untyped-def]  # 无 response_model，补返回标注会漂移，保持无标注
     subject_id: str,
     start: str | None = None,
     end: str | None = None,
@@ -187,7 +188,7 @@ async def get_subject_digests(
 async def get_subject_review(
     subject_id: str,
     _user: UserDomain = Depends(get_current_admin_user),
-):
+) -> dict[str, Any]:
     payload = await _review_service().get_review_payload(subject_id)
     if payload is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="议题不存在")
@@ -202,7 +203,7 @@ async def get_subject_review(
 async def refresh_subject_review(
     subject_id: str,
     _user: UserDomain = Depends(get_current_admin_user),
-):
+) -> SubjectReviewRefreshResponse:
     repo = get_subject_repo()
     if await repo.get_subject(subject_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="议题不存在")
@@ -217,5 +218,5 @@ async def refresh_subject_review(
 )
 async def refresh_all_subject_reviews(
     _user: UserDomain = Depends(get_current_admin_user),
-):
+) -> SubjectReviewRefreshResponse:
     return SubjectReviewRefreshResponse(task_id=None, message=REVIEW_MIGRATED_MESSAGE)
