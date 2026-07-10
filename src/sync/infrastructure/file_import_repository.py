@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from src.preference.infrastructure.file_follow_repository import FileFollowStore
 from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
@@ -18,7 +19,7 @@ from src.sync.domain.models import ConflictStrategy, ImportStats
 from src.sync.infrastructure.file_export_repository import FileExportStore
 
 
-def _to_naive(s):
+def _to_naive(s: Any) -> datetime | None:
     """ISO 串/datetime → naive UTC datetime(逐字对齐 oracle _iso_to_naive_dt:先 astimezone(utc) 再剥 tz)。None→None。"""
     if s is None:
         return None
@@ -28,7 +29,7 @@ def _to_naive(s):
     return dt
 
 
-def _naive_str(v):
+def _naive_str(v: Any) -> str | None:
     """aware ISO 串 → naive ISO 串(剥 tz);None→None。"""
     n = _to_naive(v)
     return n.isoformat() if n is not None else None
@@ -46,7 +47,7 @@ _DT_FIELDS = {
 }
 
 
-def _naive_item(item, kind):
+def _naive_item(item: Any, kind: Any) -> dict[str, Any]:
     """返回 item 副本:把该实体的 datetime 字段转 naive ISO 串(对齐 oracle/文件世界 naive 约定)。"""
     return {**item, **{f: _naive_str(item.get(f)) for f in _DT_FIELDS[kind] if f in item}}
 
@@ -61,33 +62,35 @@ class FileImportStore:
         self._articles = FileArticleStore(root)
 
     # ── seed(初态,委派 FileExportStore 同款,两侧 case 共用)──
-    async def seed_follows(self, follows):
+    async def seed_follows(self, follows: Any) -> None:
         await self._follows.seed(follows)
 
-    async def seed_tweets(self, tweets):
+    async def seed_tweets(self, tweets: Any) -> None:
         await self._tweets.save_tweets(tweets, early_stop_threshold=0)
 
-    async def seed_summaries(self, records):
+    async def seed_summaries(self, records: Any) -> None:
         await self._summaries.seed(records)
 
-    async def seed_articles(self, articles):
+    async def seed_articles(self, articles: Any) -> None:
         await self._articles.seed(articles)
 
     # ── export(read-back,委派 FileExportStore 新建实例:扫盘,索引/视图无关)──
-    async def export_follows(self):
+    async def export_follows(self) -> list[dict[str, Any]]:
         return await FileExportStore(self._root).export_follows()
 
-    async def export_tweets(self, since=None, until=None, authors=None):
+    async def export_tweets(
+        self, since: Any = None, until: Any = None, authors: Any = None
+    ) -> list[dict[str, Any]]:
         return await FileExportStore(self._root).export_tweets(since, until, authors)
 
-    async def export_summaries(self, tweet_ids=None):
+    async def export_summaries(self, tweet_ids: Any = None) -> list[dict[str, Any]]:
         return await FileExportStore(self._root).export_summaries(tweet_ids)
 
-    async def export_articles(self, tweet_ids=None):
+    async def export_articles(self, tweet_ids: Any = None) -> list[dict[str, Any]]:
         return await FileExportStore(self._root).export_articles(tweet_ids)
 
     # ── import(策略分支,逐字镜像 oracle ImportRepository 语义)──
-    async def import_follows(self, items, strategy) -> ImportStats:
+    async def import_follows(self, items: Any, strategy: Any) -> ImportStats:
         stats = ImportStats()
         for item in items:
             item = _naive_item(item, "follows")  # 存 naive 串(对齐 oracle/文件世界,避混存崩排序)
@@ -110,7 +113,7 @@ class FileImportStore:
                     stats.skipped += 1
         return stats
 
-    async def import_tweets(self, items, strategy) -> ImportStats:
+    async def import_tweets(self, items: Any, strategy: Any) -> ImportStats:
         stats = ImportStats()
         for item in items:
             item = _naive_item(item, "tweets")
@@ -126,7 +129,7 @@ class FileImportStore:
                 stats.updated += 1
         return stats
 
-    async def import_summaries(self, items, strategy) -> ImportStats:
+    async def import_summaries(self, items: Any, strategy: Any) -> ImportStats:
         stats = ImportStats()
         for item in items:
             item = _naive_item(item, "summaries")
@@ -142,7 +145,7 @@ class FileImportStore:
                 stats.updated += 1
         return stats
 
-    async def import_articles(self, items, strategy) -> ImportStats:
+    async def import_articles(self, items: Any, strategy: Any) -> ImportStats:
         stats = ImportStats()
         for item in items:
             item = _naive_item(item, "articles")

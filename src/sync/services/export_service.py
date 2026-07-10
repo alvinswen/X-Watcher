@@ -44,7 +44,7 @@ class ExportService:
         if categories is None:
             categories = list(SyncCategory)
 
-        data: dict = {}
+        data: dict[str, Any] = {}
         counts: dict[str, int] = {}
 
         if SyncCategory.config in categories:
@@ -69,10 +69,10 @@ class ExportService:
 
         return ExportPackage(metadata=metadata, data=data)
 
-    def _export_config(self) -> tuple[dict, dict[str, int]]:
+    def _export_config(self) -> tuple[dict[str, Any], dict[str, int]]:
         follows = self._repo.get_follows()
 
-        config_data: dict = {
+        config_data: dict[str, Any] = {
             "scraper_follows": follows,
         }
         counts = {"scraper_follows": len(follows)}
@@ -84,7 +84,7 @@ class ExportService:
         since: datetime | None,
         until: datetime | None,
         authors: list[str] | None,
-    ) -> tuple[dict, dict[str, int]]:
+    ) -> tuple[dict[str, Any], dict[str, int]]:
         tweets = self._repo.get_tweets(since=since, until=until, authors=authors)
         tweet_ids = [t["tweet_id"] for t in tweets] if tweets else None
 

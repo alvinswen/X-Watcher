@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from src.preference.infrastructure.file_follow_repository import FileFollowStore
 from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
@@ -28,24 +29,26 @@ class FileExportStore:
         self._articles = FileArticleStore(root)
 
     # ── seed(parity 播种,委派底层 store)──
-    async def seed_follows(self, follows):
+    async def seed_follows(self, follows: Any) -> None:
         await self._follows.seed(follows)
 
-    async def seed_tweets(self, tweets):
+    async def seed_tweets(self, tweets: Any) -> None:
         await self._tweets.save_tweets(tweets, early_stop_threshold=0)
 
-    async def seed_summaries(self, records):
+    async def seed_summaries(self, records: Any) -> None:
         await self._summaries.seed(records)
 
-    async def seed_articles(self, articles):
+    async def seed_articles(self, articles: Any) -> None:
         await self._articles.seed(articles)
 
     # ── export(序列化 dict)──
-    async def export_follows(self) -> list[dict]:
+    async def export_follows(self) -> list[dict[str, Any]]:
         follows = await self._follows.get_all_follows(include_inactive=True)
         return [S.follow_to_export_dict(f) for f in follows]
 
-    async def export_tweets(self, since=None, until=None, authors=None) -> list[dict]:
+    async def export_tweets(
+        self, since: Any = None, until: Any = None, authors: Any = None
+    ) -> list[dict[str, Any]]:
         tweets = await self._tweets.get_all_tweets()
         authors_set = set(authors) if authors else None
         out = []
@@ -60,14 +63,14 @@ class FileExportStore:
             out.append(S.tweet_to_export_dict(t))
         return out
 
-    async def export_summaries(self, tweet_ids=None) -> list[dict]:
+    async def export_summaries(self, tweet_ids: Any = None) -> list[dict[str, Any]]:
         summaries = await self._summaries.get_all_summaries()
         if tweet_ids is not None:
             wanted = set(tweet_ids)
             summaries = [s for s in summaries if s.tweet_id in wanted]
         return [S.summary_to_export_dict(s) for s in summaries]
 
-    async def export_articles(self, tweet_ids=None) -> list[dict]:
+    async def export_articles(self, tweet_ids: Any = None) -> list[dict[str, Any]]:
         articles = await self._articles.get_all_articles()
         if tweet_ids is not None:
             wanted = set(tweet_ids)

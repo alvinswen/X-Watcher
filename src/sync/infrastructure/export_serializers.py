@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any
 
 
 def _dt_to_iso(dt: datetime | None) -> str | None:
@@ -18,11 +19,11 @@ def _dt_to_iso(dt: datetime | None) -> str | None:
     return dt.isoformat()
 
 
-def _media_list(xs):
+def _media_list(xs: Any) -> list[dict[str, Any]] | None:
     return [m.model_dump(mode="json") for m in xs] if xs else None
 
 
-def follow_to_export_dict(f) -> dict:
+def follow_to_export_dict(f: Any) -> dict[str, Any]:
     return {
         "username": f.username,
         "added_at": _dt_to_iso(f.added_at),
@@ -37,7 +38,7 @@ def follow_to_export_dict(f) -> dict:
     }
 
 
-def tweet_to_export_dict(t) -> dict:
+def tweet_to_export_dict(t: Any) -> dict[str, Any]:
     return {
         "tweet_id": t.tweet_id,
         "text": t.text,
@@ -54,7 +55,7 @@ def tweet_to_export_dict(t) -> dict:
     }
 
 
-def summary_to_export_dict(s) -> dict:
+def summary_to_export_dict(s: Any) -> dict[str, Any]:
     return {
         "summary_id": s.summary_id,
         "tweet_id": s.tweet_id,
@@ -73,7 +74,7 @@ def summary_to_export_dict(s) -> dict:
     }
 
 
-def article_to_export_dict(a) -> dict:
+def article_to_export_dict(a: Any) -> dict[str, Any]:
     return {
         "tweet_id": a.tweet_id,
         "title": a.title,

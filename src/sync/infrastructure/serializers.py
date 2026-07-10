@@ -40,7 +40,7 @@ def _iso_to_naive_dt(s: str | None) -> datetime | None:
 # ── ScraperFollow ─────────────────────────────────────────────
 
 
-def follow_to_dict(orm) -> dict[str, Any]:
+def follow_to_dict(orm: Any) -> dict[str, Any]:
     return {
         "username": orm.username,
         "added_at": _dt_to_iso(orm.added_at),
@@ -75,7 +75,7 @@ def dict_to_follow(d: dict[str, Any]) -> dict[str, Any]:
 # ── TweetOrm ─────────────────────────────────────────────────
 
 
-def tweet_to_dict(orm) -> dict[str, Any]:
+def tweet_to_dict(orm: Any) -> dict[str, Any]:
     return {
         "tweet_id": orm.tweet_id,
         "text": orm.text,
@@ -112,7 +112,7 @@ def dict_to_tweet(d: dict[str, Any]) -> dict[str, Any]:
 # ── SummaryOrm ────────────────────────────────────────────────
 
 
-def summary_to_dict(orm) -> dict[str, Any]:
+def summary_to_dict(orm: Any) -> dict[str, Any]:
     return {
         "summary_id": orm.summary_id,
         "tweet_id": orm.tweet_id,
@@ -153,7 +153,7 @@ def dict_to_summary(d: dict[str, Any]) -> dict[str, Any]:
 # ── ArticleOrm ────────────────────────────────────────────────
 
 
-def article_to_dict(orm) -> dict[str, Any]:
+def article_to_dict(orm: Any) -> dict[str, Any]:
     return {
         "tweet_id": orm.tweet_id,
         "title": orm.title,
