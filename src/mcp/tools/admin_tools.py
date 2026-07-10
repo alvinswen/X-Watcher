@@ -22,7 +22,7 @@ def register(mcp: FastMCP) -> None:
     """注册 Admin 相关 MCP 工具。"""
 
     @mcp.tool()
-    async def manage_follows(
+    async def manage_follows(  # type: ignore[return]  # action 已校验为有限枚举，分支穷尽
         action: str,
         username: str | None = None,
         reason: str | None = None,
@@ -338,7 +338,7 @@ def register(mcp: FastMCP) -> None:
             return error_response(f"查询失败: {e}")
 
     @mcp.tool()
-    async def get_follow_accounts_info(
+    async def get_follow_accounts_info(  # type: ignore[return]  # info_type 已校验为有限枚举，分支穷尽
         info_type: str = "profiles",
         username: str | None = None,
     ) -> str:

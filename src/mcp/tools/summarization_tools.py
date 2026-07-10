@@ -9,6 +9,7 @@ import json
 import logging
 import uuid
 from datetime import datetime, timezone
+from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
@@ -68,7 +69,7 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool()
     async def save_summaries(
-        summaries: list | str,
+        summaries: list[Any] | str,
     ) -> str:
         """保存外部生成的摘要/翻译结果到数据库。需要管理员权限。
 
@@ -114,7 +115,7 @@ def register(mcp: FastMCP) -> None:
             saved = 0
             failed = 0
             errors = []
-            rejected: list[dict] = []  # 验证门拒绝项，供编排回灌重生成
+            rejected: list[dict[str, Any]] = []  # 验证门拒绝项，供编排回灌重生成
             now = datetime.now(timezone.utc)
 
             repo = get_summary_repo()

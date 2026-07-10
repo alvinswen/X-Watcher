@@ -7,6 +7,7 @@ Action Guard：通过环境变量控制每个工具允许的 action 列表，用
 import logging
 import os
 from datetime import datetime, timezone
+from typing import Any
 
 from src.mcp.auth import get_user_name
 from src.mcp.helpers import error_response
@@ -83,7 +84,7 @@ def audit_log(
     tool: str,
     action: str,
     *,
-    params: dict | None = None,
+    params: dict[str, Any] | None = None,
     result: str = "success",
     error: str | None = None,
     source: str = "mcp",

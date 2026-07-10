@@ -5,6 +5,7 @@
 
 import asyncio
 import logging
+from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
@@ -25,7 +26,7 @@ def register(mcp: FastMCP) -> None:
         try:
             from src.data_layer.provider import get_status_repo
 
-            async def _tweet_stats():
+            async def _tweet_stats() -> dict[str, Any]:
                 stats = await get_status_repo().get_tweet_stats()
                 return {
                     "total": stats.total,
@@ -33,7 +34,7 @@ def register(mcp: FastMCP) -> None:
                     "today_count": stats.today_count,
                 }
 
-            async def _follow_stats():
+            async def _follow_stats() -> dict[str, Any]:
                 stats = await get_status_repo().get_follow_stats()
                 return {
                     "total": stats.total,
@@ -41,7 +42,7 @@ def register(mcp: FastMCP) -> None:
                     "inactive": stats.inactive,
                 }
 
-            async def _summary_stats():
+            async def _summary_stats() -> dict[str, Any]:
                 stats = await get_status_repo().get_summary_stats()
                 return {
                     "total": stats.total,
