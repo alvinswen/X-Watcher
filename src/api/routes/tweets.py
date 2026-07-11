@@ -5,7 +5,7 @@
 
 import logging
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -40,8 +40,8 @@ class TweetListItem(UTCDatetimeModel):
 class TweetDetailResponse(TweetListItem):
     """推文详情响应模型。"""
 
-    media: list[dict] | None = Field(None, description="媒体附件")
-    summary: dict | None = Field(None, description="摘要信息")
+    media: list[dict[str, Any]] | None = Field(None, description="媒体附件")
+    summary: dict[str, Any] | None = Field(None, description="摘要信息")
 
 
 class TweetListResponse(BaseModel):

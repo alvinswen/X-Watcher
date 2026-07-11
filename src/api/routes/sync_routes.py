@@ -7,6 +7,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
@@ -116,12 +117,12 @@ def _parse_upload_file(content: bytes) -> ExportPackage:
 
 @router.post("/export")
 async def export_data(
-    request: dict | None = None,
+    request: dict[str, Any] | None = None,
     _admin: UserDomain = Depends(get_current_admin_user),
-):
+) -> StreamingResponse:
     """导出数据为 JSON 文件下载。"""
     params = request or {}
-    categories = None
+    categories: list[SyncCategory] | None = None
     if "categories" in params and params["categories"]:
         categories = []
         for c in params["categories"]:
@@ -134,7 +135,7 @@ async def export_data(
     authors = params.get("authors") or None
     instance_id = params.get("instance_id") or "web-export"
 
-    def _do_export():
+    def _do_export() -> ExportPackage:
         svc = ExportService()
         return svc.export(
             categories=categories,
@@ -163,7 +164,7 @@ async def export_data(
 
 
 @router.post("/import/preview")
-async def import_preview(
+async def import_preview(  # type: ignore[no-untyped-def]  # 无 response_model·补返回标注会被 FastAPI≥0.89 提升为响应 schema 致 OpenAPI 漂移(A3 repro E7 实证)·保持无标注
     file: UploadFile = File(...),
     categories: str | None = Form(None),
     strategy: str | None = Form(None),
@@ -175,7 +176,7 @@ async def import_preview(
     cats = _parse_categories_str(categories)
     conflict_strategy = _parse_strategy(strategy)
 
-    def _do_preview():
+    def _do_preview() -> Any:
         svc = ImportService()
         return svc.import_data(
             package=pkg,
@@ -207,7 +208,7 @@ async def import_preview(
 
 
 @router.post("/import/execute")
-async def import_execute(
+async def import_execute(  # type: ignore[no-untyped-def]  # 无 response_model·补返回标注会被 FastAPI≥0.89 提升为响应 schema 致 OpenAPI 漂移(A3 repro E7 实证)·保持无标注
     file: UploadFile = File(...),
     categories: str | None = Form(None),
     strategy: str | None = Form(None),
@@ -219,7 +220,7 @@ async def import_execute(
     cats = _parse_categories_str(categories)
     conflict_strategy = _parse_strategy(strategy)
 
-    def _do_import():
+    def _do_import() -> Any:
         svc = ImportService()
         return svc.import_data(
             package=pkg,

@@ -6,6 +6,7 @@
 import asyncio
 import os
 import time
+from typing import Any
 
 import httpx
 from fastapi import APIRouter, Depends
@@ -19,7 +20,7 @@ router = APIRouter(prefix="/api/admin/config", tags=["config"])
 @router.get("/validate")
 async def validate_config(
     _admin: UserDomain = Depends(get_current_admin_user),
-) -> dict:
+) -> dict[str, Any]:
     """验证当前配置的服务连通性。
 
     返回各服务的健康状态：
@@ -37,7 +38,7 @@ async def validate_config(
     }
 
 
-async def _check_twitter_api() -> dict:
+async def _check_twitter_api() -> dict[str, Any]:
     """检查 Twitter API 连通性。"""
     api_key = os.getenv("TWITTER_API_KEY", "")
     base_url = os.getenv("TWITTER_BASE_URL", "https://api.twitterapi.io/twitter")
@@ -63,7 +64,7 @@ async def _check_twitter_api() -> dict:
         return {"status": "unhealthy", "error": str(e)[:200]}
 
 
-async def _check_database() -> dict:
+async def _check_database() -> dict[str, Any]:
     """检查数据库连接。"""
     from src.data_layer.provider import data_root
 
