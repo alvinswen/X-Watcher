@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from src.feed.api.schemas import FeedResult
 from src.shared.like_match import ilike_contains
@@ -22,14 +23,14 @@ class FileFeedReadStore:
     def __init__(self, data_root: Path) -> None:
         self._root = Path(data_root)
 
-    async def _build_summary_map(self) -> dict:
+    async def _build_summary_map(self) -> dict[str, Any]:
         # ⚠️ 全量加载摘要(perf 弱点 deferred,见 spec §7;承 A1-2),建 {tweet_id: record} 复刻 LEFT JOIN
         from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
         recs = await FileSummaryStore(self._root).get_all_summaries()
         return {r.tweet_id: r for r in recs}
 
     @staticmethod
-    def _item(tw, rec) -> dict:
+    def _item(tw: Any, rec: Any) -> dict[str, Any]:
         return {
             "tweet_id": tw.tweet_id,
             "text": tw.text,
@@ -44,8 +45,8 @@ class FileFeedReadStore:
             "translation_text": rec.translation_text if rec else None,
         }
 
-    async def get_feed(self, since, until, limit, include_summary=True,
-                       author=None, authors=None, keyword=None) -> FeedResult:
+    async def get_feed(self, since: Any, until: Any, limit: Any, include_summary: Any = True,
+                       author: Any = None, authors: Any = None, keyword: Any = None) -> FeedResult:
         from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
         # 1. 窗口候选(by-day 视图,已 DESC),复用底座公共方法;大 limit 取窗口内全部
         window = await FileTweetStore(self._root).get_feed(since, until, limit=_NO_LIMIT)
@@ -61,7 +62,7 @@ class FileFeedReadStore:
         smap = await self._build_summary_map() if include_summary else {}
         # 4. keyword 过滤(复刻 ilike %kw%;include_summary 时 OR 搜 summary/translation)
         if keyword:
-            def _match(t):
+            def _match(t: Any) -> bool:
                 if ilike_contains(t.text, keyword):
                     return True
                 if include_summary:

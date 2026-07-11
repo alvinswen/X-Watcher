@@ -4,7 +4,7 @@
 """
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -151,7 +151,7 @@ class SummaryResultResponse(BaseModel):
         ..., description="各提供商使用次数"
     )
     processing_time_ms: int = Field(..., ge=0, description="处理耗时（毫秒）")
-    failed_tweets: list[dict] = Field(
+    failed_tweets: list[dict[str, Any]] = Field(
         default_factory=list, description="失败推文详情列表"
     )
 
@@ -200,7 +200,7 @@ class SummaryResetRequest(BaseModel):
 
     @field_validator("until")
     @classmethod
-    def validate_time_range(cls, v: datetime, info) -> datetime:
+    def validate_time_range(cls, v: datetime, info: Any) -> datetime:
         """校验 until 必须晚于 since。"""
         if info.data.get("since") and v <= info.data["since"]:
             raise ValueError("until 必须晚于 since")
@@ -241,13 +241,13 @@ class TaskStatusResponse(BaseModel):
     status: Literal["pending", "running", "completed", "failed"] = Field(
         ..., description="任务状态"
     )
-    result: dict | None = Field(None, description="任务结果（完成时）")
+    result: dict[str, Any] | None = Field(None, description="任务结果（完成时）")
     error: str | None = Field(None, description="错误信息（失败时）")
     created_at: datetime | None = Field(None, description="创建时间")
     started_at: datetime | None = Field(None, description="开始执行时间")
     completed_at: datetime | None = Field(None, description="完成时间")
-    progress: dict | None = Field(None, description="进度信息")
-    metadata: dict | None = Field(None, description="任务元数据")
+    progress: dict[str, Any] | None = Field(None, description="进度信息")
+    metadata: dict[str, Any] | None = Field(None, description="任务元数据")
     live_progress: ChunkProgressResponse | None = Field(
         None, description="实时分块进度（运行中时可用）"
     )

@@ -5,6 +5,7 @@
 
 from datetime import datetime
 from enum import Enum
+from typing import Any
 from pydantic import BaseModel, Field, field_validator
 
 from src.summarization.domain.language_utils import (
@@ -57,7 +58,7 @@ class LLMResponse(BaseModel):
 
     @field_validator("total_tokens")
     @classmethod
-    def validate_total_tokens(cls, v: int, info) -> int:
+    def validate_total_tokens(cls, v: int, info: Any) -> int:
         """验证总 token 数等于输入加输出。"""
         if "prompt_tokens" in info.data and "completion_tokens" in info.data:
             expected = info.data["prompt_tokens"] + info.data["completion_tokens"]
@@ -126,7 +127,7 @@ class SummaryResult(BaseModel):
         ..., description="各提供商使用次数"
     )
     processing_time_ms: int = Field(..., ge=0, description="处理耗时（毫秒）")
-    failed_tweets: list[dict] = Field(
+    failed_tweets: list[dict[str, Any]] = Field(
         default_factory=list, description="失败推文详情列表"
     )
 
