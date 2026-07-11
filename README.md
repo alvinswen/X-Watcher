@@ -1,245 +1,280 @@
-# X-watcher
+# X-Watcher
 
-面向 Agent 的 X 平台智能信息监控服务
+面向 AI Agent 的 X（Twitter）信息监控服务。X-Watcher 从 TwitterAPI.io 抓取关注账号的内容，以本地文件持久化，并通过 Web 界面、REST API 和 MCP Server 提供检索、浏览、摘要与议题分析能力。
 
-> **当前架构现状（2026-06）**：数据层默认 **file 模式**（`XWATCHER_DATA_LAYER=file`，数据落 `data_migrated/`）；推文翻译/摘要默认由 **Claude Code Opus 在主对话接管**（外部 LLM 自动摘要默认关闭）；已提供 **MCP Server**（在 x-watcher 目录启动 Claude Code 即可用）。原 PostgreSQL/Docker 生产模式已于 2026-06-24 下线——下方部分章节仍以 SQLite/PG 为例，按此现状理解。
+## 主要能力
 
-## Quick Start (Agent)
+- 管理关注账号，手动触发增量抓取或文章回填
+- 按时间、作者和关键词浏览及搜索推文
+- 维护推文中文翻译与摘要，支持 Agent 拉取待处理内容并回写结果
+- 创建议题（Subject），维护匹配结果、摘要、综述、反馈与评估
+- 通过 Web、REST API 或 MCP 接入同一份数据
+- 导入、导出配置和内容，便于实例间迁移
+- 提供健康检查、运行状态、审计日志和 Prometheus 指标
+
+## 当前架构
+
+项目默认且实际使用 `file` 数据层，数据目录为 `data_migrated/`（可用 `XWATCHER_DATA_ROOT` 修改）。推文、摘要、关注列表、用户及议题等数据均由文件存储，不需要 PostgreSQL 或 SQLite。
+
+摘要与翻译采用 Agent-in-the-loop 工作流：MCP 客户端先通过 `get_unsummarized_tweets` 获取待处理推文，再由 Agent 生成结果并调用 `save_summaries` 写回。本项目不再内置外部 LLM Provider 自动调用链。
+
+## 环境要求
+
+- Python 3.12 或 3.13
+- Node.js（仅开发或构建 Web 前端时需要）
+- [TwitterAPI.io](https://twitterapi.io/) API Key
+
+## 快速开始
 
 ```bash
+git clone https://github.com/alvinswen/X-Watcher.git
+cd X-Watcher
+
+python -m venv .venv
+source .venv/bin/activate
 pip install -e .
-x-watcher init --no-input \
-  --twitter-api-key=YOUR_TWITTER_API_KEY \
-  --llm-provider=deepseek \
-  --llm-api-key=YOUR_LLM_API_KEY
+
+x-watcher init --twitter-api-key YOUR_TWITTER_API_KEY
 x-watcher serve
 ```
 
-init 完成后会显示管理员 API Key（`sna_` 前缀），用于 API 认证。服务启动后访问 `http://localhost:8000/docs` 查看 API 文档。
+初始化命令会生成 `.env`、创建管理员账号与 API Key。自动生成的密码和 `sna_` 前缀 API Key 只会显示一次，请妥善保存。
 
-## Quick Start (人类开发者)
+启动后可访问：
+
+- Web/API 服务：<http://localhost:8000>
+- Swagger API 文档：<http://localhost:8000/docs>
+- 健康检查：<http://localhost:8000/health>
+- Prometheus 指标：<http://localhost:8000/metrics>
+
+非交互式初始化：
 
 ```bash
-git clone <repository-url> && cd x-watcher
-pip install -e ".[dev]"
-x-watcher init                  # 交互式引导（完成后会显示 API Key）
-x-watcher serve                 # 启动服务
+x-watcher init \
+  --no-input \
+  --twitter-api-key YOUR_TWITTER_API_KEY \
+  --admin-email admin@example.com \
+  --admin-password 'YOUR_STRONG_PASSWORD'
 ```
 
-init 完成后请记录输出中的 **API Key**（仅显示一次）。使用前端时在侧边栏底部点击"未配置 API Key"输入此 Key。
+## 配置
 
-## 支持的 LLM 提供商
-
-> 注：当前默认翻译/摘要路径是 **Claude Code Opus（主对话）**；下表的外部提供商仅用于**可选**的自动摘要（`AUTO_SUMMARIZATION_ENABLED`，本项目部署中默认关闭）。
-
-| Provider | Slug | Default Model | 备注 |
-|----------|------|---------------|------|
-| OpenRouter | `openrouter` | `anthropic/claude-sonnet-4.6` | 高质量，支持多模型 |
-| MiniMax | `minimax` | `MiniMax-M2.5` | 国内低成本 |
-| DeepSeek | `deepseek` | `deepseek-chat` | 国内高性价比 |
-| 智谱 AI | `zhipu` | `glm-5` | 国内免费额度 |
-| Moonshot (Kimi) | `moonshot` | `kimi-k2.5` | 国内 |
-| Custom | `custom` | (用户提供) | 任何 OpenAI 兼容 API |
-
-## 环境配置
+推荐先复制示例文件，或直接运行 `x-watcher init`：
 
 ```bash
-# .env（由 x-watcher init 自动生成）
-LLM_PROVIDERS=openrouter,deepseek        # 提供商优先级
-LLM_OPENROUTER_API_KEY=sk-or-xxx         # 各提供商 API Key
-LLM_DEEPSEEK_API_KEY=sk-xxx
-TWITTER_API_KEY=your_key                  # TwitterAPI.io Key
+cp .env.example .env
+```
+
+最小配置如下：
+
+```dotenv
+TWITTER_API_KEY=your_twitterapi_io_key
 TWITTER_BEARER_TOKEN=placeholder
+JWT_SECRET_KEY=至少_32_字符的随机密钥
+ADMIN_API_KEY=可选的管理员_API_Key
+
+XWATCHER_DATA_LAYER=file
+XWATCHER_DATA_ROOT=./data_migrated
 ```
 
-可选覆盖默认值：
+可用下面的命令生成 JWT 密钥：
+
 ```bash
-LLM_OPENROUTER_MODEL=anthropic/claude-sonnet-4.6
-LLM_DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
+python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
-### 自定义后端端口
+主要环境变量：
+
+| 变量 | 默认值 | 说明 |
+|---|---:|---|
+| `TWITTER_API_KEY` | 无 | TwitterAPI.io API Key，必填 |
+| `TWITTER_BEARER_TOKEN` | 无 | 兼容配置，`init` 会写入 `placeholder` |
+| `TWITTER_BASE_URL` | `https://api.twitterapi.io/twitter` | 数据源 API 地址 |
+| `XWATCHER_DATA_ROOT` | `data_migrated` | 文件数据根目录 |
+| `SCRAPER_ENABLED` | `true` | 是否启用抓取能力 |
+| `SCRAPER_USERNAMES` | 空 | 初始关注账号，逗号分隔 |
+| `SCRAPER_LIMIT` | `30` | 单次抓取数量 |
+| `SCRAPER_MIN_LIMIT` | `5` | 动态抓取下限 |
+| `SCRAPER_MAX_LIMIT` | `300` | 动态抓取上限 |
+| `SCRAPER_EARLY_STOP_THRESHOLD` | `5` | 连续遇到已有推文后的提前停止阈值，`0` 表示禁用 |
+| `SCRAPER_MAX_EXTRA_PAGES` | `3` | 增量抓取最多追加页数 |
+| `TASK_MAX_RUNNING_SECONDS` | `1800` | 抓取任务超时时间 |
+| `JWT_SECRET_KEY` | 不安全占位值 | 启动时要求非默认值且至少 32 字符 |
+| `JWT_EXPIRE_HOURS` | `24` | JWT 有效期（小时） |
+| `ADMIN_API_KEY` | 空 | 管理员 API Key |
+| `FEED_MAX_TWEETS` | `200` | Feed 单次最大返回数量 |
+| `PROMETHEUS_ENABLED` | `true` | 是否启用 Prometheus 指标 |
+| `LOG_LEVEL` | `INFO` | 日志等级 |
+| `LOG_FORMAT` | `text` | `text` 或 `json` |
+| `LOG_FILE` | `logs/x-watcher.log` | 日志文件路径，留空可禁用 |
+
+完整示例及 MCP 动作白名单配置见 [`.env.example`](.env.example)。
+
+## CLI
 
 ```bash
-x-watcher serve --port 8001              # 后端使用 8001
+x-watcher init [OPTIONS]          # 生成配置并创建管理员
+x-watcher validate                # 检查数据目录与 Twitter API
+x-watcher serve [OPTIONS]         # 启动 REST API 和已构建的 Web 前端
+x-watcher mcp [OPTIONS]           # 启动 MCP Server
+x-watcher export [OPTIONS]        # 导出配置、内容和议题数据
+x-watcher import-data FILE        # 导入数据，支持预览与冲突策略
+```
 
-# 前端开发时同步修改代理端口（在 src/web/ 目录下）
+常用示例：
+
+```bash
+x-watcher serve --host 127.0.0.1 --port 8000 --reload
+x-watcher export --categories config,content,topics --pretty
+x-watcher import-data backup.json --dry-run
+x-watcher import-data backup.json --strategy merge
+```
+
+## MCP Server
+
+本地 Agent 推荐使用 stdio：
+
+```bash
+x-watcher mcp
+```
+
+MCP 客户端配置示例：
+
+```json
+{
+  "mcpServers": {
+    "x-watcher": {
+      "command": "/absolute/path/to/.venv/bin/x-watcher",
+      "args": ["mcp"],
+      "cwd": "/absolute/path/to/X-Watcher"
+    }
+  }
+}
+```
+
+远程访问可使用 SSE；该模式启用逐请求 Bearer Token 认证：
+
+```bash
+x-watcher mcp --transport sse --host 0.0.0.0 --port 8001
+```
+
+MCP 提供 Feed、搜索、按日期浏览、状态查询、关注管理、抓取任务、摘要读写，以及完整的 Subject 工作流。内置资源包括 `xwatcher://status`、`xwatcher://follows`、`xwatcher://config` 和工作流配方。
+
+## REST API
+
+API 支持 JWT 和 API Key 认证。登录获取 JWT：
+
+```bash
+curl -X POST http://localhost:8000/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@x-watcher.local","password":"YOUR_PASSWORD"}'
+```
+
+使用初始化时生成的 API Key：
+
+```bash
+curl http://localhost:8000/api/feed \
+  -H 'X-API-Key: sna_YOUR_API_KEY'
+```
+
+主要 API 分组：
+
+| 路径 | 用途 |
+|---|---|
+| `/api/feed` | 增量信息流 |
+| `/api/tweets` | 推文列表与详情 |
+| `/api/search` | 关键词搜索 |
+| `/api/browse` | 日期、作者与推文浏览 |
+| `/api/summaries` | 查询待摘要内容 |
+| `/api/admin/scrape` | 抓取任务管理 |
+| `/api/admin/scraping` | 关注账号与抓取配置管理 |
+| `/api/admin/subjects` | 议题、Digest、Review、反馈与评估 |
+| `/api/admin/sync` | 数据导入导出 |
+| `/api/status` | 系统状态与审计日志 |
+| `/api/auth`、`/api/users` | 登录、用户与 API Key 管理 |
+
+具体请求参数和响应模型以运行中的 Swagger 文档为准。
+
+## Web 前端
+
+开发模式需要分别启动后端和 Vite：
+
+```bash
+# 终端 1：项目根目录
+x-watcher serve --reload
+
+# 终端 2
+cd src/web
+npm ci
+npm run dev
+```
+
+如后端不使用默认的 `8000` 端口：
+
+```bash
 VITE_BACKEND_PORT=8001 npm run dev
 ```
 
-### 完整环境变量参考
-
-| 变量 | 必填 | 默认值 | 说明 |
-|------|------|--------|------|
-| `LLM_PROVIDERS` | 否* | `""` | 提供商优先级列表（逗号分隔） |
-| `LLM_<SLUG>_API_KEY` | 是* | - | 各提供商 API Key |
-| `LLM_<SLUG>_MODEL` | 否 | 预设默认值 | 覆盖默认模型 |
-| `LLM_<SLUG>_BASE_URL` | 否 | 预设默认值 | 覆盖默认 API 地址 |
-| `TWITTER_API_KEY` | 是 | - | TwitterAPI.io API Key |
-| `TWITTER_BEARER_TOKEN` | 是 | - | Twitter Bearer Token |
-| `DATABASE_URL` | 否 | `sqlite:///./news_agent.db` | 数据库连接 |
-| `JWT_SECRET_KEY` | 否 | auto-generated | JWT 签名密钥 |
-| `SCRAPER_ENABLED` | 否 | `true` | 启用定时抓取 |
-| `SCRAPER_INTERVAL` | 否 | `43200` | 抓取间隔（秒） |
-| `AUTO_SUMMARIZATION_ENABLED` | 否 | `true` | 抓取后自动摘要 |
-| `LOG_LEVEL` | 否 | `INFO` | 日志级别 |
-
-*至少配置一个 LLM 提供商
-
-## CLI 命令
+生产构建：
 
 ```bash
-x-watcher init [OPTIONS]     # 初始化项目（生成 .env、创建数据库、创建管理员）
-x-watcher validate           # 验证配置和服务连通性
-x-watcher serve [OPTIONS]    # 启动 API 服务
+cd src/web
+npm ci
+npm run build
 ```
 
-### init 选项
+构建产物位于 `src/web/dist/`；存在该目录时，FastAPI 会自动托管 SPA。
 
-| 选项 | 说明 |
-|------|------|
-| `--twitter-api-key` | TwitterAPI.io API Key |
-| `--llm-provider` | LLM 提供商 (openrouter/deepseek/minimax/zhipu/moonshot) |
-| `--llm-api-key` | LLM API Key |
-| `--admin-email` | 管理员邮箱（默认 admin@x-watcher.local） |
-| `--admin-password` | 管理员密码（默认自动生成） |
-| `--no-input` | 非交互模式 |
-| `--skip-db` | 跳过数据库初始化 |
-| `--skip-validate` | 跳过验证 |
-
-## Agent 工作流示例
+## 开发与测试
 
 ```bash
-# 1. 登录获取 JWT Token
-TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"admin@x-watcher.local","password":"YOUR_PASSWORD"}' | jq -r .access_token)
+pip install -e '.[dev]'
+pytest
+pytest --cov=src --cov-report=html
+ruff check src tests
+black --check src tests
+mypy src
 
-# 2. 添加关注账号
-curl -X POST http://localhost:8000/api/follows/batch \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"usernames":["elonmusk","OpenAI","nvidia"]}'
-
-# 3. 手动触发抓取
-TASK_ID=$(curl -s -X POST http://localhost:8000/api/admin/scrape \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"usernames":"elonmusk,OpenAI","limit":20}' | jq -r .task_id)
-
-# 4. 查询抓取状态
-curl http://localhost:8000/api/admin/scrape/$TASK_ID \
-  -H "Authorization: Bearer $TOKEN"
-
-# 5. 获取 Feed（增量拉取）
-curl "http://localhost:8000/api/feed?since=2025-01-01T00:00:00Z" \
-  -H "Authorization: Bearer $TOKEN"
-
-# 6. 搜索推文
-curl "http://localhost:8000/api/search/tweets?q=AI&limit=10" \
-  -H "Authorization: Bearer $TOKEN"
-
-# 7. 系统状态概览
-curl http://localhost:8000/api/status/overview \
-  -H "Authorization: Bearer $TOKEN"
-
-# 8. 验证配置健康度
-curl http://localhost:8000/api/admin/config/validate \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-## 技术栈
-
-| 层级 | 技术 |
-|------|------|
-| **Web 框架** | FastAPI + Uvicorn |
-| **前端** | Vue 3 + Element Plus + TypeScript |
-| **LLM** | 通用 OpenAI 兼容协议（支持 6+ 提供商） |
-| **数据层** | 默认 file 文件层（`data_migrated/`）；可选 SQLite（PostgreSQL 生产模式已于 2026-06-24 下线） |
-| **ORM** | SQLAlchemy 2.0 + Alembic |
-| **任务调度** | APScheduler |
-| **CLI** | Click |
-| **测试** | pytest + pytest-asyncio（550+ 测试） |
-| **代码质量** | Ruff + Black + mypy |
-| **监控** | Prometheus |
-| **数据源** | TwitterAPI.io |
-| **认证** | JWT + bcrypt |
-
-## 功能模块
-
-| 模块 | 说明 |
-|------|------|
-| **推文抓取** | 从 X 平台抓取关注人物推文，支持定时和手动触发 |
-| **AI 摘要** | 使用多提供商生成中文摘要和翻译，智能降级 |
-| **关注列表** | 动态管理 Twitter 关注列表 |
-| **Feed** | 增量信息流 API |
-| **用户管理** | 用户注册、JWT 认证、管理员权限 |
-| **主题聚合** | 多账号推文聚合分析，生成主题报告 |
-| **推文搜索** | 多字段关键词搜索（正文、摘要、翻译） |
-| **推文浏览** | 按日期和作者维度浏览推文 |
-| **系统监控** | Prometheus 指标 + 系统状态概览 API |
-
-## API 端点
-
-访问 `http://localhost:8000/docs` 查看完整 Swagger 文档。
-
-详细 API 使用指南：[docs/api-guide.md](docs/api-guide.md)
-
-### 核心端点
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/auth/login` | 用户登录 |
-| GET | `/api/feed` | 增量 Feed |
-| POST | `/api/admin/scrape` | 触发抓取 |
-| POST | `/api/summaries/batch` | 批量摘要 |
-| GET | `/api/search/tweets` | 推文搜索 |
-| GET | `/api/status/overview` | 系统状态 |
-| GET | `/api/admin/config/validate` | 配置验证 |
-| GET | `/health` | 健康检查 |
-
-## 测试
-
-```bash
-pytest                                      # 运行所有测试
-pytest tests/summarization/ -q              # 运行摘要模块测试
-pytest --cov=src --cov-report=html          # 覆盖率报告
-```
-
-## 代码质量
-
-```bash
-black src/ tests/        # 格式化
-ruff check src/ tests/   # Lint
-ruff check --fix src/    # 自动修复
+cd src/web
+npm ci
+npm test
+npm run build
 ```
 
 ## 项目结构
 
-```
-x-watcher/
+```text
+X-Watcher/
 ├── src/
-│   ├── api/routes/          # API 路由
-│   ├── cli/                 # CLI 命令（init/validate/serve）
-│   ├── scraper/             # 推文抓取模块
-│   ├── summarization/       # AI 摘要模块
-│   │   └── llm/             # LLM 集成（通用 OpenAI 兼容 + 预设）
-│   ├── preference/          # 关注列表管理
-│   ├── feed/                # Feed API
-│   ├── topic/               # 主题聚合
-│   ├── search/              # 推文搜索
-│   ├── browse/              # 推文浏览
-│   ├── user/                # 用户管理
-│   ├── monitoring/          # Prometheus 监控
-│   ├── database/            # 数据库层
-│   ├── web/                 # 前端 SPA
-│   ├── config.py            # 配置管理
-│   └── main.py              # FastAPI 入口
-├── tests/                   # 550+ 测试
-├── scripts/                 # 工具脚本
-├── docs/                    # 文档
-└── pyproject.toml           # 项目配置
+│   ├── api/              # 管理、状态、推文与同步 API
+│   ├── browse/           # 按日期和作者浏览
+│   ├── cli/              # CLI 命令
+│   ├── data_layer/       # 文件数据层入口
+│   ├── feed/             # 增量 Feed
+│   ├── mcp/              # MCP Server、工具与资源
+│   ├── preference/       # 关注账号与抓取配置
+│   ├── scraper/          # TwitterAPI.io 抓取与任务管理
+│   ├── search/           # 推文搜索
+│   ├── storage/          # JSONL、索引和原子写入基础设施
+│   ├── subjects/         # 议题匹配、Digest、Review、反馈与评估
+│   ├── summarization/    # 摘要读写及校验
+│   ├── sync/             # 数据导入导出
+│   ├── user/             # 用户、JWT 与 API Key
+│   ├── web/              # Vue 3 前端
+│   └── main.py           # FastAPI 应用入口
+├── tests/
+├── scripts/
+├── .env.example
+└── pyproject.toml
 ```
+
+## 技术栈
+
+- FastAPI、Uvicorn、Pydantic
+- MCP Python SDK
+- 本地 JSON/JSONL 文件存储
+- Vue 3、TypeScript、Element Plus、Pinia、ECharts、Vite
+- pytest、Vitest、Ruff、Black、mypy
 
 ## 许可证
 
