@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 _NO_LIMIT = 10**12  # FileTweetStore.get_feed 无 unlimited 参;大 limit 取窗口内全部(复用 feed 范式)
 
@@ -21,14 +22,14 @@ class FileBrowseReadStore:
     def __init__(self, data_root: Path) -> None:
         self._root = Path(data_root)
 
-    async def _build_summary_map(self) -> dict:
+    async def _build_summary_map(self) -> dict[str, Any]:
         # ⚠️ 全量加载摘要(perf 弱点,deferred 优化),建 {tweet_id: record} 复刻 LEFT JOIN
         from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
         recs = await FileSummaryStore(self._root).get_all_summaries()
         return {r.tweet_id: r for r in recs}
 
     @staticmethod
-    def _item(tw, rec) -> dict:
+    def _item(tw: Any, rec: Any) -> dict[str, Any]:
         return {
             "tweet_id": tw.tweet_id, "created_at": tw.created_at,   # aware +00:00,匹配生产 pg
             "author_username": tw.author_username, "author_display_name": tw.author_display_name,
@@ -48,7 +49,7 @@ class FileBrowseReadStore:
             ),
         }
 
-    async def get_tweets(self, date, author, page, page_size, tz_offset=0, min_text_length=None):
+    async def get_tweets(self, date: Any, author: Any, page: Any, page_size: Any, tz_offset: Any = 0, min_text_length: Any = None) -> tuple[list[dict[str, Any]], int]:
         from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
         local_date = datetime.strptime(date, "%Y-%m-%d").date()
         tweets = await FileTweetStore(self._root).get_by_day(
@@ -64,7 +65,7 @@ class FileBrowseReadStore:
         items = [self._item(t, smap.get(t.tweet_id)) for t in page_tweets]
         return items, total
 
-    async def get_author_timeline(self, author, since_utc, until_utc, page, page_size, min_text_length=None):
+    async def get_author_timeline(self, author: Any, since_utc: Any, until_utc: Any, page: Any, page_size: Any, min_text_length: Any = None) -> tuple[dict[str, Any], list[dict[str, Any]], int]:
         from src.data_layer.provider import get_follows_repo
         from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
         page_obj = await FileTweetStore(self._root).get_by_author_range(
@@ -80,7 +81,7 @@ class FileBrowseReadStore:
         author_meta = {"author_username": author, "author_display_name": display_name, "reason": reason}
         return author_meta, items, page_obj.total
 
-    async def get_daily_stats(self, year, month, tz_offset=0, min_text_length=None):
+    async def get_daily_stats(self, year: Any, month: Any, tz_offset: Any = 0, min_text_length: Any = None) -> list[dict[str, Any]]:
         """按用户本地时区分组的每日推文数量。复刻 BrowseService.get_daily_stats:
         月窗 UTC 算术 + get_feed 窗口读 + 按本地日分组计数(date cast=截断,无 round 陷阱)。"""
         from collections import Counter
@@ -94,7 +95,7 @@ class FileBrowseReadStore:
 
         feed = await FileTweetStore(self._root).get_feed(utc_start, utc_end, limit=_NO_LIMIT)
         min_len = min_text_length or 0
-        counter: Counter = Counter()
+        counter: Counter[str] = Counter()
         for tw in feed.items:
             if len(tw.text or "") < min_len:
                 continue
@@ -104,7 +105,7 @@ class FileBrowseReadStore:
             counter[local_date.isoformat()] += 1
         return [{"date": d, "count": counter[d]} for d in sorted(counter)]
 
-    async def get_authors(self, date, tz_offset=0, min_text_length=None):
+    async def get_authors(self, date: Any, tz_offset: Any = 0, min_text_length: Any = None) -> list[dict[str, Any]]:
         """指定本地日有推文的作者列表(count+max+display_name+reason),按 max DESC。
         复刻 BrowseService.get_authors:精确 author_username 分组 + 大小写不敏感最新 display_name
         + 精确 username reason 匹配(active follow)。COUNT/MAX 无除法,无 round 陷阱。"""
@@ -116,8 +117,8 @@ class FileBrowseReadStore:
         tweets = await FileTweetStore(self._root).get_by_day(
             local_date, tz_offset, min_text_length=min_text_length or 0, limit=None
         )
-        groups: dict = {}             # 精确 username -> {"count", "max"}
-        latest_by_lower: dict = {}    # lower(username) -> (max_created, display_name)
+        groups: dict[str, Any] = {}             # 精确 username -> {"count", "max"}
+        latest_by_lower: dict[str, Any] = {}    # lower(username) -> (max_created, display_name)
         for tw in tweets:
             g = groups.get(tw.author_username)
             if g is None:

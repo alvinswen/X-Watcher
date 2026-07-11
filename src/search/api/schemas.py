@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -23,8 +24,8 @@ class SearchTweetItem(UTCDatetimeModel):
     referenced_tweet_author_username: str | None = Field(
         None, description="被引用推文作者"
     )
-    media: list[dict] | None = Field(None, description="媒体附件")
-    referenced_tweet_media: list[dict] | None = Field(
+    media: list[dict[str, Any]] | None = Field(None, description="媒体附件")
+    referenced_tweet_media: list[dict[str, Any]] | None = Field(
         None, description="被引用推文媒体附件"
     )
     summary_text: str | None = Field(None, description="中文摘要")
@@ -47,5 +48,5 @@ class SearchResponse(BaseModel):
 class SearchResult:
     """Service 层内部结果数据类。"""
 
-    items: list[dict]
+    items: list[dict[str, Any]]
     total: int

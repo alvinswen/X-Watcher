@@ -4,6 +4,7 @@
 """
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -58,8 +59,8 @@ class BrowseTweetItem(UTCDatetimeModel):
     referenced_tweet_author_username: str | None = Field(
         None, description="引用推文作者用户名"
     )
-    media: list[dict] | None = Field(None, description="媒体附件")
-    referenced_tweet_media: list[dict] | None = Field(
+    media: list[dict[str, Any]] | None = Field(None, description="媒体附件")
+    referenced_tweet_media: list[dict[str, Any]] | None = Field(
         None, description="引用推文媒体附件"
     )
 

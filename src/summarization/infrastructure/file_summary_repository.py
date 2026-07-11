@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from src.summarization.domain.models import CostStats, SummaryRecord
 from src.summarization.infrastructure.summary_store import NotFoundError, RepositoryError
@@ -35,14 +36,14 @@ class FileSummaryStore:
     def __init__(self, data_root: Path) -> None:
         self._path = Path(data_root) / "summaries" / "summaries.json"
 
-    def _load(self) -> dict:
+    def _load(self) -> dict[str, Any]:
         doc = read_doc(self._path)
         if doc is None:
             return {"summaries": {}}
         return doc
 
     @staticmethod
-    def _to_domain(rec: dict) -> SummaryRecord:
+    def _to_domain(rec: dict[str, Any]) -> SummaryRecord:
         return SummaryRecord(**rec)
 
     # —— 测试种子(非契约方法):按列表顺序写入,控制插入序 ——
@@ -131,7 +132,7 @@ class FileSummaryStore:
     async def summary_exists(self, summary_id: str) -> bool:
         return summary_id in self._load()["summaries"]
 
-    async def upsert_summary(self, fields: dict) -> None:
+    async def upsert_summary(self, fields: dict[str, Any]) -> None:
         """按 summary_id 插入或全字段覆盖(import 写底座;fields=导出格式 14 字段)。
         updated_at 不在导出面→取 created_at(确定性,read-back 不投影)。"""
         async with shard_lock(self._path):

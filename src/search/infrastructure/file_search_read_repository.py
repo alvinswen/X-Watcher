@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from datetime import timezone
 from pathlib import Path
+from typing import Any
 
 from src.search.api.schemas import SearchResult
 from src.shared.like_match import ilike_contains
@@ -23,12 +24,12 @@ class FileSearchReadStore:
     def __init__(self, data_root: Path) -> None:
         self._root = Path(data_root)
 
-    async def _build_summary_map(self) -> dict:
+    async def _build_summary_map(self) -> dict[str, Any]:
         from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
         recs = await FileSummaryStore(self._root).get_all_summaries()
         return {r.tweet_id: r for r in recs}
 
-    async def _candidates(self, since, until):
+    async def _candidates(self, since: Any, until: Any) -> list[Any]:
         from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
         store = FileTweetStore(self._root)
         if since is not None:
@@ -42,7 +43,7 @@ class FileSearchReadStore:
         return tweets
 
     @staticmethod
-    def _item(tw, rec) -> dict:
+    def _item(tw: Any, rec: Any) -> dict[str, Any]:
         return {
             "tweet_id": tw.tweet_id,
             "text": tw.text,
@@ -63,8 +64,8 @@ class FileSearchReadStore:
             "translation_text": rec.translation_text if rec else None,
         }
 
-    async def search_tweets(self, q, page=1, page_size=20, include_summary=True,
-                            author=None, authors=None, since=None, until=None) -> SearchResult:
+    async def search_tweets(self, q: Any, page: Any = 1, page_size: Any = 20, include_summary: Any = True,
+                            author: Any = None, authors: Any = None, since: Any = None, until: Any = None) -> SearchResult:
         keywords = q.split()
         tweets = await self._candidates(since, until)
         # author/authors 过滤(互斥,author 优先,镜像 oracle)
@@ -78,7 +79,7 @@ class FileSearchReadStore:
         smap = await self._build_summary_map() if include_summary else {}
         # 多词 AND:每词命中 text/ref(+summary/translation if include_summary)至少一字段
         if keywords:
-            def _match_kw(t, kw):
+            def _match_kw(t: Any, kw: Any) -> bool:
                 if ilike_contains(t.text, kw) or ilike_contains(t.referenced_tweet_text, kw):
                     return True
                 if include_summary:
