@@ -16,8 +16,12 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from src.storage import paths
+
+if TYPE_CHECKING:
+    from src.api.status_schemas import FollowStats, SummaryStats, TweetStats
 
 # 注:status 统计模型已抽到 src/api/status_schemas.py(无 main 依赖),file 门面从那 import
 # 断 status→main→status 循环(冷 import/MCP/CLI 上下文安全);仍方法内延迟 import(承 lazy 纪律)。
@@ -25,7 +29,7 @@ class FileStatusReadStore:
     def __init__(self, data_root: Path) -> None:
         self._root = Path(data_root)
 
-    async def get_tweet_stats(self):
+    async def get_tweet_stats(self) -> TweetStats:
         from src.api.status_schemas import TweetStats
         from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
 
@@ -47,7 +51,7 @@ class FileStatusReadStore:
             today_count=today_count,
         )
 
-    async def get_follow_stats(self):
+    async def get_follow_stats(self) -> FollowStats:
         from src.api.status_schemas import FollowStats
         from src.data_layer.provider import get_follows_repo
 
@@ -57,7 +61,7 @@ class FileStatusReadStore:
         active = sum(1 for f in follows if f.is_active)
         return FollowStats(total=total, active=active, inactive=total - active)
 
-    async def get_summary_stats(self):
+    async def get_summary_stats(self) -> SummaryStats:
         from src.api.status_schemas import SummaryStats
         from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
         from src.summarization.infrastructure.file_summary_repository import FileSummaryStore

@@ -6,6 +6,7 @@
 import asyncio
 import logging
 from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -68,13 +69,13 @@ async def get_status_overview(
     """获取系统状态概览。"""
     from src.data_layer.provider import get_status_repo
 
-    async def _tweets():
+    async def _tweets() -> Any:
         return await get_status_repo().get_tweet_stats()
 
-    async def _follows():
+    async def _follows() -> Any:
         return await get_status_repo().get_follow_stats()
 
-    async def _summaries():
+    async def _summaries() -> Any:
         return await get_status_repo().get_summary_stats()
 
     tweets, follows, summaries = await asyncio.gather(
@@ -122,7 +123,7 @@ async def get_twitter_balance(
     )
 
 
-def get_server_start_time():
+def get_server_start_time() -> datetime | None:
     """惰性委派 src.main，避免 status↔main 模块级循环（python -m src.main 双载触发）；
     保留为本模块级属性，以兼容测试对 src.api.routes.status.get_server_start_time 的 patch。"""
     from src.main import get_server_start_time as _impl

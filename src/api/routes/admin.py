@@ -6,7 +6,7 @@
 import asyncio
 import logging
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
@@ -106,7 +106,7 @@ class ScrapeResponse:
         self.task_id = task_id
         self.status = task_status
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """转换为字典。"""
         return {
             "task_id": self.task_id,
@@ -134,13 +134,13 @@ class TaskStatusResponse:
         task_id: str,
         task_status: Literal["pending", "running", "completed", "failed"],
         task_name: str = "",
-        result: dict | None = None,
+        result: dict[str, Any] | None = None,
         error: str | None = None,
         created_at: datetime | None = None,
         started_at: datetime | None = None,
         completed_at: datetime | None = None,
-        progress: dict | None = None,
-        metadata: dict | None = None,
+        progress: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ):
         """初始化任务状态响应。
 
@@ -167,7 +167,7 @@ class TaskStatusResponse:
         self.progress = progress or {"current": 0, "total": 0, "percentage": 0.0}
         self.metadata = metadata or {}
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """转换为字典。"""
         return {
             "task_id": self.task_id,
@@ -277,7 +277,7 @@ async def _run_backfill_all_async(task_id: str, max_tweets: int) -> None:
     try:
         follows = await get_active_follows_async()
         total = len(follows)
-        details: list[dict] = []
+        details: list[dict[str, Any]] = []
         summary = {"total_checked": 0, "total_found": 0, "total_skipped": 0, "total_errors": 0}
 
         for i, follow in enumerate(follows):
@@ -329,9 +329,9 @@ async def _run_backfill_all_async(task_id: str, max_tweets: int) -> None:
 
 @router.post("/scrape", status_code=status.HTTP_202_ACCEPTED)
 async def start_scraping(
-    request: dict,
+    request: dict[str, Any],
     _admin: UserDomain = Depends(get_current_admin_user),
-) -> dict:
+) -> dict[str, Any]:
     """启动手动抓取任务。
 
     接收用户名列表和抓取限制，创建异步抓取任务并立即返回任务 ID。
@@ -414,7 +414,7 @@ async def start_scraping(
 async def get_scraping_status(
     task_id: str,
     _admin: UserDomain = Depends(get_current_admin_user),
-) -> dict:
+) -> dict[str, Any]:
     """查询抓取任务状态。
 
     返回任务的当前状态、进度和结果（如果已完成）。
@@ -457,7 +457,7 @@ async def get_scraping_status(
 async def list_scraping_tasks(
     status: Literal["pending", "running", "completed", "failed"] | None = None,
     _admin: UserDomain = Depends(get_current_admin_user),
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """列出所有抓取任务。
 
     Args:
@@ -495,7 +495,7 @@ async def list_scraping_tasks(
 async def delete_scraping_task(
     task_id: str,
     _admin: UserDomain = Depends(get_current_admin_user),
-) -> dict:
+) -> dict[str, Any]:
     """删除抓取任务。
 
     删除已完成的任务记录。正在运行的任务不能被删除。
@@ -547,9 +547,9 @@ async def delete_scraping_task(
 
 @router.post("/articles/backfill", response_model=None)
 async def backfill_articles(
-    request: dict,
+    request: dict[str, Any],
     _admin: UserDomain = Depends(get_current_admin_user),
-):
+) -> JSONResponse | dict[str, Any]:
     """回溯 X Articles。
 
     支持两种模式：
