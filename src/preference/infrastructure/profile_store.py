@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from src.preference.domain.models import XUserProfile
 
@@ -14,7 +14,7 @@ class RepositoryError(Exception):
 @runtime_checkable
 class ProfileStore(Protocol):
     async def upsert_profiles(self, profiles: list[XUserProfile],
-                              raw_data_map: dict[str, dict] | None = None) -> int: ...
+                              raw_data_map: dict[str, dict[str, Any]] | None = None) -> int: ...
     async def get_profile_by_user_id(self, platform_user_id: str) -> XUserProfile | None: ...
     async def get_profiles_by_user_ids(self, user_ids: list[str]) -> list[XUserProfile]: ...
     async def get_all_profiles(self) -> list[XUserProfile]: ...

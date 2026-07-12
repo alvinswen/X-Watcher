@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from src.preference.domain.models import XUserProfile
 from src.preference.infrastructure.profile_store import RepositoryError
@@ -30,14 +31,14 @@ class FileProfileStore:
     def __init__(self, data_root: Path) -> None:
         self._path = Path(data_root) / "profiles" / "profiles.json"
 
-    def _load(self) -> dict:
+    def _load(self) -> dict[str, Any]:
         doc = read_doc(self._path)
         if doc is None:
             return {"profiles": {}}
         return doc
 
     @staticmethod
-    def _to_domain(rec: dict) -> XUserProfile:
+    def _to_domain(rec: dict[str, Any]) -> XUserProfile:
         return XUserProfile(**rec)
 
     # —— 测试种子(非契约方法):按列表顺序写入,控制插入序 ——
@@ -47,7 +48,7 @@ class FileProfileStore:
             atomic_write_doc(self._path, {"profiles": recs})
 
     async def upsert_profiles(self, profiles: list[XUserProfile],
-                              raw_data_map: dict[str, dict] | None = None) -> int:
+                              raw_data_map: dict[str, dict[str, Any]] | None = None) -> int:
         # raw_data_map 接受但不持久化(契约下不可观测,见 spec §1 OUT)
         async with shard_lock(self._path):
             doc = self._load()
@@ -80,7 +81,7 @@ class FileProfileStore:
 
     async def get_all_profiles(self) -> list[XUserProfile]:
         items = [self._to_domain(r) for r in self._load()["profiles"].values()]
-        items.sort(key=lambda p: p.fetched_at, reverse=True)   # fetched_at DESC
+        items.sort(key=lambda p: p.fetched_at, reverse=True)  # type: ignore[arg-type,return-value]  # fetched_at DESC
         return items
 
     async def get_profiles_by_usernames(self, usernames: list[str]) -> list[XUserProfile]:

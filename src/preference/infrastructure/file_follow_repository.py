@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from src.preference.domain.models import ScraperFollow
 from src.preference.infrastructure.follow_store import (
@@ -35,14 +36,14 @@ class FileFollowStore:
     def __init__(self, data_root: Path) -> None:
         self._path = Path(data_root) / "follows" / "follows.json"
 
-    def _load(self) -> dict:
+    def _load(self) -> dict[str, Any]:
         doc = read_doc(self._path)
         if doc is None:
             return {"seq": 0, "follows": {}}
         return doc
 
     @staticmethod
-    def _to_domain(rec: dict) -> ScraperFollow:
+    def _to_domain(rec: dict[str, Any]) -> ScraperFollow:
         return ScraperFollow(**rec)
 
     # —— 测试种子(非契约方法):写入显式字段行,控制 id/added_at/状态 ——
@@ -181,7 +182,7 @@ class FileFollowStore:
             return False
         return bool(rec["is_active"]) if active_only else True
 
-    async def upsert_follow(self, fields: dict) -> None:
+    async def upsert_follow(self, fields: dict[str, Any]) -> None:
         """按 username 插入或全字段覆盖(import 写底座;fields=导出格式 10 字段,无 id)。
         存在→保留原 id 覆盖其余;不存在→分配 seq+1。datetime 串保持导出格式,read-back 归一化。"""
         async with shard_lock(self._path):

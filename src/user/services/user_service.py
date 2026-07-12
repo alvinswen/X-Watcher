@@ -46,7 +46,8 @@ class UserService:
         await self._repo.deactivate_key(key_id)
 
     async def list_api_keys(self, user_id: int) -> list[ApiKeyInfo]:
-        return await self._repo.get_keys_by_user(user_id)
+        keys: list[ApiKeyInfo] = await self._repo.get_keys_by_user(user_id)
+        return keys
 
     async def change_password(self, user_id: int, old_password: str, new_password: str) -> None:
         """修改密码。旧密码错误抛出 ValueError。"""
@@ -89,12 +90,15 @@ class UserService:
                 if admin_count <= 1:
                     raise ValueError("不能将最后一个管理员降级为普通用户")
 
-        return await self._repo.update_user(
+        updated: UserDomain = await self._repo.update_user(
             user_id, name=name, email=email, is_admin=is_admin
         )
+        return updated
 
     async def get_user(self, user_id: int) -> UserDomain | None:
-        return await self._repo.get_user_by_id(user_id)
+        user: UserDomain | None = await self._repo.get_user_by_id(user_id)
+        return user
 
     async def list_users(self) -> list[UserDomain]:
-        return await self._repo.get_all_users()
+        users: list[UserDomain] = await self._repo.get_all_users()
+        return users

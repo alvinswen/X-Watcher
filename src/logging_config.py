@@ -168,7 +168,7 @@ class WindowsSafeRotatingFileHandler(RotatingFileHandler):
     带重试 + copy-truncate 兜底的 Windows 安全版本。
     """
 
-    def _safe_remove(self, path):
+    def _safe_remove(self, path: Any) -> None:
         """带重试的文件删除。"""
         for attempt in range(3):
             try:
@@ -180,7 +180,7 @@ class WindowsSafeRotatingFileHandler(RotatingFileHandler):
                     time.sleep(0.1)
         # 静默失败——旧备份文件删不掉不影响日志写入
 
-    def _safe_rename(self, src, dst):
+    def _safe_rename(self, src: Any, dst: Any) -> bool:
         """带重试的文件重命名，失败返回 False。"""
         for attempt in range(3):
             try:
@@ -191,7 +191,7 @@ class WindowsSafeRotatingFileHandler(RotatingFileHandler):
                     time.sleep(0.1)
         return False
 
-    def doRollover(self):
+    def doRollover(self) -> None:
         if self.stream:
             self.stream.close()
             self.stream = None
@@ -217,7 +217,7 @@ class WindowsSafeRotatingFileHandler(RotatingFileHandler):
         if not self.delay:
             self.stream = self._open()
 
-    def _copy_truncate(self, source, dest):
+    def _copy_truncate(self, source: Any, dest: Any) -> None:
         """拷贝文件内容到目标，然后截断源文件。"""
         import shutil
         try:

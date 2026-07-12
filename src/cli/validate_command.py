@@ -5,6 +5,7 @@
 
 import asyncio
 import time
+from typing import Any
 
 import click
 
@@ -15,7 +16,7 @@ def validate() -> None:
     click.echo("X-watcher 配置验证")
     click.echo("=" * 40)
 
-    results: list[dict] = []
+    results: list[dict[str, Any]] = []
 
     # 1. 数据库检查
     click.echo("\n[数据库]")
@@ -39,7 +40,7 @@ def validate() -> None:
         click.echo("提示: 部分检查未通过，请检查 .env 配置")
 
 
-def _check_database() -> dict:
+def _check_database() -> dict[str, Any]:
     """检查数据库连接。"""
     from src.data_layer.provider import data_root
 
@@ -50,7 +51,7 @@ def _check_database() -> dict:
     return {"name": "database", "status": "unhealthy", "error": f"data_root 不存在: {root}"}
 
 
-async def _check_twitter_api() -> dict:
+async def _check_twitter_api() -> dict[str, Any]:
     """检查 Twitter API 连通性。"""
     try:
         import os
@@ -84,7 +85,7 @@ async def _check_twitter_api() -> dict:
         return {"name": "twitter_api", "status": "unhealthy", "error": str(e)[:200]}
 
 
-def _print_result(result: dict) -> None:
+def _print_result(result: dict[str, Any]) -> None:
     """打印检查结果。"""
     name = result["name"]
     status = result["status"]

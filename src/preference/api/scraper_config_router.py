@@ -6,6 +6,7 @@
 
 import logging
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
@@ -400,7 +401,7 @@ async def sync_user_profiles(
         # 转换并持久化
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         profiles = []
-        raw_data_map: dict[str, dict] = {}
+        raw_data_map: dict[str, dict[str, Any]] = {}
         for u in users_data:
             profile = XUserProfile.from_api_response(u, fetched_at=now)
             if profile.platform_user_id:

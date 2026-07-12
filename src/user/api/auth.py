@@ -41,7 +41,7 @@ async def get_current_user(
                 await get_user_repo().update_key_last_used(key_info.id)
             except Exception:
                 logger.debug(f"更新 API Key last_used_at 失败（不影响认证）: key_id={key_info.id}")
-            user = await repo.get_user_by_id(user_id)
+            user: UserDomain | None = await repo.get_user_by_id(user_id)
             if user:
                 logger.debug(f"API Key 认证成功: user_id={user.id}")
                 return user
