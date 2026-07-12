@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -32,7 +33,7 @@ class ScraperFollow(BaseModel):
     backfill_completed_at: datetime | None = Field(None, description="回溯完成时间")
 
     @classmethod
-    def from_orm(cls, orm_obj) -> "ScraperFollow":
+    def from_orm(cls, orm_obj: Any) -> "ScraperFollow":
         """从 ORM 模型转换为领域模型。
 
         Args:
@@ -85,7 +86,7 @@ class XUserProfile(BaseModel):
     fetched_at: datetime | None = Field(None, description="数据获取时间")
 
     @classmethod
-    def from_orm(cls, orm_obj) -> XUserProfile:
+    def from_orm(cls, orm_obj: Any) -> XUserProfile:
         """从 ORM 模型转换为领域模型。"""
         return cls(
             platform_user_id=orm_obj.platform_user_id,
@@ -112,7 +113,7 @@ class XUserProfile(BaseModel):
         )
 
     @classmethod
-    def from_api_response(cls, data: dict, fetched_at: datetime) -> XUserProfile:
+    def from_api_response(cls, data: dict[str, Any], fetched_at: datetime) -> XUserProfile:
         """从 TwitterAPI.io 用户信息响应转换为领域模型。
 
         处理 camelCase → snake_case 字段映射。
@@ -148,6 +149,6 @@ class XUserProfile(BaseModel):
             fetched_at=fetched_at,
         )
 
-    def to_raw_json(self, data: dict) -> str:
+    def to_raw_json(self, data: dict[str, Any]) -> str:
         """将原始 API 响应序列化为 JSON 字符串。"""
         return json.dumps(data, ensure_ascii=False)

@@ -1,6 +1,7 @@
 """FastAPI 应用入口。"""
 
 import logging
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
@@ -32,7 +33,7 @@ def get_server_start_time() -> datetime | None:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):  # noqa: ARG001 - app 参数是 FastAPI 要求的
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001 - app 参数是 FastAPI 要求的
     """应用生命周期管理。
 
     启动时执行启动安全检查。
@@ -85,7 +86,7 @@ if settings.prometheus_enabled:
 
 
 @app.get("/health")
-async def health_check():
+async def health_check():  # type: ignore[no-untyped-def]
     """健康检查端点。
 
     检查数据库连接，返回组件健康信息。
@@ -183,9 +184,9 @@ app.include_router(sync_router)
 # 配置前端静态资源服务（如果存在）
 import os
 
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 
 web_dir = os.path.join(os.path.dirname(__file__), "web", "dist")
@@ -199,7 +200,7 @@ if os.path.exists(web_dir):
     class SPAMiddleware(BaseHTTPMiddleware):
         """SPA 前端中间件 - 为非 API 路径返回 index.html"""
 
-        async def dispatch(self, request: Request, call_next):
+        async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
             """处理请求"""
             path = request.url.path
 
@@ -229,7 +230,7 @@ if os.path.exists(web_dir):
     logger.info(f"前端 SPA 中间件已启用: {web_dir}")
 
 
-def main():
+def main() -> None:
     """主函数 - 用于开发服务器启动。"""
     import uvicorn
 

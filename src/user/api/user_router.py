@@ -41,7 +41,7 @@ async def get_me(
     status_code=status.HTTP_201_CREATED,
 )
 async def create_api_key(
-    request: CreateApiKeyRequest = None,
+    request: CreateApiKeyRequest = None,  # type: ignore[assignment]
     current_user: UserDomain = Depends(get_current_user),
 ) -> CreateApiKeyResponse:
     """创建新的 API Key。"""
@@ -95,7 +95,7 @@ async def revoke_api_key(
 
 
 @router.put("/me/password")
-async def change_password(
+async def change_password(  # type: ignore[no-untyped-def]
     request: ChangePasswordRequest,
     current_user: UserDomain = Depends(get_current_user),
 ):

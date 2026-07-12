@@ -7,6 +7,7 @@ import os
 import secrets
 import string
 import sys
+from typing import Any
 
 import click
 
@@ -201,7 +202,7 @@ def _create_admin(email: str, password: str) -> str | None:
     return _create_admin_file(email, password, _hash_password, AuthService)
 
 
-def _create_admin_file(email, password, hash_password, auth_service_cls) -> str | None:
+def _create_admin_file(email: Any, password: Any, hash_password: Any, auth_service_cls: Any) -> str | None:
     """file 模式创建管理员:经 FileUserStore 文件层(async,asyncio.run 桥接)。
 
     映射 sqlalchemy 分支:存在 → echo + 设 is_admin(经 update_user)返 None;
@@ -235,6 +236,7 @@ def _create_admin_file(email, password, hash_password, auth_service_cls) -> str 
 
         # 生成默认 API Key
         auth_svc = auth_service_cls()
+        raw_key: str
         raw_key, key_hash, key_prefix = auth_svc.generate_api_key()
         await store.create_api_key(
             user_id=user.id,

@@ -4,6 +4,7 @@
 """
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -18,7 +19,7 @@ class UserDomain(BaseModel):
     created_at: datetime
 
     @classmethod
-    def from_orm(cls, orm_obj) -> "UserDomain":
+    def from_orm(cls, orm_obj: Any) -> "UserDomain":
         return cls(
             id=orm_obj.id,
             name=orm_obj.name,
@@ -40,7 +41,7 @@ class ApiKeyInfo(BaseModel):
     last_used_at: datetime | None = None
 
     @classmethod
-    def from_orm(cls, orm_obj) -> "ApiKeyInfo":
+    def from_orm(cls, orm_obj: Any) -> "ApiKeyInfo":
         return cls(
             id=orm_obj.id,
             user_id=orm_obj.user_id,

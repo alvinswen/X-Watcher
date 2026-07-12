@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from src.user.domain.models import ApiKeyInfo, UserDomain
 from src.user.infrastructure.user_store import DuplicateError, NotFoundError
@@ -35,7 +36,7 @@ class FileUserStore:
     def __init__(self, data_root: Path) -> None:
         self._path = Path(data_root) / "users" / "users.json"
 
-    def _load(self) -> dict:
+    def _load(self) -> dict[str, Any]:
         doc = read_doc(self._path)
         if doc is None:
             doc = {}
@@ -47,11 +48,11 @@ class FileUserStore:
         return doc
 
     @staticmethod
-    def _to_user(rec: dict) -> UserDomain:
+    def _to_user(rec: dict[str, Any]) -> UserDomain:
         return UserDomain(**rec)
 
     @staticmethod
-    def _to_apikey(rec: dict) -> ApiKeyInfo:
+    def _to_apikey(rec: dict[str, Any]) -> ApiKeyInfo:
         return ApiKeyInfo(**rec)
 
     # —— users ——
@@ -86,7 +87,8 @@ class FileUserStore:
     async def get_password_hash_by_email(self, email: str) -> str | None:
         for rec in self._load()["users"].values():
             if rec["email"] == email:
-                return rec["password_hash"]
+                password_hash: str = rec["password_hash"]
+                return password_hash
         return None
 
     async def get_all_users(self) -> list[UserDomain]:
