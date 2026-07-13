@@ -10,8 +10,6 @@ def _make_settings(jwt_secret: str):
 
     return Settings(
         twitter_api_key="twitter-key",
-        twitter_bearer_token="test-bearer-token",
-        database_url="sqlite:///./test.db",
         jwt_secret_key=jwt_secret,
     )
 
@@ -39,8 +37,6 @@ def test_config_loads_from_env(monkeypatch):
 
     # 设置环境变量
     monkeypatch.setenv("TWITTER_API_KEY", "twitter-key")
-    monkeypatch.setenv("TWITTER_BEARER_TOKEN", "test-bearer-token")
-    monkeypatch.setenv("DATABASE_URL", "sqlite:///./test.db")
 
     # 导入配置（在设置环境变量之后）
     from src.config import get_settings
@@ -48,8 +44,6 @@ def test_config_loads_from_env(monkeypatch):
     settings = get_settings()
 
     assert settings.twitter_api_key == "twitter-key"
-    assert settings.twitter_bearer_token == "test-bearer-token"
-    assert settings.database_url == "sqlite:///./test.db"
 
 
 def test_config_validation_error_when_invalid_log_level(monkeypatch):
@@ -59,8 +53,6 @@ def test_config_validation_error_when_invalid_log_level(monkeypatch):
     clear_settings_cache()
 
     monkeypatch.setenv("TWITTER_API_KEY", "twitter-key")
-    monkeypatch.setenv("TWITTER_BEARER_TOKEN", "test-bearer-token")
-    monkeypatch.setenv("DATABASE_URL", "sqlite:///./test.db")
     monkeypatch.setenv("LOG_LEVEL", "INVALID")
 
     from pydantic import ValidationError
@@ -110,8 +102,6 @@ def test_config_log_level_custom(monkeypatch):
     clear_settings_cache()
 
     monkeypatch.setenv("TWITTER_API_KEY", "twitter-key")
-    monkeypatch.setenv("TWITTER_BEARER_TOKEN", "test-bearer-token")
-    monkeypatch.setenv("DATABASE_URL", "sqlite:///./test.db")
     monkeypatch.setenv("LOG_LEVEL", "ERROR")  # 设置不同的值
 
     from src.config import get_settings
@@ -126,8 +116,6 @@ def test_config_log_level_case_insensitive(monkeypatch):
     clear_settings_cache()
 
     monkeypatch.setenv("TWITTER_API_KEY", "twitter-key")
-    monkeypatch.setenv("TWITTER_BEARER_TOKEN", "test-bearer-token")
-    monkeypatch.setenv("DATABASE_URL", "sqlite:///./test.db")
     monkeypatch.setenv("LOG_LEVEL", "warning")  # 小写
 
     settings = get_settings()
@@ -141,8 +129,6 @@ def test_config_singleton(monkeypatch):
     clear_settings_cache()
 
     monkeypatch.setenv("TWITTER_API_KEY", "twitter-key")
-    monkeypatch.setenv("TWITTER_BEARER_TOKEN", "test-bearer-token")
-    monkeypatch.setenv("DATABASE_URL", "sqlite:///./test.db")
 
     from src.config import get_settings
 

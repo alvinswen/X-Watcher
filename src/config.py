@@ -28,18 +28,12 @@ class Settings(BaseSettings):
 
     # X 平台 API 配置
     twitter_api_key: str = Field(..., description="X 平台 API 密钥")
-    twitter_bearer_token: str = Field(..., description="X 平台 Bearer 令牌")
     twitter_base_url: str = Field(
         default="https://api.twitterapi.io/twitter", description="TwitterAPI.io 基础地址"
     )
 
     # 抓取器配置
-    scraper_enabled: bool = Field(default=True, description="是否启用定时抓取")
-    scraper_usernames: str = Field(default="", description="关注用户列表（逗号分隔）")
     scraper_limit: int = Field(default=30, ge=1, le=1000, description="单次抓取推文数量限制")
-
-    # 数据库配置
-    database_url: str = Field(default="sqlite:///./news_agent.db", description="数据库连接地址")
 
     # 日志配置
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
@@ -126,7 +120,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
-        extra="ignore",  # .env 中的 LLM_*_API_KEY 等变量由 LLM 配置模块独立处理
+        extra="ignore",
     )
 
     @field_validator("log_level", mode="before")

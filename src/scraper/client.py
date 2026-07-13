@@ -930,7 +930,7 @@ class TwitterClient:
         """
         error_messages = {
             400: "错误的请求",
-            401: "未授权 - 请检查 Bearer Token",
+            401: "未授权 - 请检查 TWITTER_API_KEY(X-API-Key)",
             403: "禁止访问",
             404: "资源未找到",
             422: "无法处理的实体",
