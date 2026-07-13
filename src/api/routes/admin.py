@@ -363,6 +363,7 @@ async def start_scraping(
         )
 
     registry = get_task_registry()
+    registry.cleanup_expired_tasks(ttl_hours=24)
 
     # 检查是否有相同的任务正在运行
     for task in registry.get_all_tasks():
