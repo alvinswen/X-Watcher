@@ -25,9 +25,8 @@ class FileSearchReadStore:
         self._root = Path(data_root)
 
     async def _build_summary_map(self) -> dict[str, Any]:
-        from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
-        recs = await FileSummaryStore(self._root).get_all_summaries()
-        return {r.tweet_id: r for r in recs}
+        from src.shared.read_cache import load_summary_map
+        return await load_summary_map(self._root)
 
     async def _candidates(self, since: Any, until: Any) -> list[Any]:
         from src.scraper.infrastructure.file_tweet_repository import FileTweetStore

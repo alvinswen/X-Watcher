@@ -395,17 +395,11 @@ class FileSubjectStore:
         return reviews
 
     async def get_tweets_by_ids(self, tweet_ids: list[str]) -> tuple[list[dict[str, Any]], list[str]]:
-        from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
-        from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
+        from src.shared.read_cache import load_all_tweets_map, load_summary_map
 
         wanted = list(dict.fromkeys([tid for tid in tweet_ids if tid]))
-        tweet_map = {
-            tweet.tweet_id: tweet for tweet in await FileTweetStore(self._root).get_all_tweets()
-        }
-        summary_map = {
-            summary.tweet_id: summary
-            for summary in await FileSummaryStore(self._root).get_all_summaries()
-        }
+        tweet_map = await load_all_tweets_map(self._root)
+        summary_map = await load_summary_map(self._root)
         items: list[dict[str, Any]] = []
         missing: list[str] = []
         for tweet_id in wanted:
@@ -433,12 +427,10 @@ class FileSubjectStore:
         self,
         tweet_ids: list[str],
     ) -> tuple[dict[str, str | None], list[str]]:
-        from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
+        from src.shared.read_cache import load_all_tweets_map
 
         wanted = list(dict.fromkeys([tid for tid in tweet_ids if tid]))
-        tweet_map = {
-            tweet.tweet_id: tweet for tweet in await FileTweetStore(self._root).get_all_tweets()
-        }
+        tweet_map = await load_all_tweets_map(self._root)
         author_ids: dict[str, str | None] = {}
         missing: list[str] = []
         for tweet_id in wanted:

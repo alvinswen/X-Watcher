@@ -23,10 +23,8 @@ class FileBrowseReadStore:
         self._root = Path(data_root)
 
     async def _build_summary_map(self) -> dict[str, Any]:
-        # ⚠️ 全量加载摘要(perf 弱点,deferred 优化),建 {tweet_id: record} 复刻 LEFT JOIN
-        from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
-        recs = await FileSummaryStore(self._root).get_all_summaries()
-        return {r.tweet_id: r for r in recs}
+        from src.shared.read_cache import load_summary_map
+        return await load_summary_map(self._root)
 
     @staticmethod
     def _item(tw: Any, rec: Any) -> dict[str, Any]:

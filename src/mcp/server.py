@@ -29,9 +29,12 @@ async def mcp_lifespan(server: FastMCP) -> AsyncIterator[None]:
         get_transport(),
         is_admin(),
     )
+    from src.data_layer.provider import data_root
     from src.mcp.security import log_action_guard_config
+    from src.storage.views import warm_start_by_day
 
     log_action_guard_config()
+    warm_start_by_day(data_root())
     logger.info("MCP Server 就绪")
     yield
     logger.info("MCP Server 关闭")

@@ -38,7 +38,6 @@ class FileTweetStore:
     def __init__(self, data_root: Path, index: TweetIdIndex | None = None) -> None:
         self._root = Path(data_root)
         self._index = index if index is not None else TweetIdIndex.build(self._root)
-        views.rebuild_by_day(self._root)
 
     async def batch_check_exists(self, tweet_ids: list[str]) -> set[str]:
         if not tweet_ids:

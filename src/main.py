@@ -53,6 +53,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001 - app �
     if recovered > 0:
         logger.warning(f"启动时恢复了 {recovered} 个僵尸任务")
 
+    from src.data_layer.provider import data_root
+    from src.storage.views import warm_start_by_day
+
+    warm_start_by_day(data_root())
+
     # 记录服务启动时间
     global _server_start_time
     _server_start_time = datetime.now(timezone.utc)

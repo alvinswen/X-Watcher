@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,8 @@ from typing import Any
 from src.storage import paths
 from src.storage.atomic import shard_lock
 from src.storage.jsonl_store import read_shard, upsert, write_shard
+
+logger = logging.getLogger(__name__)
 
 
 def _utc_date_of(record: dict[str, Any]) -> date:
@@ -40,6 +43,14 @@ def rebuild_by_day(data_root: Path) -> None:
             groups.setdefault(_utc_date_of(rec), []).append(rec)
     for utc_date, recs in groups.items():
         write_shard(paths.by_day_shard(data_root, utc_date), recs)
+
+
+def warm_start_by_day(data_root: Path) -> None:
+    """启动时尽力重建 by-day 视图；失败记错但不阻断服务启动。"""
+    try:
+        rebuild_by_day(data_root)
+    except Exception:
+        logger.error("启动时重建 by-day 视图失败", exc_info=True)
 
 
 def read_by_day_dates(data_root: Path, utc_dates: list[date]) -> list[dict[str, Any]]:
