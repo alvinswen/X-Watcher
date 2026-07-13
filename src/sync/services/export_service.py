@@ -18,8 +18,8 @@ from src.data_layer.provider import get_export_repo
 class ExportService:
     """编排数据导出流程。"""
 
-    def __init__(self, session: Any = None) -> None:
-        self._repo = get_export_repo(session)
+    def __init__(self) -> None:
+        self._repo = get_export_repo()
 
     def export(
         self,

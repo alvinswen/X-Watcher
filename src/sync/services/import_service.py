@@ -19,9 +19,6 @@ from src.data_layer.provider import get_import_repo
 class ImportService:
     """编排数据导入流程。"""
 
-    def __init__(self, session_factory: Any = None) -> None:
-        self._session_factory = session_factory
-
     def import_data(
         self,
         package: ExportPackage,
@@ -59,29 +56,18 @@ class ImportService:
         result: ImportResult,
     ) -> None:
         """在独立事务中导入一个 category。"""
-        session: Any = self._session_factory() if self._session_factory is not None else None
-        repo = get_import_repo(session, dry_run=dry_run)
+        repo = get_import_repo(dry_run=dry_run)
         try:
             if category == "config":
                 self._import_config(repo, data, strategy, result)
             elif category == "content":
                 self._import_content(repo, data, strategy, result)
-
-            if session is not None:
-                if dry_run:
-                    session.rollback()
-                else:
-                    session.commit()
         except Exception as e:
-            if session is not None:
-                session.rollback()
             result.success = False
             result.errors.append(f"[{category}] {e}")
         finally:
             if hasattr(repo, "close"):
                 repo.close()
-            if session is not None:
-                session.close()
 
     def _import_config(
         self,

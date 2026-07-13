@@ -93,7 +93,7 @@ class TestExportService:
     def test_export_all(self, tmp_path):
         _seed_file_data(tmp_path)
 
-        svc = ExportService(None)
+        svc = ExportService()
         pkg = svc.export(instance_id="test-server")
 
         assert pkg.metadata.source_instance_id == "test-server"
@@ -114,7 +114,7 @@ class TestExportService:
     def test_export_single_category(self, tmp_path):
         _seed_file_data(tmp_path)
 
-        svc = ExportService(None)
+        svc = ExportService()
         pkg = svc.export(categories=[SyncCategory.config])
 
         assert pkg.metadata.categories == ["config"]
@@ -124,7 +124,7 @@ class TestExportService:
     def test_export_content_with_since_filter(self, tmp_path):
         _seed_file_data(tmp_path)
 
-        svc = ExportService(None)
+        svc = ExportService()
         pkg = svc.export(
             categories=[SyncCategory.content],
             since=datetime(2026, 2, 5, tzinfo=timezone.utc),
@@ -140,7 +140,7 @@ class TestExportService:
     def test_export_content_with_authors_filter(self, tmp_path):
         _seed_file_data(tmp_path)
 
-        svc = ExportService(None)
+        svc = ExportService()
         pkg = svc.export(
             categories=[SyncCategory.content],
             authors=["alice"],
@@ -151,7 +151,7 @@ class TestExportService:
         assert len(pkg.data["content"]["summaries"]) == 1
 
     def test_export_empty_database(self):
-        svc = ExportService(None)
+        svc = ExportService()
         pkg = svc.export()
 
         assert len(pkg.data["config"]["scraper_follows"]) == 0

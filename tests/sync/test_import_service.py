@@ -114,7 +114,7 @@ class TestImportConfig:
             }
         )
 
-        svc = ImportService(None)
+        svc = ImportService()
         result = svc.import_data(pkg)
 
         assert result.success
@@ -139,7 +139,7 @@ class TestImportConfig:
             }
         )
 
-        svc = ImportService(None)
+        svc = ImportService()
         result = svc.import_data(pkg, strategy=ConflictStrategy.skip)
 
         assert result.stats["scraper_follows"].skipped == 1
@@ -164,7 +164,7 @@ class TestImportConfig:
             }
         )
 
-        svc = ImportService(None)
+        svc = ImportService()
         result = svc.import_data(pkg, strategy=ConflictStrategy.overwrite)
 
         assert result.stats["scraper_follows"].updated == 1
@@ -215,7 +215,7 @@ class TestImportContent:
             }
         )
 
-        svc = ImportService(None)
+        svc = ImportService()
         result = svc.import_data(pkg)
 
         assert result.success
@@ -258,7 +258,7 @@ class TestImportContent:
             }
         )
 
-        svc = ImportService(None)
+        svc = ImportService()
         result = svc.import_data(pkg, strategy=ConflictStrategy.merge)
 
         assert result.stats["tweets"].skipped == 1
@@ -282,7 +282,7 @@ class TestDryRun:
             }
         )
 
-        svc = ImportService(None)
+        svc = ImportService()
         result = svc.import_data(pkg, dry_run=True)
 
         assert result.dry_run
@@ -320,7 +320,7 @@ class TestCategoryFiltering:
             categories=["config", "content"],
         )
 
-        svc = ImportService(None)
+        svc = ImportService()
         result = svc.import_data(pkg, categories=[SyncCategory.config])
 
         assert "scraper_follows" in result.stats
@@ -339,13 +339,13 @@ class TestFullRoundtrip:
         monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
         monkeypatch.setenv("XWATCHER_DATA_ROOT", str(src_root))
         _seed_file_roundtrip_data(src_root)
-        pkg = ExportService(None).export(instance_id="source")
+        pkg = ExportService().export(instance_id="source")
 
         # 创建目标文件根并导入
         dst_root = tmp_path / "target"
         monkeypatch.setenv("XWATCHER_DATA_ROOT", str(dst_root))
 
-        result = ImportService(None).import_data(pkg)
+        result = ImportService().import_data(pkg)
         assert result.success
 
         # 验证数据一致性
