@@ -10,8 +10,10 @@ import pytest
 
 from src.browse.infrastructure.file_browse_read_repository import FileBrowseReadStore
 from src.feed.infrastructure.file_feed_read_repository import FileFeedReadStore
+from src.scraper.domain.models import Tweet
+from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
 from src.search.infrastructure.file_search_read_repository import FileSearchReadStore
-from src.shared.read_cache import load_summary_map
+from src.shared.read_cache import load_all_tweets_map, load_summary_map
 from src.summarization.domain.models import SummaryRecord
 from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
 
@@ -32,6 +34,16 @@ def _summary(tweet_id: str, text: str) -> SummaryRecord:
         content_hash=f"hash-{tweet_id}",
         created_at=now,
         updated_at=now,
+    )
+
+
+def _tweet(tweet_id: str, author: str = "alice") -> Tweet:
+    return Tweet(
+        tweet_id=tweet_id,
+        text=f"tweet {tweet_id}",
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        author_username=author,
+        author_user_id=f"user-{author}",
     )
 
 
@@ -108,3 +120,44 @@ async def test_browse_feed_search_share_map_without_pollution(tmp_path: Path) ->
 
     assert all(mapping is cached for mapping in maps)
     assert cached == before
+
+
+@pytest.mark.asyncio
+async def test_tweet_write_is_visible_on_next_read(tmp_path: Path) -> None:
+    store = FileTweetStore(tmp_path)
+    await store.save_tweets([_tweet("t1")], early_stop_threshold=0)
+    before = await load_all_tweets_map(tmp_path)
+
+    await store.save_tweets([_tweet("t2")], early_stop_threshold=0)
+    after = await load_all_tweets_map(tmp_path)
+
+    assert set(before) == {"t1"}
+    assert set(after) == {"t1", "t2"}
+    assert after is not before
+
+
+@pytest.mark.asyncio
+async def test_tweet_cache_is_isolated_by_data_root(tmp_path: Path) -> None:
+    root_a = tmp_path / "a"
+    root_b = tmp_path / "b"
+    await FileTweetStore(root_a).save_tweets([_tweet("t1", "alice")], early_stop_threshold=0)
+    await FileTweetStore(root_b).save_tweets([_tweet("t1", "bob")], early_stop_threshold=0)
+
+    cached_a = await load_all_tweets_map(root_a)
+    cached_b = await load_all_tweets_map(root_b)
+
+    assert cached_a["t1"].author_username == "alice"
+    assert cached_b["t1"].author_username == "bob"
+    assert cached_a is not cached_b
+
+
+@pytest.mark.asyncio
+async def test_repeated_tweet_reads_return_unpolluted_shared_map(tmp_path: Path) -> None:
+    await FileTweetStore(tmp_path).save_tweets([_tweet("t1")], early_stop_threshold=0)
+    cached = await load_all_tweets_map(tmp_path)
+    before = dict(cached)
+
+    repeated = await load_all_tweets_map(tmp_path)
+
+    assert repeated is cached
+    assert repeated == before
