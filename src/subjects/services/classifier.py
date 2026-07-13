@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Any, cast
+from typing import Any
 
 from src.data_layer.provider import get_subject_repo
 from src.subjects.models import SubjectMatch
@@ -15,7 +14,7 @@ class SubjectClassifier:
     """提供议题 prompt 元数据，供后续外部技能复用。"""
 
     def __init__(self, repo: Any | None = None) -> None:
-        repo_factory = cast(Callable[[], Any], get_subject_repo)
+        repo_factory = get_subject_repo
         self._repo: Any = repo if repo is not None else repo_factory()
 
     async def prompt_subjects(self) -> list[dict[str, str]]:

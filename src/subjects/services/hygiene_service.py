@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections import Counter
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, cast
 
@@ -24,7 +24,7 @@ _NO_LIMIT = 10**12
 
 class SubjectHygieneService:
     def __init__(self, repo: Any | None = None) -> None:
-        repo_factory = cast(Callable[[], Any], get_subject_repo)
+        repo_factory = get_subject_repo
         self._repo: Any = repo if repo is not None else repo_factory()
 
     async def run_check(

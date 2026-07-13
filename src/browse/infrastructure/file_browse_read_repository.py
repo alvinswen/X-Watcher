@@ -76,7 +76,7 @@ class FileBrowseReadStore:
         items = [self._item(t, smap.get(t.tweet_id)) for t in page_obj.items]
         display_name = items[0]["author_display_name"] if items else None
         wanted = author.lower()
-        reason = next((f.reason for f in await get_follows_repo(None).get_active_follows()
+        reason = next((f.reason for f in await get_follows_repo().get_active_follows()
                        if f.username.lower() == wanted), None)
         author_meta = {"author_username": author, "author_display_name": display_name, "reason": reason}
         return author_meta, items, page_obj.total
@@ -133,7 +133,7 @@ class FileBrowseReadStore:
         # max DESC(Python 稳定排序:tie 保 groups 首现作者序;旧 SQL 无次级 tie-break=PG 未定义序,承 A1-2 caveat)
         ordered = sorted(groups.items(), key=lambda kv: kv[1]["max"], reverse=True)
         # reason:active follow 精确 username 匹配(复刻 ScraperFollow.username.in_(usernames)+is_active)
-        active = await get_follows_repo(None).get_active_follows()
+        active = await get_follows_repo().get_active_follows()
         reason_map = {f.username: f.reason for f in active}
         return [{
             "author_username": username,

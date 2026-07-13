@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from datetime import datetime
-from typing import Any, cast
+from typing import Any
 
 from src.data_layer.provider import get_subject_repo
 from src.storage import paths
@@ -25,7 +24,7 @@ class ReviewConflictError(Exception):
 
 class SubjectReviewService:
     def __init__(self, repo: Any | None = None, providers: list[Any] | None = None) -> None:
-        repo_factory = cast(Callable[[], Any], get_subject_repo)
+        repo_factory = get_subject_repo
         self._repo: Any = repo if repo is not None else repo_factory()
         self._providers: list[Any] | None = providers
 

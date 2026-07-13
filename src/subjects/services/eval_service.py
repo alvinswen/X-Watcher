@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import uuid
 from collections import Counter
-from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any, cast
 
@@ -21,7 +20,7 @@ _CORRECTION_VERDICTS = {"reject", "correct", "off_topic", "drift"}
 
 class SubjectEvalService:
     def __init__(self, repo: Any | None = None) -> None:
-        repo_factory = cast(Callable[[], Any], get_subject_repo)
+        repo_factory = get_subject_repo
         self._repo: Any = repo if repo is not None else repo_factory()
 
     async def put_eval(

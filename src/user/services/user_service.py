@@ -1,7 +1,6 @@
 """用户生命周期编排服务。"""
 
 import logging
-from typing import Any
 
 from src.user.domain.models import UserDomain, ApiKeyInfo
 from src.user.infrastructure.user_store import NotFoundError
@@ -12,9 +11,8 @@ logger = logging.getLogger(__name__)
 
 
 class UserService:
-    def __init__(self, session: Any = None):
-        self._session = session
-        self._repo = get_user_repo(session)
+    def __init__(self) -> None:
+        self._repo = get_user_repo()
         self._auth = AuthService()
 
     async def create_user(self, name: str, email: str) -> tuple[UserDomain, str, str]:

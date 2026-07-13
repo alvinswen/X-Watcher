@@ -1,48 +1,20 @@
-"""pg 下线 B-guard:file 模式守卫真验行为测试。
+"""文件层守卫真验行为测试(原 pg 下线 B-guard · CHG-028 幻影开关删除后改写)。
 
 覆盖:
-1. is_file_mode() 随 env 变化。
-2. health file 模式:database 组件 healthy 且不执行 SELECT 1。
-5. database_size file 模式:返回 data_root 体积或 None,不调 pg_database_size。
-6. 强集成兜底:file 模式 + 不可达 DATABASE_URL 下 DB-init + health 不抛/不挂起(证不连 pg)。
-
-⚠️ 本机 .env=file。所有"sqlalchemy 模式"断言用 monkeypatch.setenv 显式翻成 sqlalchemy。
+1. health:database 组件探 data_root,healthy/unhealthy 随目录存在性。
+2. database_size:返回 data_root 体积或 None。
+3. 残留旧 env 惰性兜底:XWATCHER_DATA_LAYER/DATABASE_URL 设任意值均不影响行为
+   (开关已物理删除,误设不再静默关守卫)。
 """
 
 import asyncio
 
 
 # ---------------------------------------------------------------------------
-# 1. is_file_mode() 随 env 变化
-# ---------------------------------------------------------------------------
-def test_is_file_mode_file(monkeypatch):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
-    from src.data_layer.provider import is_file_mode
-
-    assert is_file_mode() is True
-
-
-def test_is_file_mode_sqlalchemy(monkeypatch):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
-    from src.data_layer.provider import is_file_mode
-
-    assert is_file_mode() is False
-
-
-def test_is_file_mode_default_is_not_file(monkeypatch):
-    """显式 sqlalchemy 不是 file 模式。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
-    from src.data_layer.provider import is_file_mode
-
-    assert is_file_mode() is False
-
-
-# ---------------------------------------------------------------------------
-# 2. health file 模式:不 SELECT 1
+# 1. health:database 组件探 data_root
 # ---------------------------------------------------------------------------
 def test_health_check_file_mode_healthy_no_session(monkeypatch, tmp_path):
-    """file 模式:health database 组件 healthy。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    """health database 组件 healthy(data_root 存在)。"""
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))  # 存在 → healthy
 
     from src.main import health_check
@@ -55,9 +27,8 @@ def test_health_check_file_mode_healthy_no_session(monkeypatch, tmp_path):
 
 
 def test_health_check_file_mode_unhealthy_when_data_root_missing(monkeypatch, tmp_path):
-    """file 模式:data_root 不存在 → unhealthy(故障注入翻红)。"""
+    """data_root 不存在 → unhealthy(故障注入翻红)。"""
     missing = tmp_path / "does-not-exist"
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(missing))
 
     from src.main import health_check
@@ -67,8 +38,7 @@ def test_health_check_file_mode_unhealthy_when_data_root_missing(monkeypatch, tm
 
 
 def test_config_routes_check_database_file_mode(monkeypatch, tmp_path):
-    """config_routes._check_database file 模式探 data_root,healthy 且不连 pg。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    """config_routes._check_database 探 data_root,healthy。"""
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
 
     from src.api.routes.config_routes import _check_database
@@ -79,8 +49,7 @@ def test_config_routes_check_database_file_mode(monkeypatch, tmp_path):
 
 
 def test_cli_validate_check_database_file_mode(monkeypatch, tmp_path):
-    """cli validate_command._check_database file 模式探 data_root,不连 pg。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    """cli validate_command._check_database 探 data_root。"""
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
 
     from src.cli.validate_command import _check_database
@@ -91,11 +60,10 @@ def test_cli_validate_check_database_file_mode(monkeypatch, tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# 3. database_size file 模式
+# 2. database_size
 # ---------------------------------------------------------------------------
 def test_database_size_file_mode_returns_dir_size(monkeypatch, tmp_path):
-    """file 模式:返回 data_root 递归体积(MB),不调 pg_database_size。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    """返回 data_root 递归体积(MB)。"""
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
 
     # 写一些字节
@@ -111,9 +79,8 @@ def test_database_size_file_mode_returns_dir_size(monkeypatch, tmp_path):
 
 
 def test_database_size_file_mode_missing_root_returns_none(monkeypatch, tmp_path):
-    """file 模式:data_root 不存在 → None,不抛。"""
+    """data_root 不存在 → None,不抛。"""
     missing = tmp_path / "nope"
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(missing))
 
     from src.data_layer.disk_usage import get_database_size_mb
@@ -122,18 +89,20 @@ def test_database_size_file_mode_missing_root_returns_none(monkeypatch, tmp_path
 
 
 # ---------------------------------------------------------------------------
-# 4. 强集成兜底:file 模式 + 不可达 DATABASE_URL → 不抛/不挂起
+# 3. 残留旧 env 惰性兜底(CHG-028:幻影开关物理删除 · 误设不再改变行为)
 # ---------------------------------------------------------------------------
-def test_file_mode_unreachable_pg_does_not_connect(monkeypatch, tmp_path):
-    """file 模式 + 不可达 DATABASE_URL:DB-init + health 不抛/不挂起(证真不连 pg)。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+def test_stale_legacy_env_is_inert(monkeypatch, tmp_path):
+    """残留旧 env(XWATCHER_DATA_LAYER=sqlalchemy + 不可达 DATABASE_URL)完全惰性:
+    health 仍 healthy/file,磁盘统计仍工作(原开关误设会静默关守卫,现物理消除)。"""
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    # 127.0.0.1:1 — 端口 1 必拒,若真连会抛 ConnectionError
+    # 旧开关的"毒值"与不可达 DB 地址:均已无任何读取方
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://x:x@127.0.0.1:1/nope")
 
     import src.main as main_mod
+    from src.data_layer.disk_usage import get_database_size_mb
 
-    # health database 组件:file 模式探目录,不连 pg
     result = asyncio.run(main_mod.health_check())
     assert result["components"]["database"]["status"] == "healthy"
     assert result["components"]["database"]["mode"] == "file"
+    assert get_database_size_mb() is not None

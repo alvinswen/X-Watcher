@@ -8,7 +8,6 @@ from mcp.server.auth.provider import AccessToken
 
 @pytest.mark.asyncio
 async def test_verify_token_file_mode_valid_and_invalid(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     monkeypatch.delenv("ADMIN_API_KEY", raising=False)
     from src.config import clear_settings_cache
@@ -37,7 +36,6 @@ async def test_verify_token_file_mode_valid_and_invalid(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_verify_token_file_mode_admin_scope(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     monkeypatch.delenv("ADMIN_API_KEY", raising=False)
     from src.config import clear_settings_cache
@@ -61,9 +59,9 @@ async def test_verify_token_file_mode_admin_scope(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_verify_token_ignores_sqlalchemy_layer(monkeypatch, tmp_path):
-    """user repo 下线 SQLAlchemy 后,即使 env=sqlalchemy 也走文件层认证。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")
+async def test_verify_token_stale_legacy_env_inert(monkeypatch, tmp_path):
+    """残留旧 env(XWATCHER_DATA_LAYER 任意值)完全惰性:开关已物理删除,文件层认证不受影响。"""
+    monkeypatch.setenv("XWATCHER_DATA_LAYER", "sqlalchemy")  # 旧开关"毒值"=纯噪声
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     monkeypatch.delenv("ADMIN_API_KEY", raising=False)
     from src.config import clear_settings_cache
@@ -92,7 +90,6 @@ async def test_verify_token_file_mode_orphaned_key_rejected(monkeypatch, tmp_pat
     锁定原 inner-join 语义:`get_active_key_by_hash` 命中但 `get_user_by_id` 返 None
     时 fall through 到 return None。这是未来重构最易被静默破坏的认证边界。
     """
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     monkeypatch.delenv("ADMIN_API_KEY", raising=False)
     from src.config import clear_settings_cache

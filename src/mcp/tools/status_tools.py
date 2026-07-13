@@ -104,19 +104,13 @@ def register(mcp: FastMCP) -> None:
             until: 截止时间（不含），ISO 8601 格式
         """
         try:
-            from src.data_layer.provider import is_file_mode
-
-            if is_file_mode():
-                # file 模式:审计仅文件日志,无 DB 持久化可查 → 返空结构(沿现有形态)
-                return success_response(
-                    {
-                        "logs": [],
-                        "count": 0,
-                        "note": "file 模式审计仅文件日志,无 DB 查询",
-                    }
-                )
-            return error_response(
-                "审计日志 DB 查询已下线(数据层为 file 模式专用)", "internal"
+            # 审计仅文件日志,无持久化查询面 → 恒返空结构("接线 or 明示恒空"产品级裁决留 R3/R4)
+            return success_response(
+                {
+                    "logs": [],
+                    "count": 0,
+                    "note": "file 模式审计仅文件日志,无 DB 查询",
+                }
             )
         except Exception as e:
             logger.error("get_audit_log 失败: %s", e, exc_info=True)

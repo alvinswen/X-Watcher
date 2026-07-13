@@ -1,6 +1,6 @@
 """任务注册表。
 
-管理异步抓取任务的状态和生命周期。
+管理异步抓取任务的状态和生命周期。纯内存注册表:任务历史不持久化,进程重启即失。
 """
 
 from __future__ import annotations
@@ -15,12 +15,11 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-def _update_task_metrics(status: TaskStatus, old_status: TaskStatus | None = None) -> None:
+def _update_task_metrics(status: TaskStatus) -> None:
     """更新 Prometheus 任务指标。
 
     Args:
         status: 当前任务状态
-        old_status: 之前的状态（用于转换跟踪）
     """
     try:
         from src.config import get_settings
@@ -149,8 +148,6 @@ class TaskRegistry:
             result: 可选的结果数据（完成时）
             error: 可选的错误信息（失败时）
         """
-        task_snapshot = None
-
         with self._task_lock:
             task = self._tasks.get(task_id)
             if task is None:
@@ -195,32 +192,7 @@ class TaskRegistry:
                 logger.error(f"任务失败: {task_id} - {error}")
 
             # 更新 Prometheus 指标
-            _update_task_metrics(status, old_status)
-
-            # 终态或 RUNNING 时先拷贝快照，在锁外持久化（避免 DB I/O 阻塞锁）
-            if status in (TaskStatus.RUNNING, TaskStatus.COMPLETED, TaskStatus.FAILED):
-                task_snapshot = self._copy_task_data(task)
-
-        # 在锁外持久化到数据库，避免 DB 写入期间阻塞其他线程访问 TaskRegistry
-        if task_snapshot is not None:
-            self._persist_task(task_snapshot)
-
-    def _persist_task(self, task_data: dict[str, Any]) -> None:
-        """将任务状态持久化到数据库（RUNNING/COMPLETED/FAILED）。
-
-        RUNNING 状态也持久化，用于跨重启恢复僵尸任务检测。
-        使用 upsert 语义：同一 task_id 的后续状态更新覆盖前一条记录。
-        使用同步 engine，不依赖 event loop。
-        静默失败，不影响任务本身的执行。
-
-        Args:
-            task_data: 任务数据字典
-        """
-        from src.data_layer.provider import is_file_mode
-
-        if is_file_mode():
-            # file 模式:任务历史仅内存,不写 pg(owner 定 accept-no-persist)
-            return
+            _update_task_metrics(status)
 
     def update_progress(
         self,
@@ -289,19 +261,6 @@ class TaskRegistry:
                 if task["status"] == status
             ]
 
-    def is_task_running(self, task_id: str) -> bool:
-        """检查任务是否正在运行。
-
-        Args:
-            task_id: 任务 ID
-
-        Returns:
-            bool: 如果任务正在运行返回 True
-        """
-        with self._task_lock:
-            task = self._tasks.get(task_id)
-            return task is not None and task["status"] == TaskStatus.RUNNING
-
     def delete_task(self, task_id: str) -> bool:
         """删除任务。
 
@@ -321,9 +280,7 @@ class TaskRegistry:
     def recover_stale_tasks(self, max_running_seconds: int = 1800) -> int:
         """恢复僵尸任务：将超时的 RUNNING 任务标记为 FAILED。
 
-        两层检查：
-        1. 内存中的 RUNNING 任务超时 → 标记为 FAILED
-        2. 数据库中残留的 RUNNING 记录（上次进程崩溃遗留）→ 标记为 FAILED
+        检查内存中的 RUNNING 任务超时 → 标记为 FAILED(纯内存注册表,无跨进程残留)。
 
         Args:
             max_running_seconds: 最大运行时长（秒），超过则视为僵尸任务
@@ -334,7 +291,7 @@ class TaskRegistry:
         now = datetime.now()
         recovered = 0
 
-        # 1. 检查内存中的 RUNNING 任务
+        # 检查内存中的 RUNNING 任务
         stale_ids = []
         with self._task_lock:
             for task_id, task in self._tasks.items():
@@ -352,13 +309,6 @@ class TaskRegistry:
             )
             recovered += 1
             logger.warning(f"僵尸任务恢复: {task_id} (内存中超时)")
-
-        # 2. 检查数据库中残留的 RUNNING 记录（进程崩溃遗留）
-        from src.data_layer.provider import is_file_mode
-
-        if is_file_mode():
-            # file 模式:无 pg 持久化跨进程僵尸记录,DB 残留段跳过(内存段已工作)
-            return recovered
 
         return recovered
 
