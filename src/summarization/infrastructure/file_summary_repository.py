@@ -6,8 +6,7 @@
 - shard_lock 下 load→mutate→atomic_write_doc(写路径);读路径无锁(同前三片)
 - save 复合键 (tweet_id,content_hash) 去重 latest-wins(命中改 11 传入字段 + updated_at=now、保留 existing
   summary_id/created_at;返回值=传入 record copy 仅换 summary_id)
-- get_by_tweet 多行抛(scalar_one_or_none) ↔ find_by_hash 多行取插入序第一条不抛(first)
-- delete 不存在抛 NotFoundError(非 False);cost_stats 读时全扫聚合(日期含端点/None 不过滤)
+- get_by_tweet 多行抛(scalar_one_or_none)
 """
 
 from __future__ import annotations
@@ -16,8 +15,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from src.summarization.domain.models import CostStats, SummaryRecord
-from src.summarization.infrastructure.summary_store import NotFoundError, RepositoryError
+from src.summarization.domain.models import SummaryRecord
+from src.summarization.infrastructure.summary_store import RepositoryError
 from src.storage.atomic import shard_lock
 from src.storage.doc_store import atomic_write_doc, read_doc
 
@@ -27,7 +26,7 @@ def _now_naive_iso() -> str:
 
 
 class FileSummaryStore:
-    """SummaryStore 的文件实现(5 方法全实现 + seed 测试种子)。"""
+    """摘要文件存储(save_summary_record/get_summary_by_tweet + sync 底座 get_all/exists/upsert + seed 测试种子)。"""
 
     _MUT_FIELDS = ("summary_text", "translation_text", "model_provider", "model_name",
                    "prompt_tokens", "completion_tokens", "total_tokens", "cost_usd",
@@ -85,45 +84,6 @@ class FileSummaryStore:
         if not matches:
             return None
         return self._to_domain(matches[0])
-
-    async def get_cost_stats(self, start_date: datetime | None = None,
-                             end_date: datetime | None = None) -> CostStats:
-        hits = [self._to_domain(r) for r in self._load()["summaries"].values()]
-        if start_date is not None:
-            hits = [h for h in hits if h.created_at >= start_date]
-        if end_date is not None:
-            hits = [h for h in hits if h.created_at <= end_date]
-        provider_breakdown: dict[str, dict[str, float | int]] = {}
-        for h in hits:
-            b = provider_breakdown.setdefault(
-                h.model_provider, {"total_tokens": 0, "cost_usd": 0.0, "count": 0})
-            b["total_tokens"] += h.total_tokens
-            b["cost_usd"] += h.cost_usd
-            b["count"] += 1
-        return CostStats(
-            start_date=start_date, end_date=end_date,
-            total_cost_usd=float(sum(h.cost_usd for h in hits)),
-            total_tokens=int(sum(h.total_tokens for h in hits)),
-            prompt_tokens=int(sum(h.prompt_tokens for h in hits)),
-            completion_tokens=int(sum(h.completion_tokens for h in hits)),
-            provider_breakdown=provider_breakdown,
-        )
-
-    async def delete_summary(self, summary_id: str) -> bool:
-        async with shard_lock(self._path):
-            doc = self._load()
-            summaries = doc["summaries"]
-            if summary_id not in summaries:
-                raise NotFoundError(f"摘要不存在: {summary_id}")
-            del summaries[summary_id]
-            atomic_write_doc(self._path, doc)
-            return True
-
-    async def find_by_content_hash(self, content_hash: str) -> SummaryRecord | None:
-        matches = [r for r in self._load()["summaries"].values() if r["content_hash"] == content_hash]
-        if not matches:
-            return None
-        return self._to_domain(matches[0])      # 插入序第一条(≡ limit 1 + first();插入序匹配 sqlite scan 序,Task 4 oracle parity 校验),多行不抛
 
     async def get_all_summaries(self) -> list[SummaryRecord]:
         """枚举全部摘要记录(无序;Export 全量读)。"""

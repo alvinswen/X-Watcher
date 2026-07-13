@@ -42,36 +42,3 @@ def chinese_char_ratio(text: str) -> float:
         return 0.0
     return chinese_chars / meaningful_chars
 
-
-def is_chinese_dominant(text: str, threshold: float = 0.5) -> bool:
-    """判断文本是否以中文为主。
-
-    Args:
-        text: 输入文本。
-        threshold: 中文字符占比达到此值即判定为中文主导。
-
-    Returns:
-        True 表示中文主导。
-    """
-    return chinese_char_ratio(text) >= threshold
-
-
-def is_mixed_language(
-    text: str,
-    chinese_lower: float = 0.2,
-    chinese_upper: float = 0.8,
-) -> bool:
-    """判断文本是否为中英文混合内容。
-
-    中文占比在 [chinese_lower, chinese_upper] 之间视为混合。
-
-    Args:
-        text: 输入文本。
-        chinese_lower: 低于此值视为纯英文。
-        chinese_upper: 高于此值视为纯中文。
-
-    Returns:
-        True 表示中英文混合。
-    """
-    ratio = chinese_char_ratio(text)
-    return chinese_lower <= ratio <= chinese_upper

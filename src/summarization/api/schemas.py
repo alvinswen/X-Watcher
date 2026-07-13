@@ -4,65 +4,10 @@
 """
 
 from datetime import datetime
-from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 from src.shared.schemas import UTCDatetimeModel
-
-
-class BatchSummaryRequest(BaseModel):
-    """批量摘要请求模型。
-
-    用于请求批量处理推文的摘要和翻译。
-    """
-
-    tweet_ids: list[str] = Field(
-        ...,
-        min_length=1,
-        max_length=1000,
-        description="推文 ID 列表",
-    )
-    force_refresh: bool = Field(
-        default=False,
-        description="是否强制刷新缓存",
-    )
-
-    @field_validator("tweet_ids")
-    @classmethod
-    def validate_tweet_ids(cls, v: list[str]) -> list[str]:
-        """验证推文 ID 列表。
-
-        Args:
-            v: 推文 ID 列表
-
-        Returns:
-            验证后的推文 ID 列表
-
-        Raises:
-            ValueError: 如果推文 ID 列表无效
-        """
-        if not v:
-            raise ValueError("tweet_ids 不能为空")
-
-        # 验证每个推文 ID 格式
-        for tweet_id in v:
-            if not isinstance(tweet_id, str) or not tweet_id.strip():
-                raise ValueError(f"无效的推文 ID: {tweet_id}")
-
-        return v
-
-
-class BatchSummaryResponse(BaseModel):
-    """批量摘要响应模型。
-
-    返回批量摘要任务的初始状态。
-    """
-
-    task_id: str = Field(..., description="任务 ID")
-    status: Literal["pending", "running", "completed", "failed"] = Field(
-        ..., description="任务状态"
-    )
 
 
 class SummaryResponse(UTCDatetimeModel):
@@ -116,46 +61,6 @@ class SummaryResponse(UTCDatetimeModel):
         )
 
 
-class CostStatsResponse(UTCDatetimeModel):
-    """成本统计响应模型。
-
-    返回指定时间范围内的成本统计。
-    """
-
-    start_date: datetime | None = Field(None, description="统计开始日期")
-    end_date: datetime | None = Field(None, description="统计结束日期")
-    total_cost_usd: float = Field(..., ge=0, description="总成本（美元）")
-    total_tokens: int = Field(..., ge=0, description="总 token 数")
-    prompt_tokens: int = Field(..., ge=0, description="输入 token 总数")
-    completion_tokens: int = Field(..., ge=0, description="输出 token 总数")
-    provider_breakdown: dict[
-        str, dict[str, float | int]
-    ] = Field(..., description="按提供商分解的成本和 token")
-
-
-class SummaryResultResponse(BaseModel):
-    """摘要处理结果响应模型。
-
-    返回批量摘要处理的统计结果。
-    """
-
-    total_tweets: int = Field(..., ge=0, description="请求处理的总推文数（输入数量）")
-    total_tweets_succeeded: int = Field(
-        0, ge=0, description="实际成功处理的推文数"
-    )
-    cache_hits: int = Field(..., ge=0, description="缓存命中数")
-    cache_misses: int = Field(..., ge=0, description="缓存未命中数")
-    total_tokens: int = Field(..., ge=0, description="总 token 使用数")
-    total_cost_usd: float = Field(..., ge=0, description="总成本（美元）")
-    providers_used: dict[str, int] = Field(
-        ..., description="各提供商使用次数"
-    )
-    processing_time_ms: int = Field(..., ge=0, description="处理耗时（毫秒）")
-    failed_tweets: list[dict[str, Any]] = Field(
-        default_factory=list, description="失败推文详情列表"
-    )
-
-
 class ErrorResponse(BaseModel):
     """错误响应模型。
 
@@ -164,54 +69,3 @@ class ErrorResponse(BaseModel):
 
     detail: str = Field(..., description="错误详情")
     error_code: str | None = Field(None, description="错误代码")
-
-
-# ========== 摘要修复相关模型 ==========
-
-
-class SummaryPreviewResponse(BaseModel):
-    """摘要修复预览响应 — 补缺和重置共用。"""
-
-    tweet_count: int = Field(..., ge=0, description="受影响推文数量")
-
-
-class SummaryBackfillRequest(BaseModel):
-    """摘要补缺请求 — 可选时间范围。"""
-
-    since: datetime | None = Field(None, description="起始时间（含），ISO 8601 格式")
-    until: datetime | None = Field(None, description="截止时间（不含），ISO 8601 格式")
-
-
-class SummaryBackfillResponse(BaseModel):
-    """摘要补缺响应。"""
-
-    task_id: str = Field(..., description="任务 ID")
-    status: Literal["pending", "running", "completed", "failed"] = Field(
-        ..., description="任务状态"
-    )
-    tweet_count: int = Field(..., ge=0, description="补缺推文数量")
-
-
-class SummaryResetRequest(BaseModel):
-    """摘要重置请求 — 必填时间范围，since 必须早于 until。"""
-
-    since: datetime = Field(..., description="起始时间（含），ISO 8601 格式")
-    until: datetime = Field(..., description="截止时间（不含），ISO 8601 格式")
-
-    @field_validator("until")
-    @classmethod
-    def validate_time_range(cls, v: datetime, info: Any) -> datetime:
-        """校验 until 必须晚于 since。"""
-        if info.data.get("since") and v <= info.data["since"]:
-            raise ValueError("until 必须晚于 since")
-        return v
-
-
-class SummaryResetResponse(BaseModel):
-    """摘要重置响应。"""
-
-    task_id: str = Field(..., description="任务 ID")
-    status: Literal["pending", "running", "completed", "failed"] = Field(
-        ..., description="任务状态"
-    )
-    tweet_count: int = Field(..., ge=0, description="重置推文数量")
