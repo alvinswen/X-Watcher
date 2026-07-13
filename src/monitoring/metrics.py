@@ -37,14 +37,3 @@ tasks_total = Counter(
     ["status"],
 )
 
-# 数据库连接池大小
-db_pool_size = Gauge(
-    "db_pool_size",
-    "Database connection pool size",
-)
-
-# 数据库可用连接数
-db_pool_available = Gauge(
-    "db_pool_available",
-    "Available database connections",
-)

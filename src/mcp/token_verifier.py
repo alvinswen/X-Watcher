@@ -17,7 +17,7 @@ class XWatcherTokenVerifier(TokenVerifier):
 
     验证逻辑：
     1. 检查 ADMIN_API_KEY 环境变量 → admin + user scope
-    2. 查询数据库 api_keys 表 → 根据用户 is_admin 决定 scope
+    2. 查询文件层 user store 的用户 API Key → 根据用户 is_admin 决定 scope
     3. 均未命中 → 返回 None（拒绝访问）
     """
 
@@ -45,7 +45,7 @@ class XWatcherTokenVerifier(TokenVerifier):
                 scopes=["admin", "user", "subjects:write"],
             )
 
-        # 2. 查询数据库中的用户 API Key
+        # 2. 查询文件层 user store 的用户 API Key
         try:
             from src.data_layer.provider import get_user_repo
 
@@ -60,7 +60,7 @@ class XWatcherTokenVerifier(TokenVerifier):
                     user_name = user.name or "mcp_user"
                     scopes = ["admin", "user", "subjects:write"] if is_admin else ["user"]
                     logger.debug(
-                        "Token 验证通过: 数据库用户 %s (admin=%s)",
+                        "Token 验证通过: 文件层用户 %s (admin=%s)",
                         user_name,
                         is_admin,
                     )
@@ -70,7 +70,7 @@ class XWatcherTokenVerifier(TokenVerifier):
                         scopes=scopes,
                     )
         except Exception as e:
-            logger.warning("Token 数据库验证失败: %s", e)
+            logger.warning("Token 用户 API Key 验证失败: %s", e)
 
         logger.debug("Token 验证失败: 无匹配的 API key")
         return None

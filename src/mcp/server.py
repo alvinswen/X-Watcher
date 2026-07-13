@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 async def mcp_lifespan(server: FastMCP) -> AsyncIterator[None]:
     """MCP 服务生命周期管理。
 
-    启动时初始化数据库，关闭时清理资源。
+    启动时记录运行配置，关闭时清理资源。
     日志初始化在 run_mcp_server() 中已完成（需在 lifespan 之前）。
     """
     logger.info(
@@ -126,7 +126,7 @@ def run_mcp_server(
     if api_key:
         logger.warning(
             "api_key 参数已弃用，HTTP 模式现在使用 per-request Bearer token 认证。"
-            "请通过 ADMIN_API_KEY 环境变量或数据库 API Key 配置访问权限。"
+            "请通过 ADMIN_API_KEY 环境变量或文件层用户 API Key 配置访问权限。"
         )
 
     # 1. 初始化日志（必须在创建 FastMCP 之前）

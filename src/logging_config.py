@@ -22,7 +22,7 @@ from logging.handlers import QueueHandler, QueueListener, RotatingFileHandler
 from typing import Any
 
 # ── trace_id 上下文变量 ─────────────────────────────────────────
-# 在管道入口（抓取/摘要任务）设置，自动传播到所有下游日志
+# 在管道入口（抓取任务）设置，自动传播到所有下游日志
 trace_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "trace_id", default=None
 )
@@ -35,24 +35,9 @@ _queue_listener: QueueListener | None = None
 _DISPLAY_EXTRA_KEYS = frozenset({
     "trace_id",
     "task_id",
-    "tweet_id",
-    "provider",
-    "model",
-    "tokens",
-    "cost_usd",
-    "error_type",
-    "error_message",
-    "source",
     "event",
-    "cache_hits",
-    "cache_misses",
-    "total_tweets",
     "processing_time_ms",
-    "retry_attempt",
-    "wait_seconds",
-    "chunk_index",
-    "total_chunks",
-    "enqueue_method",
+    "error_type",
 })
 
 # 标准 LogRecord 属性（用于过滤 extra 字段）

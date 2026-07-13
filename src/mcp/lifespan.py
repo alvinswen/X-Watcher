@@ -17,8 +17,8 @@ _stdio_mode = False
 def _redirect_all_handlers_to_stderr() -> None:
     """将所有 logger 的 StreamHandler 重定向到 stderr。
 
-    SQLAlchemy 的 echo=True 会为引擎实例 logger 添加指向 stdout 的 handler，
-    这会破坏 MCP stdio 协议。此函数遍历所有已注册 logger 并统一重定向。
+    指向 stdout 的 StreamHandler 会破坏 MCP stdio 协议。
+    此函数遍历所有已注册 logger 并统一重定向到 stderr。
     """
     for name in list(logging.Logger.manager.loggerDict):
         lg = logging.getLogger(name)
