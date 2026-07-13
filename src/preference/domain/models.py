@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import json
 from datetime import datetime
 from typing import Any
 
@@ -32,29 +31,6 @@ class ScraperFollow(BaseModel):
     )
     backfill_completed_at: datetime | None = Field(None, description="回溯完成时间")
 
-    @classmethod
-    def from_orm(cls, orm_obj: Any) -> "ScraperFollow":
-        """从 ORM 模型转换为领域模型。
-
-        Args:
-            orm_obj: SQLAlchemy ORM 模型实例
-
-        Returns:
-            领域模型实例
-        """
-        return cls(
-            id=orm_obj.id,
-            username=orm_obj.username,
-            added_at=orm_obj.added_at,
-            reason=orm_obj.reason,
-            added_by=orm_obj.added_by,
-            is_active=orm_obj.is_active,
-            manual_limit=orm_obj.manual_limit,
-            platform_user_id=orm_obj.platform_user_id,
-            brief_intro=orm_obj.brief_intro,
-            backfill_status=orm_obj.backfill_status or "pending",
-            backfill_completed_at=orm_obj.backfill_completed_at,
-        )
 
 
 class XUserProfile(BaseModel):
@@ -85,32 +61,6 @@ class XUserProfile(BaseModel):
     unavailable_reason: str | None = Field(None, description="不可用原因")
     fetched_at: datetime | None = Field(None, description="数据获取时间")
 
-    @classmethod
-    def from_orm(cls, orm_obj: Any) -> XUserProfile:
-        """从 ORM 模型转换为领域模型。"""
-        return cls(
-            platform_user_id=orm_obj.platform_user_id,
-            username=orm_obj.username,
-            display_name=orm_obj.display_name,
-            is_blue_verified=orm_obj.is_blue_verified,
-            verified_type=orm_obj.verified_type,
-            profile_picture=orm_obj.profile_picture,
-            cover_picture=orm_obj.cover_picture,
-            description=orm_obj.description,
-            location=orm_obj.location,
-            followers_count=orm_obj.followers_count,
-            following_count=orm_obj.following_count,
-            statuses_count=orm_obj.statuses_count,
-            favourites_count=orm_obj.favourites_count,
-            media_count=orm_obj.media_count,
-            account_created_at=orm_obj.account_created_at,
-            is_automated=orm_obj.is_automated,
-            possibly_sensitive=orm_obj.possibly_sensitive,
-            pinned_tweet_ids=orm_obj.pinned_tweet_ids,
-            unavailable=orm_obj.unavailable,
-            unavailable_reason=orm_obj.unavailable_reason,
-            fetched_at=orm_obj.fetched_at,
-        )
 
     @classmethod
     def from_api_response(cls, data: dict[str, Any], fetched_at: datetime) -> XUserProfile:
@@ -148,7 +98,3 @@ class XUserProfile(BaseModel):
             unavailable_reason=data.get("unavailableReason"),
             fetched_at=fetched_at,
         )
-
-    def to_raw_json(self, data: dict[str, Any]) -> str:
-        """将原始 API 响应序列化为 JSON 字符串。"""
-        return json.dumps(data, ensure_ascii=False)

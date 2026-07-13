@@ -176,12 +176,6 @@ class FileFollowStore:
                 rec["backfill_completed_at"] = completed_at.isoformat()
             atomic_write_doc(self._path, doc)
 
-    async def is_username_in_follows(self, username: str, active_only: bool = True) -> bool:
-        rec = self._load()["follows"].get(username)
-        if rec is None:
-            return False
-        return bool(rec["is_active"]) if active_only else True
-
     async def upsert_follow(self, fields: dict[str, Any]) -> None:
         """按 username 插入或全字段覆盖(import 写底座;fields=导出格式 10 字段,无 id)。
         存在→保留原 id 覆盖其余;不存在→分配 seq+1。datetime 串保持导出格式,read-back 归一化。"""

@@ -78,20 +78,6 @@ def test_api_key_hash_sha256(auth_service):
     assert re.match(r"^[0-9a-f]{64}$", key_hash)
 
 
-def test_verify_api_key_hash(auth_service):
-    """正确 API Key 哈希比较。"""
-    raw_key, key_hash, _ = auth_service.generate_api_key()
-
-    assert auth_service.verify_api_key_hash(raw_key, key_hash) is True
-
-
-def test_verify_api_key_hash_wrong(auth_service):
-    """错误 API Key 哈希比较。"""
-    raw_key, key_hash, _ = auth_service.generate_api_key()
-
-    assert auth_service.verify_api_key_hash("sna_wrong_key_here_1234567890", key_hash) is False
-
-
 def test_jwt_create_and_decode(auth_service):
     """JWT Token 生成和解码包含正确字段。"""
     token = auth_service.create_jwt_token(user_id=42, email="test@example.com", is_admin=False)

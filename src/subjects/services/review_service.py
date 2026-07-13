@@ -12,7 +12,6 @@ from src.subjects.provenance import assemble_provenance
 from src.subjects.store import utc_now
 
 MAX_SECTION_BODY = 4000
-_MAX_SECTION_BODY = MAX_SECTION_BODY
 
 
 class ReviewConflictError(Exception):
@@ -23,10 +22,9 @@ class ReviewConflictError(Exception):
 
 
 class SubjectReviewService:
-    def __init__(self, repo: Any | None = None, providers: list[Any] | None = None) -> None:
+    def __init__(self, repo: Any | None = None) -> None:
         repo_factory = get_subject_repo
         self._repo: Any = repo if repo is not None else repo_factory()
-        self._providers: list[Any] | None = providers
 
     async def get_review_payload(self, subject_id: str) -> dict[str, Any] | None:
         if await self._repo.get_subject(subject_id) is None:

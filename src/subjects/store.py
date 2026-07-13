@@ -57,15 +57,6 @@ def parse_dt(value: str | datetime) -> datetime:
     return paths.as_utc(datetime.fromisoformat(value.replace("Z", "+00:00")))
 
 
-def hour_bucket(dt: datetime) -> str:
-    return paths.as_utc(dt).strftime("%Y-%m-%d-%H")
-
-
-def hour_window(hour: str) -> tuple[datetime, datetime]:
-    start = datetime.strptime(hour, "%Y-%m-%d-%H").replace(tzinfo=UTC)
-    return start, start + timedelta(hours=1)
-
-
 class FileSubjectStore:
     def __init__(self, data_root: Path) -> None:
         self._root = Path(data_root)
@@ -265,15 +256,6 @@ class FileSubjectStore:
         if not matches:
             return None
         return max(match.matched_at for match in matches)
-
-    async def match_hours_for_tweets(self, tweet_ids: list[str]) -> set[tuple[str, str]]:
-        wanted = set(tweet_ids)
-        affected: set[tuple[str, str]] = set()
-        for subject in await self.list_subjects():
-            for match in await self.list_matches(subject.subject_id):
-                if match.tweet_id in wanted:
-                    affected.add((match.subject_id, hour_bucket(match.matched_at)))
-        return affected
 
     async def save_digest(self, digest: SubjectDigest) -> SubjectDigest:
         path = paths.subject_digest_shard(self._root, digest.subject_id, digest.interval_start)

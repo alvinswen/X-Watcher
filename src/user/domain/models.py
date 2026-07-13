@@ -4,7 +4,6 @@
 """
 
 from datetime import datetime
-from typing import Any
 
 from pydantic import BaseModel
 
@@ -18,15 +17,6 @@ class UserDomain(BaseModel):
     is_admin: bool
     created_at: datetime
 
-    @classmethod
-    def from_orm(cls, orm_obj: Any) -> "UserDomain":
-        return cls(
-            id=orm_obj.id,
-            name=orm_obj.name,
-            email=orm_obj.email,
-            is_admin=orm_obj.is_admin,
-            created_at=orm_obj.created_at,
-        )
 
 
 class ApiKeyInfo(BaseModel):
@@ -40,17 +30,6 @@ class ApiKeyInfo(BaseModel):
     created_at: datetime
     last_used_at: datetime | None = None
 
-    @classmethod
-    def from_orm(cls, orm_obj: Any) -> "ApiKeyInfo":
-        return cls(
-            id=orm_obj.id,
-            user_id=orm_obj.user_id,
-            key_prefix=orm_obj.key_prefix,
-            name=orm_obj.name,
-            is_active=orm_obj.is_active,
-            created_at=orm_obj.created_at,
-            last_used_at=orm_obj.last_used_at,
-        )
 
 
 BOOTSTRAP_ADMIN = UserDomain(

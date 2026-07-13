@@ -11,22 +11,11 @@ from src.subjects.store import utc_now
 
 
 class SubjectClassifier:
-    """提供议题 prompt 元数据，供后续外部技能复用。"""
+    """议题分类写回服务(write_matches 校验并落盘外部技能的分类结果)。"""
 
     def __init__(self, repo: Any | None = None) -> None:
         repo_factory = get_subject_repo
         self._repo: Any = repo if repo is not None else repo_factory()
-
-    async def prompt_subjects(self) -> list[dict[str, str]]:
-        subjects = (await self._repo.list_active_subjects())[:20]
-        return [
-            {
-                "subject_id": subject.subject_id,
-                "name": subject.name,
-                "nl_description": subject.nl_description,
-            }
-            for subject in subjects
-        ]
 
     async def write_matches(
         self,

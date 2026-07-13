@@ -15,16 +15,14 @@ from src.subjects.provenance import assemble_provenance, build_digest_provenance
 from src.subjects.store import utc_now
 
 MAX_DIGEST_TEXT = 4000
-_MAX_DIGEST_TEXT = MAX_DIGEST_TEXT
 
 
 class SubjectDigestService:
     """保留服务壳，待 A2/B 通过外部技能回写产物。"""
 
-    def __init__(self, repo: Any | None = None, providers: list[Any] | None = None) -> None:
+    def __init__(self, repo: Any | None = None) -> None:
         repo_factory = get_subject_repo
         self._repo: Any = repo if repo is not None else repo_factory()
-        self._providers: list[Any] | None = providers
 
     async def write_digest(
         self,
