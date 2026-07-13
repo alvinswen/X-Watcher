@@ -4,7 +4,6 @@ import { client } from "./client"
 import type {
   ScrapeTriggerRequest,
   ScrapeTriggerResponse,
-  TaskStatusResponse,
   TaskListItem,
 } from "@/types"
 
@@ -22,28 +21,12 @@ export const tasksApi = {
     return response.data
   },
 
-  /** 查询任务状态 */
-  async getStatus(taskId: string): Promise<TaskStatusResponse> {
-    const response = await client.get<TaskStatusResponse>(
-      `${TASKS_PREFIX}/${taskId}`,
-    )
-    return response.data
-  },
-
   /** 列出所有任务 */
   async listTasks(status?: string): Promise<TaskListItem[]> {
     const params = status ? { status } : undefined
     const response = await client.get<TaskListItem[]>(TASKS_PREFIX, {
       params,
     })
-    return response.data
-  },
-
-  /** 删除任务 */
-  async deleteTask(taskId: string): Promise<{ message: string }> {
-    const response = await client.delete<{ message: string }>(
-      `${TASKS_PREFIX}/${taskId}`,
-    )
     return response.data
   },
 

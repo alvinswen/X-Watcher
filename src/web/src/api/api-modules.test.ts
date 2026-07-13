@@ -14,22 +14,11 @@ vi.mock("./client", () => {
   return { client }
 })
 
-// --- Mock 策略 2: axios（health 独立使用） ---
-vi.mock("axios", () => {
-  return {
-    default: { get: vi.fn() },
-    __esModule: true,
-  }
-})
-
 // 导入被测模块（必须在 vi.mock 之后）
 import { client } from "./client"
-import axios from "axios"
 import { usersApi } from "./users"
-import { healthApi } from "./health"
 
 const mockedClient = client as Mocked<Pick<AxiosInstance, "get" | "post" | "put">>
-const mockedAxios = axios as Mocked<Pick<typeof axios, "get">>
 
 // ============================================================
 // usersApi
@@ -97,27 +86,3 @@ describe("usersApi - 用户管理 API", () => {
   })
 })
 
-// ============================================================
-// healthApi
-// ============================================================
-describe("healthApi - 健康检查 API", () => {
-  beforeEach(() => {
-    vi.resetAllMocks()
-  })
-
-  it("getStatus 应使用独立 axios 发送 GET 请求到 /health", async () => {
-    const mockData = {
-      status: "healthy" as const,
-      components: {
-        database: { status: "healthy" as const },
-      },
-    }
-    mockedAxios.get.mockResolvedValueOnce({ data: mockData })
-
-    const result = await healthApi.getStatus()
-
-    expect(mockedAxios.get).toHaveBeenCalledWith("/health")
-    expect(mockedClient.get).not.toHaveBeenCalled()
-    expect(result).toEqual(mockData)
-  })
-})

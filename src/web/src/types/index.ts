@@ -3,7 +3,6 @@
 export * from "./tweet"
 export * from "./task"
 export * from "./user"
-export * from "./health"
 export * from "./browse"
 export * from "./status"
 export * from "./search"
