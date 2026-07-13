@@ -41,9 +41,6 @@ class TweetValidator:
     负责验证推文数据的完整性并清理文本内容。
     """
 
-    # 必需字段列表
-    REQUIRED_FIELDS = ["tweet_id", "text", "created_at", "author_username"]
-
     # 最大文本长度（X Premium 支持最多 25000 字符）
     MAX_TEXT_LENGTH = 25000
 

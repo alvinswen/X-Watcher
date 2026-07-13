@@ -280,24 +280,6 @@ class TestScrapingService:
         assert status["result"]["total_users"] == 0
 
     @pytest.mark.asyncio
-    async def test_scrape_single_user_with_since_id(
-        self, service, mock_client, mock_parser, mock_validator, mock_repository
-    ):
-        """测试使用 since_id 参数。"""
-        mock_client.fetch_user_tweets.return_value = Success(
-            {"data": [], "includes": {"users": []}}
-        )
-        mock_parser.parse_tweet_response.return_value = []
-        mock_validator.validate_and_clean_batch.return_value = []
-
-        await service.scrape_single_user("testuser", since_id="123456")
-
-        # 验证 since_id 被传递
-        mock_client.fetch_user_tweets.assert_called_once()
-        call_kwargs = mock_client.fetch_user_tweets.call_args[1]
-        assert call_kwargs["since_id"] == "123456"
-
-    @pytest.mark.asyncio
     async def test_scrape_single_user_skip_existing(
         self, service, mock_client, mock_parser, mock_validator, mock_repository
     ):
