@@ -60,8 +60,8 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
         # 计算请求持续时间
         duration = time.time() - start_time
 
-        # 获取请求路径（标准化，去除动态路径参数）
-        path = self._normalize_path(request.url.path)
+        # 路由匹配已在 call_next 后完成，使用框架模板控制标签基数。
+        path = self._label_path(request)
 
         # 更新指标
         metrics.http_requests_total.labels(
@@ -77,26 +77,8 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
 
         return response
 
-    def _normalize_path(self, path: str) -> str:
-        """标准化请求路径。
-
-        将动态路径参数替换为占位符，如 /api/admin/scrape/abc123 -> /api/admin/scrape/{task_id}
-
-        Args:
-            path: 原始路径
-
-        Returns:
-            str: 标准化后的路径
-        """
-        # 定义需要标准化的路径模式
-        patterns = [
-            ("/api/admin/scrape/", "/api/admin/scrape/{task_id}"),
-            ("/api/summaries/tweets/", "/api/summaries/tweets/{tweet_id}"),
-            ("/api/summaries/tasks/", "/api/summaries/tasks/{task_id}"),
-        ]
-
-        for prefix, replacement in patterns:
-            if path.startswith(prefix) and len(path) > len(prefix):
-                return replacement
-
-        return path
+    def _label_path(self, request: Request) -> str:
+        """返回框架匹配后的路由模板；未匹配请求使用固定标签。"""
+        route = request.scope.get("route")
+        path_format = getattr(route, "path_format", None)
+        return path_format if isinstance(path_format, str) else "__unmatched__"
