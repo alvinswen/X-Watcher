@@ -1,7 +1,7 @@
 # src/sync/infrastructure/export_serializers.py
-"""候选侧导出序列化:domain → 与旧 serializers.*_to_dict 同构的 dict。
+"""导出序列化:domain → 导出包 JSON dict(sync 导出格式的唯一权威定义)。
 
-字段投影 + _dt_to_iso 时间戳格式逐字对齐旧 serializer(排除 auto-id/本地时间戳、保留业务时间戳)。
+字段投影 + _dt_to_iso 时间戳格式(排除 auto-id/本地时间戳、保留业务时间戳)。
 特殊投影:tweet media/referenced_tweet_media → list[dict](Media.model_dump);reference_type/status → .value。
 """
 

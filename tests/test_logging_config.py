@@ -156,14 +156,14 @@ class TestEnhancedTextFormatter:
             "test", logging.INFO, "", 0, "服务调用", (), None
         )
         record.trace_id = "-"
-        record.provider = "scraper"
-        record.tweet_id = "tw_001"
+        record.task_id = "task_001"
+        record.event = "scrape_task_start"
 
         output = formatter.format(record)
 
         assert "| " in output
-        assert "provider=scraper" in output
-        assert "tweet_id=tw_001" in output
+        assert "task_id=task_001" in output
+        assert "event=scrape_task_start" in output
 
     def test_no_extra_no_pipe(self):
         """测试没有 extra 字段时不显示 |。"""
@@ -184,11 +184,11 @@ class TestEnhancedTextFormatter:
             "test", logging.INFO, "", 0, "成本", (), None
         )
         record.trace_id = "-"
-        record.cost_usd = 0.00123456789
+        record.processing_time_ms = 0.00123456789
 
         output = formatter.format(record)
 
-        assert "cost_usd=0.0012" in output
+        assert "processing_time_ms=0.0012" in output
 
 
 class TestSetupLogging:

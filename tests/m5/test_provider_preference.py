@@ -7,7 +7,7 @@ def test_get_follows_repo_file_mode(monkeypatch, tmp_path):
     from src.data_layer.provider import get_follows_repo
     from src.preference.infrastructure.file_follow_repository import FileFollowStore
 
-    repo = get_follows_repo(session=None)
+    repo = get_follows_repo()
     assert isinstance(repo, FileFollowStore)
 
 
@@ -17,5 +17,5 @@ def test_get_profile_repo_file_mode(monkeypatch, tmp_path):
     from src.data_layer.provider import get_profile_repo
     from src.preference.infrastructure.file_profile_repository import FileProfileStore
 
-    repo = get_profile_repo(session=None)
+    repo = get_profile_repo()
     assert isinstance(repo, FileProfileStore)

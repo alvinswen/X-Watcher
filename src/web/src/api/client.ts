@@ -1,6 +1,6 @@
 /** API 客户端基础配置。 */
 
-import axios, { AxiosError, type AxiosInstance, type AxiosRequestConfig, type AxiosResponse } from "axios"
+import axios, { AxiosError, type AxiosInstance, type AxiosResponse } from "axios"
 import type { ApiError } from "@/types"
 import { messageService } from "@/services/message"
 
@@ -84,30 +84,4 @@ client.interceptors.response.use(
   },
 )
 
-/** 设置 API Key */
-export function setApiKey(key: string): void {
-  localStorage.setItem(API_KEY_STORAGE_KEY, key)
-}
-
-/** 获取 API Key */
-export function getApiKey(): string | null {
-  return localStorage.getItem(API_KEY_STORAGE_KEY)
-}
-
-/** 清除 API Key */
-export function clearApiKey(): void {
-  localStorage.removeItem(API_KEY_STORAGE_KEY)
-}
-
 export { client }
-
-/** 通用请求方法 */
-export async function request<T>(config: AxiosRequestConfig): Promise<T> {
-  const response = await client.request<T>({
-    ...config,
-    headers: {
-      ...config.headers,
-    },
-  })
-  return response.data
-}

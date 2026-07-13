@@ -56,10 +56,6 @@ class CircuitBreaker:
                     )
             return self._state
 
-    def is_open(self) -> bool:
-        """检查熔断器是否处于 OPEN 状态（应拒绝请求）。"""
-        return self.state == CircuitState.OPEN
-
     def allow_request(self) -> bool:
         """判断当前是否允许发送请求。
 

@@ -2,9 +2,7 @@
 
 提供测试 Fixtures 和配置。
 
-⚠️ 测试基座 = file 模式（CHG-021 起 · 与生产一致）：
-- 全局钉 XWATCHER_DATA_LAYER=file，中和本机 gitignored .env 的污染
-  （沿 sqlalchemy 时代同款"本机挂 CI 绿"历史事故防御，只是钉的值换成 file）；
+⚠️ 测试基座 = 文件层（CHG-021 起 · 与生产一致；CHG-028 起数据层开关已物理删除,无需再钉）：
 - 全局钉一次性临时数据目录 XWATCHER_DATA_ROOT，堵死"未显式设 data_root 的测试
   误读写生产数据目录（data_migrated）"的全部路径；需要数据隔离的测试仍自行
   monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path)) opt-in 覆盖（覆盖 + 测试后还原）。
@@ -23,8 +21,6 @@ from src.config import clear_settings_cache, get_settings
 from src.logging_config import shutdown_logging
 
 os.environ.setdefault("TWITTER_API_KEY", "test-twitter-key")
-os.environ.setdefault("TWITTER_BEARER_TOKEN", "test-bearer-token")
-os.environ["XWATCHER_DATA_LAYER"] = "file"
 # 全局一次性临时数据目录：所有未显式 opt-in 覆盖 XWATCHER_DATA_ROOT 的测试都落在这里，
 # 杜绝任何测试路径读写真实生产数据目录（data_migrated）。
 _session_data_root = tempfile.mkdtemp(prefix="xwatcher-conftest-data-")
@@ -55,7 +51,6 @@ load_dotenv()
 
 # ⚠️ load_dotenv（默认不覆盖已有 env）后再显式钉一次，双保险：
 # 测试套件必须 env-无关（本机 .env 有无、值为何均不改变测试行为）。
-os.environ["XWATCHER_DATA_LAYER"] = "file"
 os.environ["XWATCHER_DATA_ROOT"] = _session_data_root
 clear_settings_cache()
 
@@ -104,11 +99,7 @@ def test_settings():
     import os
 
     test_env = {
-        "MINIMAX_API_KEY": "test-api-key",
-        "MINIMAX_BASE_URL": "https://api.test.com",
         "TWITTER_API_KEY": "test-twitter-key",
-        "TWITTER_BEARER_TOKEN": "test-bearer-token",
-        "DATABASE_URL": "sqlite:///:memory:",
         "LOG_LEVEL": "WARNING",  # 测试时减少日志输出
     }
 

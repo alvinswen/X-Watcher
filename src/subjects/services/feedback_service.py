@@ -6,7 +6,6 @@ import json
 import re
 import uuid
 from collections import defaultdict
-from collections.abc import Callable
 from datetime import datetime
 from typing import Any, cast
 
@@ -48,7 +47,7 @@ def build_feedback_target_id(
 
 class SubjectFeedbackService:
     def __init__(self, repo: Any | None = None) -> None:
-        repo_factory = cast(Callable[[], Any], get_subject_repo)
+        repo_factory = get_subject_repo
         self._repo: Any = repo if repo is not None else repo_factory()
 
     async def put_feedback(

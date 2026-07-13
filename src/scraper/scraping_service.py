@@ -81,7 +81,6 @@ class ScrapingService:
         usernames: list[str],
         *,
         limit: int = 100,
-        since_id: str | None = None,
         task_id: str | None = None,
         manual_limits: dict[str, int] | None = None,
     ) -> str:
@@ -90,7 +89,6 @@ class ScrapingService:
         Args:
             usernames: 用户名列表
             limit: 每个用户抓取的推文数量限制
-            since_id: 只获取此 ID 之后的推文
             task_id: 可选的任务 ID（为 None 时自动创建）
             manual_limits: 手动 limit 映射 {username: limit}（可选）
 
@@ -104,7 +102,6 @@ class ScrapingService:
                 metadata={
                     "usernames": ",".join(usernames),
                     "limit": limit,
-                    "since_id": since_id,
                 },
             )
 
@@ -123,7 +120,6 @@ class ScrapingService:
                     semaphore,
                     username,
                     limit,
-                    since_id,
                     manual_limit=manual_limits.get(username) if manual_limits else None,
                 )
                 for username in usernames
@@ -184,13 +180,12 @@ class ScrapingService:
         semaphore: asyncio.Semaphore,
         username: str,
         limit: int,
-        since_id: str | None,
         manual_limit: int | None = None,
     ) -> dict[str, Any]:
         """使用信号量控制并发抓取。"""
         async with semaphore:
             return await self.scrape_single_user(
-                username, limit=limit, since_id=since_id, manual_limit=manual_limit,
+                username, limit=limit, manual_limit=manual_limit,
             )
 
     async def scrape_single_user(
@@ -198,7 +193,6 @@ class ScrapingService:
         username: str,
         *,
         limit: int = 100,
-        since_id: str | None = None,
         manual_limit: int | None = None,
         _retry_count: int = 0,
     ) -> dict[str, Any]:
@@ -210,7 +204,6 @@ class ScrapingService:
         Args:
             username: 用户名
             limit: 抓取的推文数量限制（作为上限参考，实际 limit 由动态计算决定）
-            since_id: 只获取此 ID 之后的推文
             manual_limit: 手动 limit（优先于自动计算）
 
         Returns:
@@ -247,7 +240,7 @@ class ScrapingService:
         try:
             return await self._scrape_single_user_inner(
                 username, result=result, limit=limit,
-                since_id=since_id, manual_limit=manual_limit,
+                manual_limit=manual_limit,
                 _retry_count=_retry_count,
             )
         finally:
@@ -260,7 +253,6 @@ class ScrapingService:
         *,
         result: dict[str, Any],
         limit: int = 100,
-        since_id: str | None = None,
         manual_limit: int | None = None,
         _retry_count: int = 0,
     ) -> dict[str, Any]:
@@ -286,7 +278,6 @@ class ScrapingService:
             api_result = await self._client.fetch_user_tweets(
                 username,
                 limit=actual_limit,
-                since_id=since_id,
             )
 
             if isinstance(api_result, Failure):
@@ -306,7 +297,6 @@ class ScrapingService:
                         return await self.scrape_single_user(
                             new_username,
                             limit=limit,
-                            since_id=since_id,
                             manual_limit=manual_limit,
                             _retry_count=1,
                         )

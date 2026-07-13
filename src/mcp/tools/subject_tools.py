@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Callable
 from datetime import datetime
-from typing import Any, cast
+from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
@@ -118,7 +117,7 @@ def _candidate_ids_from_matches(matches: list[Any]) -> list[str]:
 
 
 def _subject_repo() -> Any:
-    repo_factory = cast(Callable[[], Any], get_subject_repo)
+    repo_factory = get_subject_repo
     return repo_factory()
 
 

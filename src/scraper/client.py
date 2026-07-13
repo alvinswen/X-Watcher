@@ -267,7 +267,6 @@ class TwitterClient:
         username: str,
         *,
         limit: int = 100,
-        since_id: str | None = None,
         cursor: str | None = None,
     ) -> Result[dict[str, Any], TwitterClientError]:
         """获取指定用户的推文列表。
@@ -275,7 +274,6 @@ class TwitterClient:
         Args:
             username: Twitter 用户名（不带 @ 符号）
             limit: 返回推文数量限制（1-1000）
-            since_id: 只返回此 ID 之后的推文（TwitterAPI.io 暂不支持）
             cursor: 分页游标（用于获取下一页，首页传 None）
 
         Returns:
@@ -303,10 +301,6 @@ class TwitterClient:
 
         if cursor:
             params["cursor"] = cursor
-
-        if since_id:
-            # TwitterAPI.io 可能不支持 since_id，记录警告
-            logger.warning("since_id 参数在 TwitterAPI.io 中可能不被支持")
 
         # 确保客户端已初始化
         self._ensure_client()
@@ -930,7 +924,7 @@ class TwitterClient:
         """
         error_messages = {
             400: "错误的请求",
-            401: "未授权 - 请检查 Bearer Token",
+            401: "未授权 - 请检查 TWITTER_API_KEY(X-API-Key)",
             403: "禁止访问",
             404: "资源未找到",
             422: "无法处理的实体",

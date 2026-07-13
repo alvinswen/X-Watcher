@@ -7,7 +7,6 @@
 import asyncio
 import base64
 import hashlib
-import hmac
 import secrets
 import string
 from datetime import datetime, timezone, timedelta
@@ -56,11 +55,6 @@ class AuthService:
     def hash_api_key(self, raw_key: str) -> str:
         """SHA-256 哈希 API Key。"""
         return hashlib.sha256(raw_key.encode()).hexdigest()
-
-    def verify_api_key_hash(self, raw_key: str, stored_hash: str) -> bool:
-        """常量时间比较 API Key 哈希。"""
-        computed = self.hash_api_key(raw_key)
-        return hmac.compare_digest(computed, stored_hash)
 
     def create_jwt_token(self, user_id: int, email: str, is_admin: bool) -> str:
         """生成 JWT Access Token。"""

@@ -106,21 +106,6 @@ class FileTweetStore:
         limit = max(limit, 0)
         return [_to_domain(r) for r in records[:limit]]
 
-    async def get_tweets_by_usernames(self, usernames: list[str], limit: int = 100) -> list[Tweet]:
-        if not usernames or limit <= 0:
-            return []
-        try:
-            wanted = {u.lower() for u in usernames}
-            records: list[dict[str, Any]] = []
-            for u in wanted:
-                for shard in paths.author_shards(self._root, u):
-                    records.extend(read_shard(shard))
-            records = [r for r in records if r.get("author_username", "").lower() in wanted]
-            records.sort(key=_parse, reverse=True)
-            return [_to_domain(r) for r in records[:limit]]
-        except Exception:
-            return []
-
     async def get_by_day(self, local_date: date, tz_offset_min: int, *,
                          min_text_length: int = 0, limit: int | None = None) -> list[Tweet]:
         utc_start, utc_end = paths.local_day_to_utc_window(local_date, tz_offset_min)

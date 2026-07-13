@@ -1,17 +1,10 @@
-"""pg 下线 A4 记录表 + A5 CLI init:file 模式守卫真验行为测试。
-
-owner 定 A4 = accept-no-persist(file 模式跳过 pg 写、守卫读侧返空;audit 文件 logger
-仍写、task 历史仅内存);A5 = CLI init file 模式不建表、管理员走文件层。
-默认 sqlalchemy 模式零行为变化。
+"""任务注册表纯内存语义 + audit 恒空/文件日志 + CLI init 文件层守卫(原 pg 下线 A4/A5 · CHG-028 改写)。
 
 覆盖:
-1. A4 写 file 跳过:file 模式 _persist_task / recover DB 段不碰 get_engine。
-2. A4 读 file 返空:get_task_history 返 []、get_audit_log 返空结构,均不开 session。
-3. A4 audit 文件 logger 仍写:file 模式 audit_log 主函数 audit_logger 仍被调。
-4. A5 init file 跳过 create_all。
-5. A5 _create_admin file 走文件层:建出 admin(get_user_by_email 查得 + is_admin)+ 返 raw_key;重复返 None。
-
-⚠️ 本机 .env=file。所有"sqlalchemy 模式"断言用 monkeypatch.setenv 显式翻成 sqlalchemy。
+1. 任务持久化脚手架已删除:_persist_task 不复存在(防再引入);recover 仅内存段。
+2. get_audit_log 恒返空结构(logs=[]/count=0 · 产品级"接线 or 明示恒空"留 R3/R4)。
+3. audit 文件 logger 仍写:audit_log 主函数 audit_logger 仍被调。
+4. _create_admin 走文件层:建出 admin + 返 raw_key;重复返 None。
 """
 
 import asyncio
@@ -19,36 +12,21 @@ import json
 
 
 # ---------------------------------------------------------------------------
-# A4-1. 写侧 file 跳过:_persist_task 早返,不碰 get_engine
+# A4-1. 持久化脚手架已删除:纯内存语义
 # ---------------------------------------------------------------------------
-def test_persist_task_skips_in_file_mode(monkeypatch):
-    """file 模式:_persist_task 早返,get_engine call_count==0(原 try/except 会吞抛,故用计数 spy)。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
-
-    from src.scraper.task_registry import TaskRegistry, TaskStatus
+def test_persist_scaffold_removed():
+    """_persist_task 已随 CHG-028 删除:注册表纯内存,防 no-op 持久化脚手架再引入。"""
+    from src.scraper.task_registry import TaskRegistry
 
     reg = TaskRegistry.get_instance()
-    task_data = {
-        "task_id": "t-file-1",
-        "task_name": "demo",
-        "status": TaskStatus.COMPLETED,
-        "created_at": __import__("datetime").datetime.now(),
-        "started_at": None,
-        "completed_at": None,
-        "result": None,
-        "error": None,
-        "metadata": {},
-    }
-    reg._persist_task(task_data)
+    assert not hasattr(reg, "_persist_task")
 
 
 # ---------------------------------------------------------------------------
-# A4-1b. recover_stale_tasks:DB 段 file 模式跳过、内存段仍工作
+# A4-1b. recover_stale_tasks:纯内存超时恢复
 # ---------------------------------------------------------------------------
-def test_recover_stale_tasks_skips_db_segment_in_file_mode(monkeypatch):
-    """file 模式:recover DB 残留段跳过(不碰 get_engine),内存超时段仍工作。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
-
+def test_recover_stale_tasks_memory_segment():
+    """recover_stale_tasks 内存超时段工作(DB 残留段已随 CHG-028 删除)。"""
     from datetime import datetime, timedelta
 
     from src.scraper.task_registry import TaskRegistry, TaskStatus
@@ -70,7 +48,6 @@ def test_recover_stale_tasks_skips_db_segment_in_file_mode(monkeypatch):
             "metadata": {},
         }
 
-    # patch _persist_task 避免 update_task_status 触发(file 早返已覆盖,这里隔离内存段)
     recovered = reg.recover_stale_tasks(max_running_seconds=1800)
 
     # 内存段仍工作:那个超时 RUNNING 被标 FAILED
@@ -79,10 +56,8 @@ def test_recover_stale_tasks_skips_db_segment_in_file_mode(monkeypatch):
     reg.clear_all()
 
 
-def test_get_audit_log_returns_empty_in_file_mode(monkeypatch):
-    """file 模式:get_audit_log 返空结构(logs=[]/count=0)。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
-
+def test_get_audit_log_returns_empty_in_file_mode():
+    """get_audit_log 恒返空结构(logs=[]/count=0 · Q5d 形状守卫)。"""
     # get_audit_log 是 status_tools.register 内的闭包 → 用 FakeMCP 抓取
     from src.mcp.tools.status_tools import register
 
@@ -111,9 +86,7 @@ def test_get_audit_log_returns_empty_in_file_mode(monkeypatch):
 # A4-3. audit 文件 logger 仍写(file 模式只跳 pg 写,文件日志必须仍执行)
 # ---------------------------------------------------------------------------
 def test_audit_log_file_logger_still_writes_in_file_mode(monkeypatch):
-    """file 模式:audit_log 主函数 audit_logger.info 仍被调。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
-
+    """audit_log 主函数 audit_logger.info 仍被调。"""
     import src.mcp.security as sec_mod
 
     info_calls = {"n": 0}
@@ -135,8 +108,7 @@ def test_audit_log_file_logger_still_writes_in_file_mode(monkeypatch):
 # A5. _create_admin file 走文件层
 # ---------------------------------------------------------------------------
 def test_create_admin_file_mode_builds_admin_and_returns_key(monkeypatch, tmp_path):
-    """file 模式:_create_admin 在 FileUserStore 建出 admin(is_admin=True)+ 返 raw_key;重复返 None。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
+    """_create_admin 在 FileUserStore 建出 admin(is_admin=True)+ 返 raw_key;重复返 None。"""
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
 
     from src.cli.init_command import _create_admin
@@ -168,7 +140,6 @@ def test_create_admin_file_mode_builds_admin_and_returns_key(monkeypatch, tmp_pa
 
 def test_create_admin_file_mode_distinct_keys_each_first_create(monkeypatch, tmp_path):
     """故障注入向:两个不同 email 各首建,raw_key 互异且都 sna_ 前缀(证非伪造常量)。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
 
     from src.cli.init_command import _create_admin

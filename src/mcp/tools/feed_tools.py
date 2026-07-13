@@ -1,7 +1,6 @@
 """MCP Feed & 搜索工具。
 
-提供 get_feed 和 search_tweets 两个 MCP 工具：均走 provider（get_feed_repo / get_search_repo），
-按 XWATCHER_DATA_LAYER 切 file/sqlalchemy。
+提供 get_feed 和 search_tweets 两个 MCP 工具：均走 provider（get_feed_repo / get_search_repo）文件层读门面。
 """
 
 import logging

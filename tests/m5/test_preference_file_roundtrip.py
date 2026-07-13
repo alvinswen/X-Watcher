@@ -9,7 +9,7 @@ async def test_follows_create_get_roundtrip(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     from src.data_layer.provider import get_follows_repo
 
-    repo = get_follows_repo(session=None)
+    repo = get_follows_repo()
     created = await repo.create_scraper_follow(username="alice", reason="m5", added_by="tester")
     assert created.username == "alice" and created.is_active is True
 
@@ -27,7 +27,7 @@ async def test_profile_upsert_get_roundtrip(monkeypatch, tmp_path):
     from src.data_layer.provider import get_profile_repo
     from src.preference.domain.models import XUserProfile
 
-    repo = get_profile_repo(session=None)
+    repo = get_profile_repo()
     prof = XUserProfile(platform_user_id="U123", username="bob")
     count = await repo.upsert_profiles([prof])
     assert count == 1

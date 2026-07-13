@@ -65,28 +65,6 @@ class TestTwitterClient:
         assert data["data"][0]["id"] == "1234567890"
 
     @pytest.mark.asyncio
-    async def test_fetch_user_tweets_with_since_id(self, client, mock_httpx_client):
-        """测试使用 since_id 参数获取推文。
-
-        注意: TwitterAPI.io 可能不支持 since_id 参数，此测试验证方法被正确调用。
-        """
-        mock_response = Mock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"data": [], "includes": {"users": []}}
-
-        mock_httpx_client.get.return_value = mock_response
-
-        with patch("httpx.AsyncClient", return_value=mock_httpx_client):
-            result = await client.fetch_user_tweets("testuser", since_id="1234567890")
-
-        assert isinstance(result, Success)
-
-        # 验证请求被发送（端点和参数）
-        call_args = mock_httpx_client.get.call_args
-        url = call_args[0][0]
-        assert "/user/last_tweets" in url
-
-    @pytest.mark.asyncio
     async def test_fetch_user_tweets_with_limit(self, client, mock_httpx_client):
         """测试使用 userName 参数获取推文。"""
         mock_response = Mock()

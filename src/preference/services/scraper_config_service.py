@@ -117,22 +117,3 @@ class ScraperConfigService:
         """
         logger.info(f"禁用抓取账号: username={username}")
         await self._repository.deactivate_follow(username)
-
-    async def is_username_in_follows(
-        self,
-        username: str,
-        active_only: bool = True,
-    ) -> bool:
-        """检查用户名是否在抓取列表中。
-
-        Args:
-            username: Twitter 用户名
-            active_only: 是否只检查启用的账号
-
-        Returns:
-            bool: 如果用户名存在返回 True，否则返回 False
-        """
-        return await self._repository.is_username_in_follows(
-            username=username,
-            active_only=active_only,
-        )

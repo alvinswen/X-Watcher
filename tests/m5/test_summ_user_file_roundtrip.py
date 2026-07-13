@@ -8,7 +8,7 @@ async def test_user_create_then_password_hash_roundtrip(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     from src.data_layer.provider import get_user_repo
 
-    repo = get_user_repo(session=None)
+    repo = get_user_repo()
     created = await repo.create_user("Alice", "alice@example.com", "hash_alice")
     assert created.email == "alice@example.com" and created.is_admin is False
 
@@ -30,7 +30,7 @@ async def test_summary_save_get_roundtrip(monkeypatch, tmp_path):
     from src.data_layer.provider import get_summary_repo
     from src.summarization.domain.models import SummaryRecord
 
-    repo = get_summary_repo(session=None)
+    repo = get_summary_repo()
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     rec = SummaryRecord(
         summary_id="s-roundtrip-1",

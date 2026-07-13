@@ -150,29 +150,6 @@ class TestTaskRegistry:
         status = registry.get_task_status("nonexistent_id")
         assert status is None
 
-    def test_is_task_running(self):
-        """测试检查任务是否正在运行。"""
-        registry = TaskRegistry.get_instance()
-
-        task_id = registry.create_task("test_task")
-
-        # 初始状态不是运行中
-        assert not registry.is_task_running(task_id)
-
-        # 更新为运行中
-        registry.update_task_status(task_id, TaskStatus.RUNNING)
-        assert registry.is_task_running(task_id)
-
-        # 完成
-        registry.update_task_status(task_id, TaskStatus.COMPLETED)
-        assert not registry.is_task_running(task_id)
-
-    def test_is_task_running_nonexistent(self):
-        """测试检查不存在的任务是否运行中。"""
-        registry = TaskRegistry.get_instance()
-
-        assert not registry.is_task_running("nonexistent_id")
-
     def test_get_all_tasks(self):
         """测试获取所有任务。"""
         registry = TaskRegistry.get_instance()

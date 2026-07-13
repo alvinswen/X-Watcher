@@ -6,7 +6,7 @@ def test_get_export_repo_file_mode(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     from src.data_layer.provider import get_export_repo, _FileExportSyncAdapter
 
-    repo = get_export_repo(session=None)
+    repo = get_export_repo()
     assert isinstance(repo, _FileExportSyncAdapter)
 
 
@@ -16,7 +16,7 @@ def test_file_export_adapter_returns_dicts(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     from src.data_layer.provider import get_export_repo
 
-    repo = get_export_repo(session=None)
+    repo = get_export_repo()
     assert repo.get_follows() == []
     assert repo.get_tweets(since=None, until=None, authors=None) == []
     assert repo.get_summaries(tweet_ids=None) == []
@@ -28,7 +28,7 @@ def test_get_import_repo_file_mode(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     from src.data_layer.provider import get_import_repo, _FileImportSyncAdapter
 
-    repo = get_import_repo(session=None, dry_run=False)
+    repo = get_import_repo(dry_run=False)
     assert isinstance(repo, _FileImportSyncAdapter)
 
 
@@ -39,7 +39,7 @@ def test_file_import_adapter_real_write_persists(monkeypatch, tmp_path):
     from src.data_layer.provider import get_import_repo
     from src.sync.domain.models import ConflictStrategy
 
-    repo = get_import_repo(session=None, dry_run=False)
+    repo = get_import_repo(dry_run=False)
     item = {"username": "alice", "is_active": True, "added_by": "t", "reason": "r"}
     stats = repo.import_follows([item], ConflictStrategy.skip)
     assert stats.inserted == 1
@@ -54,7 +54,7 @@ def test_file_import_adapter_dry_run_does_not_persist(monkeypatch, tmp_path):
     from src.data_layer.provider import get_import_repo
     from src.sync.domain.models import ConflictStrategy
 
-    repo = get_import_repo(session=None, dry_run=True)
+    repo = get_import_repo(dry_run=True)
     item = {"username": "bob", "is_active": True, "added_by": "t", "reason": "r"}
     stats = repo.import_follows([item], ConflictStrategy.skip)
     assert stats.inserted == 1  # 真实 stats
