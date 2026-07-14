@@ -13,6 +13,11 @@ from src.data_layer.provider import get_subject_repo
 from src.mcp.auth import require_scope
 from src.mcp.helpers import error_response, parse_datetime_optional, success_response
 from src.mcp.security import audit_log
+from src.subjects.constants import (
+    REVIEW_MIGRATED_MESSAGE,
+    REVIEW_PENDING_MESSAGE,
+    SUBJECT_NOT_FOUND_HINT,
+)
 from src.subjects.models import SubjectHighlight, SubjectReviewSection, SubjectReviewTrend
 from src.subjects.provenance import build_candidate_set_hash
 from src.subjects.services.classifier import SubjectClassifier
@@ -23,8 +28,6 @@ from src.subjects.services.hygiene_service import SubjectHygieneService
 from src.subjects.services.review_service import ReviewConflictError, SubjectReviewService
 
 logger = logging.getLogger(__name__)
-REVIEW_PENDING_MESSAGE = "综述刷新已加入待综述队列，外部技能将异步处理"
-REVIEW_MIGRATED_MESSAGE = "综述生成已迁移至外部技能，全量刷新入口暂不批量挂待办"
 
 
 def _csv_ids(value: str | None) -> list[str]:
@@ -180,7 +183,7 @@ def register(mcp: FastMCP) -> None:
             repo = get_subject_repo()
             if await repo.get_subject(subject_id) is None:
                 return error_response(
-                    "议题不存在，请先调用 list_subjects 获取有效 subject_id", "not_found"
+                    SUBJECT_NOT_FOUND_HINT, "not_found"
                 )
             data = await repo.get_subject_feed(
                 subject_id,
@@ -223,7 +226,7 @@ def register(mcp: FastMCP) -> None:
             repo = _subject_repo()
             if await repo.get_subject(subject_id) is None:
                 return error_response(
-                    "议题不存在，请先调用 list_subjects 获取有效 subject_id", "not_found"
+                    SUBJECT_NOT_FOUND_HINT, "not_found"
                 )
             if time_axis not in {"publish", "ingest", "review"}:
                 return error_response("time_axis 只能是 publish / ingest / review", "validation")
@@ -558,7 +561,7 @@ def register(mcp: FastMCP) -> None:
             repo = get_subject_repo()
             if await repo.get_subject(subject_id) is None:
                 return error_response(
-                    "议题不存在，请先调用 list_subjects 获取有效 subject_id", "not_found"
+                    SUBJECT_NOT_FOUND_HINT, "not_found"
                 )
             start_dt = parse_datetime_optional(start)
             end_dt = parse_datetime_optional(end)
@@ -591,7 +594,7 @@ def register(mcp: FastMCP) -> None:
             payload = await SubjectReviewService(get_subject_repo()).get_review_payload(subject_id)
             if payload is None:
                 return error_response(
-                    "议题不存在，请先调用 list_subjects 获取有效 subject_id", "not_found"
+                    SUBJECT_NOT_FOUND_HINT, "not_found"
                 )
             return success_response(payload)
         except Exception as e:  # noqa: BLE001
@@ -618,7 +621,7 @@ def register(mcp: FastMCP) -> None:
             repo = get_subject_repo()
             if await repo.get_subject(subject_id) is None:
                 return error_response(
-                    "议题不存在，请先调用 list_subjects 获取有效 subject_id", "not_found"
+                    SUBJECT_NOT_FOUND_HINT, "not_found"
                 )
             await repo.set_pending(subject_id, review=True)
             return success_response(

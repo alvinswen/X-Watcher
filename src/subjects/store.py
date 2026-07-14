@@ -22,6 +22,8 @@ from src.storage.atomic import shard_lock
 from src.storage.doc_store import atomic_write_doc, read_doc
 from src.storage.jsonl_store import append as append_jsonl
 from src.storage.jsonl_store import read_shard, upsert
+from src.subjects._time import parse_dt
+from src.subjects.constants import NO_LIMIT
 from src.subjects.index import load_subject_ids, new_subject_id, save_subject_ids
 from src.subjects.models import (
     Provenance,
@@ -33,8 +35,6 @@ from src.subjects.models import (
     SubjectReview,
     SubjectStatus,
 )
-
-_NO_LIMIT = 10**12
 
 
 class _PublishWindowMatches(list[SubjectMatch]):
@@ -49,12 +49,6 @@ class _PublishWindowMatches(list[SubjectMatch]):
 
 def utc_now() -> datetime:
     return datetime.now(UTC)
-
-
-def parse_dt(value: str | datetime) -> datetime:
-    if isinstance(value, datetime):
-        return paths.as_utc(value)
-    return paths.as_utc(datetime.fromisoformat(value.replace("Z", "+00:00")))
 
 
 class FileSubjectStore:
@@ -512,7 +506,7 @@ class FileSubjectStore:
         page = matches[:clamped]
         items, _missing = await self.get_tweets_by_ids([match.tweet_id for match in page])
         order = {match.tweet_id: idx for idx, match in enumerate(page)}
-        items.sort(key=lambda item: order.get(item["tweet_id"], _NO_LIMIT))
+        items.sort(key=lambda item: order.get(item["tweet_id"], NO_LIMIT))
         next_since = page[-1].matched_at.isoformat() if len(page) < total and page else None
         return {
             "items": items,

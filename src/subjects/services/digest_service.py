@@ -10,6 +10,7 @@ from typing import Any
 
 from src.data_layer.provider import get_subject_repo
 from src.storage import paths
+from src.subjects.constants import SUBJECT_NOT_FOUND
 from src.subjects.models import SubjectDigest, SubjectHighlight
 from src.subjects.provenance import assemble_provenance, build_digest_provenance_key
 from src.subjects.store import utc_now
@@ -37,7 +38,7 @@ class SubjectDigestService:
         provenance: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if await self._repo.get_subject(subject_id) is None:
-            raise LookupError("议题不存在")
+            raise LookupError(SUBJECT_NOT_FOUND)
         start = paths.as_utc(interval_start)
         end = paths.as_utc(interval_end)
         if start > end:

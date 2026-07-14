@@ -11,6 +11,8 @@ from typing import Any, cast
 
 from src.data_layer.provider import get_subject_repo
 from src.storage import paths
+from src.subjects._time import iso_z
+from src.subjects.constants import SUBJECT_NOT_FOUND_HINT
 from src.subjects.models import (
     FeedbackAuthority,
     FeedbackTargetType,
@@ -65,7 +67,7 @@ class SubjectFeedbackService:
         supersedes: str | None = None,
     ) -> SubjectFeedback:
         if await self._repo.get_subject(subject_id) is None:
-            raise LookupError("议题不存在，请先调用 list_subjects 获取有效 subject_id")
+            raise LookupError(SUBJECT_NOT_FOUND_HINT)
 
         parsed_target_type = _parse_target_type(target_type)
         clean_target_id = target_id.strip()
@@ -100,7 +102,7 @@ class SubjectFeedbackService:
         target_type: str | None = None,
     ) -> tuple[list[dict[str, Any]], list[str]]:
         if await self._repo.get_subject(subject_id) is None:
-            raise LookupError("议题不存在，请先调用 list_subjects 获取有效 subject_id")
+            raise LookupError(SUBJECT_NOT_FOUND_HINT)
 
         parsed_target_type = _parse_target_type(target_type) if target_type is not None else None
         clean_target_id = target_id.strip() if target_id is not None else None
@@ -118,7 +120,7 @@ class SubjectFeedbackService:
 
 def _target_time(value: str | datetime) -> str:
     if isinstance(value, datetime):
-        return paths.as_utc(value).isoformat().replace("+00:00", "Z")
+        return iso_z(value)
     return value
 
 

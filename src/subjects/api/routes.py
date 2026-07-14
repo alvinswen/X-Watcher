@@ -16,14 +16,18 @@ from src.subjects.api.schemas import (
     SubjectReviewResponse,
     SubjectUpdateRequest,
 )
+from src.subjects.constants import (
+    MAX_ACTIVE_SUBJECTS,
+    REVIEW_MIGRATED_MESSAGE,
+    REVIEW_PENDING_MESSAGE,
+    SUBJECT_NOT_FOUND,
+)
 from src.subjects.models import Subject, SubjectStatus
 from src.subjects.services.review_service import SubjectReviewService
 from src.user.api.auth import get_current_admin_user
 from src.user.domain.models import UserDomain
 
 router = APIRouter(prefix="/api/admin/subjects", tags=["subjects"])
-REVIEW_PENDING_MESSAGE = "综述刷新已加入待综述队列，外部技能将异步处理"
-REVIEW_MIGRATED_MESSAGE = "综述生成已迁移至外部技能，全量刷新入口暂不批量挂待办"
 
 
 async def _to_response(subject: Subject) -> SubjectResponse:
@@ -65,7 +69,7 @@ async def create_subject(
     _user: UserDomain = Depends(get_current_admin_user),
 ) -> SubjectCreateResponse:
     repo = get_subject_repo()
-    if await repo.active_count() >= 20:
+    if await repo.active_count() >= MAX_ACTIVE_SUBJECTS:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="已达议题上限，先停用旧议题",
@@ -87,7 +91,7 @@ async def get_subject(
     repo = get_subject_repo()
     subject = await repo.get_subject(subject_id)
     if subject is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="议题不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=SUBJECT_NOT_FOUND)
     return await _to_response(subject)
 
 
@@ -100,11 +104,11 @@ async def update_subject(
     repo = get_subject_repo()
     subject = await repo.get_subject(subject_id)
     if subject is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="议题不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=SUBJECT_NOT_FOUND)
     if (
         request.status == SubjectStatus.active.value
         and subject.status != SubjectStatus.active
-        and await repo.active_count() >= 20
+        and await repo.active_count() >= MAX_ACTIVE_SUBJECTS
     ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -118,7 +122,7 @@ async def update_subject(
         status=SubjectStatus(request.status) if request.status else None,
     )
     if updated is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="议题不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=SUBJECT_NOT_FOUND)
     return await _to_response(updated)
 
 
@@ -130,10 +134,10 @@ async def delete_subject(
     repo = get_subject_repo()
     subject = await repo.get_subject(subject_id)
     if subject is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="议题不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=SUBJECT_NOT_FOUND)
     deleted = await repo.delete_subject(subject_id)
     if not deleted:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="议题不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=SUBJECT_NOT_FOUND)
     return None
 
 
@@ -148,7 +152,7 @@ async def get_subject_feed(  # type: ignore[no-untyped-def]  # 无 response_mode
 ):
     repo = get_subject_repo()
     if await repo.get_subject(subject_id) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="议题不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=SUBJECT_NOT_FOUND)
     since_dt = datetime.fromisoformat(since.replace("Z", "+00:00")) if since else None
     until_dt = datetime.fromisoformat(until.replace("Z", "+00:00")) if until else None
     return await repo.get_subject_feed(
@@ -170,7 +174,7 @@ async def get_subject_digests(  # type: ignore[no-untyped-def]  # 无 response_m
 ):
     repo = get_subject_repo()
     if await repo.get_subject(subject_id) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="议题不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=SUBJECT_NOT_FOUND)
     start_dt = datetime.fromisoformat(start.replace("Z", "+00:00")) if start else None
     end_dt = datetime.fromisoformat(end.replace("Z", "+00:00")) if end else None
     if start_dt or end_dt:
@@ -191,7 +195,7 @@ async def get_subject_review(
 ) -> dict[str, Any]:
     payload = await _review_service().get_review_payload(subject_id)
     if payload is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="议题不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=SUBJECT_NOT_FOUND)
     return payload
 
 
@@ -206,7 +210,7 @@ async def refresh_subject_review(
 ) -> SubjectReviewRefreshResponse:
     repo = get_subject_repo()
     if await repo.get_subject(subject_id) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="议题不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=SUBJECT_NOT_FOUND)
     await repo.set_pending(subject_id, review=True)
     return SubjectReviewRefreshResponse(task_id=None, pending=True, message=REVIEW_PENDING_MESSAGE)
 
