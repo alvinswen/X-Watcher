@@ -7,6 +7,7 @@ from typing import Any
 
 from src.data_layer.provider import get_subject_repo
 from src.storage import paths
+from src.subjects.constants import SUBJECT_NOT_FOUND
 from src.subjects.models import SubjectReview, SubjectReviewSection, SubjectReviewTrend
 from src.subjects.provenance import assemble_provenance
 from src.subjects.store import utc_now
@@ -62,7 +63,7 @@ class SubjectReviewService:
         provenance: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if await self._repo.get_subject(subject_id) is None:
-            raise LookupError("议题不存在")
+            raise LookupError(SUBJECT_NOT_FOUND)
         current = await self._repo.get_review(subject_id)
         current_version = current.version if current is not None else 0
         if prev_version != current_version:

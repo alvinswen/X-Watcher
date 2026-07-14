@@ -10,6 +10,9 @@ from typing import Any, cast
 
 from src.data_layer.provider import get_subject_repo
 from src.storage import paths
+from src.subjects._time import iso_z as _iso_z
+from src.subjects._time import parse_dt as _parse_dt
+from src.subjects.constants import NO_LIMIT, SUBJECT_NOT_FOUND_HINT
 from src.subjects.models import EvalTier, SubjectEval
 from src.subjects.services.feedback_service import build_feedback_target_id
 from src.subjects.store import utc_now
@@ -37,7 +40,7 @@ class SubjectEvalService:
         note: str | None = None,
     ) -> SubjectEval:
         if await self._repo.get_subject(subject_id) is None:
-            raise LookupError("议题不存在，请先调用 list_subjects 获取有效 subject_id")
+            raise LookupError(SUBJECT_NOT_FOUND_HINT)
 
         parsed_tier = _parse_write_tier(tier)
         clean_target_id = _parse_target_id(target_id)
@@ -75,7 +78,7 @@ class SubjectEvalService:
         until: str | datetime | None = None,
     ) -> dict[str, Any]:
         if await self._repo.get_subject(subject_id) is None:
-            raise LookupError("议题不存在，请先调用 list_subjects 获取有效 subject_id")
+            raise LookupError(SUBJECT_NOT_FOUND_HINT)
 
         parsed_tier = _parse_any_tier(tier) if tier is not None else None
         clean_target_id = target_id.strip() if target_id is not None else None
@@ -107,7 +110,7 @@ class SubjectEvalService:
         window_days: int,
     ) -> tuple[dict[str, Any], list[str]]:
         if await self._repo.get_subject(subject_id) is None:
-            raise LookupError("议题不存在，请先调用 list_subjects 获取有效 subject_id")
+            raise LookupError(SUBJECT_NOT_FOUND_HINT)
         if isinstance(window_days, bool) or not isinstance(window_days, int):
             raise ValueError("window_days 必须是整数")
         if window_days <= 0:
@@ -143,7 +146,7 @@ class SubjectEvalService:
                 interval_start=digest.interval_start,
                 time_axis=digest.time_axis,
             )
-            for digest in await self._repo.list_digests(subject_id, limit=10**12)
+            for digest in await self._repo.list_digests(subject_id, limit=NO_LIMIT)
             if start <= paths.as_utc(digest.generated_at) <= end
         ]
         review_targets = [
@@ -236,12 +239,6 @@ def _clean_optional_text(value: str | None, field_name: str) -> str | None:
     return clean
 
 
-def _parse_dt(value: str | datetime) -> datetime:
-    if isinstance(value, datetime):
-        return paths.as_utc(value)
-    return paths.as_utc(datetime.fromisoformat(value.replace("Z", "+00:00")))
-
-
 def _rate_bucket(target_ids: list[str], corrected_targets: set[str]) -> dict[str, Any]:
     produced = len(target_ids)
     corrected = sum(
@@ -253,7 +250,3 @@ def _rate_bucket(target_ids: list[str], corrected_targets: set[str]) -> dict[str
         "rate": None if produced == 0 else corrected / produced,
         "not_applicable": produced == 0,
     }
-
-
-def _iso_z(value: datetime) -> str:
-    return paths.as_utc(value).isoformat().replace("+00:00", "Z")

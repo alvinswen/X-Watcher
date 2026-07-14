@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from src.data_layer.provider import get_subject_repo
+from src.subjects.constants import SUBJECT_NOT_FOUND
 from src.subjects.models import SubjectMatch
 from src.subjects.provenance import assemble_provenance
 from src.subjects.store import utc_now
@@ -27,7 +28,7 @@ class SubjectClassifier:
         provenance: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if await self._repo.get_subject(subject_id) is None:
-            raise LookupError("议题不存在")
+            raise LookupError(SUBJECT_NOT_FOUND)
         ids = list(dict.fromkeys([tweet_id.strip() for tweet_id in tweet_ids if tweet_id.strip()]))
         if not ids:
             raise ValueError("tweet_ids 不能为空")

@@ -10,6 +10,9 @@ from typing import Any, cast
 
 from src.data_layer.provider import get_subject_repo
 from src.storage import paths
+from src.subjects._time import iso_z as _iso_z
+from src.subjects._time import parse_dt as _parse_dt
+from src.subjects.constants import NO_LIMIT, SUBJECT_NOT_FOUND_HINT
 from src.subjects.models import EvalTier, SubjectDigest, SubjectEval, SubjectReview
 from src.subjects.provenance import build_digest_provenance_key
 from src.subjects.services.digest_service import MAX_DIGEST_TEXT
@@ -19,9 +22,6 @@ from src.subjects.store import utc_now
 
 _SHINGLE_LEN = 20
 _COLLAPSE_MIN_CITED = 3
-_NO_LIMIT = 10**12
-
-
 class SubjectHygieneService:
     def __init__(self, repo: Any | None = None) -> None:
         repo_factory = get_subject_repo
@@ -38,7 +38,7 @@ class SubjectHygieneService:
         version: int | None = None,
     ) -> dict[str, Any]:
         if await self._repo.get_subject(subject_id) is None:
-            raise LookupError("议题不存在，请先调用 list_subjects 获取有效 subject_id")
+            raise LookupError(SUBJECT_NOT_FOUND_HINT)
         if target_type == "match":
             raise ValueError(
                 "match 不支持卫生计算，match 质量信号请调 get_subject_correction_rate 人工更正率"
@@ -147,7 +147,7 @@ class SubjectHygieneService:
         start = _parse_dt(interval_start)
         digests = [
             digest
-            for digest in await self._repo.list_digests(subject_id, limit=_NO_LIMIT)
+            for digest in await self._repo.list_digests(subject_id, limit=NO_LIMIT)
             if paths.as_utc(digest.interval_start) == start and digest.time_axis == time_axis
         ]
         if not digests:
@@ -305,12 +305,6 @@ class SubjectHygieneService:
         return scores, failed_checks, warnings
 
 
-def _parse_dt(value: str | datetime) -> datetime:
-    if isinstance(value, datetime):
-        return paths.as_utc(value)
-    return paths.as_utc(datetime.fromisoformat(value.replace("Z", "+00:00")))
-
-
 def _dedup(values: Sequence[str]) -> list[str]:
     return list(dict.fromkeys([value for value in values if value]))
 
@@ -327,7 +321,3 @@ def _duplicate_rate(text: str) -> float:
 def _add_once(items: list[str], value: str) -> None:
     if value not in items:
         items.append(value)
-
-
-def _iso_z(value: datetime) -> str:
-    return paths.as_utc(value).isoformat().replace("+00:00", "Z")
