@@ -10,10 +10,10 @@ XWATCHER_DATA_LAYER=file 下走文件层。
 注:故障注入「把门面 bucket 改 floor」通过 monkeypatch _bucket_round_half_up 注入 floor
 实现验证钉值测试有牙(证 round-half-up 非摆设、SQLite 对此操作失效)。
 """
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-
 
 # ── 文件层种子助手 ───────────────────────────────────────────
 
@@ -263,3 +263,40 @@ async def test_endpoints_file_mode_smoke(monkeypatch, tmp_path):
     assert res9.username == "alice"
     assert res9.total_new_tweets == 2
     assert len(res9.periods) == 3
+
+
+@pytest.mark.asyncio
+async def test_tc_build_415_shared_ranges_preserve_original_case_keys():
+    from src.preference.services.scraper_config_service import get_tweet_time_ranges
+
+    repo = Mock()
+    repo.tweet_time_range = AsyncMock(return_value={"alice": (None, None, 2)})
+    with patch("src.data_layer.provider.get_scraper_stats_repo", return_value=repo):
+        result = await get_tweet_time_ranges(["Alice"])
+
+    assert result == {"Alice": (None, None, 2)}
+    assert "alice" not in result
+
+
+@pytest.mark.asyncio
+async def test_tc_build_416_shared_ranges_empty_skips_repository():
+    from src.preference.services.scraper_config_service import get_tweet_time_ranges
+
+    with patch("src.data_layer.provider.get_scraper_stats_repo") as getter:
+        assert await get_tweet_time_ranges([]) == {}
+
+    getter.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_tc_build_417_shared_ranges_match_lowercase_repository_rows():
+    from src.preference.services.scraper_config_service import get_tweet_time_ranges
+
+    earliest = datetime(2026, 7, 1, tzinfo=UTC)
+    latest = datetime(2026, 7, 2, tzinfo=UTC)
+    repo = Mock()
+    repo.tweet_time_range = AsyncMock(return_value={"mixedcase": (earliest, latest, 4)})
+    with patch("src.data_layer.provider.get_scraper_stats_repo", return_value=repo):
+        result = await get_tweet_time_ranges(["MixedCase"])
+
+    assert result["MixedCase"] == (earliest, latest, 4)

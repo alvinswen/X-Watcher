@@ -5,8 +5,10 @@
 - get_follow_accounts_info:profiles / stats(每账号总推文)/ analysis(逐周期 count)
 故障注入:接缝改名 / 逻辑破坏须翻红。
 """
+import inspect
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -163,3 +165,91 @@ class TestFollowAccountsInfoFileMode:
         result = await _tool_funcs()["get_follow_accounts_info"](info_type="profiles")
         data = json.loads(result)
         assert data["success"] is False
+
+
+class TestCHG032FollowInfoBranches:
+    @pytest.mark.asyncio
+    async def test_tc_build_413_stats_uses_shared_ranges_without_value_drift(self):
+        follow = Mock(username="Alice", manual_limit=7)
+        follows_repo = Mock()
+        follows_repo.get_all_follows = AsyncMock(return_value=[follow])
+        shared = AsyncMock(return_value={"Alice": (None, None, 5)})
+        with (
+            patch("src.mcp.tools.admin_tools.require_admin", return_value=None),
+            patch("src.data_layer.provider.get_follows_repo", return_value=follows_repo),
+            patch(
+                "src.preference.services.scraper_config_service.get_tweet_time_ranges",
+                new=shared,
+            ),
+        ):
+            result = await _tool_funcs()["get_follow_accounts_info"](info_type="stats")
+
+        data = json.loads(result)["data"]
+        assert data == {
+            "stats": [{"username": "Alice", "manual_limit": 7, "total_tweets": 5}],
+            "count": 1,
+        }
+
+    @pytest.mark.asyncio
+    async def test_tc_build_414_time_range_uses_shared_values(self):
+        earliest = datetime(2026, 7, 1, tzinfo=UTC)
+        latest = datetime(2026, 7, 2, tzinfo=UTC)
+        follows_repo = Mock()
+        follows_repo.get_all_follows = AsyncMock(return_value=[Mock(username="Alice")])
+        shared = AsyncMock(return_value={"Alice": (earliest, latest, 5)})
+        with (
+            patch("src.mcp.tools.admin_tools.require_admin", return_value=None),
+            patch("src.data_layer.provider.get_follows_repo", return_value=follows_repo),
+            patch(
+                "src.preference.services.scraper_config_service.get_tweet_time_ranges",
+                new=shared,
+            ),
+        ):
+            result = await _tool_funcs()["get_follow_accounts_info"](
+                info_type="tweet_time_range"
+            )
+
+        item = json.loads(result)["data"]["time_ranges"][0]
+        assert item["username"] == "Alice"
+        assert item["tweet_count"] == 5
+        assert item["earliest_tweet_at"].startswith("2026-07-01")
+        assert item["latest_tweet_at"].startswith("2026-07-02")
+
+    @pytest.mark.asyncio
+    async def test_tc_build_418_analysis_branch_keeps_reverse_12h_contract(self):
+        repo = Mock()
+        repo.period_analysis = AsyncMock(
+            return_value=[
+                (datetime(2026, 7, 1), datetime(2026, 7, 2), 1),
+                (datetime(2026, 7, 2), datetime(2026, 7, 3), 2),
+            ]
+        )
+        with (
+            patch("src.mcp.tools.admin_tools.require_admin", return_value=None),
+            patch("src.data_layer.provider.get_scraper_stats_repo", return_value=repo),
+        ):
+            result = await _tool_funcs()["get_follow_accounts_info"](
+                info_type="analysis", username="Alice"
+            )
+
+        data = json.loads(result)["data"]
+        assert data["interval_hours"] == 12
+        assert [period["new_tweets"] for period in data["periods"]] == [2, 1]
+
+    def test_tc_build_429_changed_modules_do_not_cross_into_user_or_web(self):
+        from src.api.routes import admin
+        from src.mcp.tools import admin_tools
+        from src.preference.api import scraper_config_router
+        from src.preference.services import scraper_config_service
+
+        source = "\n".join(
+            inspect.getsource(module)
+            for module in (
+                admin,
+                admin_tools,
+                scraper_config_router,
+                scraper_config_service,
+            )
+        )
+        assert "src.web" not in source
+        assert "UserService" not in source

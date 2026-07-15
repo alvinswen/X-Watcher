@@ -603,3 +603,138 @@ class TestBackfillArticlesEndpoint:
         data = response.json()
         assert "task_id" in data
         assert data["status"] == "pending"
+
+
+@pytest.mark.asyncio
+class TestCHG032RestLifecycle:
+    """CHG-032 TC-BUILD-401/402/403/408/409/410/420/425/430/432。"""
+
+    async def test_tc_build_401_scrape_task_closes_service_once(self):
+        from src.api.routes.admin import _run_scraping_task_async
+
+        service = Mock()
+        service.scrape_users = AsyncMock(return_value="task-401")
+        service.close = AsyncMock()
+        with (
+            patch("src.api.routes.admin.get_scraping_service", return_value=service),
+            patch("src.api.routes.admin.get_task_registry", return_value=Mock()),
+        ):
+            await _run_scraping_task_async("task-401", ["alice"], 100)
+
+        service.close.assert_awaited_once_with()
+
+    async def test_tc_build_402_backfill_batch_closes_once(self):
+        from src.api.routes.admin import _run_backfill_all_async
+
+        service = Mock()
+        service.backfill_articles_for_user = AsyncMock(
+            return_value={"checked": 1, "found": 1, "skipped": 0, "errors": 0}
+        )
+        service.close = AsyncMock()
+        registry = Mock()
+        with (
+            patch("src.api.routes.admin.get_scraping_service", return_value=service),
+            patch("src.api.routes.admin.get_task_registry", return_value=registry),
+            patch(
+                "src.scraper.scheduled_job.get_active_follows_async",
+                new=AsyncMock(return_value=[{"username": "alice"}, {"username": "bob"}]),
+            ),
+        ):
+            await _run_backfill_all_async("task-402", 20)
+
+        assert service.backfill_articles_for_user.await_count == 2
+        service.close.assert_awaited_once_with()
+
+    async def test_tc_build_403_single_backfill_constructs_and_closes(self):
+        from src.api.routes.admin import backfill_articles
+
+        service = Mock()
+        service.backfill_articles_for_user = AsyncMock(return_value={"checked": 1})
+        service.close = AsyncMock()
+        with (
+            patch("src.api.routes.admin.get_scraping_service", return_value=service) as factory,
+            patch("src.api.routes.admin.audit_log"),
+        ):
+            result = await backfill_articles(
+                {"username": "alice", "max_tweets": 20}, BOOTSTRAP_ADMIN
+            )
+
+        assert result == {"username": "alice", "result": {"checked": 1}}
+        factory.assert_called_once_with()
+        service.close.assert_awaited_once_with()
+
+    async def test_tc_build_408_close_failure_is_fail_soft(self, caplog):
+        from src.api.routes.admin import _close_scraping_service
+
+        service = Mock()
+        service.close = AsyncMock(side_effect=RuntimeError("close failed"))
+        with caplog.at_level("WARNING"):
+            await _close_scraping_service(service, " (task_id=task-408)")
+
+        assert "close failed" in caplog.text
+
+    async def test_tc_build_409_scraping_factory_is_stateless(self):
+        from src.api.routes.admin import get_scraping_service
+
+        assert get_scraping_service() is not get_scraping_service()
+
+    async def test_tc_build_410_task_registry_remains_singleton(self):
+        from src.api.routes.admin import get_task_registry
+
+        assert get_task_registry() is get_task_registry()
+
+    async def test_tc_build_420_rest_close_warning_contains_task_ids(self, caplog):
+        from src.api.routes.admin import _close_scraping_service
+
+        with caplog.at_level("WARNING"):
+            for task_id in ("task-401", "task-402"):
+                service = Mock()
+                service.close = AsyncMock(side_effect=RuntimeError("boom"))
+                await _close_scraping_service(service, f" (task_id={task_id})")
+
+        assert "task_id=task-401" in caplog.text
+        assert "task_id=task-402" in caplog.text
+
+    async def test_tc_build_425_batch_endpoint_does_not_construct_service(self):
+        from src.api.routes.admin import backfill_articles
+
+        registry = Mock()
+        registry.create_task.return_value = "task-425"
+
+        def close_background_coro(coro, *, name):
+            coro.close()
+            return Mock(name=name)
+
+        with (
+            patch("src.api.routes.admin.get_scraping_service") as factory,
+            patch("src.api.routes.admin.get_task_registry", return_value=registry),
+            patch("src.api.routes.admin.asyncio.create_task", side_effect=close_background_coro),
+            patch("src.api.routes.admin.audit_log"),
+        ):
+            response = await backfill_articles({"all": True, "max_tweets": 20}, BOOTSTRAP_ADMIN)
+
+        assert response.status_code == 202
+        factory.assert_not_called()
+
+    async def test_tc_build_430_unconfigured_mock_close_stays_compatible(self):
+        from src.api.routes.admin import _run_scraping_task_async
+
+        service = Mock()
+        service.scrape_users = AsyncMock(return_value="task-430")
+        with (
+            patch("src.api.routes.admin.get_scraping_service", return_value=service),
+            patch("src.api.routes.admin.get_task_registry", return_value=Mock()),
+        ):
+            await _run_scraping_task_async("task-430", ["alice"], 100)
+
+        service.scrape_users.assert_awaited_once()
+
+    async def test_tc_build_432_registry_wrapper_delegates_every_time(self):
+        from src.api.routes.admin import get_task_registry
+
+        registry = Mock()
+        with patch("src.api.routes.admin.TaskRegistry.get_instance", return_value=registry) as getter:
+            assert get_task_registry() is registry
+            assert get_task_registry() is registry
+
+        assert getter.call_count == 2

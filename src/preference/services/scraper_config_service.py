@@ -4,6 +4,7 @@
 """
 
 import logging
+from datetime import datetime
 
 from src.preference.domain.models import ScraperFollow
 from src.preference.infrastructure.follow_store import (
@@ -117,3 +118,37 @@ class ScraperConfigService:
         """
         logger.info(f"禁用抓取账号: username={username}")
         await self._repository.deactivate_follow(username)
+
+
+async def get_tweet_time_ranges(
+    usernames: list[str],
+) -> dict[str, tuple[datetime | None, datetime | None, int]]:
+    """批量查询各账号的推文时间范围(earliest, latest, count)，含无数据账号兜底。
+
+    封装 REST ``get_follows_tweet_time_range`` 与 MCP ``get_follow_accounts_info``
+    (info_type=tweet_time_range/stats)三处此前重复的"判空 → 调用
+    tweet_time_range 仓储方法 → 按 username.lower() 三元组拆包并兜底"样板
+    (CHG-032 目标 2)，各端仍各自负责把返回值组装成各自的响应结构
+    (Pydantic 模型 / dict)，对外契约不变。
+
+    Args:
+        usernames: 待查询的用户名列表(保留调用方原始大小写作为返回 dict 的 key)
+
+    Returns:
+        {username: (earliest_tweet_at, latest_tweet_at, tweet_count)}，
+        无推文数据的账号兜底为 (None, None, 0)；usernames 为空时返回 {}
+    """
+    if not usernames:
+        return {}
+
+    from src.data_layer.provider import get_scraper_stats_repo
+
+    rows = await get_scraper_stats_repo().tweet_time_range(usernames)
+    return {
+        u: (
+            rows[u.lower()][0] if u.lower() in rows else None,
+            rows[u.lower()][1] if u.lower() in rows else None,
+            rows[u.lower()][2] if u.lower() in rows else 0,
+        )
+        for u in usernames
+    }

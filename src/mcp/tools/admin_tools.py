@@ -5,6 +5,7 @@ get_follow_accounts_info 五个 Admin 级工具。
 """
 
 import logging
+from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
@@ -16,6 +17,33 @@ from src.mcp.helpers import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+async def _close_scraping_service(service: Any, context: str = "") -> None:
+    """关闭抓取服务连接资源(CHG-032 目标 4)。
+
+    关闭失败仅记录警告日志,不覆盖或掩盖调用方已经产生的抓取/回溯结果
+    (与 ``admin.py`` 的同名 helper 语义一致)。
+
+    ⚠️ 本函数与 ``src/api/routes/admin.py`` 里的同名 helper 是**两份独立实现**,
+    不要合并成一个跨文件共享函数(CHG-032 A5 加固 3)。原因:本文件把 ``ScrapingService``
+    等 scraper 符号一律做函数体内局部 import、该 helper 用 ``Any`` 标注;而 ``admin.py``
+    在模块顶部固定 import ``ScrapingService`` 并用作精确类型。本文件**没有**
+    ``from __future__ import annotations``,若为"统一成精确类型"而在模块顶部新增
+    scraper import,该模块级函数标注会在模块加载期(MCP server 启动阶段)就地求值,
+    一旦 import 缺失即抛 NameError。故这两份看似重复的 helper 类型标注不同是有意为之,
+    不要合并、不要"顺手统一"(§ 五施工注意事项第 2 条讲"怎么做",本处 docstring 是把
+    理由留在代码里给后人看)。
+
+    Args:
+        service: 待关闭的抓取服务实例(用 Any 标注,见上方说明)
+        context: 可选的调用来源标签(如 " (tool=trigger_scrape)"),拼进关闭失败的告警
+            文案,便于多任务并发时运维一眼看出这条告警由哪个工具触发(CHG-032 A5 加固 4)
+    """
+    try:
+        await service.close()
+    except Exception as e:
+        logger.warning(f"关闭 ScrapingService 连接失败{context}: {e}")
 
 
 def register(mcp: FastMCP) -> None:
@@ -217,40 +245,44 @@ def register(mcp: FastMCP) -> None:
                 )
 
             service = ScrapingService()
+            try:
+                user_list = await resolve_user_list(usernames)
+                if not user_list:
+                    return error_response("没有可抓取的账号", "validation")
 
-            user_list = await resolve_user_list(usernames)
-            if not user_list:
-                return error_response("没有可抓取的账号", "validation")
+                # 解析本次实际生效的 manual_limit(服务层共享的同一份实现,CHG-031 目标 1):
+                # 此处提前调用一次,既传给 scrape_users(避免其内部重复查询),也用于
+                # 下方审计日志留痕(运维需要知道这次到底有没有生效)
+                manual_limits = await resolve_manual_limits(user_list)
 
-            # 解析本次实际生效的 manual_limit(服务层共享的同一份实现,CHG-031 目标 1):
-            # 此处提前调用一次,既传给 scrape_users(避免其内部重复查询),也用于
-            # 下方审计日志留痕(运维需要知道这次到底有没有生效)
-            manual_limits = await resolve_manual_limits(user_list)
+                # 启动异步抓取任务
+                task_id = await service.scrape_users(
+                    usernames=user_list,
+                    limit=limit,
+                    manual_limits=manual_limits,
+                )
 
-            # 启动异步抓取任务
-            task_id = await service.scrape_users(
-                usernames=user_list,
-                limit=limit,
-                manual_limits=manual_limits,
-            )
-
-            audit_log(
-                "trigger_scrape",
-                "scrape",
-                params={
-                    "usernames": user_list,
-                    "limit": limit,
-                    "manual_limits": manual_limits or None,
-                },
-            )
-            return success_response(
-                {
-                    "task_id": task_id,
-                    "usernames": user_list,
-                    "limit": limit,
-                    "message": "抓取任务已完成",
-                }
-            )
+                audit_log(
+                    "trigger_scrape",
+                    "scrape",
+                    params={
+                        "usernames": user_list,
+                        "limit": limit,
+                        "manual_limits": manual_limits or None,
+                    },
+                )
+                return success_response(
+                    {
+                        "task_id": task_id,
+                        "usernames": user_list,
+                        "limit": limit,
+                        "message": "抓取任务已完成",
+                    }
+                )
+            finally:
+                # 用完关闭连接(含"没有可抓取账号"提前返回的情形),CHG-032 目标 4
+                # (context 传工具名,A5 加固 4)
+                await _close_scraping_service(service, " (tool=trigger_scrape)")
         except Exception as e:
             audit_log("trigger_scrape", "scrape", result="failure", error=str(e))
             logger.error("trigger_scrape 失败: %s", e, exc_info=True)
@@ -289,36 +321,50 @@ def register(mcp: FastMCP) -> None:
             from src.scraper import ScrapingService
 
             service = ScrapingService()
+            try:
+                user_list = await resolve_user_list(usernames)
+                if not user_list:
+                    return error_response("没有可回溯的账号", "validation")
 
-            user_list = await resolve_user_list(usernames)
-            if not user_list:
-                return error_response("没有可回溯的账号", "validation")
+                results = []
+                total_new = 0
+                total_fetched = 0
+                for username in user_list:
+                    r = await service.backfill_user(
+                        username, max_pages=max_pages, min_pages=min_pages
+                    )
+                    results.append(r)
+                    total_new += r["new"]
+                    total_fetched += r["fetched"]
 
-            results = []
-            total_new = 0
-            total_fetched = 0
-            for username in user_list:
-                r = await service.backfill_user(username, max_pages=max_pages, min_pages=min_pages)
-                results.append(r)
-                total_new += r["new"]
-                total_fetched += r["fetched"]
-
-            audit_log(
-                "trigger_backfill",
-                "scrape",
-                params={"usernames": user_list, "max_pages": max_pages, "min_pages": min_pages},
-            )
-            return success_response(
-                {
-                    "usernames": user_list,
-                    "count": len(user_list),
-                    "max_pages": max_pages,
-                    "total_fetched": total_fetched,
-                    "total_new": total_new,
-                    "results": results,
-                    "message": f"回溯完成：{len(user_list)} 个账号，新增 {total_new} 条推文",
-                }
-            )
+                audit_log(
+                    "trigger_backfill",
+                    "scrape",
+                    params={
+                        "usernames": user_list,
+                        "max_pages": max_pages,
+                        "min_pages": min_pages,
+                    },
+                )
+                return success_response(
+                    {
+                        "usernames": user_list,
+                        "count": len(user_list),
+                        "max_pages": max_pages,
+                        "total_fetched": total_fetched,
+                        "total_new": total_new,
+                        "results": results,
+                        "message": f"回溯完成：{len(user_list)} 个账号，新增 {total_new} 条推文",
+                    }
+                )
+            finally:
+                # 整批账号处理完(无论中途是否有账号异常导致循环中断)才关闭一次,
+                # Q2;本循环无逐账号 try/except(Loop-1 发现 2,本包不修复该差异),
+                # 故必须用 try/finally 包裹"构造→守卫检查→循环"整体,不能只在
+                # 循环代码块之后追加一行 close() 调用——那样循环中途抛异常时
+                # close() 永远不会被执行到
+                # (context 传工具名,A5 加固 4)
+                await _close_scraping_service(service, " (tool=trigger_backfill)")
         except Exception as e:
             audit_log("trigger_backfill", "scrape", result="failure", error=str(e))
             logger.error("trigger_backfill 失败: %s", e, exc_info=True)
@@ -378,6 +424,9 @@ def register(mcp: FastMCP) -> None:
                 get_profile_repo,
                 get_scraper_stats_repo,
             )
+            from src.preference.services.scraper_config_service import (
+                get_tweet_time_ranges,
+            )
 
             if info_type == "profiles":
                 # 档案走 profile 门面(file 模式忽略 session)。领域模型携 fetched_at
@@ -406,48 +455,39 @@ def register(mcp: FastMCP) -> None:
                 )
 
             elif info_type == "stats":
-                # 活跃账号走 follows 门面;每账号总推文走 tweet 聚合门面
-                # tweet_time_range 的 count 槽(大小写不敏感 lower 键匹配)。
+                # 活跃账号走 follows 门面;每账号总推文走共享的 tweet_time_range
+                # 实现(REST/MCP 两处共用,CHG-032 目标 2)。
                 follows = await get_follows_repo().get_all_follows(
                     include_inactive=False
                 )
                 usernames = [f.username for f in follows]
-                ranges = (
-                    await get_scraper_stats_repo().tweet_time_range(usernames)
-                    if usernames
-                    else {}
-                )
+                ranges_map = await get_tweet_time_ranges(usernames)
 
                 stats = [
                     {
                         "username": f.username,
                         "manual_limit": f.manual_limit,
-                        "total_tweets": (
-                            ranges[f.username.lower()][2] if f.username.lower() in ranges else 0
-                        ),
+                        "total_tweets": ranges_map[f.username][2],
                     }
                     for f in follows
                 ]
                 return success_response({"stats": stats, "count": len(stats)})
 
             elif info_type == "tweet_time_range":
-                # 活跃账号 min/max/count 走 tweet 聚合门面(lower 键匹配)。
+                # 活跃账号 min/max/count 走共享的 tweet_time_range 实现
+                # (REST/MCP 两处共用,CHG-032 目标 2)。
                 follows = await get_follows_repo().get_all_follows(
                     include_inactive=False
                 )
                 usernames = [f.username for f in follows]
-                rows = (
-                    await get_scraper_stats_repo().tweet_time_range(usernames)
-                    if usernames
-                    else {}
-                )
+                ranges_map = await get_tweet_time_ranges(usernames)
 
                 ranges = [
                     {
                         "username": u,
-                        "earliest_tweet_at": (rows[u.lower()][0] if u.lower() in rows else None),
-                        "latest_tweet_at": (rows[u.lower()][1] if u.lower() in rows else None),
-                        "tweet_count": (rows[u.lower()][2] if u.lower() in rows else 0),
+                        "earliest_tweet_at": ranges_map[u][0],
+                        "latest_tweet_at": ranges_map[u][1],
+                        "tweet_count": ranges_map[u][2],
                     }
                     for u in usernames
                 ]

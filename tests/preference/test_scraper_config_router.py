@@ -5,16 +5,18 @@
 """
 
 import os
+from datetime import UTC, datetime, timezone
 from pathlib import Path
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from datetime import datetime, timezone
-from httpx import AsyncClient, ASGITransport
 from fastapi import FastAPI, HTTPException, status
+from httpx import ASGITransport, AsyncClient
 
-from src.preference.api.scraper_config_router import public_router, router as admin_router
+from src.preference.api.scraper_config_router import public_router
+from src.preference.api.scraper_config_router import router as admin_router
 from src.preference.infrastructure.file_follow_repository import FileFollowStore
-from src.user.api.auth import get_current_user, get_current_admin_user
+from src.user.api.auth import get_current_admin_user, get_current_user
 from src.user.domain.models import UserDomain
 
 
@@ -192,3 +194,79 @@ class TestRegularUserCannotAccessAdminEndpoints:
             "/api/admin/scraping/follows/testuser",
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.asyncio
+class TestCHG032ProfileAndTimeRange:
+    """CHG-032 TC-BUILD-406/412/419。"""
+
+    async def test_tc_build_406_fetch_failure_still_exits_client_context(self):
+        from src.preference.api.scraper_config_router import sync_user_profiles
+
+        repo = Mock()
+        repo.get_all_follows = AsyncMock(return_value=[Mock(platform_user_id="uid-1")])
+        client = Mock()
+        client.fetch_user_info_by_ids = AsyncMock(side_effect=RuntimeError("fetch failed"))
+        manager = Mock()
+        manager.__aenter__ = AsyncMock(return_value=client)
+        manager.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch("src.preference.api.scraper_config_router.get_follows_repo", return_value=repo),
+            patch("src.scraper.client.TwitterClient", return_value=manager),
+            pytest.raises(HTTPException) as exc_info,
+        ):
+            await sync_user_profiles(admin=Mock())
+
+        assert exc_info.value.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        manager.__aexit__.assert_awaited_once()
+
+    async def test_tc_build_412_rest_time_range_delegates_without_value_drift(self):
+        from src.preference.api.scraper_config_router import get_follows_tweet_time_range
+
+        earliest = datetime(2026, 7, 1, tzinfo=UTC)
+        latest = datetime(2026, 7, 2, tzinfo=UTC)
+        service = Mock()
+        service.get_all_follows = AsyncMock(return_value=[Mock(username="Alice")])
+        shared = AsyncMock(return_value={"Alice": (earliest, latest, 3)})
+        with (
+            patch(
+                "src.preference.api.scraper_config_router._get_scraper_config_service",
+                new=AsyncMock(return_value=service),
+            ),
+            patch(
+                "src.preference.services.scraper_config_service.get_tweet_time_ranges",
+                new=shared,
+            ),
+        ):
+            result = await get_follows_tweet_time_range(admin=Mock())
+
+        shared.assert_awaited_once_with(["Alice"])
+        assert result[0].model_dump() == {
+            "username": "Alice",
+            "earliest_tweet_at": earliest,
+            "latest_tweet_at": latest,
+            "tweet_count": 3,
+        }
+
+    async def test_tc_build_419_sync_normal_empty_result_is_unchanged(self):
+        from returns.result import Success
+
+        from src.preference.api.scraper_config_router import sync_user_profiles
+
+        repo = Mock()
+        repo.get_all_follows = AsyncMock(return_value=[Mock(platform_user_id="uid-1")])
+        client = Mock()
+        client.fetch_user_info_by_ids = AsyncMock(return_value=Success([]))
+        manager = Mock()
+        manager.__aenter__ = AsyncMock(return_value=client)
+        manager.__aexit__ = AsyncMock(return_value=None)
+        with (
+            patch("src.preference.api.scraper_config_router.get_follows_repo", return_value=repo),
+            patch("src.scraper.client.TwitterClient", return_value=manager),
+        ):
+            result = await sync_user_profiles(admin=Mock())
+
+        assert result.synced == 0
+        assert result.message == "API 返回空结果"
+        manager.__aexit__.assert_awaited_once()

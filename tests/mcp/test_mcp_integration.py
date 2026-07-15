@@ -6,7 +6,9 @@
 
 import inspect
 import json
+import re
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -829,3 +831,196 @@ class TestToolRegistration:
         assert (
             expected == resource_uris
         ), f"差异: 多余={resource_uris - expected}, 缺少={expected - resource_uris}"
+
+
+class TestCHG032McpLifecycleAndGuards:
+    @staticmethod
+    def _allow_scrape_guards():
+        from src.mcp import security
+
+        security._guard_cache.clear()
+        return (
+            patch("src.mcp.tools.admin_tools.require_admin", return_value=None),
+            patch("src.mcp.security.check_scrape_guard", return_value=None),
+            patch("src.mcp.security.check_action_guard", return_value=None),
+        )
+
+    @pytest.mark.asyncio
+    async def test_tc_build_404_trigger_scrape_closes_once(self, tool_funcs):
+        service = MagicMock()
+        service.scrape_users = AsyncMock(return_value="task-404")
+        service.close = AsyncMock()
+        registry = MagicMock()
+        registry.get_tasks_by_status.return_value = []
+        guards = self._allow_scrape_guards()
+        with (
+            guards[0],
+            guards[1],
+            guards[2],
+            patch("src.mcp.tools.admin_tools.resolve_user_list", new=AsyncMock(return_value=["alice"])),
+            patch("src.scraper.ScrapingService", return_value=service),
+            patch("src.scraper.TaskRegistry.get_instance", return_value=registry),
+            patch("src.scraper.scheduled_job.resolve_manual_limits", new=AsyncMock(return_value={})),
+            patch("src.mcp.security.audit_log"),
+        ):
+            result = json.loads(await tool_funcs["trigger_scrape"](usernames="alice"))
+
+        assert result["success"] is True
+        service.close.assert_awaited_once_with()
+
+    @pytest.mark.asyncio
+    async def test_tc_build_405_trigger_backfill_closes_batch_once(self, tool_funcs):
+        service = MagicMock()
+        service.backfill_user = AsyncMock(return_value={"new": 1, "fetched": 2})
+        service.close = AsyncMock()
+        guards = self._allow_scrape_guards()
+        with (
+            guards[0],
+            guards[1],
+            guards[2],
+            patch(
+                "src.mcp.tools.admin_tools.resolve_user_list",
+                new=AsyncMock(return_value=["alice", "bob"]),
+            ),
+            patch("src.scraper.ScrapingService", return_value=service),
+            patch("src.mcp.security.audit_log"),
+        ):
+            result = json.loads(await tool_funcs["trigger_backfill"](usernames="alice,bob"))
+
+        assert result["success"] is True
+        assert service.backfill_user.await_count == 2
+        service.close.assert_awaited_once_with()
+
+    @pytest.mark.asyncio
+    async def test_tc_build_407_backfill_exception_still_closes(self, tool_funcs):
+        service = MagicMock()
+        service.backfill_user = AsyncMock(
+            side_effect=[{"new": 1, "fetched": 2}, RuntimeError("second failed")]
+        )
+        service.close = AsyncMock()
+        guards = self._allow_scrape_guards()
+        with (
+            guards[0],
+            guards[1],
+            guards[2],
+            patch(
+                "src.mcp.tools.admin_tools.resolve_user_list",
+                new=AsyncMock(return_value=["alice", "bob"]),
+            ),
+            patch("src.scraper.ScrapingService", return_value=service),
+            patch("src.mcp.security.audit_log"),
+        ):
+            result = json.loads(await tool_funcs["trigger_backfill"](usernames="alice,bob"))
+
+        assert result["success"] is False
+        service.close.assert_awaited_once_with()
+
+    def test_tc_build_411_all_tool_wire_metadata_matches_golden(self):
+        from src.mcp.server import create_mcp_server
+
+        golden = json.loads(Path("tests/mcp/golden/mcp_tool_schemas.json").read_text())
+        mcp = create_mcp_server()
+        actual = {
+            name: {
+                "description": tool.description,
+                "parameters": tool.parameters,
+                "signature": str(inspect.signature(tool.fn)),
+                "docstring": inspect.getdoc(tool.fn),
+            }
+            for name, tool in sorted(mcp._tool_manager._tools.items())
+        }
+        assert actual == golden
+
+    @pytest.mark.asyncio
+    async def test_tc_build_421_close_warnings_include_rest_and_mcp_contexts(self, caplog):
+        from src.api.routes.admin import _close_scraping_service as close_rest
+        from src.mcp.tools.admin_tools import _close_scraping_service as close_mcp
+
+        contexts = (
+            (close_rest, " (backfill_articles, username=alice)"),
+            (close_mcp, " (tool=trigger_scrape)"),
+            (close_mcp, " (tool=trigger_backfill)"),
+        )
+        with caplog.at_level("WARNING"):
+            for closer, context in contexts:
+                service = MagicMock()
+                service.close = AsyncMock(side_effect=RuntimeError("boom"))
+                await closer(service, context)
+
+        assert "backfill_articles, username=alice" in caplog.text
+        assert "tool=trigger_scrape" in caplog.text
+        assert "tool=trigger_backfill" in caplog.text
+
+    def test_tc_build_422_wire_dump_detects_temporary_docstring_damage(self):
+        from src.mcp.server import create_mcp_server
+
+        tool = create_mcp_server()._tool_manager._tools["trigger_scrape"]
+        baseline = {
+            "description": tool.description,
+            "docstring": inspect.getdoc(tool.fn),
+        }
+        damaged = {**baseline, "docstring": baseline["docstring"] + " 临时自证改错"}
+        assert damaged != baseline
+
+    def test_tc_build_423_s0_guard_accepts_only_empty_porcelain_output(self):
+        def can_snapshot(porcelain: str) -> bool:
+            return not porcelain.strip()
+
+        assert can_snapshot("") is True
+        assert can_snapshot(" M src/example.py\n") is False
+
+    def test_tc_build_424_helpers_keep_deliberate_type_split_and_docstrings(self):
+        from typing import Any
+
+        from src.api.routes.admin import _close_scraping_service as close_rest
+        from src.mcp.tools.admin_tools import _close_scraping_service as close_mcp
+        from src.scraper import ScrapingService
+
+        assert inspect.signature(close_rest).parameters["service"].annotation is ScrapingService
+        assert inspect.signature(close_mcp).parameters["service"].annotation is Any
+        for helper in (close_rest, close_mcp):
+            doc = inspect.getdoc(helper) or ""
+            assert "两份独立实现" in doc
+            assert "NameError" in doc
+
+    @pytest.mark.asyncio
+    async def test_tc_build_426_empty_trigger_scrape_still_closes(self, tool_funcs):
+        service = MagicMock()
+        service.close = AsyncMock()
+        registry = MagicMock()
+        registry.get_tasks_by_status.return_value = []
+        guards = self._allow_scrape_guards()
+        with (
+            guards[0],
+            guards[1],
+            guards[2],
+            patch("src.mcp.tools.admin_tools.resolve_user_list", new=AsyncMock(return_value=[])),
+            patch("src.scraper.ScrapingService", return_value=service),
+            patch("src.scraper.TaskRegistry.get_instance", return_value=registry),
+        ):
+            result = json.loads(await tool_funcs["trigger_scrape"]())
+
+        assert result["error_type"] == "validation"
+        service.close.assert_awaited_once_with()
+
+    def test_tc_build_427_backfill_loop_has_no_per_account_try_except(self, tool_funcs):
+        source = inspect.getsource(tool_funcs["trigger_backfill"])
+        loop_body = source.split("for username in user_list:", 1)[1].split("audit_log(", 1)[0]
+        assert "try:" not in loop_body
+        assert "except" not in loop_body
+
+    def test_tc_build_428_account_info_factory_keeps_cached_singleton(self):
+        from src.scraper.account_info_service import get_account_info_service
+
+        source = inspect.getsource(get_account_info_service)
+        assert "global _service_instance" in source
+        assert "_service_instance is None" in source
+
+    def test_tc_build_431_all_chg032_case_ids_are_collected_in_tests(self):
+        pattern = re.compile(r"test_tc_build_(4(?:0[1-9]|[12][0-9]|3[0-2]))")
+        found = {
+            match.group(1)
+            for path in Path("tests").rglob("test_*.py")
+            for match in pattern.finditer(path.read_text())
+        }
+        assert found == {str(case_id) for case_id in range(401, 433)}

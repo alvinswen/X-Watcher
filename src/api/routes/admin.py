@@ -20,25 +20,52 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
-# 全局服务实例（延迟初始化）
-_scraping_service: ScrapingService | None = None
-_task_registry: TaskRegistry | None = None
-
 
 def get_scraping_service() -> ScrapingService:
-    """获取抓取服务实例。"""
-    global _scraping_service
-    if _scraping_service is None:
-        _scraping_service = ScrapingService()
-    return _scraping_service
+    """获取抓取服务实例。
+
+    无状态工厂:每次调用返回新实例,不再跨请求复用同一个模块级单例
+    (CHG-032 目标 4)。调用方使用完毕后必须调用一次
+    ``ScrapingService.close()`` 释放内部持有的网络连接——本文件内已有的
+    3 个消费点均已补齐该收尾动作(见 ``_close_scraping_service``),新增
+    调用点须遵循同一约定。
+    """
+    return ScrapingService()
 
 
 def get_task_registry() -> TaskRegistry:
-    """获取任务注册表实例。"""
-    global _task_registry
-    if _task_registry is None:
-        _task_registry = TaskRegistry.get_instance()
-    return _task_registry
+    """获取任务注册表实例。
+
+    ``TaskRegistry.get_instance()`` 本身即类级单例,无需模块级全局变量
+    重复缓存同一引用(CHG-032 目标 4 · Q3 零风险清理)。
+    """
+    return TaskRegistry.get_instance()
+
+
+async def _close_scraping_service(service: ScrapingService, context: str = "") -> None:
+    """关闭抓取服务的连接资源(CHG-032 目标 4)。
+
+    关闭失败仅记录警告日志,不覆盖或掩盖调用方已经产生的抓取/回溯结果
+    (Loop-1 自修项:关闭失败与业务成败是两件独立的事)。
+
+    ⚠️ 本函数与 ``src/mcp/tools/admin_tools.py`` 里的同名 helper 是**两份独立实现**,
+    不要合并成一个跨文件共享函数(CHG-032 A5 加固 3)。原因:本文件在模块顶部固定
+    ``from src.scraper import ScrapingService`` 并把它用作精确类型标注;而
+    ``admin_tools.py`` 把 scraper 符号一律做函数体内局部 import、该 helper 用 ``Any``
+    标注。两者对"抓取服务"这个符号的引入方式不同,强行合并会把模块级 scraper import
+    带进 ``admin_tools.py``——而那个文件**没有** ``from __future__ import annotations``,
+    模块级函数的类型标注会在模块加载期(MCP server 启动阶段)就地求值,一旦 import 缺失
+    即抛 NameError。故这两份看似重复的 helper 必须各留一份,不要合并、不要"顺手统一"。
+
+    Args:
+        service: 待关闭的抓取服务实例
+        context: 可选的调用来源标签(如 " (task_id=xxx)"),拼进关闭失败的告警文案,
+            便于多任务并发时运维一眼看出这条告警属于哪一次调用(CHG-032 A5 加固 4)
+    """
+    try:
+        await service.close()
+    except Exception as e:
+        logger.warning(f"关闭 ScrapingService 连接失败{context}: {e}")
 
 
 class ScrapeRequest:
@@ -239,6 +266,10 @@ async def _run_scraping_task_async(task_id: str, usernames: list[str], limit: in
             },
         )
         registry.update_task_status(task_id, TaskStatus.FAILED, error=str(e))
+    finally:
+        # 本次抓取任务(无论成功失败)结束后关闭一次连接,CHG-032 目标 4
+        # (context 传 task_id,关闭失败时告警可定位到具体任务,A5 加固 4)
+        await _close_scraping_service(service, f" (task_id={task_id})")
 
 
 async def _run_backfill_all_async(task_id: str, max_tweets: int) -> None:
@@ -315,6 +346,10 @@ async def _run_backfill_all_async(task_id: str, max_tweets: int) -> None:
             extra={"task_id": task_id, "event": "backfill_all_failed"},
         )
         registry.update_task_status(task_id, TaskStatus.FAILED, error=str(e))
+    finally:
+        # 整批账号(逐账号容错·277-284行 warning 留痕继续)处理完才关闭一次,Q2
+        # (context 传 task_id,A5 加固 4)
+        await _close_scraping_service(service, f" (task_id={task_id})")
 
 
 @router.post("/scrape", status_code=status.HTTP_202_ACCEPTED)
@@ -559,9 +594,10 @@ async def backfill_articles(
             detail="max_tweets 必须在 1-1000 之间",
         )
 
-    service = get_scraping_service()
-
     # ── 批量模式：后台任务 + 立即返回 task_id ──
+    # (注意:此分支不再无条件构造 service——批量模式从未引用过它,
+    #  是一处多余构造;_run_backfill_all_async 会自己独立构造自己的实例。
+    #  CHG-032 目标 4 清理"多余抓手")
     if backfill_all:
         registry = get_task_registry()
         task_id = registry.create_task(
@@ -610,6 +646,8 @@ async def backfill_articles(
             detail=f"用户名 '{username}' 只能包含字母、数字和下划线",
         )
 
+    # service 仅单用户模式需要,构造收窄到这里,用完即关闭,CHG-032 目标 4
+    service = get_scraping_service()
     try:
         result = await service.backfill_articles_for_user(
             username,
@@ -620,6 +658,11 @@ async def backfill_articles(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Article 回溯失败: {e}",
+        )
+    finally:
+        # 单用户模式无 task_id,context 传端点名+username 供运维定位,A5 加固 4
+        await _close_scraping_service(
+            service, f" (backfill_articles, username={username})"
         )
 
     logger.info(f"Article 回溯完成: username={username}, result={result}")
