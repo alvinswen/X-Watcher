@@ -1,7 +1,7 @@
 """Admin API 端点测试。"""
 
 from datetime import datetime
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -242,6 +242,70 @@ class TestStartScrapingEndpoint:
 
         assert response.status_code == 409
         assert "正在执行中" in response.json()["detail"]
+
+
+class TestRunScrapingTaskAsync:
+    """CHG-031 的 REST 后台任务本体验证。"""
+
+    @pytest.mark.asyncio
+    async def test_tc_build_383_rest_helper_delegates_without_manual_limits(self):
+        """TC-BUILD-383: REST 辅助函数不再传入内联 manual_limits。"""
+        from src.api.routes.admin import _run_scraping_task_async
+
+        service = Mock()
+        service.scrape_users = AsyncMock(return_value="task-383")
+        with (
+            patch(
+                "src.api.routes.admin.get_scraping_service", return_value=service
+            ),
+            patch("src.api.routes.admin.get_task_registry", return_value=Mock()),
+        ):
+            await _run_scraping_task_async("task-383", ["alice"], 100)
+
+        service.scrape_users.assert_awaited_once_with(
+            usernames=["alice"],
+            limit=100,
+            task_id="task-383",
+        )
+
+    @pytest.mark.asyncio
+    async def test_tc_build_399_rest_path_queries_manual_limits_exactly_once(self):
+        """TC-BUILD-399: REST 依赖服务层单点解析，仓储查询精确一次。"""
+        from src.api.routes.admin import _run_scraping_task_async
+        from src.scraper.scraping_service import ScrapingService
+
+        service = ScrapingService(
+            client=AsyncMock(),
+            parser=Mock(),
+            validator=Mock(),
+            repository=AsyncMock(),
+        )
+        service._scrape_with_semaphore = AsyncMock(
+            return_value={
+                "username": "alice",
+                "success": True,
+                "fetched": 0,
+                "new": 0,
+                "skipped": 0,
+                "errors": 0,
+                "error_message": None,
+            }
+        )
+        service._sync_user_profiles = AsyncMock()
+        resolver = AsyncMock(return_value={})
+
+        with (
+            patch(
+                "src.api.routes.admin.get_scraping_service", return_value=service
+            ),
+            patch("src.api.routes.admin.get_task_registry", return_value=Mock()),
+            patch(
+                "src.scraper.scheduled_job.resolve_manual_limits", new=resolver
+            ),
+        ):
+            await _run_scraping_task_async("task-399", ["alice"], 100)
+
+        resolver.assert_awaited_once_with(["alice"])
 
 
 class TestGetScrapingStatusEndpoint:
