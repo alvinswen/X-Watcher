@@ -259,7 +259,7 @@ async def get_follows_tweet_time_range(
     Returns:
         list[TweetTimeRangeResponse]: 各账号的推文时间范围
     """
-    from src.data_layer.provider import get_scraper_stats_repo
+    from src.preference.services.scraper_config_service import get_tweet_time_ranges
 
     try:
         # 1. 获取所有活跃账号
@@ -270,17 +270,16 @@ async def get_follows_tweet_time_range(
         if not usernames:
             return []
 
-        # 2. 按 author 聚合 min/max/count(走 provider:sqlalchemy 转调原 group_by min/max/count SQL;
-        #    file 组合 FileTweetStore Python 聚合)。大小写不敏感匹配(lower),无 round 陷阱。
-        rows = await get_scraper_stats_repo().tweet_time_range(usernames)
+        # 2. 共享实现:取活跃账号推文时间范围(REST/MCP 两处共用,CHG-032 目标 2)
+        ranges = await get_tweet_time_ranges(usernames)
 
-        # 3. 组装结果（包括无推文的账号），通过 lower() 键匹配
+        # 3. 组装结果（包括无推文的账号）
         return [
             TweetTimeRangeResponse(
                 username=u,
-                earliest_tweet_at=rows[u.lower()][0] if u.lower() in rows else None,
-                latest_tweet_at=rows[u.lower()][1] if u.lower() in rows else None,
-                tweet_count=rows[u.lower()][2] if u.lower() in rows else 0,
+                earliest_tweet_at=ranges[u][0],
+                latest_tweet_at=ranges[u][1],
+                tweet_count=ranges[u][2],
             )
             for u in usernames
         ]
@@ -381,10 +380,10 @@ async def sync_user_profiles(
                 message="没有可同步的账号（无 platform_user_id）",
             )
 
-        # 调用 API 获取用户信息
-        client = TwitterClient()
-        result = await client.fetch_user_info_by_ids(user_ids)
-        await client.close()
+        # 调用 API 获取用户信息(async with 确保 fetch_user_info_by_ids 抛出异常时
+        # 连接仍被释放,修复此前 close() 未受 try/finally 保护的连接泄漏,CHG-032 目标 3)
+        async with TwitterClient() as client:
+            result = await client.fetch_user_info_by_ids(user_ids)
 
         from returns.result import Failure
 
