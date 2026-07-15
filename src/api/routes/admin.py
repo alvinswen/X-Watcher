@@ -204,18 +204,9 @@ async def _run_scraping_task_async(task_id: str, usernames: list[str], limit: in
     service = get_scraping_service()
     registry = get_task_registry()
 
-    # 读取 DB 中的 manual_limit 配置（与 scheduled_job.py 一致）
-    from src.scraper.scheduled_job import get_active_follows_async
-
-    follows_data = await get_active_follows_async()
-    manual_limits = {
-        f["username"]: f["manual_limit"]
-        for f in follows_data
-        if f["manual_limit"] and f["username"] in usernames
-    }
-    if manual_limits:
-        logger.info(f"Admin 抓取任务使用 manual_limits: {manual_limits}")
-
+    # manual_limit 解析已下沉至 ScrapingService.scrape_users 服务层单点判断
+    # (manual_limits 未传即 None 时自动解析活跃账号配置),此处不再自行读取
+    # follows 仓储,避免与服务层重复查询(CHG-031 目标 1,技术决策见方案 § 九-1)。
     start_time = time.time()
     logger.info(
         f"抓取任务开始: {len(usernames)} 个用户, limit={limit}",
@@ -227,7 +218,6 @@ async def _run_scraping_task_async(task_id: str, usernames: list[str], limit: in
             usernames=usernames,
             limit=limit,
             task_id=task_id,
-            manual_limits=manual_limits or None,
         )
         elapsed = time.time() - start_time
         logger.info(

@@ -183,6 +183,8 @@ def register(mcp: FastMCP) -> None:
     ) -> str:
         """手动触发抓取任务。需要管理员权限。
 
+        若账号配置了手动抓取上限（manual_limit），该配置优先于 limit 参数生效。
+
         Args:
             usernames: 要抓取的 X 用户名，逗号分隔。留空则抓取所有活跃账号
             limit: 每个用户的抓取推文数量限制，默认 100
@@ -202,6 +204,7 @@ def register(mcp: FastMCP) -> None:
 
         try:
             from src.scraper import ScrapingService, TaskRegistry
+            from src.scraper.scheduled_job import resolve_manual_limits
             from src.scraper.task_registry import TaskStatus
 
             # 检查是否有任务正在运行（防止重复触发浪费 API 额度）
@@ -219,10 +222,16 @@ def register(mcp: FastMCP) -> None:
             if not user_list:
                 return error_response("没有可抓取的账号", "validation")
 
+            # 解析本次实际生效的 manual_limit(服务层共享的同一份实现,CHG-031 目标 1):
+            # 此处提前调用一次,既传给 scrape_users(避免其内部重复查询),也用于
+            # 下方审计日志留痕(运维需要知道这次到底有没有生效)
+            manual_limits = await resolve_manual_limits(user_list)
+
             # 启动异步抓取任务
             task_id = await service.scrape_users(
                 usernames=user_list,
                 limit=limit,
+                manual_limits=manual_limits,
             )
 
             audit_log(
@@ -231,6 +240,7 @@ def register(mcp: FastMCP) -> None:
                 params={
                     "usernames": user_list,
                     "limit": limit,
+                    "manual_limits": manual_limits or None,
                 },
             )
             return success_response(

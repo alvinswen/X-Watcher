@@ -90,7 +90,10 @@ class ScrapingService:
             usernames: 用户名列表
             limit: 每个用户抓取的推文数量限制
             task_id: 可选的任务 ID（为 None 时自动创建）
-            manual_limits: 手动 limit 映射 {username: limit}（可选）
+            manual_limits: 手动 limit 映射 {username: limit}（可选）。为 None 时
+                服务层自动从 follows 仓储解析活跃账号的 manual_limit 配置（含
+                空字典在内的非 None 值视为调用方已显式提供，不再二次查询，
+                CHG-031）
 
         Returns:
             str: 任务 ID
@@ -107,6 +110,15 @@ class ScrapingService:
 
         # 更新任务状态为运行中
         self._registry.update_task_status(task_id, TaskStatus.RUNNING)
+
+        # manual_limits 未显式传入(None)时,服务层单点自动解析活跃账号的手动限额
+        # 配置,使 REST(_run_scraping_task_async)与 MCP(trigger_scrape)两条触发
+        # 路径自动生效、无需各自维护一份(CHG-031 目标 1)。非 None(含调用方显式
+        # 传入的空字典)视为调用方已给出确定值,不再二次查询。
+        if manual_limits is None:
+            from src.scraper.scheduled_job import resolve_manual_limits
+
+            manual_limits = await resolve_manual_limits(usernames)
 
         start_time = time.time()
 

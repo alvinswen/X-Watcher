@@ -4,9 +4,10 @@
 数据写入 → 工具调用 → 服务层查询 → 返回结果。
 """
 
+import inspect
 import json
 from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -30,6 +31,54 @@ def _get_tool_funcs():
     mcp = create_mcp_server()
     tools = mcp._tool_manager._tools
     return {name: tool.fn for name, tool in tools.items()}
+
+
+def _assert_trigger_scrape_only_drift(before: dict, after: dict) -> None:
+    """镜像 S3 范围校验，便于用构造数据证明其鉴别力。"""
+    changed_tools = {
+        name
+        for name in before.keys() | after.keys()
+        if before.get(name) != after.get(name)
+    }
+    assert changed_tools == {"trigger_scrape"}
+    changed_fields = {
+        field
+        for field in before["trigger_scrape"].keys()
+        | after["trigger_scrape"].keys()
+        if before["trigger_scrape"].get(field)
+        != after["trigger_scrape"].get(field)
+    }
+    assert changed_fields == {"description", "docstring"}
+
+
+async def _call_trigger_scrape(tool, manual_limits: dict[str, int]):
+    """以可观测替身调用 trigger_scrape 的成功链路。"""
+    from src.mcp import security
+
+    security._guard_cache.clear()
+    service = MagicMock()
+    service.scrape_users = AsyncMock(return_value="task-chg031")
+    registry = MagicMock()
+    registry.get_tasks_by_status.return_value = []
+    resolver = AsyncMock(return_value=manual_limits)
+    resolve_users = AsyncMock(return_value=["alice"])
+    audit = MagicMock()
+
+    with (
+        patch("src.mcp.tools.admin_tools.require_admin", return_value=None),
+        patch(
+            "src.mcp.tools.admin_tools.resolve_user_list", new=resolve_users
+        ),
+        patch("src.scraper.ScrapingService", return_value=service),
+        patch("src.scraper.TaskRegistry.get_instance", return_value=registry),
+        patch(
+            "src.scraper.scheduled_job.resolve_manual_limits", new=resolver
+        ),
+        patch("src.mcp.security.audit_log", new=audit),
+    ):
+        result = await tool(usernames="alice", limit=100)
+
+    return json.loads(result), service, resolver, audit
 
 
 def test_run_mcp_server_rejects_weak_jwt_secret(monkeypatch, capsys):
@@ -473,6 +522,184 @@ class TestAdminToolsIntegration:
         data = json.loads(result)
         assert data["success"] is False
         assert data["error_type"] == "permission"
+
+    def test_tc_build_384_contract_drift_accepts_only_expected_fields(self):
+        """TC-BUILD-384: 范围校验接受仅 description/docstring 的漂移。"""
+        before = {
+            "trigger_scrape": {
+                "description": "old",
+                "docstring": "old",
+                "parameters": {"limit": 100},
+                "signature": "(limit=100)",
+            },
+            "other": {"description": "same"},
+        }
+        after = {
+            "trigger_scrape": {
+                **before["trigger_scrape"],
+                "description": "new",
+                "docstring": "new",
+            },
+            "other": before["other"],
+        }
+
+        _assert_trigger_scrape_only_drift(before, after)
+
+    def test_tc_build_385_contract_drift_rejects_another_tool(self):
+        """TC-BUILD-385: 范围校验会拒绝另一工具被手滑修改。"""
+        before = {
+            "trigger_scrape": {
+                "description": "old",
+                "docstring": "old",
+                "parameters": {},
+                "signature": "()",
+            },
+            "get_follow_accounts_info": {"description": "old"},
+        }
+        after = {
+            "trigger_scrape": {
+                **before["trigger_scrape"],
+                "description": "new",
+                "docstring": "new",
+            },
+            "get_follow_accounts_info": {"description": "sabotaged"},
+        }
+
+        with pytest.raises(AssertionError):
+            _assert_trigger_scrape_only_drift(before, after)
+
+    def test_tc_build_390_trigger_scrape_docstring_mentions_manual_limit(
+        self, tool_funcs
+    ):
+        """TC-BUILD-390: Agent 可从工具说明感知 manual_limit 优先级。"""
+        docstring = inspect.getdoc(tool_funcs["trigger_scrape"])
+        assert docstring is not None
+        assert "若账号配置了手动抓取上限（manual_limit），该配置优先于 limit 参数生效。" in docstring
+
+    @pytest.mark.asyncio
+    async def test_tc_build_391_audit_records_resolved_manual_limits(
+        self, tool_funcs
+    ):
+        """TC-BUILD-391: 成功审计日志记录实际解析的账号限额。"""
+        data, _, _, audit = await _call_trigger_scrape(
+            tool_funcs["trigger_scrape"], {"alice": 7}
+        )
+
+        assert data["success"] is True
+        assert audit.call_args.kwargs["params"]["manual_limits"] == {"alice": 7}
+
+    @pytest.mark.asyncio
+    async def test_tc_build_392_signature_and_response_shape_are_unchanged(
+        self, tool_funcs
+    ):
+        """TC-BUILD-392: 参数签名与成功返回四字段结构不变。"""
+        tool = tool_funcs["trigger_scrape"]
+        assert str(inspect.signature(tool)) == "(usernames: str | None = None, limit: int = 100) -> str"
+
+        data, _, _, _ = await _call_trigger_scrape(tool, {"alice": 7})
+        assert set(data["data"]) == {
+            "task_id",
+            "usernames",
+            "limit",
+            "message",
+        }
+
+    def test_tc_build_393_tool_registry_still_contains_exactly_32_tools(self):
+        """TC-BUILD-393: 本包不增删 MCP 工具。"""
+        funcs = _get_tool_funcs()
+        assert len(funcs) == 32
+        assert "trigger_scrape" in funcs
+
+    @pytest.mark.asyncio
+    async def test_tc_build_394_trigger_scrape_still_requires_admin(
+        self, tool_funcs
+    ):
+        """TC-BUILD-394: SSE 普通用户仍被管理员权限门禁拦截。"""
+        import src.mcp.auth as auth_mod
+
+        original_transport = auth_mod._transport
+        try:
+            auth_mod._transport = "sse"
+            result = await tool_funcs["trigger_scrape"](
+                usernames="alice", limit=100
+            )
+        finally:
+            auth_mod._transport = original_transport
+
+        data = json.loads(result)
+        assert data["success"] is False
+        assert data["error_type"] == "permission"
+
+    @pytest.mark.asyncio
+    async def test_tc_build_395_existing_scrape_guards_still_block(
+        self, tool_funcs, monkeypatch
+    ):
+        """TC-BUILD-395: 总开关与动作白名单两道既有门禁都仍生效。"""
+        from src.mcp import security
+
+        tool = tool_funcs["trigger_scrape"]
+        monkeypatch.setenv("MCP_SCRAPE_ENABLED", "false")
+        security._guard_cache.clear()
+        with patch("src.mcp.tools.admin_tools.require_admin", return_value=None):
+            disabled = json.loads(await tool(usernames="alice", limit=100))
+        assert disabled["error_type"] == "permission"
+
+        monkeypatch.setenv("MCP_SCRAPE_ENABLED", "true")
+        monkeypatch.setenv("MCP_TRIGGER_SCRAPE_ALLOWED_ACTIONS", "noop")
+        security._guard_cache.clear()
+        with patch("src.mcp.tools.admin_tools.require_admin", return_value=None):
+            denied = json.loads(await tool(usernames="alice", limit=100))
+        assert denied["error_type"] == "permission"
+
+    @pytest.mark.asyncio
+    async def test_tc_build_396_mcp_queries_and_passes_manual_limits_once(
+        self, tool_funcs
+    ):
+        """TC-BUILD-396: MCP 只解析一次并显式传给服务层。"""
+        _, service, resolver, _ = await _call_trigger_scrape(
+            tool_funcs["trigger_scrape"], {"alice": 7}
+        )
+
+        resolver.assert_awaited_once_with(["alice"])
+        service.scrape_users.assert_awaited_once_with(
+            usernames=["alice"],
+            limit=100,
+            manual_limits={"alice": 7},
+        )
+
+    @pytest.mark.asyncio
+    async def test_tc_build_397_existing_manage_follows_behavior_regresses_green(
+        self, tool_funcs, seed_file_follows
+    ):
+        """TC-BUILD-397: 未修改的管理工具行为保持不变。"""
+        with patch("src.mcp.tools.admin_tools.require_admin", return_value=None):
+            result = await tool_funcs["manage_follows"](action="list")
+
+        data = json.loads(result)
+        assert data["success"] is True
+        assert data["data"]["count"] == 2
+
+    def test_tc_build_398_trigger_scrape_contract_invariants_are_complete(self):
+        """TC-BUILD-398: 全量收口前锁定工具数、输入字段和签名。"""
+        from src.mcp.server import create_mcp_server
+
+        mcp = create_mcp_server()
+        tool = mcp._tool_manager._tools["trigger_scrape"]
+        assert len(mcp._tool_manager._tools) == 32
+        assert set(tool.parameters["properties"]) == {"usernames", "limit"}
+        assert str(inspect.signature(tool.fn)) == "(usernames: str | None = None, limit: int = 100) -> str"
+
+    @pytest.mark.asyncio
+    async def test_tc_build_400_audit_records_none_when_no_manual_limits(
+        self, tool_funcs
+    ):
+        """TC-BUILD-400: 无手动限额时审计值规范为 None。"""
+        data, _, _, audit = await _call_trigger_scrape(
+            tool_funcs["trigger_scrape"], {}
+        )
+
+        assert data["success"] is True
+        assert audit.call_args.kwargs["params"]["manual_limits"] is None
 
 
 # ── get_system_status 集成测试 ────────────────────────────────────

@@ -68,6 +68,99 @@ class TestScrapingService:
             repository=mock_repository,
         )
 
+    @staticmethod
+    def _stub_scrape_orchestration(service):
+        worker = AsyncMock(
+            return_value={
+                "username": "alice",
+                "success": True,
+                "fetched": 0,
+                "new": 0,
+                "skipped": 0,
+                "errors": 0,
+                "error_message": None,
+            }
+        )
+        service._scrape_with_semaphore = worker
+        service._sync_user_profiles = AsyncMock()
+        return worker
+
+    @pytest.mark.asyncio
+    async def test_tc_build_379_rest_and_mcp_manual_limits_are_equivalent(
+        self, service
+    ):
+        """TC-BUILD-379: REST 隐式解析与 MCP 显式传入的限额等价。"""
+        worker = self._stub_scrape_orchestration(service)
+        resolver = AsyncMock(return_value={"alice": 7})
+
+        with patch(
+            "src.scraper.scheduled_job.resolve_manual_limits", new=resolver
+        ):
+            await service.scrape_users(["alice"], limit=100)
+            rest_manual_limit = worker.await_args.kwargs["manual_limit"]
+            worker.reset_mock()
+            await service.scrape_users(
+                ["alice"], limit=100, manual_limits={"alice": 7}
+            )
+            mcp_manual_limit = worker.await_args.kwargs["manual_limit"]
+
+        assert rest_manual_limit == mcp_manual_limit == 7
+        resolver.assert_awaited_once_with(["alice"])
+
+    @pytest.mark.asyncio
+    async def test_tc_build_380_unconfigured_limit_is_unchanged_on_both_paths(
+        self, service
+    ):
+        """TC-BUILD-380: 未配置手动限额时两条调用风格都使用默认 limit。"""
+        worker = self._stub_scrape_orchestration(service)
+        resolver = AsyncMock(return_value={})
+
+        with patch(
+            "src.scraper.scheduled_job.resolve_manual_limits", new=resolver
+        ):
+            await service.scrape_users(["alice"], limit=100)
+            rest_manual_limit = worker.await_args.kwargs["manual_limit"]
+            worker.reset_mock()
+            await service.scrape_users(["alice"], limit=100, manual_limits={})
+            mcp_manual_limit = worker.await_args.kwargs["manual_limit"]
+
+        assert rest_manual_limit is None
+        assert mcp_manual_limit is None
+        resolver.assert_awaited_once_with(["alice"])
+
+    @pytest.mark.asyncio
+    async def test_tc_build_381_none_auto_resolves_manual_limits(self, service):
+        """TC-BUILD-381: None 会在服务层自动解析并传给单账号抓取。"""
+        worker = self._stub_scrape_orchestration(service)
+        resolver = AsyncMock(return_value={"alice": 11})
+
+        with patch(
+            "src.scraper.scheduled_job.resolve_manual_limits", new=resolver
+        ):
+            await service.scrape_users(["alice"], limit=100)
+
+        resolver.assert_awaited_once_with(["alice"])
+        assert worker.await_args.kwargs["manual_limit"] == 11
+
+    @pytest.mark.asyncio
+    async def test_tc_build_386_explicit_manual_limits_skip_repository_lookup(
+        self, service
+    ):
+        """TC-BUILD-386: 显式非 None 值（含空字典）不触发二次查询。"""
+        worker = self._stub_scrape_orchestration(service)
+        resolver = AsyncMock(return_value={"alice": 999})
+
+        with patch(
+            "src.scraper.scheduled_job.resolve_manual_limits", new=resolver
+        ):
+            await service.scrape_users(["alice"], manual_limits={})
+            assert worker.await_args.kwargs["manual_limit"] is None
+            worker.reset_mock()
+            await service.scrape_users(["alice"], manual_limits={"alice": 9})
+
+        resolver.assert_not_awaited()
+        assert worker.await_args.kwargs["manual_limit"] == 9
+
     @pytest.mark.asyncio
     async def test_scrape_single_user_success(
         self, service, mock_client, mock_parser, mock_validator, mock_repository
