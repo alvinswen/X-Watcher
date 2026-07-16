@@ -5,9 +5,9 @@
 
 import asyncio
 import logging
+from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import datetime
-from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, TypeVar
 
 import httpx
 from returns.result import Failure, Result, Success
@@ -16,6 +16,8 @@ from src.config import get_settings
 from src.scraper.circuit_breaker import CircuitBreaker
 
 logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
 
 
 def _convert_twitterapi_date_to_iso(date_str: str | None) -> str | None:
@@ -165,6 +167,168 @@ def _extract_full_text(tweet_obj: dict[str, Any]) -> str | None:
     return max(candidates, key=len)
 
 
+def _convert_twitterapi_response(response_data: dict[str, Any]) -> dict[str, Any]:
+    """Convert a TwitterAPI.io response to the internal Twitter v2 shape."""
+    tweets_array = None
+
+    # 检查是否是 TwitterAPI.io 嵌套格式
+    if "data" in response_data and isinstance(response_data.get("data"), dict):
+        inner_data = response_data.get("data", {})
+        if "tweets" in inner_data:
+            tweets_array = inner_data.get("tweets", [])
+            logger.info("检测到 TwitterAPI.io 嵌套响应格式 (data.tweets)")
+    # 检查是否是 TwitterAPI.io 直接格式
+    elif "tweets" in response_data:
+        tweets_array = response_data.get("tweets", [])
+        logger.info("检测到 TwitterAPI.io 直接响应格式 (tweets)")
+
+    # 提取分页游标（在转换之前，从原始响应中获取）
+    raw_next_cursor = None
+    if "data" in response_data and isinstance(response_data.get("data"), dict):
+        raw_next_cursor = response_data["data"].get("next_cursor")
+    if raw_next_cursor is None:
+        raw_next_cursor = response_data.get("next_cursor")
+
+    if tweets_array is None:
+        # 可能已经是标准格式
+        logger.debug(f"响应格式（未检测到 tweets 字段）: {str(response_data)[:200]}")
+        return response_data
+
+    # 转换 TwitterAPI.io 格式为标准 Twitter API v2 格式
+    tweets_data = []
+    users_map = {}
+    all_media: list[dict[str, Any]] = []  # 收集所有媒体
+
+    for tweet in tweets_array:
+        # 从 tweet 中提取基本信息
+        tweet_id = tweet.get("id")
+        tweet_text = _extract_full_text(tweet) or tweet.get("text", "")
+        created_at_raw = tweet.get("createdAt")
+
+        # 转换日期格式：TwitterAPI.io -> ISO 8601
+        created_at_iso = _convert_twitterapi_date_to_iso(created_at_raw)
+
+        # 从 TwitterAPI.io 字段构建 referenced_tweets（Twitter v2 格式）
+        # 优先级：retweeted > quoted > replied_to
+        referenced_tweets = []
+        retweeted_tweet_obj = tweet.get("retweeted_tweet")
+        quoted_tweet_obj = tweet.get("quoted_tweet")
+
+        # 被引用推文的完整文本、媒体和原作者
+        referenced_tweet_text = None
+        referenced_tweet_media = None
+        referenced_tweet_author_username = None
+
+        if isinstance(retweeted_tweet_obj, dict) and retweeted_tweet_obj.get("id"):
+            referenced_tweets.append({
+                "type": "retweeted",
+                "id": str(retweeted_tweet_obj["id"]),
+            })
+            # 提取原推的完整文本（优先使用 full_text/note_tweet）
+            referenced_tweet_text = _extract_full_text(retweeted_tweet_obj)
+            # 提取原推的媒体
+            referenced_tweet_media = _extract_media_from_tweet_obj(retweeted_tweet_obj)
+            # 提取原推的作者用户名
+            rt_author = retweeted_tweet_obj.get("author")
+            if isinstance(rt_author, dict):
+                referenced_tweet_author_username = rt_author.get("userName")
+        elif isinstance(quoted_tweet_obj, dict) and quoted_tweet_obj.get("id"):
+            referenced_tweets.append({
+                "type": "quoted",
+                "id": str(quoted_tweet_obj["id"]),
+            })
+            # 提取被引用推文的完整文本（优先使用 full_text/note_tweet）
+            referenced_tweet_text = _extract_full_text(quoted_tweet_obj)
+            # 提取被引用推文的媒体
+            referenced_tweet_media = _extract_media_from_tweet_obj(quoted_tweet_obj)
+            # 提取被引用推文的作者用户名
+            qt_author = quoted_tweet_obj.get("author")
+            if isinstance(qt_author, dict):
+                referenced_tweet_author_username = qt_author.get("userName")
+        elif tweet.get("isReply") and tweet.get("inReplyToId"):
+            referenced_tweets.append({
+                "type": "replied_to",
+                "id": str(tweet["inReplyToId"]),
+            })
+
+        # 截断检测：嵌套推文文本可能被 API 截断
+        if referenced_tweet_text and len(referenced_tweet_text) < 300:
+            stripped = referenced_tweet_text.rstrip()
+            if stripped.endswith("\u2026") or stripped.endswith("..."):
+                logger.warning(
+                    "嵌套推文文本疑似被截断 (%d chars), tweet_id=%s: '...%s'",
+                    len(referenced_tweet_text),
+                    tweet_id,
+                    stripped[-40:],
+                )
+
+        standard_tweet: dict[str, Any] = {
+            "id": tweet_id,
+            "text": tweet_text,
+            "created_at": created_at_iso,
+        }
+        if referenced_tweets:
+            standard_tweet["referenced_tweets"] = referenced_tweets
+        if referenced_tweet_text:
+            standard_tweet["referenced_tweet_text"] = referenced_tweet_text
+        if referenced_tweet_media:
+            standard_tweet["referenced_tweet_media"] = referenced_tweet_media
+        if referenced_tweet_author_username:
+            standard_tweet["referenced_tweet_author_username"] = referenced_tweet_author_username
+
+        # 提取主推文的媒体
+        main_media = _extract_media_from_tweet_obj(tweet)
+        if main_media:
+            media_keys = [m["media_key"] for m in main_media]
+            standard_tweet["attachments"] = {"media_keys": media_keys}
+            all_media.extend(main_media)
+
+        # 提取 author 信息
+        author_obj = tweet.get("author")
+        if isinstance(author_obj, dict):
+            author_id_val = str(author_obj.get("id") or author_obj.get("userName", ""))
+            if author_id_val:
+                standard_tweet["author_id"] = author_id_val
+                users_map[author_id_val] = {
+                    "username": author_obj.get("userName"),
+                    "name": author_obj.get("name"),
+                    "numeric_id": str(author_obj.get("id")) if author_obj.get("id") else None,
+                }
+
+        # 保留 article 字段（用于零成本 Article 检测）
+        article_obj = tweet.get("article")
+        if article_obj and isinstance(article_obj, dict):
+            standard_tweet["article"] = article_obj
+
+        tweets_data.append(standard_tweet)
+
+    # 构造标准响应格式
+    standard_response: dict[str, Any] = {"data": tweets_data}
+    includes: dict[str, Any] = {}
+    if users_map:
+        includes["users"] = [
+            {
+                "id": uid,
+                "username": info["username"],
+                "name": info["name"],
+                "numeric_id": info.get("numeric_id"),
+            }
+            for uid, info in users_map.items()
+        ]
+    if all_media:
+        includes["media"] = all_media
+    if includes:
+        standard_response["includes"] = includes
+
+    # 保留分页游标到标准响应中
+    if raw_next_cursor:
+        standard_response["next_cursor"] = raw_next_cursor
+
+    logger.info(f"转换完成：{len(tweets_data)} 条推文")
+    logger.debug(f"第一条推文: {str(tweets_data[0]) if tweets_data else 'N/A'}")
+    return standard_response
+
+
 class TwitterClientError(Exception):
     """Twitter API 客户端错误。
 
@@ -261,6 +425,73 @@ class TwitterClient:
         if self._client is not None:
             await self._client.aclose()
             self._client = None
+
+    async def _request_with_retry(
+        self,
+        do_request: Callable[[], Awaitable[httpx.Response]],
+        on_success: Callable[[httpx.Response], Result[_T, TwitterClientError]],
+        *,
+        max_retries: int,
+        log_label: str,
+    ) -> Result[_T, TwitterClientError]:
+        """Execute one HTTP request with the client's exponential backoff policy."""
+        retry_count = 0
+        current_delay = self._base_delay
+
+        while True:
+            try:
+                response = await do_request()
+                status_code = response.status_code
+
+                if status_code == 200:
+                    return on_success(response)
+
+                if status_code in self.NON_RETRYABLE_STATUS_CODES:
+                    error_msg = self._get_error_message(status_code)
+                    return Failure(
+                        TwitterClientError(
+                            f"API 错误 {status_code}: {error_msg}",
+                            status_code=status_code,
+                        )
+                    )
+
+                if retry_count >= max_retries:
+                    return Failure(
+                        TwitterClientError(
+                            f"API 错误 {status_code}: 已达到最大重试次数",
+                            status_code=status_code,
+                        )
+                    )
+
+                logger.warning(
+                    "%s 请求失败 (状态码: %s), %.1f秒后重试 (%d/%d)",
+                    log_label,
+                    status_code,
+                    current_delay,
+                    retry_count + 1,
+                    max_retries,
+                )
+                await asyncio.sleep(current_delay)
+                current_delay = min(current_delay * 2, self._max_delay)
+                retry_count += 1
+
+            except httpx.TimeoutException as e:
+                if retry_count >= max_retries:
+                    return Failure(TwitterClientError(f"请求超时: {e}"))
+                await asyncio.sleep(current_delay)
+                current_delay = min(current_delay * 2, self._max_delay)
+                retry_count += 1
+
+            except httpx.NetworkError as e:
+                if retry_count >= max_retries:
+                    return Failure(TwitterClientError(f"网络错误: {e}"))
+                await asyncio.sleep(current_delay)
+                current_delay = min(current_delay * 2, self._max_delay)
+                retry_count += 1
+
+            except Exception as e:
+                logger.exception("%s 未预期的错误: %s", log_label, e)
+                return Failure(TwitterClientError(f"未预期的错误: {e}"))
 
     async def fetch_user_tweets(
         self,
@@ -381,72 +612,28 @@ class TwitterClient:
 
         self._ensure_client()
         assert self._client is not None
+        http_client = self._client
 
         params = {"tweet_id": tweet_id}
 
-        retry_count = 0
-        current_delay = self._base_delay
-
-        while True:
-            try:
-                response = await self._client.get(
-                    "/article",
-                    params=params,
-                )
-                status_code = response.status_code
-
-                if status_code == 200:
-                    response_data = response.json()
-                    if not isinstance(response_data, dict):
-                        return Failure(
-                            TwitterClientError(
-                                f"响应格式错误: 期望 dict，实际 {type(response_data)}"
-                            )
-                        )
-                    return Success(response_data)
-
-                if status_code in self.NON_RETRYABLE_STATUS_CODES:
-                    error_msg = self._get_error_message(status_code)
-                    return Failure(
-                        TwitterClientError(
-                            f"API 错误 {status_code}: {error_msg}",
-                            status_code=status_code,
-                        )
+        def on_success(
+            response: httpx.Response,
+        ) -> Result[dict[str, Any], TwitterClientError]:
+            response_data = response.json()
+            if not isinstance(response_data, dict):
+                return Failure(
+                    TwitterClientError(
+                        f"响应格式错误: 期望 dict，实际 {type(response_data)}"
                     )
-
-                if retry_count >= self._max_retries:
-                    return Failure(
-                        TwitterClientError(
-                            f"API 错误 {status_code}: 已达到最大重试次数",
-                            status_code=status_code,
-                        )
-                    )
-
-                logger.warning(
-                    "fetch_article 请求失败 (状态码: %s), %.1f秒后重试 (%d/%d)",
-                    status_code, current_delay, retry_count + 1, self._max_retries,
                 )
-                await asyncio.sleep(current_delay)
-                current_delay = min(current_delay * 2, self._max_delay)
-                retry_count += 1
+            return Success(response_data)
 
-            except httpx.TimeoutException as e:
-                if retry_count >= self._max_retries:
-                    return Failure(TwitterClientError(f"请求超时: {e}"))
-                await asyncio.sleep(current_delay)
-                current_delay = min(current_delay * 2, self._max_delay)
-                retry_count += 1
-
-            except httpx.NetworkError as e:
-                if retry_count >= self._max_retries:
-                    return Failure(TwitterClientError(f"网络错误: {e}"))
-                await asyncio.sleep(current_delay)
-                current_delay = min(current_delay * 2, self._max_delay)
-                retry_count += 1
-
-            except Exception as e:
-                logger.exception("fetch_article 未预期的错误: %s", e)
-                return Failure(TwitterClientError(f"未预期的错误: {e}"))
+        return await self._request_with_retry(
+            lambda: http_client.get("/article", params=params),
+            on_success,
+            max_retries=self._max_retries,
+            log_label="fetch_article",
+        )
 
     async def fetch_user_info_by_ids(
         self,
@@ -468,72 +655,29 @@ class TwitterClient:
 
         self._ensure_client()
         assert self._client is not None
+        http_client = self._client
 
         params = {"userIds": ",".join(user_ids)}
 
-        retry_count = 0
-        current_delay = self._base_delay
-
-        while True:
-            try:
-                response = await self._client.get(
-                    "/user/batch_info_by_ids",
-                    params=params,
-                )
-                status_code = response.status_code
-
-                if status_code == 200:
-                    response_data = response.json()
-                    if not isinstance(response_data, dict):
-                        return Failure(
-                            TwitterClientError(f"响应格式错误: 期望 dict，实际 {type(response_data)}")
-                        )
-
-                    users = response_data.get("users", [])
-                    return Success(users)
-
-                if status_code in self.NON_RETRYABLE_STATUS_CODES:
-                    error_msg = self._get_error_message(status_code)
-                    return Failure(
-                        TwitterClientError(
-                            f"API 错误 {status_code}: {error_msg}",
-                            status_code=status_code,
-                        )
+        def on_success(
+            response: httpx.Response,
+        ) -> Result[list[dict[str, Any]], TwitterClientError]:
+            response_data = response.json()
+            if not isinstance(response_data, dict):
+                return Failure(
+                    TwitterClientError(
+                        f"响应格式错误: 期望 dict，实际 {type(response_data)}"
                     )
-
-                if retry_count >= self._max_retries:
-                    return Failure(
-                        TwitterClientError(
-                            f"API 错误 {status_code}: 已达到最大重试次数",
-                            status_code=status_code,
-                        )
-                    )
-
-                logger.warning(
-                    "batch_info_by_ids 请求失败 (状态码: %s), %.1f秒后重试 (%d/%d)",
-                    status_code, current_delay, retry_count + 1, self._max_retries,
                 )
-                await asyncio.sleep(current_delay)
-                current_delay = min(current_delay * 2, self._max_delay)
-                retry_count += 1
+            users = response_data.get("users", [])
+            return Success(users)
 
-            except httpx.TimeoutException as e:
-                if retry_count >= self._max_retries:
-                    return Failure(TwitterClientError(f"请求超时: {e}"))
-                await asyncio.sleep(current_delay)
-                current_delay = min(current_delay * 2, self._max_delay)
-                retry_count += 1
-
-            except httpx.NetworkError as e:
-                if retry_count >= self._max_retries:
-                    return Failure(TwitterClientError(f"网络错误: {e}"))
-                await asyncio.sleep(current_delay)
-                current_delay = min(current_delay * 2, self._max_delay)
-                retry_count += 1
-
-            except Exception as e:
-                logger.exception("batch_info_by_ids 未预期的错误: %s", e)
-                return Failure(TwitterClientError(f"未预期的错误: {e}"))
+        return await self._request_with_retry(
+            lambda: http_client.get("/user/batch_info_by_ids", params=params),
+            on_success,
+            max_retries=self._max_retries,
+            log_label="batch_info_by_ids",
+        )
 
     async def fetch_account_info(
         self,
@@ -550,65 +694,29 @@ class TwitterClient:
         """
         self._ensure_client()
         assert self._client is not None
+        http_client = self._client
 
         url = "https://api.twitterapi.io/oapi/my/info"
         max_retries = 2
-        retry_count = 0
-        current_delay = self._base_delay
 
-        while True:
-            try:
-                response = await self._client.get(url)
-                status_code = response.status_code
-
-                if status_code == 200:
-                    response_data = response.json()
-                    if not isinstance(response_data, dict):
-                        return Failure(
-                            TwitterClientError(
-                                f"响应格式错误: 期望 dict，实际 {type(response_data)}"
-                            )
-                        )
-                    return Success(response_data)
-
-                if status_code in self.NON_RETRYABLE_STATUS_CODES:
-                    error_msg = self._get_error_message(status_code)
-                    return Failure(
-                        TwitterClientError(
-                            f"API 错误 {status_code}: {error_msg}",
-                            status_code=status_code,
-                        )
+        def on_success(
+            response: httpx.Response,
+        ) -> Result[dict[str, Any], TwitterClientError]:
+            response_data = response.json()
+            if not isinstance(response_data, dict):
+                return Failure(
+                    TwitterClientError(
+                        f"响应格式错误: 期望 dict，实际 {type(response_data)}"
                     )
+                )
+            return Success(response_data)
 
-                if retry_count >= max_retries:
-                    return Failure(
-                        TwitterClientError(
-                            f"API 错误 {status_code}: 已达到最大重试次数",
-                            status_code=status_code,
-                        )
-                    )
-
-                await asyncio.sleep(current_delay)
-                current_delay = min(current_delay * 2, self._max_delay)
-                retry_count += 1
-
-            except httpx.TimeoutException as e:
-                if retry_count >= max_retries:
-                    return Failure(TwitterClientError(f"请求超时: {e}"))
-                await asyncio.sleep(current_delay)
-                current_delay = min(current_delay * 2, self._max_delay)
-                retry_count += 1
-
-            except httpx.NetworkError as e:
-                if retry_count >= max_retries:
-                    return Failure(TwitterClientError(f"网络错误: {e}"))
-                await asyncio.sleep(current_delay)
-                current_delay = min(current_delay * 2, self._max_delay)
-                retry_count += 1
-
-            except Exception as e:
-                logger.exception("fetch_account_info 未预期的错误: %s", e)
-                return Failure(TwitterClientError(f"未预期的错误: {e}"))
+        return await self._request_with_retry(
+            lambda: http_client.get(url),
+            on_success,
+            max_retries=max_retries,
+            log_label="fetch_account_info",
+        )
 
     async def _fetch_with_retry(
         self,
@@ -651,267 +759,37 @@ class TwitterClient:
                 )
             )
 
-        retry_count = 0
-        current_delay = self._base_delay
-
-        while True:
+        def on_success(
+            response: httpx.Response,
+        ) -> Result[dict[str, Any], TwitterClientError]:
             try:
-                response = await self._client.get(  # type: ignore
-                    endpoint,
-                    params=params,
-                )
-                status_code = response.status_code
-
-                # 检查是否需要重试
-                if status_code == 200:
-                    # 成功响应
-                    try:
-                        response_data = response.json()
-
-                        # 检查 response_data 是否为字典
-                        if not isinstance(response_data, dict):
-                            logger.error(f"响应数据不是字典类型，而是 {type(response_data)}")
-                            logger.error(f"响应内容: {str(response_data)[:500]}")
-                            return Failure(
-                                TwitterClientError(f"响应格式错误: 期望 dict，实际 {type(response_data)}")
-                            )
-
-                        # TwitterAPI.io 格式转换
-                        # TwitterAPI.io 响应格式: {"status": "success", "data": {"tweets": [...]}}
-                        tweets_array = None
-
-                        # 检查是否是 TwitterAPI.io 嵌套格式
-                        if "data" in response_data and isinstance(response_data.get("data"), dict):
-                            inner_data = response_data.get("data", {})
-                            if "tweets" in inner_data:
-                                tweets_array = inner_data.get("tweets", [])
-                                logger.info("检测到 TwitterAPI.io 嵌套响应格式 (data.tweets)")
-                        # 检查是否是 TwitterAPI.io 直接格式
-                        elif "tweets" in response_data:
-                            tweets_array = response_data.get("tweets", [])
-                            logger.info("检测到 TwitterAPI.io 直接响应格式 (tweets)")
-
-                        # 提取分页游标（在转换之前，从原始响应中获取）
-                        raw_next_cursor = None
-                        if "data" in response_data and isinstance(response_data.get("data"), dict):
-                            raw_next_cursor = response_data["data"].get("next_cursor")
-                        if raw_next_cursor is None:
-                            raw_next_cursor = response_data.get("next_cursor")
-
-                        if tweets_array is not None:
-                            # 转换 TwitterAPI.io 格式为标准 Twitter API v2 格式
-                            tweets_data = []
-                            users_map = {}
-                            all_media: list[dict[str, Any]] = []  # 收集所有媒体
-
-                            for tweet in tweets_array:
-                                # 从 tweet 中提取基本信息
-                                tweet_id = tweet.get("id")
-                                tweet_text = _extract_full_text(tweet) or tweet.get("text", "")
-                                created_at_raw = tweet.get("createdAt")
-
-                                # 转换日期格式：TwitterAPI.io -> ISO 8601
-                                created_at_iso = _convert_twitterapi_date_to_iso(created_at_raw)
-
-                                # 从 TwitterAPI.io 字段构建 referenced_tweets（Twitter v2 格式）
-                                # 优先级：retweeted > quoted > replied_to
-                                referenced_tweets = []
-                                retweeted_tweet_obj = tweet.get("retweeted_tweet")
-                                quoted_tweet_obj = tweet.get("quoted_tweet")
-
-                                # 被引用推文的完整文本、媒体和原作者
-                                referenced_tweet_text = None
-                                referenced_tweet_media = None
-                                referenced_tweet_author_username = None
-
-                                if isinstance(retweeted_tweet_obj, dict) and retweeted_tweet_obj.get("id"):
-                                    referenced_tweets.append({
-                                        "type": "retweeted",
-                                        "id": str(retweeted_tweet_obj["id"]),
-                                    })
-                                    # 提取原推的完整文本（优先使用 full_text/note_tweet）
-                                    referenced_tweet_text = _extract_full_text(retweeted_tweet_obj)
-                                    # 提取原推的媒体
-                                    referenced_tweet_media = _extract_media_from_tweet_obj(retweeted_tweet_obj)
-                                    # 提取原推的作者用户名
-                                    rt_author = retweeted_tweet_obj.get("author")
-                                    if isinstance(rt_author, dict):
-                                        referenced_tweet_author_username = rt_author.get("userName")
-                                elif isinstance(quoted_tweet_obj, dict) and quoted_tweet_obj.get("id"):
-                                    referenced_tweets.append({
-                                        "type": "quoted",
-                                        "id": str(quoted_tweet_obj["id"]),
-                                    })
-                                    # 提取被引用推文的完整文本（优先使用 full_text/note_tweet）
-                                    referenced_tweet_text = _extract_full_text(quoted_tweet_obj)
-                                    # 提取被引用推文的媒体
-                                    referenced_tweet_media = _extract_media_from_tweet_obj(quoted_tweet_obj)
-                                    # 提取被引用推文的作者用户名
-                                    qt_author = quoted_tweet_obj.get("author")
-                                    if isinstance(qt_author, dict):
-                                        referenced_tweet_author_username = qt_author.get("userName")
-                                elif tweet.get("isReply") and tweet.get("inReplyToId"):
-                                    referenced_tweets.append({
-                                        "type": "replied_to",
-                                        "id": str(tweet["inReplyToId"]),
-                                    })
-
-                                # 截断检测：嵌套推文文本可能被 API 截断
-                                if referenced_tweet_text and len(referenced_tweet_text) < 300:
-                                    stripped = referenced_tweet_text.rstrip()
-                                    if stripped.endswith("\u2026") or stripped.endswith("..."):
-                                        logger.warning(
-                                            "嵌套推文文本疑似被截断 (%d chars), tweet_id=%s: '...%s'",
-                                            len(referenced_tweet_text),
-                                            tweet_id,
-                                            stripped[-40:],
-                                        )
-
-                                standard_tweet: dict[str, Any] = {
-                                    "id": tweet_id,
-                                    "text": tweet_text,
-                                    "created_at": created_at_iso,
-                                }
-                                if referenced_tweets:
-                                    standard_tweet["referenced_tweets"] = referenced_tweets
-                                if referenced_tweet_text:
-                                    standard_tweet["referenced_tweet_text"] = referenced_tweet_text
-                                if referenced_tweet_media:
-                                    standard_tweet["referenced_tweet_media"] = referenced_tweet_media
-                                if referenced_tweet_author_username:
-                                    standard_tweet["referenced_tweet_author_username"] = referenced_tweet_author_username
-
-                                # 提取主推文的媒体
-                                main_media = _extract_media_from_tweet_obj(tweet)
-                                if main_media:
-                                    media_keys = [m["media_key"] for m in main_media]
-                                    standard_tweet["attachments"] = {"media_keys": media_keys}
-                                    all_media.extend(main_media)
-
-                                # 提取 author 信息
-                                author_obj = tweet.get("author")
-                                if isinstance(author_obj, dict):
-                                    author_id_val = str(author_obj.get("id") or author_obj.get("userName", ""))
-                                    if author_id_val:
-                                        standard_tweet["author_id"] = author_id_val
-                                        users_map[author_id_val] = {
-                                            "username": author_obj.get("userName"),
-                                            "name": author_obj.get("name"),
-                                            "numeric_id": str(author_obj.get("id")) if author_obj.get("id") else None,
-                                        }
-
-                                # 保留 article 字段（用于零成本 Article 检测）
-                                article_obj = tweet.get("article")
-                                if article_obj and isinstance(article_obj, dict):
-                                    standard_tweet["article"] = article_obj
-
-                                tweets_data.append(standard_tweet)
-
-                            # 构造标准响应格式
-                            standard_response: dict[str, Any] = {"data": tweets_data}
-                            includes: dict[str, Any] = {}
-                            if users_map:
-                                includes["users"] = [
-                                    {"id": uid, "username": info["username"], "name": info["name"], "numeric_id": info.get("numeric_id")}
-                                    for uid, info in users_map.items()
-                                ]
-                            if all_media:
-                                includes["media"] = all_media
-                            if includes:
-                                standard_response["includes"] = includes
-
-                            # 保留分页游标到标准响应中
-                            if raw_next_cursor:
-                                standard_response["next_cursor"] = raw_next_cursor
-
-                            logger.info(f"转换完成：{len(tweets_data)} 条推文")
-                            logger.debug(f"第一条推文: {str(tweets_data[0]) if tweets_data else 'N/A'}")
-                            return Success(standard_response)
-                        else:
-                            # 可能已经是标准格式
-                            logger.debug(f"响应格式（未检测到 tweets 字段）: {str(response_data)[:200]}")
-                            return Success(response_data)
-
-                    except Exception as e:
-                        logger.error(f"响应处理失败: {e}")
-                        return Failure(
-                            TwitterClientError(f"响应处理失败: {e}")
-                        )
-
-                # 检查是否是不可重试的错误
-                if status_code in self.NON_RETRYABLE_STATUS_CODES:
-                    error_msg = self._get_error_message(status_code)
-                    logger.error(f"Twitter API 不可重试错误: {status_code} - {error_msg}")
+                response_data = response.json()
+                if not isinstance(response_data, dict):
+                    logger.error(f"响应数据不是字典类型，而是 {type(response_data)}")
+                    logger.error(f"响应内容: {str(response_data)[:500]}")
                     return Failure(
                         TwitterClientError(
-                            f"API 错误 {status_code}: {error_msg}",
-                            status_code=status_code,
+                            f"响应格式错误: 期望 dict，实际 {type(response_data)}"
                         )
                     )
-
-                # 检查是否达到最大重试次数
-                if retry_count >= self._max_retries:
-                    logger.warning(
-                        f"Twitter API 达到最大重试次数 {self._max_retries}"
-                    )
-                    return Failure(
-                        TwitterClientError(
-                            f"API 错误 {status_code}: 已达到最大重试次数",
-                            status_code=status_code,
-                        )
-                    )
-
-                # 需要重试
-                logger.warning(
-                    f"Twitter API 请求失败 (状态码: {status_code}), "
-                    f"{current_delay:.1f}秒后重试 ({retry_count + 1}/{self._max_retries})"
-                )
-
-                await asyncio.sleep(current_delay)
-
-                # 指数退避：延迟时间翻倍，但不超过最大值
-                current_delay = min(current_delay * 2, self._max_delay)
-                retry_count += 1
-
-            except httpx.TimeoutException as e:
-                # 超时错误
-                if retry_count >= self._max_retries:
-                    logger.error(f"Twitter API 请求超时: {e}")
-                    return Failure(
-                        TwitterClientError(f"请求超时: {e}")
-                    )
-
-                logger.warning(f"Twitter API 请求超时，{current_delay:.1f}秒后重试")
-                await asyncio.sleep(current_delay)
-                current_delay = min(current_delay * 2, self._max_delay)
-                retry_count += 1
-
-            except httpx.NetworkError as e:
-                # 网络错误
-                if retry_count >= self._max_retries:
-                    logger.error(f"Twitter API 网络错误: {e}")
-                    return Failure(
-                        TwitterClientError(f"网络错误: {e}")
-                    )
-
-                logger.warning(f"Twitter API 网络错误，{current_delay:.1f}秒后重试")
-                await asyncio.sleep(current_delay)
-                current_delay = min(current_delay * 2, self._max_delay)
-                retry_count += 1
-
-            except ValueError as e:
-                # JSON 解析错误
-                logger.error(f"Twitter API 响应解析失败: {e}")
-                return Failure(
-                    TwitterClientError(f"响应解析失败: {e}")
-                )
-
+                return Success(_convert_twitterapi_response(response_data))
             except Exception as e:
-                # 未预期的错误
-                logger.exception(f"Twitter API 未预期的错误: {e}")
-                return Failure(
-                    TwitterClientError(f"未预期的错误: {e}")
-                )
+                logger.error(f"响应处理失败: {e}")
+                return Failure(TwitterClientError(f"响应处理失败: {e}"))
+
+        try:
+            return await self._request_with_retry(
+                lambda: self._client.get(  # type: ignore[union-attr]
+                    endpoint, params=params
+                ),
+                on_success,
+                max_retries=self._max_retries,
+                log_label="Twitter API",
+            )
+        except ValueError as e:
+            # 保留抓取链路既有的局部 JSON 解析错误分支。
+            logger.error(f"Twitter API 响应解析失败: {e}")
+            return Failure(TwitterClientError(f"响应解析失败: {e}"))
 
     def _get_error_message(self, status_code: int) -> str:
         """获取状态码对应的错误消息。

@@ -82,7 +82,7 @@ class TestScrapingService:
             }
         )
         service._scrape_with_semaphore = worker
-        service._sync_user_profiles = AsyncMock()
+        service._profile_service.sync_user_profiles = AsyncMock()
         return worker
 
     @pytest.mark.asyncio
@@ -807,7 +807,7 @@ class TestArticleFetching:
             ),
         ]
 
-        await service._fetch_and_save_articles(tweets)
+        await service._article_service.fetch_and_save_articles(tweets)
 
         # fetch_article 不应被调用
         mock_client.fetch_article.assert_not_called()

@@ -291,7 +291,7 @@ class TestRunScrapingTaskAsync:
                 "error_message": None,
             }
         )
-        service._sync_user_profiles = AsyncMock()
+        service._profile_service.sync_user_profiles = AsyncMock()
         resolver = AsyncMock(return_value={})
 
         with (
@@ -476,7 +476,7 @@ class TestBackfillArticlesEndpoint:
         }
 
         with patch(
-            "src.api.routes.admin.get_scraping_service",
+            "src.api.routes.admin.get_article_fetch_service",
             return_value=mock_service,
         ):
             response = await async_client.post(
@@ -506,7 +506,7 @@ class TestBackfillArticlesEndpoint:
         }
 
         with patch(
-            "src.api.routes.admin.get_scraping_service",
+            "src.api.routes.admin.get_article_fetch_service",
             return_value=mock_service,
         ):
             response = await async_client.post(
@@ -565,7 +565,7 @@ class TestBackfillArticlesEndpoint:
         mock_service.backfill_articles_for_user.side_effect = RuntimeError("DB 连接失败")
 
         with patch(
-            "src.api.routes.admin.get_scraping_service",
+            "src.api.routes.admin.get_article_fetch_service",
             return_value=mock_service,
         ):
             response = await async_client.post(
@@ -633,7 +633,7 @@ class TestCHG032RestLifecycle:
         service.close = AsyncMock()
         registry = Mock()
         with (
-            patch("src.api.routes.admin.get_scraping_service", return_value=service),
+            patch("src.api.routes.admin.get_article_fetch_service", return_value=service),
             patch("src.api.routes.admin.get_task_registry", return_value=registry),
             patch(
                 "src.scraper.scheduled_job.get_active_follows_async",
@@ -652,7 +652,7 @@ class TestCHG032RestLifecycle:
         service.backfill_articles_for_user = AsyncMock(return_value={"checked": 1})
         service.close = AsyncMock()
         with (
-            patch("src.api.routes.admin.get_scraping_service", return_value=service) as factory,
+            patch("src.api.routes.admin.get_article_fetch_service", return_value=service) as factory,
             patch("src.api.routes.admin.audit_log"),
         ):
             result = await backfill_articles(
@@ -706,7 +706,7 @@ class TestCHG032RestLifecycle:
             return Mock(name=name)
 
         with (
-            patch("src.api.routes.admin.get_scraping_service") as factory,
+            patch("src.api.routes.admin.get_article_fetch_service") as factory,
             patch("src.api.routes.admin.get_task_registry", return_value=registry),
             patch("src.api.routes.admin.asyncio.create_task", side_effect=close_background_coro),
             patch("src.api.routes.admin.audit_log"),
