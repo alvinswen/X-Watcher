@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from src.data_layer.provider import get_subject_repo
 from src.subjects.api.schemas import (
     SubjectCreateRequest,
     SubjectCreateResponse,
@@ -22,7 +21,8 @@ from src.subjects.constants import (
     REVIEW_PENDING_MESSAGE,
     SUBJECT_NOT_FOUND,
 )
-from src.subjects.models import Subject, SubjectStatus
+from src.subjects.models import Subject, SubjectDigest, SubjectStatus
+from src.subjects.protocol import default_subject_repo
 from src.subjects.services.review_service import SubjectReviewService
 from src.user.api.auth import get_current_admin_user
 from src.user.domain.models import UserDomain
@@ -31,7 +31,7 @@ router = APIRouter(prefix="/api/admin/subjects", tags=["subjects"])
 
 
 async def _to_response(subject: Subject) -> SubjectResponse:
-    repo = get_subject_repo()
+    repo = default_subject_repo()
     return SubjectResponse(
         subject_id=subject.subject_id,
         name=subject.name,
@@ -45,12 +45,12 @@ async def _to_response(subject: Subject) -> SubjectResponse:
     )
 
 
-def _digest_public(digest: Any) -> dict[str, Any]:
-    return cast(dict[str, Any], digest.model_dump(mode="json", exclude={"generated_by"}))
+def _digest_public(digest: SubjectDigest) -> dict[str, Any]:
+    return digest.model_dump(mode="json", exclude={"generated_by"})
 
 
 def _review_service() -> SubjectReviewService:
-    return SubjectReviewService(get_subject_repo())
+    return SubjectReviewService(default_subject_repo())
 
 
 @router.get("", response_model=list[SubjectResponse])
@@ -58,7 +58,7 @@ async def list_subjects(
     status_filter: str | None = Query(default=None, alias="status", pattern="^(active|paused)$"),
     _user: UserDomain = Depends(get_current_admin_user),
 ) -> list[SubjectResponse]:
-    repo = get_subject_repo()
+    repo = default_subject_repo()
     subjects = await repo.list_subjects(status_filter)
     return [await _to_response(subject) for subject in subjects]
 
@@ -68,7 +68,7 @@ async def create_subject(
     request: SubjectCreateRequest,
     _user: UserDomain = Depends(get_current_admin_user),
 ) -> SubjectCreateResponse:
-    repo = get_subject_repo()
+    repo = default_subject_repo()
     if await repo.active_count() >= MAX_ACTIVE_SUBJECTS:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -88,7 +88,7 @@ async def get_subject(
     subject_id: str,
     _user: UserDomain = Depends(get_current_admin_user),
 ) -> SubjectResponse:
-    repo = get_subject_repo()
+    repo = default_subject_repo()
     subject = await repo.get_subject(subject_id)
     if subject is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=SUBJECT_NOT_FOUND)
@@ -101,7 +101,7 @@ async def update_subject(
     request: SubjectUpdateRequest,
     _user: UserDomain = Depends(get_current_admin_user),
 ) -> SubjectResponse:
-    repo = get_subject_repo()
+    repo = default_subject_repo()
     subject = await repo.get_subject(subject_id)
     if subject is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=SUBJECT_NOT_FOUND)
@@ -131,7 +131,7 @@ async def delete_subject(
     subject_id: str,
     _user: UserDomain = Depends(get_current_admin_user),
 ) -> None:
-    repo = get_subject_repo()
+    repo = default_subject_repo()
     subject = await repo.get_subject(subject_id)
     if subject is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=SUBJECT_NOT_FOUND)
@@ -150,7 +150,7 @@ async def get_subject_feed(  # type: ignore[no-untyped-def]  # 无 response_mode
     time_axis: str | None = Query(default=None, pattern="^(ingest|publish)$"),
     _user: UserDomain = Depends(get_current_admin_user),
 ):
-    repo = get_subject_repo()
+    repo = default_subject_repo()
     if await repo.get_subject(subject_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=SUBJECT_NOT_FOUND)
     since_dt = datetime.fromisoformat(since.replace("Z", "+00:00")) if since else None
@@ -172,7 +172,7 @@ async def get_subject_digests(  # type: ignore[no-untyped-def]  # 无 response_m
     limit: int = 24,
     _user: UserDomain = Depends(get_current_admin_user),
 ):
-    repo = get_subject_repo()
+    repo = default_subject_repo()
     if await repo.get_subject(subject_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=SUBJECT_NOT_FOUND)
     start_dt = datetime.fromisoformat(start.replace("Z", "+00:00")) if start else None
@@ -208,7 +208,7 @@ async def refresh_subject_review(
     subject_id: str,
     _user: UserDomain = Depends(get_current_admin_user),
 ) -> SubjectReviewRefreshResponse:
-    repo = get_subject_repo()
+    repo = default_subject_repo()
     if await repo.get_subject(subject_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=SUBJECT_NOT_FOUND)
     await repo.set_pending(subject_id, review=True)

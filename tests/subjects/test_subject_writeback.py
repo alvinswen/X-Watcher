@@ -254,7 +254,7 @@ async def test_rest_feed_optional_time_axis_passes_through_to_store(tmp_path):
         }
     )
 
-    with patch("src.subjects.api.routes.get_subject_repo", return_value=repo):
+    with patch("src.subjects.api.routes.default_subject_repo", return_value=repo):
         publish_feed = await subject_routes.get_subject_feed(
             subject_id,
             since=base.isoformat(),
