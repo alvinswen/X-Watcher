@@ -103,7 +103,7 @@ async def test_put_eval_validation_and_mcp_d2_reject(tmp_path):
         await service.put_eval(subject_id="sub_missing", target_id=target_id, tier="judge")
 
     tools = _tool_funcs()
-    with patch("src.mcp.tools.subject_tools.get_subject_repo", return_value=repo):
+    with patch("src.mcp.tools.subject_tools.default_subject_repo", return_value=repo):
         result = _load_tool_result(
             await tools["put_subject_eval"](
                 subject_id=subject_id,
@@ -130,7 +130,7 @@ async def test_mcp_eval_io_failure_returns_internal_and_does_not_persist(tmp_pat
 
     monkeypatch.setattr(repo, "append_eval", fail_append)
     tools = _tool_funcs()
-    with patch("src.mcp.tools.subject_tools.get_subject_repo", return_value=repo):
+    with patch("src.mcp.tools.subject_tools.default_subject_repo", return_value=repo):
         result = _load_tool_result(
             await tools["put_subject_eval"](
                 subject_id=subject_id,
@@ -155,7 +155,7 @@ async def test_eval_tools_permission_matrix_and_read_empty_state(tmp_path):
     tools = _tool_funcs()
 
     with (
-        patch("src.mcp.tools.subject_tools.get_subject_repo", return_value=repo),
+        patch("src.mcp.tools.subject_tools.default_subject_repo", return_value=repo),
         patch(
             "src.mcp.tools.subject_tools.require_scope",
             return_value=error_response("权限不足", "permission"),

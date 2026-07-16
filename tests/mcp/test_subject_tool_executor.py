@@ -30,7 +30,7 @@ async def test_six_read_tools_record_success_audits():
     tools = _tool_funcs()
 
     with (
-        patch("src.mcp.tools.subject_tools.get_subject_repo", return_value=repo),
+        patch("src.mcp.tools.subject_tools.default_subject_repo", return_value=repo),
         patch("src.mcp.tools.subject_tools.audit_log") as audit_log,
     ):
         results = [
@@ -62,7 +62,7 @@ async def test_catch_all_hides_raw_error_but_audit_keeps_it():
     tool = _tool_funcs()["list_subjects"]
 
     with (
-        patch("src.mcp.tools.subject_tools.get_subject_repo", return_value=repo),
+        patch("src.mcp.tools.subject_tools.default_subject_repo", return_value=repo),
         patch("src.mcp.tools.subject_tools.audit_log") as audit_log,
     ):
         result = _decode(await tool())

@@ -116,7 +116,7 @@ async def test_candidate_set_tool_dispatches_axes_without_feed(tmp_path):
     repo.get_subject_feed = fail_get_subject_feed  # type: ignore[method-assign]
     tool = _tool_funcs()["get_subject_candidate_set"]
 
-    with patch("src.mcp.tools.subject_tools.get_subject_repo", return_value=repo):
+    with patch("src.mcp.tools.subject_tools.default_subject_repo", return_value=repo):
         publish = _decode(
             await tool(
                 subject_id=subject_id,
@@ -177,7 +177,7 @@ async def test_candidate_set_tool_validation_not_found_and_review_interval_ignor
     base = datetime(2026, 7, 1, 10, tzinfo=UTC)
     tool = _tool_funcs()["get_subject_candidate_set"]
 
-    with patch("src.mcp.tools.subject_tools.get_subject_repo", return_value=repo):
+    with patch("src.mcp.tools.subject_tools.default_subject_repo", return_value=repo):
         missing_interval = _decode(await tool(subject_id=subject_id, time_axis="publish"))
         partial_interval = _decode(
             await tool(
@@ -258,7 +258,7 @@ async def test_candidate_set_tool_empty_publish_skipped_and_audit(tmp_path):
     tool = _tool_funcs()["get_subject_candidate_set"]
 
     with (
-        patch("src.mcp.tools.subject_tools.get_subject_repo", return_value=repo),
+        patch("src.mcp.tools.subject_tools.default_subject_repo", return_value=repo),
         patch("src.mcp.tools.subject_tools.audit_log") as audit_log,
     ):
         empty = _decode(await tool(subject_id=empty_subject_id, time_axis="review"))
@@ -304,7 +304,7 @@ async def test_candidate_set_ingest_hash_roundtrips_through_put_subject_digest(t
     )
     tools = _tool_funcs()
 
-    with patch("src.mcp.tools.subject_tools.get_subject_repo", return_value=repo):
+    with patch("src.mcp.tools.subject_tools.default_subject_repo", return_value=repo):
         candidate_result = _decode(
             await tools["get_subject_candidate_set"](
                 subject_id=subject_id,
@@ -350,7 +350,7 @@ async def test_candidate_set_review_hash_roundtrips_through_put_subject_review(t
     )
     tools = _tool_funcs()
 
-    with patch("src.mcp.tools.subject_tools.get_subject_repo", return_value=repo):
+    with patch("src.mcp.tools.subject_tools.default_subject_repo", return_value=repo):
         candidate_result = _decode(
             await tools["get_subject_candidate_set"](
                 subject_id=subject_id,

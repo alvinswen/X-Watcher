@@ -374,7 +374,7 @@ class TestSubjectToolsIntegration:
 
         repo.get_tweets_by_ids = fake_get_tweets_by_ids  # type: ignore[method-assign]
 
-        with patch("src.mcp.tools.subject_tools.get_subject_repo", return_value=repo):
+        with patch("src.mcp.tools.subject_tools.default_subject_repo", return_value=repo):
             feed_result = await tool_funcs["get_subject_feed"](
                 subject_id=subject.subject_id,
                 since=base.isoformat(),
@@ -424,7 +424,7 @@ class TestSubjectToolsIntegration:
         await repo.set_pending(subject.subject_id, review=True)
         covered_until = datetime(2026, 6, 28, 12, tzinfo=UTC)
 
-        with patch("src.mcp.tools.subject_tools.get_subject_repo", return_value=repo):
+        with patch("src.mcp.tools.subject_tools.default_subject_repo", return_value=repo):
             structured_result = await tool_funcs["put_subject_review"](
                 subject_id=subject.subject_id,
                 prev_version=0,
