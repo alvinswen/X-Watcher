@@ -53,7 +53,7 @@ class SubjectDigestService:
 
         skipped_no_publish_time_ids: list[str] = []
         if time_axis == "publish":
-            matches = await self._repo._publish_window_matches(
+            matches = await self._repo.publish_window_matches(
                 subject_id,
                 start=start,
                 end=end,

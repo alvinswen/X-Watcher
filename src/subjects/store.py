@@ -37,7 +37,7 @@ from src.subjects.models import (
 )
 
 
-class _PublishWindowMatches(list[SubjectMatch]):
+class PublishWindowMatches(list[SubjectMatch]):
     def __init__(
         self,
         matches: list[SubjectMatch],
@@ -436,17 +436,17 @@ class FileSubjectStore:
             author_ids[tweet_id] = str(author_id) if author_id else None
         return author_ids, missing
 
-    async def _publish_window_matches(
+    async def publish_window_matches(
         self,
         subject_id: str,
         *,
         start: datetime | None,
         end: datetime | None,
-    ) -> list[SubjectMatch]:
+    ) -> PublishWindowMatches:
         """按推文发布时间圈定候选，供写入校验与 feed 共用。"""
         all_matches = await self.list_matches(subject_id)
         if not all_matches:
-            return _PublishWindowMatches([], [])
+            return PublishWindowMatches([], [])
 
         items, _missing = await self.get_tweets_by_ids([match.tweet_id for match in all_matches])
         created_map: dict[str, datetime] = {}
@@ -472,7 +472,7 @@ class FileSubjectStore:
             matches.append(match)
 
         matches.sort(key=lambda match: (created_map[match.tweet_id], match.tweet_id))
-        return _PublishWindowMatches(matches, skipped_no_publish_time_ids)
+        return PublishWindowMatches(matches, skipped_no_publish_time_ids)
 
     async def get_subject_feed(
         self,
@@ -494,8 +494,9 @@ class FileSubjectStore:
         if time_axis not in {"ingest", "publish"}:
             raise ValueError("time_axis 只能是 ingest 或 publish")
         clamped = min(max(limit, 1), 500)
+        matches: list[SubjectMatch]
         if time_axis == "publish":
-            matches = await self._publish_window_matches(subject_id, start=since, end=until)
+            matches = await self.publish_window_matches(subject_id, start=since, end=until)
         else:
             matches = await self.list_matches(subject_id, since=since, until=until)
         latest_match_at = await self.last_classified_at(subject_id)

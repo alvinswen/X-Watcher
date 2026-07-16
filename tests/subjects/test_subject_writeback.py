@@ -203,7 +203,7 @@ async def test_publish_window_matches_uses_created_at_and_feed_reuses_source(tmp
         }
     )
 
-    publish_matches = await repo._publish_window_matches(
+    publish_matches = await repo.publish_window_matches(
         subject_id,
         start=base,
         end=base + timedelta(hours=2),

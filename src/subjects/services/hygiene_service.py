@@ -201,7 +201,7 @@ class SubjectHygieneService:
         if provenance is None:
             warnings.insert(0, "no_provenance_doc")
         if digest.time_axis == "publish":
-            matches = await self._repo._publish_window_matches(
+            matches = await self._repo.publish_window_matches(
                 digest.subject_id,
                 start=digest.interval_start,
                 end=digest.interval_end,

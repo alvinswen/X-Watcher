@@ -297,7 +297,7 @@ def register(mcp: FastMCP) -> None:
                 if start_dt > end_dt:
                     raise ValueError("区间倒置：interval_start 必须早于 interval_end")
                 if time_axis == "publish":
-                    matches = await repo._publish_window_matches(
+                    matches = await repo.publish_window_matches(
                         subject_id,
                         start=start_dt,
                         end=end_dt,
