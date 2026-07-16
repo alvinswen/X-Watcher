@@ -203,7 +203,7 @@ async def test_publish_window_matches_uses_created_at_and_feed_reuses_source(tmp
         }
     )
 
-    publish_matches = await repo._publish_window_matches(
+    publish_matches = await repo.publish_window_matches(
         subject_id,
         start=base,
         end=base + timedelta(hours=2),
@@ -254,7 +254,7 @@ async def test_rest_feed_optional_time_axis_passes_through_to_store(tmp_path):
         }
     )
 
-    with patch("src.subjects.api.routes.get_subject_repo", return_value=repo):
+    with patch("src.subjects.api.routes.default_subject_repo", return_value=repo):
         publish_feed = await subject_routes.get_subject_feed(
             subject_id,
             since=base.isoformat(),

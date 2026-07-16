@@ -274,7 +274,7 @@ async def test_review_hygiene_and_match_reject_tool(tmp_path):
     assert result["eval"]["scores"]["duplicate_rate"] > 0
 
     tools = _tool_funcs()
-    with patch("src.mcp.tools.subject_tools.get_subject_repo", return_value=repo):
+    with patch("src.mcp.tools.subject_tools.default_subject_repo", return_value=repo):
         rejected = _load_tool_result(
             await tools["run_subject_hygiene_check"](
                 subject_id=subject_id,

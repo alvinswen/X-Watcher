@@ -111,7 +111,7 @@ async def test_correction_rate_counts_current_human_corrections_after_supersedes
 
     tools = _tool_funcs()
     with (
-        patch("src.mcp.tools.subject_tools.get_subject_repo", return_value=repo),
+        patch("src.mcp.tools.subject_tools.default_subject_repo", return_value=repo),
         patch("src.mcp.tools.subject_tools.require_scope", return_value=None),
     ):
         assert (
@@ -216,7 +216,7 @@ async def test_correction_rate_tool_not_found(tmp_path):
     repo = FileSubjectStore(tmp_path)
     tools = _tool_funcs()
 
-    with patch("src.mcp.tools.subject_tools.get_subject_repo", return_value=repo):
+    with patch("src.mcp.tools.subject_tools.default_subject_repo", return_value=repo):
         result = _load_tool_result(
             await tools["get_subject_correction_rate"](
                 subject_id="sub_missing",

@@ -321,7 +321,7 @@ async def test_mcp_put_io_failure_returns_internal_and_does_not_persist(tmp_path
 
     monkeypatch.setattr(repo, "append_feedback", fail_append)
     tools = _tool_funcs()
-    with patch("src.mcp.tools.subject_tools.get_subject_repo", return_value=repo):
+    with patch("src.mcp.tools.subject_tools.default_subject_repo", return_value=repo):
         result = _load_tool_result(
             await tools["put_subject_feedback"](
                 subject_id=subject_id,
@@ -370,7 +370,7 @@ async def test_mcp_get_cycle_falls_back_to_latest_and_audits_warning(tmp_path):
 
     tools = _tool_funcs()
     with (
-        patch("src.mcp.tools.subject_tools.get_subject_repo", return_value=repo),
+        patch("src.mcp.tools.subject_tools.default_subject_repo", return_value=repo),
         patch("src.mcp.tools.subject_tools.audit_log") as audit_log,
     ):
         result = _load_tool_result(await tools["get_subject_feedback"](subject_id=subject_id))

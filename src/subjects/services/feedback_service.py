@@ -7,9 +7,8 @@ import re
 import uuid
 from collections import defaultdict
 from datetime import datetime
-from typing import Any, cast
+from typing import Any
 
-from src.data_layer.provider import get_subject_repo
 from src.storage import paths
 from src.subjects._time import iso_z
 from src.subjects.constants import SUBJECT_NOT_FOUND_HINT
@@ -19,6 +18,7 @@ from src.subjects.models import (
     FeedbackVerdict,
     SubjectFeedback,
 )
+from src.subjects.protocol import SubjectRepoProtocol, default_subject_repo
 from src.subjects.store import utc_now
 
 _WHO_RE = re.compile(r"^(human|agent):.+$")
@@ -48,9 +48,9 @@ def build_feedback_target_id(
 
 
 class SubjectFeedbackService:
-    def __init__(self, repo: Any | None = None) -> None:
-        repo_factory = get_subject_repo
-        self._repo: Any = repo if repo is not None else repo_factory()
+    def __init__(self, repo: SubjectRepoProtocol | None = None) -> None:
+        repo_factory = default_subject_repo
+        self._repo: SubjectRepoProtocol = repo if repo is not None else repo_factory()
 
     async def put_feedback(
         self,
@@ -92,7 +92,7 @@ class SubjectFeedbackService:
             when=utc_now(),
         )
         saved = await self._repo.append_feedback(feedback)
-        return cast(SubjectFeedback, saved)
+        return saved
 
     async def get_current_feedbacks(
         self,

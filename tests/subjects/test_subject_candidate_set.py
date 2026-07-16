@@ -79,7 +79,7 @@ async def test_store_candidate_set_axes_share_hash_source(tmp_path):
         }
     )
 
-    publish_matches = await repo._publish_window_matches(
+    publish_matches = await repo.publish_window_matches(
         subject_id,
         start=base,
         end=base + timedelta(hours=1),
@@ -127,7 +127,7 @@ async def test_empty_candidate_sets_keep_deterministic_hash_and_skipped_count(tm
     )
     repo.get_tweets_by_ids = _tweet_lookup({})  # type: ignore[method-assign]
 
-    publish_matches = await repo._publish_window_matches(
+    publish_matches = await repo.publish_window_matches(
         skipped_subject_id,
         start=base,
         end=base + timedelta(hours=1),
