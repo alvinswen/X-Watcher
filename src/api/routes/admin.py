@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 
 from src.mcp.security import audit_log
-from src.scraper import ScrapingService, TaskRegistry, TaskStatus
+from src.scraper import ArticleFetchService, ScrapingService, TaskRegistry, TaskStatus
 from src.user.api.auth import get_current_admin_user
 from src.user.domain.models import UserDomain
 
@@ -26,11 +26,16 @@ def get_scraping_service() -> ScrapingService:
 
     无状态工厂:每次调用返回新实例,不再跨请求复用同一个模块级单例
     (CHG-032 目标 4)。调用方使用完毕后必须调用一次
-    ``ScrapingService.close()`` 释放内部持有的网络连接——本文件内已有的
-    3 个消费点均已补齐该收尾动作(见 ``_close_scraping_service``),新增
+    ``ScrapingService.close()`` 释放内部持有的网络连接——本文件内的抓取
+    消费点已补齐该收尾动作(见 ``_close_scraping_service``),新增
     调用点须遵循同一约定。
     """
     return ScrapingService()
+
+
+def get_article_fetch_service() -> ArticleFetchService:
+    """Create a standalone Article service whose caller must close it."""
+    return ArticleFetchService()
 
 
 def get_task_registry() -> TaskRegistry:
@@ -66,6 +71,17 @@ async def _close_scraping_service(service: ScrapingService, context: str = "") -
         await service.close()
     except Exception as e:
         logger.warning(f"关闭 ScrapingService 连接失败{context}: {e}")
+
+
+async def _close_article_fetch_service(
+    service: ArticleFetchService,
+    context: str = "",
+) -> None:
+    """Close an Article service without masking its business result."""
+    try:
+        await service.close()
+    except Exception as e:
+        logger.warning(f"关闭 ArticleFetchService 连接失败{context}: {e}")
 
 
 class ScrapeRequest:
@@ -286,7 +302,7 @@ async def _run_backfill_all_async(task_id: str, max_tweets: int) -> None:
 
     from src.scraper.scheduled_job import get_active_follows_async
 
-    service = get_scraping_service()
+    service = get_article_fetch_service()
     registry = get_task_registry()
 
     start_time = time.time()
@@ -349,7 +365,7 @@ async def _run_backfill_all_async(task_id: str, max_tweets: int) -> None:
     finally:
         # 整批账号(逐账号容错·277-284行 warning 留痕继续)处理完才关闭一次,Q2
         # (context 传 task_id,A5 加固 4)
-        await _close_scraping_service(service, f" (task_id={task_id})")
+        await _close_article_fetch_service(service, f" (task_id={task_id})")
 
 
 @router.post("/scrape", status_code=status.HTTP_202_ACCEPTED)
@@ -647,7 +663,7 @@ async def backfill_articles(
         )
 
     # service 仅单用户模式需要,构造收窄到这里,用完即关闭,CHG-032 目标 4
-    service = get_scraping_service()
+    service = get_article_fetch_service()
     try:
         result = await service.backfill_articles_for_user(
             username,
@@ -661,7 +677,7 @@ async def backfill_articles(
         )
     finally:
         # 单用户模式无 task_id,context 传端点名+username 供运维定位,A5 加固 4
-        await _close_scraping_service(
+        await _close_article_fetch_service(
             service, f" (backfill_articles, username={username})"
         )
 
