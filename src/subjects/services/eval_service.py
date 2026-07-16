@@ -6,14 +6,14 @@ import json
 import uuid
 from collections import Counter
 from datetime import datetime, timedelta
-from typing import Any, cast
+from typing import Any
 
-from src.data_layer.provider import get_subject_repo
 from src.storage import paths
 from src.subjects._time import iso_z as _iso_z
 from src.subjects._time import parse_dt as _parse_dt
 from src.subjects.constants import NO_LIMIT, SUBJECT_NOT_FOUND_HINT
 from src.subjects.models import EvalTier, SubjectEval
+from src.subjects.protocol import SubjectRepoProtocol, default_subject_repo
 from src.subjects.services.feedback_service import build_feedback_target_id
 from src.subjects.store import utc_now
 
@@ -22,9 +22,9 @@ _CORRECTION_VERDICTS = {"reject", "correct", "off_topic", "drift"}
 
 
 class SubjectEvalService:
-    def __init__(self, repo: Any | None = None) -> None:
-        repo_factory = get_subject_repo
-        self._repo: Any = repo if repo is not None else repo_factory()
+    def __init__(self, repo: SubjectRepoProtocol | None = None) -> None:
+        repo_factory = default_subject_repo
+        self._repo: SubjectRepoProtocol = repo if repo is not None else repo_factory()
 
     async def put_eval(
         self,
@@ -66,7 +66,7 @@ class SubjectEvalService:
             when=utc_now(),
         )
         saved = await self._repo.append_eval(eval_record)
-        return cast(SubjectEval, saved)
+        return saved
 
     async def get_evals(
         self,

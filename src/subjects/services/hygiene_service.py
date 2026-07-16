@@ -6,14 +6,14 @@ import uuid
 from collections import Counter
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Any, cast
+from typing import Any
 
-from src.data_layer.provider import get_subject_repo
 from src.storage import paths
 from src.subjects._time import iso_z as _iso_z
 from src.subjects._time import parse_dt as _parse_dt
 from src.subjects.constants import NO_LIMIT, SUBJECT_NOT_FOUND_HINT
-from src.subjects.models import EvalTier, SubjectDigest, SubjectEval, SubjectReview
+from src.subjects.models import EvalTier, SubjectDigest, SubjectEval, SubjectMatch, SubjectReview
+from src.subjects.protocol import SubjectRepoProtocol, default_subject_repo
 from src.subjects.provenance import build_digest_provenance_key
 from src.subjects.services.digest_service import MAX_DIGEST_TEXT
 from src.subjects.services.feedback_service import build_feedback_target_id
@@ -23,9 +23,9 @@ from src.subjects.store import utc_now
 _SHINGLE_LEN = 20
 _COLLAPSE_MIN_CITED = 3
 class SubjectHygieneService:
-    def __init__(self, repo: Any | None = None) -> None:
-        repo_factory = get_subject_repo
-        self._repo: Any = repo if repo is not None else repo_factory()
+    def __init__(self, repo: SubjectRepoProtocol | None = None) -> None:
+        repo_factory = default_subject_repo
+        self._repo: SubjectRepoProtocol = repo if repo is not None else repo_factory()
 
     async def run_check(
         self,
@@ -128,7 +128,7 @@ class SubjectHygieneService:
         )
         saved = await self._repo.append_eval(eval_record)
         return {
-            "eval": cast(SubjectEval, saved).model_dump(mode="json"),
+            "eval": saved.model_dump(mode="json"),
             "located": located_payload,
         }
 
@@ -200,6 +200,7 @@ class SubjectHygieneService:
         warnings = ["basis_recomputed_now"]
         if provenance is None:
             warnings.insert(0, "no_provenance_doc")
+        matches: list[SubjectMatch]
         if digest.time_axis == "publish":
             matches = await self._repo.publish_window_matches(
                 digest.subject_id,

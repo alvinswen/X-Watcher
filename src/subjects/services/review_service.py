@@ -5,10 +5,10 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from src.data_layer.provider import get_subject_repo
 from src.storage import paths
 from src.subjects.constants import SUBJECT_NOT_FOUND
 from src.subjects.models import SubjectReview, SubjectReviewSection, SubjectReviewTrend
+from src.subjects.protocol import SubjectRepoProtocol, default_subject_repo
 from src.subjects.provenance import assemble_provenance
 from src.subjects.store import utc_now
 
@@ -23,9 +23,9 @@ class ReviewConflictError(Exception):
 
 
 class SubjectReviewService:
-    def __init__(self, repo: Any | None = None) -> None:
-        repo_factory = get_subject_repo
-        self._repo: Any = repo if repo is not None else repo_factory()
+    def __init__(self, repo: SubjectRepoProtocol | None = None) -> None:
+        repo_factory = default_subject_repo
+        self._repo: SubjectRepoProtocol = repo if repo is not None else repo_factory()
 
     async def get_review_payload(self, subject_id: str) -> dict[str, Any] | None:
         if await self._repo.get_subject(subject_id) is None:

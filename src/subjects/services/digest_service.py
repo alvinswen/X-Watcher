@@ -8,10 +8,10 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from src.data_layer.provider import get_subject_repo
 from src.storage import paths
 from src.subjects.constants import SUBJECT_NOT_FOUND
-from src.subjects.models import SubjectDigest, SubjectHighlight
+from src.subjects.models import SubjectDigest, SubjectHighlight, SubjectMatch
+from src.subjects.protocol import SubjectRepoProtocol, default_subject_repo
 from src.subjects.provenance import assemble_provenance, build_digest_provenance_key
 from src.subjects.store import utc_now
 
@@ -21,9 +21,9 @@ MAX_DIGEST_TEXT = 4000
 class SubjectDigestService:
     """保留服务壳，待 A2/B 通过外部技能回写产物。"""
 
-    def __init__(self, repo: Any | None = None) -> None:
-        repo_factory = get_subject_repo
-        self._repo: Any = repo if repo is not None else repo_factory()
+    def __init__(self, repo: SubjectRepoProtocol | None = None) -> None:
+        repo_factory = default_subject_repo
+        self._repo: SubjectRepoProtocol = repo if repo is not None else repo_factory()
 
     async def write_digest(
         self,
@@ -52,13 +52,15 @@ class SubjectDigestService:
             raise ValueError("digest_text 超过 4000 字上限")
 
         skipped_no_publish_time_ids: list[str] = []
+        matches: list[SubjectMatch]
         if time_axis == "publish":
-            matches = await self._repo.publish_window_matches(
+            publish_matches = await self._repo.publish_window_matches(
                 subject_id,
                 start=start,
                 end=end,
             )
-            skipped_no_publish_time_ids = list(getattr(matches, "skipped_no_publish_time_ids", []))
+            skipped_no_publish_time_ids = list(publish_matches.skipped_no_publish_time_ids)
+            matches = publish_matches
         else:
             matches = await self._repo.list_matches(subject_id, since=start, until=end)
         allowed_ids = {match.tweet_id for match in matches}
