@@ -267,7 +267,7 @@ def get_search_repo() -> Any:
 
 
 def get_scraper_stats_repo() -> Any:
-    """返回 scraper_config 账号聚合读门面(max_period_counts / tweet_time_range / period_analysis)。
+    """返回 scraper_config 账号聚合读门面(tweet_time_range / period_analysis)。
 
     固定返回 FileScraperStatsReadStore(_data_root())。
     """

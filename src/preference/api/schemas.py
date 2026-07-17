@@ -147,21 +147,6 @@ class FetchAnalysisResponse(UTCDatetimeModel):
     total_new_tweets: int = Field(..., description="总新推文数量")
 
 
-# ==================== 账号运行时统计模型 ====================
-
-
-class FollowStatsResponse(BaseModel):
-    """账号运行时统计响应。
-
-    包含自动计算的 effective_limit 和近期最大新推文数。
-    """
-
-    username: str = Field(..., description="Twitter 用户名")
-    effective_limit: int = Field(..., description="自动计算模式下的当前 limit 值")
-    max_count_12h: int = Field(..., description="近 14 个 12h 周期的最大新推文数")
-    max_count_24h: int = Field(..., description="近 14 个 24h 周期的最大新推文数")
-
-
 class TweetTimeRangeResponse(BaseModel):
     """账号推文时间范围响应。"""
 
