@@ -13,7 +13,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from src.data_layer.provider import get_follows_repo
 from src.preference.api.schemas import (
     CreateScraperFollowRequest,
-    DeleteResponse,
     FetchAnalysisResponse,
     PeriodStats,
     ScraperFollowResponse,
@@ -475,7 +474,7 @@ async def update_scraper_follow(
 
 @router.delete(
     "/follows/{username}",
-    response_model=DeleteResponse,
+    status_code=status.HTTP_204_NO_CONTENT,
     responses={
         status.HTTP_403_FORBIDDEN: {"model": ErrorResponse},
         status.HTTP_404_NOT_FOUND: {"model": ErrorResponse},

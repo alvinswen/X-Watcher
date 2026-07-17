@@ -193,15 +193,3 @@ class SyncProfilesResponse(BaseModel):
 
     synced: int = Field(..., description="同步的档案数量")
     message: str = Field(..., description="操作结果信息")
-
-
-# ==================== 通用响应模型 ====================
-
-
-class DeleteResponse(BaseModel):
-    """删除操作响应模型。
-
-    成功删除操作的统一响应格式。
-    """
-
-    message: str = Field(..., description="操作结果消息")
