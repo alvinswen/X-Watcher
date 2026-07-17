@@ -13,10 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from src.data_layer.provider import get_follows_repo
 from src.preference.api.schemas import (
     CreateScraperFollowRequest,
-    DeleteResponse,
-    ErrorResponse,
     FetchAnalysisResponse,
-    FollowStatsResponse,
     PeriodStats,
     ScraperFollowResponse,
     SyncProfilesResponse,
@@ -29,6 +26,7 @@ from src.preference.infrastructure.follow_store import (
     NotFoundError,
 )
 from src.preference.services.scraper_config_service import ScraperConfigService
+from src.shared.schemas import ErrorResponse
 from src.user.api.auth import get_current_admin_user, get_current_user
 from src.user.domain.models import UserDomain
 
@@ -162,78 +160,6 @@ async def get_scraper_follows(
         logger.error(f"获取抓取账号列表失败: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="获取抓取账号列表失败"
-        ) from e
-
-
-@router.get(
-    "/follows/stats",
-    response_model=list[FollowStatsResponse],
-    responses={
-        status.HTTP_401_UNAUTHORIZED: {"model": ErrorResponse},
-        status.HTTP_403_FORBIDDEN: {"model": ErrorResponse},
-    },
-)
-async def get_follows_stats(
-    admin: UserDomain = Depends(get_current_admin_user),
-) -> list[FollowStatsResponse]:
-    """获取所有活跃账号的运行时统计。
-
-    返回每个账号的 effective_limit（自动模式下的计算值）和
-    12h/24h 近期最大新推文数。
-
-    Args:
-        session: 数据库会话
-        admin: 管理员用户
-
-    Returns:
-        list[FollowStatsResponse]: 各账号的运行时统计
-    """
-    from src.data_layer.provider import get_fetch_stats_repo, get_scraper_stats_repo
-    from src.scraper.services.limit_calculator import LimitCalculator
-
-    try:
-        # 1. 获取所有活跃账号
-        service = await _get_scraper_config_service()
-        follows = await service.get_all_follows(include_inactive=False)
-        usernames = [f.username for f in follows]
-
-        if not usernames:
-            return []
-
-        # 2. 批量查 FetchStats → 计算 effective_limit
-        stats_repo = get_fetch_stats_repo()
-        stats_map = await stats_repo.batch_get_stats(usernames)
-        calculator = LimitCalculator()
-
-        # 3. 各账号近 14 个周期(12h / 24h)的最大新推文数。
-        #    tweet 聚合走 provider:sqlalchemy 路径转调原 (username, period_bucket) 分组 SQL;
-        #    file 路径用 round-half-up 整数分桶复刻生产 PG cast 进位(⚠️ #7 round 陷阱,见门面)。
-        num_periods = 14
-        scraper_stats = get_scraper_stats_repo()
-        max_12h_map = await scraper_stats.max_period_counts(usernames, 12, num_periods)
-        max_24h_map = await scraper_stats.max_period_counts(usernames, 24, num_periods)
-
-        # 4. 组装结果
-        results = []
-        for username in usernames:
-            fetch_stats = stats_map.get(username)
-            effective_limit = calculator.calculate_next_limit(fetch_stats)
-
-            results.append(
-                FollowStatsResponse(
-                    username=username,
-                    effective_limit=effective_limit,
-                    max_count_12h=max_12h_map.get(username.lower(), 0),
-                    max_count_24h=max_24h_map.get(username.lower(), 0),
-                )
-            )
-
-        return results
-    except Exception as e:
-        logger.error(f"获取账号运行时统计失败: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="获取账号运行时统计失败",
         ) from e
 
 
@@ -548,7 +474,7 @@ async def update_scraper_follow(
 
 @router.delete(
     "/follows/{username}",
-    response_model=DeleteResponse,
+    status_code=status.HTTP_204_NO_CONTENT,
     responses={
         status.HTTP_403_FORBIDDEN: {"model": ErrorResponse},
         status.HTTP_404_NOT_FOUND: {"model": ErrorResponse},

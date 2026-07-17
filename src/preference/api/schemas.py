@@ -147,21 +147,6 @@ class FetchAnalysisResponse(UTCDatetimeModel):
     total_new_tweets: int = Field(..., description="总新推文数量")
 
 
-# ==================== 账号运行时统计模型 ====================
-
-
-class FollowStatsResponse(BaseModel):
-    """账号运行时统计响应。
-
-    包含自动计算的 effective_limit 和近期最大新推文数。
-    """
-
-    username: str = Field(..., description="Twitter 用户名")
-    effective_limit: int = Field(..., description="自动计算模式下的当前 limit 值")
-    max_count_12h: int = Field(..., description="近 14 个 12h 周期的最大新推文数")
-    max_count_24h: int = Field(..., description="近 14 个 24h 周期的最大新推文数")
-
-
 class TweetTimeRangeResponse(BaseModel):
     """账号推文时间范围响应。"""
 
@@ -208,25 +193,3 @@ class SyncProfilesResponse(BaseModel):
 
     synced: int = Field(..., description="同步的档案数量")
     message: str = Field(..., description="操作结果信息")
-
-
-# ==================== 通用响应模型 ====================
-
-
-class DeleteResponse(BaseModel):
-    """删除操作响应模型。
-
-    成功删除操作的统一响应格式。
-    """
-
-    message: str = Field(..., description="操作结果消息")
-
-
-class ErrorResponse(BaseModel):
-    """错误响应模型。
-
-    统一的错误响应格式。
-    """
-
-    detail: str = Field(..., description="错误详情")
-    error_code: str | None = Field(None, description="错误代码")

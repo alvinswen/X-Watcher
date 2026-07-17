@@ -1,14 +1,8 @@
-"""scraper_config 账号聚合三段(#7 period-bucket max / #8 时间范围 / #9 周期分析)在
+"""scraper_config 账号聚合两段(#8 时间范围 / #9 周期分析)在
 XWATCHER_DATA_LAYER=file 下走文件层。
 
-- #7 max_period_counts:period_bucket = round-half-up((now-created)/interval)。生产 PG
-  cast(... AS integer) 进位 ≠ SQLite floor,SQLite 是失效 oracle——本文件用钉死 PG
-  round-half-up 语义的固定边界值断言(floor 实现会翻红),不靠 SQLite 对账。每条配故障注入。
 - #8 tweet_time_range / #9 period_analysis:无 round 陷阱,SQLite 是有效 oracle,既做 file
   路径可证又做跨模式(file vs sqlalchemy SQLite)对账。
-
-注:故障注入「把门面 bucket 改 floor」通过 monkeypatch _bucket_round_half_up 注入 floor
-实现验证钉值测试有牙(证 round-half-up 非摆设、SQLite 对此操作失效)。
 """
 from datetime import UTC, datetime, timedelta, timezone
 from unittest.mock import AsyncMock, Mock, patch
@@ -35,116 +29,6 @@ def _norm_instant(dt):
     if dt.tzinfo is not None:
         return dt.astimezone(timezone.utc).replace(tzinfo=None)
     return dt
-
-
-# ── #7 max_period_counts round-half-up 钉值(关键,不靠 SQLite)──────
-
-
-@pytest.mark.asyncio
-async def test_max_period_counts_round_half_up_pinned(monkeypatch, tmp_path):
-    """period-bucket 进位 = round-half-up(复刻生产 PG cast),非 floor。
-
-    interval=12h(43200s)。基准 now 对齐:用 now 当锚,造 3 条同一 author 推文,使其落在
-    bucket 边界两侧——bucket = round((now-created)/43200):
-      - secs_ago = 6h = 21600 = interval/2 → round-half-up 进位到 bucket 1(floor 留 bucket 0)
-      - secs_ago = 6h+δ → bucket 1(floor/round 一致)
-      - secs_ago = 5h59m → secs_ago/43200 < 0.5 → bucket 0(floor/round 一致)
-    钉死:bucket 分组 = {bucket0: 1 条, bucket1: 2 条} → max=2。
-    floor 实现会得 {bucket0: 2, bucket1: 1} → max 仍=2(max 巧合相等!)——故 max 不够区分,
-    本测试直接断言门面内部 bucket 分组(经独立重算)+ 用「单边界单条」造 max 可区分的场景。
-    """
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
-    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-
-    # 用「边界单条 → 该 bucket 唯一占主」造 max 可区分场景:
-    # bucket0 放 2 条(均 secs_ago < interval/2),bucket1(round-half-up)放 1 条恰在半点。
-    # round-half-up:半点那条进 bucket1 → bucket0=2 / bucket1=1 → max=2。
-    # floor:半点那条留 bucket0 → bucket0=3 / (bucket1 无) → max=3。 ← max 翻红可区分!
-    now = datetime.now(timezone.utc)
-    interval_secs = 12 * 3600
-    half = interval_secs // 2  # 21600 = 6h
-
-    specs = [
-        ("b0_1", "boundary_u", now - timedelta(seconds=half - 100)),   # secs_ago<half → bucket0
-        ("b0_2", "boundary_u", now - timedelta(seconds=half - 200)),   # bucket0
-        ("bh_1", "boundary_u", now - timedelta(seconds=half)),         # secs_ago==half → round→bucket1 / floor→bucket0
-    ]
-    await _seed_tweets(tmp_path, [_tweet(t, a, c) for (t, a, c) in specs])
-
-    from src.data_layer.provider import get_scraper_stats_repo
-
-    res = await get_scraper_stats_repo().max_period_counts(["boundary_u"], 12, num_periods=14)
-    # round-half-up:bucket0=2(b0_1,b0_2) / bucket1=1(bh_1) → max=2
-    # floor 实现:bucket0=3(全归 bucket0)→ max=3(翻红)
-    assert res == {"boundary_u": 2}, f"得到 {res}(floor bug 会是 {{'boundary_u': 3}})"
-
-
-@pytest.mark.asyncio
-async def test_max_period_counts_floor_injection_turns_red(monkeypatch, tmp_path):
-    """故障注入:把门面 bucket 改 floor `//` → 钉值断言翻红(证有牙 + 证 SQLite 对此失效)。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
-    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-
-    now = datetime.now(timezone.utc)
-    interval_secs = 12 * 3600
-    half = interval_secs // 2
-    specs = [
-        ("b0_1", "boundary_u", now - timedelta(seconds=half - 100)),
-        ("b0_2", "boundary_u", now - timedelta(seconds=half - 200)),
-        ("bh_1", "boundary_u", now - timedelta(seconds=half)),
-    ]
-    await _seed_tweets(tmp_path, [_tweet(t, a, c) for (t, a, c) in specs])
-
-    # 注入 floor 实现替换 round-half-up
-    import src.preference.infrastructure.scraper_stats_read_repository as mod
-    monkeypatch.setattr(mod, "_bucket_round_half_up", lambda secs_ago, isecs: secs_ago // isecs)
-
-    from src.data_layer.provider import get_scraper_stats_repo
-
-    res = await get_scraper_stats_repo().max_period_counts(["boundary_u"], 12, num_periods=14)
-    # floor 把半点那条留 bucket0 → bucket0=3 → max=3,与 round-half-up 钉值 2 不符
-    assert res == {"boundary_u": 3}, "floor 注入应得 max=3(证 round-half-up 实现有牙)"
-
-
-@pytest.mark.asyncio
-async def test_max_period_counts_window_and_lower_match(monkeypatch, tmp_path):
-    """窗口边界(cutoff <= created < now)+ 大小写不敏感 author 匹配。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
-    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    now = datetime.now(timezone.utc)
-    interval = timedelta(hours=12)
-    num_periods = 14
-    cutoff = now - num_periods * interval
-
-    specs = [
-        # 同一 bucket(均距 now ~1h,bucket0)的 3 条 → max=3;author 大小写混写
-        ("w1", "MixedCase", now - timedelta(hours=1)),
-        ("w2", "mixedcase", now - timedelta(hours=1, minutes=10)),
-        ("w3", "MIXEDCASE", now - timedelta(hours=1, minutes=20)),
-        # 窗口外(早于 cutoff)→ 不计入
-        ("old", "MixedCase", cutoff - timedelta(hours=1)),
-    ]
-    await _seed_tweets(tmp_path, [_tweet(t, a, c) for (t, a, c) in specs])
-
-    from src.data_layer.provider import get_scraper_stats_repo
-
-    # 查询用 username 原始大小写,门面内部 lower 匹配
-    res = await get_scraper_stats_repo().max_period_counts(["MixedCase"], 12, num_periods)
-    assert res == {"mixedcase": 3}, f"3 条同 bucket(大小写不敏感)+ 窗口外排除 → {res}"
-    # 故障注入:再加 1 条同 bucket → max 应升到 4(证非写死)
-    await _seed_tweets(tmp_path, [_tweet("w4", "mixedcase", now - timedelta(hours=1, minutes=5))])
-    res2 = await get_scraper_stats_repo().max_period_counts(["MixedCase"], 12, num_periods)
-    assert res2 == {"mixedcase": 4}
-
-
-@pytest.mark.asyncio
-async def test_max_period_counts_empty(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
-    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    from src.data_layer.provider import get_scraper_stats_repo
-    assert await get_scraper_stats_repo().max_period_counts([], 12) == {}
-    # 有用户但无推文 → 空 dict(端点用 .get(lower, 0) 兜底)
-    assert await get_scraper_stats_repo().max_period_counts(["nobody"], 12) == {}
 
 
 # ── #8 tweet_time_range(min/max/count)──────────────────────

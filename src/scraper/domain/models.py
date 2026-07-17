@@ -6,7 +6,7 @@
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field, field_serializer
 
 
 class ReferenceType(str, Enum):
@@ -72,12 +72,10 @@ class Tweet(BaseModel):
         """判断该推文是否关联了 X Article。"""
         return self.article_preview is not None
 
-    model_config = ConfigDict(
-        json_encoders={
-            datetime: lambda v: v.isoformat(),
-            ReferenceType: lambda v: v.value,
-        },
-    )
+    @field_serializer("created_at", when_used="json")
+    def _serialize_created_at(self, value: datetime) -> str:
+        """保留既有 datetime JSON 字节格式。"""
+        return value.isoformat()
 
 
 class Article(BaseModel):
@@ -95,11 +93,10 @@ class Article(BaseModel):
     author_username: str | None = Field(None, description="作者用户名")
     fetched_at: datetime | None = Field(None, description="数据获取时间")
 
-    model_config = ConfigDict(
-        json_encoders={
-            datetime: lambda v: v.isoformat(),
-        },
-    )
+    @field_serializer("fetched_at", when_used="json")
+    def _serialize_fetched_at(self, value: datetime | None) -> str | None:
+        """保留既有可空 datetime JSON 字节格式。"""
+        return value.isoformat() if value else None
 
 
 class SaveResult(BaseModel):

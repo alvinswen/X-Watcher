@@ -5,7 +5,7 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from src.shared.schemas import UTCDatetimeModel
 
@@ -59,13 +59,3 @@ class SummaryResponse(UTCDatetimeModel):
             created_at=record.created_at,
             updated_at=record.updated_at,
         )
-
-
-class ErrorResponse(BaseModel):
-    """错误响应模型。
-
-    统一的错误响应格式。
-    """
-
-    detail: str = Field(..., description="错误详情")
-    error_code: str | None = Field(None, description="错误代码")
