@@ -403,7 +403,7 @@ def register(mcp: FastMCP) -> None:
         Args:
             info_type: 信息类型：
                        "profiles" - 账号 X 平台档案信息
-                       "stats" - 账号抓取运行时统计（effective_limit、近期新推文数）
+                       "stats" - 账号抓取统计（manual_limit 手动上限、total_tweets 系统内推文总数）
                        "tweet_time_range" - 各账号的推文时间范围
                        "analysis" - 指定账号的抓取结果分析（需要 username 参数）
             username: X 用户名（analysis 类型时必填）

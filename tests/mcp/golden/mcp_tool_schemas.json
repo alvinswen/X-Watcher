@@ -272,8 +272,8 @@
   "signature": "(since: str, until: str | None = None, limit: int = 200, include_summary: bool = True, author: str | None = None, authors: str | None = None, keyword: str | None = None) -> str"
  },
  "get_follow_accounts_info": {
-  "description": "获取关注账号详细信息。需要管理员权限。\n\n        Args:\n            info_type: 信息类型：\n                       \"profiles\" - 账号 X 平台档案信息\n                       \"stats\" - 账号抓取运行时统计（effective_limit、近期新推文数）\n                       \"tweet_time_range\" - 各账号的推文时间范围\n                       \"analysis\" - 指定账号的抓取结果分析（需要 username 参数）\n            username: X 用户名（analysis 类型时必填）\n        ",
-  "docstring": "获取关注账号详细信息。需要管理员权限。\n\nArgs:\n    info_type: 信息类型：\n               \"profiles\" - 账号 X 平台档案信息\n               \"stats\" - 账号抓取运行时统计（effective_limit、近期新推文数）\n               \"tweet_time_range\" - 各账号的推文时间范围\n               \"analysis\" - 指定账号的抓取结果分析（需要 username 参数）\n    username: X 用户名（analysis 类型时必填）",
+  "description": "获取关注账号详细信息。需要管理员权限。\n\n        Args:\n            info_type: 信息类型：\n                       \"profiles\" - 账号 X 平台档案信息\n                       \"stats\" - 账号抓取统计（manual_limit 手动上限、total_tweets 系统内推文总数）\n                       \"tweet_time_range\" - 各账号的推文时间范围\n                       \"analysis\" - 指定账号的抓取结果分析（需要 username 参数）\n            username: X 用户名（analysis 类型时必填）\n        ",
+  "docstring": "获取关注账号详细信息。需要管理员权限。\n\nArgs:\n    info_type: 信息类型：\n               \"profiles\" - 账号 X 平台档案信息\n               \"stats\" - 账号抓取统计（manual_limit 手动上限、total_tweets 系统内推文总数）\n               \"tweet_time_range\" - 各账号的推文时间范围\n               \"analysis\" - 指定账号的抓取结果分析（需要 username 参数）\n    username: X 用户名（analysis 类型时必填）",
   "parameters": {
    "properties": {
     "info_type": {
