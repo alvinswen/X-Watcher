@@ -6,7 +6,12 @@
 from datetime import datetime, timezone
 from typing import Any
 
-from pydantic import BaseModel, SerializerFunctionWrapHandler, field_serializer
+from pydantic import (
+    BaseModel,
+    Field,
+    SerializerFunctionWrapHandler,
+    field_serializer,
+)
 
 
 class UTCDatetimeModel(BaseModel):
@@ -29,3 +34,9 @@ class UTCDatetimeModel(BaseModel):
                 return value.replace(tzinfo=timezone.utc).isoformat()
             return value.isoformat()
         return handler(value)
+
+
+class ErrorResponse(BaseModel):
+    """错误响应声明模型。"""
+
+    detail: str = Field(..., description="错误详情")

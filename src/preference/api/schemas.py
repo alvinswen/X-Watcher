@@ -220,13 +220,3 @@ class DeleteResponse(BaseModel):
     """
 
     message: str = Field(..., description="操作结果消息")
-
-
-class ErrorResponse(BaseModel):
-    """错误响应模型。
-
-    统一的错误响应格式。
-    """
-
-    detail: str = Field(..., description="错误详情")
-    error_code: str | None = Field(None, description="错误代码")

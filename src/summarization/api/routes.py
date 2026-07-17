@@ -8,7 +8,8 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from src.data_layer.provider import get_summary_repo
-from src.summarization.api.schemas import ErrorResponse, SummaryResponse
+from src.shared.schemas import ErrorResponse
+from src.summarization.api.schemas import SummaryResponse
 from src.user.api.auth import get_current_admin_user
 from src.user.domain.models import UserDomain
 

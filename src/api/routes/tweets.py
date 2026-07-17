@@ -10,7 +10,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from src.shared.schemas import UTCDatetimeModel
+from src.shared.schemas import ErrorResponse, UTCDatetimeModel
 from src.user.api.auth import get_current_admin_user
 from src.user.domain.models import UserDomain
 
@@ -52,12 +52,6 @@ class TweetListResponse(BaseModel):
     page: int = Field(..., description="当前页码")
     page_size: int = Field(..., description="每页数量")
     total_pages: int = Field(..., description="总页数")
-
-
-class ErrorResponse(BaseModel):
-    """错误响应模型。"""
-
-    detail: str = Field(..., description="错误详情")
 
 
 # ========== 辅助函数 ==========

@@ -14,7 +14,6 @@ from src.data_layer.provider import get_follows_repo
 from src.preference.api.schemas import (
     CreateScraperFollowRequest,
     DeleteResponse,
-    ErrorResponse,
     FetchAnalysisResponse,
     FollowStatsResponse,
     PeriodStats,
@@ -24,6 +23,7 @@ from src.preference.api.schemas import (
     UpdateScraperFollowRequest,
     XUserProfileResponse,
 )
+from src.shared.schemas import ErrorResponse
 from src.preference.infrastructure.follow_store import (
     DuplicateError,
     NotFoundError,
