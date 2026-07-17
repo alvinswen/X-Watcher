@@ -127,9 +127,9 @@ class TestScrapeResponse:
         """测试转换为字典。"""
         from src.api.routes.admin import ScrapeResponse
 
-        response = ScrapeResponse(task_id="test-id", task_status="pending")
+        response = ScrapeResponse(task_id="test-id", status="pending")
 
-        assert response.to_dict() == {
+        assert response.model_dump() == {
             "task_id": "test-id",
             "status": "pending",
         }
@@ -145,7 +145,7 @@ class TestTaskStatusResponse:
         now = datetime.now()
         response = TaskStatusResponse(
             task_id="test-id",
-            task_status="completed",
+            status="completed",
             result={"new_tweets": 10},
             created_at=now,
             started_at=now,
@@ -153,7 +153,7 @@ class TestTaskStatusResponse:
             progress={"current": 10, "total": 10, "percentage": 100.0},
         )
 
-        result = response.to_dict()
+        result = response.model_dump(mode="json")
 
         assert result["task_id"] == "test-id"
         assert result["status"] == "completed"
@@ -195,34 +195,40 @@ class TestStartScrapingEndpoint:
         assert "task_id" in data
 
     def test_start_scraping_empty_usernames(self, client, clean_registry):
-        """测试空用户名返回 400 错误。"""
+        """测试空用户名返回 422 结构化错误。"""
         response = client.post(
             "/api/admin/scrape",
             json={"usernames": "", "limit": 100},
         )
 
-        assert response.status_code == 400
-        assert "不能为空" in response.json()["detail"]
+        assert response.status_code == 422
+        detail = response.json()["detail"][0]
+        assert detail["loc"] == ["body"]
+        assert detail["type"] == "value_error"
 
     def test_start_scraping_invalid_limit(self, client, clean_registry):
-        """测试无效 limit 返回 400 错误。"""
+        """测试无效 limit 返回 422 结构化错误。"""
         response = client.post(
             "/api/admin/scrape",
             json={"usernames": "user1", "limit": 2000},
         )
 
-        assert response.status_code == 400
-        assert "limit" in response.json()["detail"]
+        assert response.status_code == 422
+        detail = response.json()["detail"][0]
+        assert detail["loc"] == ["body", "limit"]
+        assert detail["type"] == "value_error"
 
     def test_start_scraping_invalid_username(self, client, clean_registry):
-        """测试无效用户名返回 400 错误。"""
+        """测试无效用户名返回 422 结构化错误。"""
         response = client.post(
             "/api/admin/scrape",
             json={"usernames": "user@invalid", "limit": 100},
         )
 
-        assert response.status_code == 400
-        assert "用户名" in response.json()["detail"]
+        assert response.status_code == 422
+        detail = response.json()["detail"][0]
+        assert detail["loc"] == ["body"]
+        assert detail["type"] == "value_error"
 
     def test_start_scraping_duplicate_task(self, client, clean_registry):
         """测试重复任务返回 409 错误。"""
@@ -521,44 +527,52 @@ class TestBackfillArticlesEndpoint:
         )
 
     async def test_backfill_articles_empty_username(self, async_client):
-        """测试空用户名返回 400。"""
+        """测试空用户名返回 422 结构化错误。"""
         response = await async_client.post(
             "/api/admin/articles/backfill",
             json={"username": ""},
         )
 
-        assert response.status_code == 400
-        assert "不能为空" in response.json()["detail"]
+        assert response.status_code == 422
+        detail = response.json()["detail"][0]
+        assert detail["loc"] == ["body"]
+        assert detail["type"] == "value_error"
 
     async def test_backfill_articles_invalid_username(self, async_client):
-        """测试无效用户名返回 400。"""
+        """测试无效用户名返回 422 结构化错误。"""
         response = await async_client.post(
             "/api/admin/articles/backfill",
             json={"username": "user@invalid"},
         )
 
-        assert response.status_code == 400
-        assert "只能包含字母" in response.json()["detail"]
+        assert response.status_code == 422
+        detail = response.json()["detail"][0]
+        assert detail["loc"] == ["body"]
+        assert detail["type"] == "value_error"
 
     async def test_backfill_articles_username_too_long(self, async_client):
-        """测试用户名过长返回 400。"""
+        """测试用户名过长返回 422 结构化错误。"""
         response = await async_client.post(
             "/api/admin/articles/backfill",
             json={"username": "a" * 16},
         )
 
-        assert response.status_code == 400
-        assert "长度必须在 1-15" in response.json()["detail"]
+        assert response.status_code == 422
+        detail = response.json()["detail"][0]
+        assert detail["loc"] == ["body"]
+        assert detail["type"] == "value_error"
 
     async def test_backfill_articles_invalid_max_tweets(self, async_client):
-        """测试无效 max_tweets 返回 400。"""
+        """测试无效 max_tweets 返回 422 结构化错误。"""
         response = await async_client.post(
             "/api/admin/articles/backfill",
             json={"username": "testuser", "max_tweets": 2000},
         )
 
-        assert response.status_code == 400
-        assert "max_tweets" in response.json()["detail"]
+        assert response.status_code == 422
+        detail = response.json()["detail"][0]
+        assert detail["loc"] == ["body", "max_tweets"]
+        assert detail["type"] == "less_than_equal"
 
     async def test_backfill_articles_service_error(self, async_client, mock_service):
         """测试服务异常返回 500。"""
@@ -646,7 +660,7 @@ class TestCHG032RestLifecycle:
         service.close.assert_awaited_once_with()
 
     async def test_tc_build_403_single_backfill_constructs_and_closes(self):
-        from src.api.routes.admin import backfill_articles
+        from src.api.routes.admin import BackfillRequest, backfill_articles
 
         service = Mock()
         service.backfill_articles_for_user = AsyncMock(return_value={"checked": 1})
@@ -656,10 +670,14 @@ class TestCHG032RestLifecycle:
             patch("src.api.routes.admin.audit_log"),
         ):
             result = await backfill_articles(
-                {"username": "alice", "max_tweets": 20}, BOOTSTRAP_ADMIN
+                BackfillRequest(username="alice", max_tweets=20),
+                BOOTSTRAP_ADMIN,
             )
 
-        assert result == {"username": "alice", "result": {"checked": 1}}
+        assert result.model_dump() == {
+            "username": "alice",
+            "result": {"checked": 1},
+        }
         factory.assert_called_once_with()
         service.close.assert_awaited_once_with()
 
@@ -696,7 +714,7 @@ class TestCHG032RestLifecycle:
         assert "task_id=task-402" in caplog.text
 
     async def test_tc_build_425_batch_endpoint_does_not_construct_service(self):
-        from src.api.routes.admin import backfill_articles
+        from src.api.routes.admin import BackfillRequest, backfill_articles
 
         registry = Mock()
         registry.create_task.return_value = "task-425"
@@ -711,7 +729,10 @@ class TestCHG032RestLifecycle:
             patch("src.api.routes.admin.asyncio.create_task", side_effect=close_background_coro),
             patch("src.api.routes.admin.audit_log"),
         ):
-            response = await backfill_articles({"all": True, "max_tweets": 20}, BOOTSTRAP_ADMIN)
+            response = await backfill_articles(
+                BackfillRequest(all=True, max_tweets=20),
+                BOOTSTRAP_ADMIN,
+            )
 
         assert response.status_code == 202
         factory.assert_not_called()

@@ -10,6 +10,13 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
+from pydantic import (
+    BaseModel,
+    Field,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 
 from src.mcp.security import audit_log
 from src.scraper import ArticleFetchService, ScrapingService, TaskRegistry, TaskStatus
@@ -84,146 +91,145 @@ async def _close_article_fetch_service(
         logger.warning(f"关闭 ArticleFetchService 连接失败{context}: {e}")
 
 
-class ScrapeRequest:
-    """抓取请求模型。
+class ScrapeRequest(BaseModel):
+    """抓取请求模型（wire 双格式：列表或逗号分隔字符串）。"""
 
-    Attributes:
-        usernames: 逗号分隔的用户名字符串
-        limit: 每个用户抓取的推文数量限制
-    """
+    usernames: list[str] | str = Field(
+        ...,
+        description="用户名列表或逗号分隔字符串",
+    )
+    limit: int = Field(
+        default=100,
+        strict=True,
+        ge=1,
+        le=1000,
+        description="每用户抓取上限",
+    )
 
-    def __init__(
-        self,
-        usernames: str,
-        limit: int = 100,
-    ):
-        """初始化抓取请求。
+    @property
+    def usernames_as_str(self) -> str:
+        """把双格式用户名归一为逗号分隔字符串。"""
+        if isinstance(self.usernames, list):
+            return ",".join(u.strip() for u in self.usernames if u.strip())
+        return self.usernames
 
-        Args:
-            usernames: 逗号分隔的用户名字符串
-            limit: 每个用户抓取的推文数量限制
+    @property
+    def parsed_usernames(self) -> list[str]:
+        """返回去空白、去空项后的用户名列表。"""
+        return [u.strip() for u in self.usernames_as_str.split(",") if u.strip()]
 
-        Raises:
-            ValueError: 如果参数无效
-        """
-        if not usernames or not usernames.strip():
-            raise ValueError("usernames 不能为空")
-
-        # 解析用户名列表
-        parsed_usernames = [u.strip() for u in usernames.split(",") if u.strip()]
-
-        if not parsed_usernames:
-            raise ValueError("至少需要提供一个有效的用户名")
-
-        # 验证 limit 范围
-        if not (1 <= limit <= 1000):
+    @field_validator("limit", mode="before")
+    @classmethod
+    def _validate_limit_range(cls, value: Any) -> Any:
+        if type(value) is int and not (1 <= value <= 1000):
             raise ValueError("limit 必须在 1-1000 之间")
+        return value
 
-        # 验证用户名格式（Twitter 用户名规则：1-15 字符，字母数字下划线）
-        for username in parsed_usernames:
+    @model_validator(mode="after")
+    def _validate(self) -> "ScrapeRequest":
+        if not self.usernames_as_str.strip():
+            raise ValueError("usernames 不能为空")
+        parsed = self.parsed_usernames
+        if not parsed:
+            raise ValueError("至少需要提供一个有效的用户名")
+        for username in parsed:
             if not (1 <= len(username) <= 15):
                 raise ValueError(f"用户名 '{username}' 长度必须在 1-15 字符之间")
             if not username.replace("_", "").isalnum():
                 raise ValueError(f"用户名 '{username}' 只能包含字母、数字和下划线")
-
-        self.usernames = usernames
-        self.parsed_usernames = parsed_usernames
-        self.limit = limit
+        return self
 
 
-class ScrapeResponse:
-    """抓取响应模型。
+class ScrapeResponse(BaseModel):
+    """抓取任务受理响应。"""
 
-    Attributes:
-        task_id: 任务 ID
-        status: 任务状态
-    """
+    task_id: str
+    status: str
 
-    def __init__(self, task_id: str, task_status: str):
-        """初始化抓取响应。
 
-        Args:
-            task_id: 任务 ID
-            task_status: 任务状态
-        """
-        self.task_id = task_id
-        self.status = task_status
+class TaskStatusResponse(BaseModel):
+    """抓取任务状态响应。"""
 
-    def to_dict(self) -> dict[str, Any]:
-        """转换为字典。"""
-        return {
-            "task_id": self.task_id,
-            "status": self.status,
+    task_id: str
+    task_name: str = ""
+    status: Literal["pending", "running", "completed", "failed"]
+    result: dict[str, Any] | None = None
+    error: str | None = None
+    created_at: datetime | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    progress: dict[str, Any] = Field(
+        default_factory=lambda: {
+            "current": 0,
+            "total": 0,
+            "percentage": 0.0,
         }
+    )
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _status_enum_to_str(cls, value: Any) -> Any:
+        enum_value = getattr(value, "value", None)
+        return enum_value if isinstance(enum_value, str) else value
+
+    @field_validator("progress", mode="before")
+    @classmethod
+    def _progress_falsy_to_default(cls, value: Any) -> Any:
+        return value or {"current": 0, "total": 0, "percentage": 0.0}
+
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def _metadata_falsy_to_default(cls, value: Any) -> Any:
+        return value or {}
+
+    @field_serializer(
+        "created_at",
+        "started_at",
+        "completed_at",
+        when_used="json",
+    )
+    def _serialize_dt(self, value: datetime | None) -> str | None:
+        return value.isoformat() if value else None
 
 
-class TaskStatusResponse:
-    """任务状态响应模型。
+class TaskDeletionResponse(BaseModel):
+    """抓取任务删除响应。"""
 
-    Attributes:
-        task_id: 任务 ID
-        status: 任务状态
-        result: 任务结果（完成时）
-        error: 错误信息（失败时）
-        created_at: 创建时间
-        started_at: 开始时间
-        completed_at: 完成时间
-        progress: 进度信息
-        metadata: 元数据
-    """
+    message: str
 
-    def __init__(
-        self,
-        task_id: str,
-        task_status: Literal["pending", "running", "completed", "failed"],
-        task_name: str = "",
-        result: dict[str, Any] | None = None,
-        error: str | None = None,
-        created_at: datetime | None = None,
-        started_at: datetime | None = None,
-        completed_at: datetime | None = None,
-        progress: dict[str, Any] | None = None,
-        metadata: dict[str, Any] | None = None,
-    ):
-        """初始化任务状态响应。
 
-        Args:
-            task_id: 任务 ID
-            task_status: 任务状态
-            task_name: 任务名称
-            result: 任务结果（完成时）
-            error: 错误信息（失败时）
-            created_at: 创建时间
-            started_at: 开始时间
-            completed_at: 完成时间
-            progress: 进度信息
-            metadata: 元数据
-        """
-        self.task_id = task_id
-        self.task_name = task_name
-        self.status = task_status
-        self.result = result
-        self.error = error
-        self.created_at = created_at
-        self.started_at = started_at
-        self.completed_at = completed_at
-        self.progress = progress or {"current": 0, "total": 0, "percentage": 0.0}
-        self.metadata = metadata or {}
+class BackfillRequest(BaseModel):
+    """Article 回溯请求。"""
 
-    def to_dict(self) -> dict[str, Any]:
-        """转换为字典。"""
-        return {
-            "task_id": self.task_id,
-            "task_name": self.task_name,
-            "status": self.status,
-            "result": self.result,
-            "error": self.error,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "started_at": self.started_at.isoformat() if self.started_at else None,
-            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
-            "progress": self.progress,
-            "metadata": self.metadata,
-        }
+    all: bool = False
+    username: str | None = None
+    max_tweets: int = Field(default=200, strict=True, ge=1, le=1000)
+
+    @field_validator("username", mode="after")
+    @classmethod
+    def _strip(cls, value: str | None) -> str | None:
+        return value.strip() if value is not None else None
+
+    @model_validator(mode="after")
+    def _validate_single_user_mode(self) -> "BackfillRequest":
+        if self.all:
+            return self
+        username = self.username or ""
+        if not username:
+            raise ValueError("username 不能为空")
+        if not (1 <= len(username) <= 15):
+            raise ValueError(f"用户名 '{username}' 长度必须在 1-15 字符之间")
+        if not username.replace("_", "").isalnum():
+            raise ValueError(f"用户名 '{username}' 只能包含字母、数字和下划线")
+        return self
+
+
+class BackfillSingleUserResponse(BaseModel):
+    """单用户 Article 回溯响应。"""
+
+    username: str
+    result: dict[str, Any]
 
 
 async def _run_scraping_task_async(task_id: str, usernames: list[str], limit: int) -> None:
@@ -368,11 +374,15 @@ async def _run_backfill_all_async(task_id: str, max_tweets: int) -> None:
         await _close_article_fetch_service(service, f" (task_id={task_id})")
 
 
-@router.post("/scrape", status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/scrape",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=ScrapeResponse,
+)
 async def start_scraping(
-    request: dict[str, Any],
+    request: ScrapeRequest,
     _admin: UserDomain = Depends(get_current_admin_user),
-) -> dict[str, Any]:
+) -> ScrapeResponse:
     """启动手动抓取任务。
 
     接收用户名列表和抓取限制，创建异步抓取任务并立即返回任务 ID。
@@ -385,24 +395,8 @@ async def start_scraping(
         dict: 包含 task_id 和 status 的响应
 
     Raises:
-        HTTPException: 400 无效输入，409 任务冲突
+        HTTPException: 409 任务冲突
     """
-    try:
-        # 解析请求
-        usernames = request.get("usernames", "")
-        limit = request.get("limit", 100)
-
-        # 兼容 list 和 str 两种格式
-        if isinstance(usernames, list):
-            usernames = ",".join(str(u).strip() for u in usernames if str(u).strip())
-
-        scrape_request = ScrapeRequest(usernames=usernames, limit=limit)
-    except (ValueError, TypeError, AttributeError) as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        )
-
     registry = get_task_registry()
     registry.cleanup_expired_tasks(ttl_hours=24)
 
@@ -410,7 +404,7 @@ async def start_scraping(
     for task in registry.get_all_tasks():
         if (
             task["status"] == TaskStatus.RUNNING
-            and task.get("metadata", {}).get("usernames") == scrape_request.usernames
+            and task.get("metadata", {}).get("usernames") == request.usernames_as_str
         ):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -419,10 +413,10 @@ async def start_scraping(
 
     # 创建任务
     task_id = registry.create_task(
-        task_name=f"抓取 {len(scrape_request.parsed_usernames)} 个用户",
+        task_name=f"抓取 {len(request.parsed_usernames)} 个用户",
         metadata={
-            "usernames": scrape_request.usernames,
-            "limit": scrape_request.limit,
+            "usernames": request.usernames_as_str,
+            "limit": request.limit,
         },
     )
 
@@ -430,33 +424,30 @@ async def start_scraping(
     asyncio.create_task(
         _run_scraping_task_async(
             task_id,
-            scrape_request.parsed_usernames,
-            scrape_request.limit,
+            request.parsed_usernames,
+            request.limit,
         ),
         name=f"scrape-{task_id}",
     )
 
-    logger.info(f"创建抓取任务: {task_id} - {scrape_request.parsed_usernames}")
+    logger.info(f"创建抓取任务: {task_id} - {request.parsed_usernames}")
 
     audit_log(
         "start_scraping",
         "scrape",
-        params={"usernames": scrape_request.parsed_usernames, "limit": scrape_request.limit},
+        params={"usernames": request.parsed_usernames, "limit": request.limit},
         source="api",
         user=_admin.name,
     )
 
-    return ScrapeResponse(
-        task_id=task_id,
-        task_status="pending",
-    ).to_dict()
+    return ScrapeResponse(task_id=task_id, status="pending")
 
 
-@router.get("/scrape/{task_id}")
+@router.get("/scrape/{task_id}", response_model=TaskStatusResponse)
 async def get_scraping_status(
     task_id: str,
     _admin: UserDomain = Depends(get_current_admin_user),
-) -> dict[str, Any]:
+) -> TaskStatusResponse:
     """查询抓取任务状态。
 
     返回任务的当前状态、进度和结果（如果已完成）。
@@ -481,7 +472,7 @@ async def get_scraping_status(
 
     response = TaskStatusResponse(
         task_id=task_data["task_id"],
-        task_status=task_data["status"],
+        status=task_data["status"],
         task_name=task_data.get("task_name", ""),
         result=task_data.get("result"),
         error=task_data.get("error"),
@@ -492,14 +483,14 @@ async def get_scraping_status(
         metadata=task_data.get("metadata"),
     )
 
-    return response.to_dict()
+    return response
 
 
-@router.get("/scrape")
+@router.get("/scrape", response_model=list[TaskStatusResponse])
 async def list_scraping_tasks(
     status: Literal["pending", "running", "completed", "failed"] | None = None,
     _admin: UserDomain = Depends(get_current_admin_user),
-) -> list[dict[str, Any]]:
+) -> list[TaskStatusResponse]:
     """列出所有抓取任务。
 
     Args:
@@ -519,7 +510,7 @@ async def list_scraping_tasks(
     return [
         TaskStatusResponse(
             task_id=t["task_id"],
-            task_status=t["status"],
+            status=t["status"],
             task_name=t.get("task_name", ""),
             result=t.get("result"),
             error=t.get("error"),
@@ -528,16 +519,16 @@ async def list_scraping_tasks(
             completed_at=t.get("completed_at"),
             progress=t.get("progress"),
             metadata=t.get("metadata"),
-        ).to_dict()
+        )
         for t in tasks
     ]
 
 
-@router.delete("/scrape/{task_id}")
+@router.delete("/scrape/{task_id}", response_model=TaskDeletionResponse)
 async def delete_scraping_task(
     task_id: str,
     _admin: UserDomain = Depends(get_current_admin_user),
-) -> dict[str, Any]:
+) -> TaskDeletionResponse:
     """删除抓取任务。
 
     删除已完成的任务记录。正在运行的任务不能被删除。
@@ -579,7 +570,7 @@ async def delete_scraping_task(
             user=_admin.name,
         )
 
-        return {"message": f"任务 {task_id} 已删除"}
+        return TaskDeletionResponse(message=f"任务 {task_id} 已删除")
 
     raise HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -587,11 +578,20 @@ async def delete_scraping_task(
     )
 
 
-@router.post("/articles/backfill", response_model=None)
+@router.post(
+    "/articles/backfill",
+    response_model=BackfillSingleUserResponse,
+    responses={
+        status.HTTP_202_ACCEPTED: {
+            "model": ScrapeResponse,
+            "description": "批量模式：异步任务已受理",
+        }
+    },
+)
 async def backfill_articles(
-    request: dict[str, Any],
+    request: BackfillRequest,
     _admin: UserDomain = Depends(get_current_admin_user),
-) -> JSONResponse | dict[str, Any]:
+) -> JSONResponse | BackfillSingleUserResponse:
     """回溯 X Articles。
 
     支持两种模式：
@@ -601,28 +601,19 @@ async def backfill_articles(
 
     注意：每次 API 调用消耗 100 credits，请合理设置 max_tweets。
     """
-    backfill_all = request.get("all", False)
-    max_tweets = request.get("max_tweets", 200)
-
-    if not isinstance(max_tweets, int) or not (1 <= max_tweets <= 1000):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="max_tweets 必须在 1-1000 之间",
-        )
-
     # ── 批量模式：后台任务 + 立即返回 task_id ──
     # (注意:此分支不再无条件构造 service——批量模式从未引用过它,
     #  是一处多余构造;_run_backfill_all_async 会自己独立构造自己的实例。
     #  CHG-032 目标 4 清理"多余抓手")
-    if backfill_all:
+    if request.all:
         registry = get_task_registry()
         task_id = registry.create_task(
             task_name="Article 批量回溯",
-            metadata={"mode": "backfill_all", "max_tweets": max_tweets},
+            metadata={"mode": "backfill_all", "max_tweets": request.max_tweets},
         )
 
         asyncio.create_task(
-            _run_backfill_all_async(task_id, max_tweets),
+            _run_backfill_all_async(task_id, request.max_tweets),
             name=f"backfill-all-{task_id}",
         )
 
@@ -631,7 +622,7 @@ async def backfill_articles(
         audit_log(
             "backfill_articles",
             "backfill_all",
-            params={"max_tweets": max_tweets},
+            params={"max_tweets": request.max_tweets},
             source="api",
             user=_admin.name,
         )
@@ -642,32 +633,14 @@ async def backfill_articles(
         )
 
     # ── 单用户模式 ──
-    username = request.get("username", "").strip()
-
-    if not username:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="username 不能为空",
-        )
-
-    if not (1 <= len(username) <= 15):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"用户名 '{username}' 长度必须在 1-15 字符之间",
-        )
-
-    if not username.replace("_", "").isalnum():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"用户名 '{username}' 只能包含字母、数字和下划线",
-        )
+    username = request.username or ""
 
     # service 仅单用户模式需要,构造收窄到这里,用完即关闭,CHG-032 目标 4
     service = get_article_fetch_service()
     try:
         result = await service.backfill_articles_for_user(
             username,
-            max_tweets=max_tweets,
+            max_tweets=request.max_tweets,
         )
     except Exception as e:
         logger.exception(f"Article 回溯异常: username={username}, error={e}")
@@ -686,12 +659,9 @@ async def backfill_articles(
     audit_log(
         "backfill_articles",
         "backfill",
-        params={"username": username, "max_tweets": max_tweets},
+        params={"username": username, "max_tweets": request.max_tweets},
         source="api",
         user=_admin.name,
     )
 
-    return {
-        "username": username,
-        "result": result,
-    }
+    return BackfillSingleUserResponse(username=username, result=result)

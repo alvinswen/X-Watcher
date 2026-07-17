@@ -38,12 +38,12 @@ def test_start_scraping_cleans_only_expired_terminal_tasks(monkeypatch) -> None:
     try:
         response = asyncio.run(
             admin.start_scraping(
-                {"usernames": "newuser", "limit": 1},
+                admin.ScrapeRequest(usernames="newuser", limit=1),
                 _admin=BOOTSTRAP_ADMIN,
             )
         )
 
-        assert response["status"] == "pending"
+        assert response.status == "pending"
         assert registry.get_task_status(expired_completed) is None
         assert registry.get_task_status(expired_failed) is None
         assert registry.get_task_status(old_running) is not None

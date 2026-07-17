@@ -172,7 +172,7 @@ async def test_tc_build_446_orchestrator_owns_one_shared_client_close() -> None:
 @pytest.mark.asyncio
 async def test_tc_build_447_rest_article_service_is_constructed_and_closed() -> None:
     """The single-user REST path owns an independent Article service lifecycle."""
-    from src.api.routes.admin import backfill_articles
+    from src.api.routes.admin import BackfillRequest, backfill_articles
 
     service = Mock()
     service.backfill_articles_for_user = AsyncMock(return_value={"checked": 1})
@@ -185,11 +185,14 @@ async def test_tc_build_447_rest_article_service_is_constructed_and_closed() -> 
         patch("src.api.routes.admin.audit_log"),
     ):
         result = await backfill_articles(
-            {"username": "alice", "max_tweets": 20},
+            BackfillRequest(username="alice", max_tweets=20),
             admin,
         )
 
-    assert result == {"username": "alice", "result": {"checked": 1}}
+    assert result.model_dump() == {
+        "username": "alice",
+        "result": {"checked": 1},
+    }
     factory.assert_called_once_with()
     service.close.assert_awaited_once_with()
 
@@ -199,7 +202,7 @@ async def test_tc_build_449_rest_close_failure_is_fail_soft(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """An Article close failure logs a warning without replacing success."""
-    from src.api.routes.admin import backfill_articles
+    from src.api.routes.admin import BackfillRequest, backfill_articles
 
     service = Mock()
     service.backfill_articles_for_user = AsyncMock(return_value={"checked": 2})
@@ -213,9 +216,12 @@ async def test_tc_build_449_rest_close_failure_is_fail_soft(
         caplog.at_level("WARNING"),
     ):
         result = await backfill_articles(
-            {"username": "alice", "max_tweets": 20},
+            BackfillRequest(username="alice", max_tweets=20),
             admin,
         )
 
-    assert result == {"username": "alice", "result": {"checked": 2}}
+    assert result.model_dump() == {
+        "username": "alice",
+        "result": {"checked": 2},
+    }
     assert "关闭 ArticleFetchService 连接失败" in caplog.text
