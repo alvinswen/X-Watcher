@@ -21,12 +21,12 @@ from src.preference.api.schemas import (
     UpdateScraperFollowRequest,
     XUserProfileResponse,
 )
-from src.shared.schemas import ErrorResponse
 from src.preference.infrastructure.follow_store import (
     DuplicateError,
     NotFoundError,
 )
 from src.preference.services.scraper_config_service import ScraperConfigService
+from src.shared.schemas import ErrorResponse
 from src.user.api.auth import get_current_admin_user, get_current_user
 from src.user.domain.models import UserDomain
 

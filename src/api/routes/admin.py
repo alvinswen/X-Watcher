@@ -121,7 +121,11 @@ class ScrapeRequest(BaseModel):
     @field_validator("limit", mode="before")
     @classmethod
     def _validate_limit_range(cls, value: Any) -> Any:
-        if type(value) is int and not (1 <= value <= 1000):
+        if (
+            isinstance(value, int)
+            and not isinstance(value, bool)
+            and not (1 <= value <= 1000)
+        ):
             raise ValueError("limit 必须在 1-1000 之间")
         return value
 

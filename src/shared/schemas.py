@@ -23,11 +23,11 @@ class UTCDatetimeModel(BaseModel):
     """
 
     @field_serializer("*", mode="wrap", when_used="json")
-    def _serialize_datetime_utc(
-        self,
-        value: Any,
-        handler: SerializerFunctionWrapHandler,
-    ) -> Any:
+    # 禁写返回注解（含 -> Any）：Pydantic 会将其用于所有继承者字段的
+    # serialization schema，导致既有 OpenAPI 字段 type/format 消失。
+    def _serialize_datetime_utc(  # type: ignore[no-untyped-def]
+        self, value: Any, handler: SerializerFunctionWrapHandler
+    ):
         """序列化顶层 datetime 字段，并让其他字段沿用 Pydantic 默认行为。"""
         if isinstance(value, datetime):
             if value.tzinfo is None:
