@@ -4,8 +4,9 @@
 """
 
 from datetime import datetime, timezone
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, SerializerFunctionWrapHandler, field_serializer
 
 
 class UTCDatetimeModel(BaseModel):
@@ -16,12 +17,15 @@ class UTCDatetimeModel(BaseModel):
     避免前端 JavaScript ``new Date()`` 将其误解析为本地时间。
     """
 
-    model_config = ConfigDict(
-        json_encoders={
-            datetime: lambda v: (
-                v.replace(tzinfo=timezone.utc).isoformat()
-                if v.tzinfo is None
-                else v.isoformat()
-            )
-        }
-    )
+    @field_serializer("*", mode="wrap", when_used="json")
+    def _serialize_datetime_utc(
+        self,
+        value: Any,
+        handler: SerializerFunctionWrapHandler,
+    ) -> Any:
+        """序列化顶层 datetime 字段，并让其他字段沿用 Pydantic 默认行为。"""
+        if isinstance(value, datetime):
+            if value.tzinfo is None:
+                return value.replace(tzinfo=timezone.utc).isoformat()
+            return value.isoformat()
+        return handler(value)
