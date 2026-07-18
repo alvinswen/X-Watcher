@@ -4,6 +4,12 @@ import axios, { AxiosError, type AxiosInstance, type AxiosResponse } from "axios
 import type { ApiError } from "@/types"
 import { messageService } from "@/services/message"
 
+declare module "axios" {
+  export interface AxiosRequestConfig {
+    suppressErrorToast?: boolean
+  }
+}
+
 /** API 基础 URL */
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api"
 
@@ -13,9 +19,39 @@ const API_KEY_STORAGE_KEY = "admin_api_key"
 /** API Key provider（由 Auth Store 注入） */
 let apiKeyProvider: (() => string | null) | null = null
 
+/** 401 处理器（由 Auth Store 注入） */
+let unauthorizedHandler: ((hasKey: boolean) => void) | null = null
+
+/** 保留 HTTP 失败上下文的前端请求错误。 */
+export class ApiRequestError extends Error {
+  readonly status: number | null
+  readonly detail: string | null
+  readonly isTimeout: boolean
+
+  constructor(
+    message: string,
+    opts: {
+      status?: number | null
+      detail?: string | null
+      isTimeout?: boolean
+    } = {},
+  ) {
+    super(message)
+    this.name = "ApiRequestError"
+    this.status = opts.status ?? null
+    this.detail = opts.detail ?? null
+    this.isTimeout = opts.isTimeout ?? false
+  }
+}
+
 /** 注册 API Key provider（依赖注入，避免循环引用） */
 export function setApiKeyProvider(provider: () => string | null): void {
   apiKeyProvider = provider
+}
+
+/** 注册 401 处理器（依赖注入，避免循环引用） */
+export function setUnauthorizedHandler(handler: (hasKey: boolean) => void): void {
+  unauthorizedHandler = handler
 }
 
 /** 创建 Axios 实例 */
@@ -48,18 +84,24 @@ client.interceptors.response.use(
     return response
   },
   (error: AxiosError<ApiError>) => {
-    // 统一处理错误
-    let message = "请求失败"
+    const isTimeout = error.code === "ECONNABORTED" || error.message.includes("timeout")
+    const status = error.response?.status ?? null
+    const detail = error.response?.data?.detail ?? null
+    const suppressErrorToast = error.config?.suppressErrorToast === true
+    let message: string
 
-    if (error.code === "ECONNABORTED" || error.message.includes("timeout")) {
+    if (isTimeout) {
       message = "请求超时，请检查网络连接"
-    } else if (error.response) {
-      const status = error.response.status
-      const detail = error.response.data?.detail
-
+    } else if (status !== null) {
       switch (status) {
+        case 401: {
+          const hasKey = Boolean(error.config?.headers?.["X-API-Key"])
+          unauthorizedHandler?.(hasKey)
+          message = detail || "API Key 无效，请重新配置"
+          break
+        }
         case 403:
-          message = detail || "认证失败，请检查 API Key 配置"
+          message = "需要管理员权限"
           break
         case 404:
           message = detail || "资源不存在"
@@ -70,17 +112,21 @@ client.interceptors.response.use(
         default:
           message = detail || `请求失败 (${status})`
       }
-    } else if (error.message) {
-      message = error.message
+    } else {
+      message = "网络连接失败，请稍后重试"
     }
 
-    // 记录错误到控制台
     console.error("API 错误:", message, error)
 
-    // 显示用户友好提示
-    messageService.error(message)
+    if (!suppressErrorToast && status !== 401) {
+      messageService.error(message)
+    }
 
-    return Promise.reject(new Error(message))
+    return Promise.reject(new ApiRequestError(message, {
+      status,
+      detail,
+      isTimeout,
+    }))
   },
 )
 

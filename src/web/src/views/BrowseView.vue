@@ -1,5 +1,38 @@
 <template>
-  <div class="browse-view">
+  <ApiKeyGuideEmpty v-if="needsApiKey" />
+  <div v-else class="browse-view" data-testid="browse-view">
+    <Teleport to="#header-toolbar-outlet" defer>
+      <div v-show="!isFullscreen" class="header-toolbar">
+        <el-switch
+          v-model="longTweetFilterEnabled"
+          active-text="长推"
+          size="small"
+          style="margin-right: 8px"
+          data-testid="browse-long-tweet-filter"
+        />
+        <el-input-number
+          v-if="longTweetFilterEnabled"
+          v-model="longTweetMinLength"
+          :min="1"
+          :step="50"
+          size="small"
+          style="width: 130px; margin-right: 12px"
+          :prefix-icon="undefined"
+          controls-position="right"
+        >
+          <template #prefix>≥</template>
+        </el-input-number>
+        <el-button
+          text
+          :icon="FullScreen"
+          data-testid="browse-fullscreen-toggle"
+          @click="isFullscreen = true"
+        >
+          全屏
+        </el-button>
+      </div>
+    </Teleport>
+
     <!-- 全屏模式下的工具条 -->
     <div v-if="isFullscreen" class="fullscreen-toolbar">
       <span class="fullscreen-title">{{ mode === 'timeline' ? `${timelineAuthorInfo?.author_display_name || timelineAuthor} 的时间线` : '推文浏览' }}</span>
@@ -19,111 +52,47 @@
         style="width: 130px; margin-right: 12px;"
         controls-position="right"
       />
-      <el-button text :icon="CloseBold" @click="exitFullscreen">退出全屏</el-button>
+      <el-button
+        text
+        :icon="CloseBold"
+        data-testid="browse-fullscreen-exit"
+        @click="exitFullscreen"
+      >
+        退出全屏
+      </el-button>
     </div>
 
     <div class="browse-layout" :class="{ 'browse-layout--fullscreen': isFullscreen }">
       <!-- ===== 日期浏览模式：日历 + 作者列表 ===== -->
       <template v-if="mode === 'date'">
-        <!-- 日历面板 -->
-        <div class="calendar-panel">
-          <el-calendar v-model="selectedDate" class="browse-calendar">
-            <template #date-cell="{ data }">
-              <div class="calendar-cell" :class="{ 'has-tweets': getDayCount(data.day) > 0 }">
-                <span class="calendar-day">{{ data.day.split('-').slice(2).join('') }}</span>
-                <span v-if="getDayCount(data.day) > 0" class="tweet-count">{{ getDayCount(data.day) }}</span>
-              </div>
-            </template>
-          </el-calendar>
-        </div>
-
-        <!-- 作者列表面板 -->
-        <div class="author-panel">
-          <div class="panel-header">作者列表</div>
-          <el-skeleton v-if="authorsLoading" :rows="5" animated />
-          <div v-else class="author-list">
-            <div
-              class="author-item"
-              :class="{ active: selectedAuthor === null }"
-              @click="selectAuthor(null)"
-            >
-              <span class="author-name-text">全部作者</span>
-              <span class="tweet-count">{{ totalTweets }}</span>
-            </div>
-            <div
-              v-for="author in authors"
-              :key="author.author_username"
-              class="author-item"
-              :class="{ active: selectedAuthor === author.author_username }"
-              @click="selectAuthor(author.author_username)"
-            >
-              <div class="author-info-block">
-                <div class="author-name-row">
-                  <span class="author-display-name">{{ author.author_display_name || author.author_username }}</span>
-                  <el-button
-                    text
-                    size="small"
-                    class="timeline-btn"
-                    title="查看历史推文"
-                    @click.stop="enterTimelineMode(author.author_username)"
-                  >
-                    <el-icon :size="12"><User /></el-icon>
-                  </el-button>
-                </div>
-                <span class="author-handle">@{{ author.author_username }}</span>
-                <span v-if="author.reason" class="author-reason" :title="author.reason">{{ author.reason }}</span>
-              </div>
-              <div class="author-item-actions">
-                <span class="tweet-count">{{ author.tweet_count }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
+        <CalendarPanel v-model="selectedDate" :daily-counts="dailyCountMap" />
+        <AuthorPanel
+          :authors="authors"
+          :loading="authorsLoading"
+          :selected-author="selectedAuthor"
+          :total-tweets="totalTweets"
+          @select="selectAuthor"
+          @timeline="enterTimelineMode"
+        />
       </template>
 
       <!-- ===== 作者时间线模式：侧边栏 ===== -->
-      <div v-else class="timeline-sidebar">
-        <div class="timeline-back">
-          <el-button text @click="exitTimelineMode">
-            <el-icon><ArrowLeft /></el-icon> 返回日期浏览
-          </el-button>
-        </div>
-
-        <div class="timeline-author-card">
-          <div class="timeline-author-name">{{ timelineAuthorInfo?.author_display_name || timelineAuthor }}</div>
-          <div class="timeline-author-handle">@{{ timelineAuthor }}</div>
-          <div v-if="timelineAuthorInfo?.reason" class="timeline-author-reason">{{ timelineAuthorInfo.reason }}</div>
-        </div>
-
-        <div class="timeline-range-section">
-          <div class="timeline-presets">
-            <el-button
-              v-for="preset in timelinePresets"
-              :key="preset.days"
-              size="small"
-              :type="isPresetActive(preset.days) ? 'primary' : 'default'"
-              @click="applyPreset(preset.days)"
-            >{{ preset.label }}</el-button>
-          </div>
-          <el-date-picker
-            v-model="timelineDateRange"
-            type="daterange"
-            range-separator="至"
-            start-placeholder="开始日期"
-            end-placeholder="结束日期"
-            size="small"
-            style="width: 100%; margin-top: 8px;"
-            @change="handleTimelineRangeChange"
-          />
-        </div>
-
-        <div class="timeline-stats">
-          共 {{ timelineTotal }} 条推文
-        </div>
-      </div>
+      <TimelineControls
+        v-else
+        :author="timelineAuthor"
+        :author-info="timelineAuthorInfo"
+        :presets="timelinePresets"
+        :active-preset="activeTimelinePreset"
+        :date-range="timelineDateRange"
+        :total="timelineTotal"
+        @back="exitTimelineMode"
+        @preset="applyPreset"
+        @update:date-range="timelineDateRange = $event"
+        @range-change="handleTimelineRangeChange"
+      />
 
       <!-- 推文展示面板 -->
-      <div class="tweet-panel">
+      <div class="tweet-panel" data-testid="browse-tweet-panel">
         <!-- 日期模式：选中作者时显示作者信息，全部作者时显示日期+总数 -->
         <div v-if="mode === 'date' && selectedAuthorInfo" class="selected-author-header">
           <span class="selected-author-name">{{ selectedAuthorInfo.author_display_name || selectedAuthorInfo.author_username }}</span>
@@ -142,84 +111,17 @@
         <el-skeleton v-if="activeTweetsLoading" :rows="8" animated />
         <el-empty v-else-if="activeTweets.length === 0" :description="mode === 'timeline' ? '该时间段暂无推文' : '该日期暂无推文'" />
         <div v-else class="tweet-list">
-          <div
+          <TweetCard
             v-for="(tweet, tweetIndex) in activeTweets"
             :key="tweet.tweet_id"
-            class="tweet-card"
-            :style="{ '--index': tweetIndex }"
-          >
-            <!-- 发布时刻 -->
-            <div class="tweet-time-row">
-              <span class="tweet-time">{{ formatFullDateTime(tweet.created_at) }}</span>
-              <!-- 日期模式且未选作者：显示作者信息 -->
-              <div v-if="mode === 'date' && !selectedAuthor" class="tweet-author-inline">
-                <span class="inline-author-name">{{ tweet.author_display_name || tweet.author_username }}</span>
-                <span class="inline-author-handle">@{{ tweet.author_username }}</span>
-              </div>
-              <el-button
-                text
-                size="small"
-                class="share-btn"
-                title="复制为 Markdown"
-                @click="handleShareTweet(tweet)"
-              >
-                <el-icon :size="14"><CopyDocument /></el-icon>
-              </el-button>
-            </div>
-
-            <!-- 摘要（无标签，通过字号建立层次） -->
-            <div v-if="tweet.summary_text" class="tweet-section summary-section">
-              <div class="section-content">{{ tweet.summary_text }}</div>
-            </div>
-
-            <!-- 中文翻译 -->
-            <div v-if="tweet.translation_text" class="tweet-section translation-section">
-              <div class="section-label">翻译</div>
-              <div class="section-content">{{ tweet.translation_text }}</div>
-            </div>
-
-            <!-- 原文（可折叠） -->
-            <div
-              class="tweet-section original-section"
-              :class="{ expanded: expandedOriginals.has(tweet.tweet_id) }"
-              @click="toggleOriginal(tweet.tweet_id)"
-            >
-              <div class="section-label">原文</div>
-              <div class="section-content original-text">{{ tweet.text }}</div>
-              <div v-if="!expandedOriginals.has(tweet.tweet_id)" class="original-fade-mask"></div>
-            </div>
-
-            <!-- 媒体附件 -->
-            <div v-if="tweet.media && tweet.media.length > 0" class="tweet-media">
-              <img
-                v-for="(media, index) in tweet.media"
-                :key="index"
-                :src="(media as any).url || (media as any).preview_image_url"
-                :alt="`媒体 ${index + 1}`"
-                class="media-image"
-              />
-            </div>
-
-            <!-- 引用推文 -->
-            <div v-if="tweet.referenced_tweet_id" class="referenced-tweet">
-              <div class="ref-label">
-                {{ getReferenceLabel(tweet.reference_type) }}
-              </div>
-              <div class="ref-content">
-                <span class="ref-author">@{{ tweet.referenced_tweet_author_username }}</span>
-                <span class="ref-text">{{ tweet.referenced_tweet_text }}</span>
-              </div>
-              <div v-if="tweet.referenced_tweet_media && tweet.referenced_tweet_media.length > 0" class="tweet-media ref-media">
-                <img
-                  v-for="(media, index) in tweet.referenced_tweet_media"
-                  :key="index"
-                  :src="(media as any).url || (media as any).preview_image_url"
-                  :alt="`引用媒体 ${index + 1}`"
-                  class="media-image"
-                />
-              </div>
-            </div>
-          </div>
+            :tweet="tweet"
+            :show-author="mode === 'date' && !selectedAuthor"
+            collapsible-original
+            show-share
+            :animation-index="tweetIndex"
+            media-hover-zoom
+            @share="handleShareTweet"
+          />
         </div>
 
         <!-- 分页 -->
@@ -229,6 +131,7 @@
             :page-size="pageSize"
             :total="activeTotal"
             layout="total, prev, pager, next"
+            data-testid="browse-pagination"
             @current-change="handleActivePageChange"
           />
         </div>
@@ -238,23 +141,31 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, inject, onMounted, onUnmounted, type Ref } from "vue"
+import { ref, computed, watch, onUnmounted } from "vue"
+import { storeToRefs } from "pinia"
 import { useRoute, useRouter } from "vue-router"
-import { ArrowLeft, User, CloseBold, CopyDocument } from "@element-plus/icons-vue"
+import { User, CloseBold, FullScreen } from "@element-plus/icons-vue"
 import { ElMessage } from "element-plus"
 import { browseApi, followsApi } from "@/api"
-import { formatFullDateTime, formatChineseDateTime } from "@/utils/format"
-import type { AuthorInfo, BrowseTweetItem, XUserProfile } from "@/types"
+import ApiKeyGuideEmpty from "@/components/ApiKeyGuideEmpty.vue"
+import TweetCard from "@/components/TweetCard.vue"
+import AuthorPanel from "@/views/browse/AuthorPanel.vue"
+import CalendarPanel from "@/views/browse/CalendarPanel.vue"
+import TimelineControls from "@/views/browse/TimelineControls.vue"
+import { useApiKeyGuard } from "@/composables/useApiKeyGuard"
+import { useLayoutStore } from "@/stores/layout"
+import { formatChineseDateTime } from "@/utils/format"
+import type { AuthorInfo, BrowseTweetItem, TweetCardData, XUserProfile } from "@/types"
 
 const route = useRoute()
 const router = useRouter()
 
-/** 全屏模式 */
-const isFullscreen = inject<Ref<boolean>>("isFullscreen", ref(false))
-
-/** 长推文过滤 */
-const longTweetFilterEnabled = inject<Ref<boolean>>("longTweetFilterEnabled", ref(false))
-const longTweetMinLength = inject<Ref<number>>("longTweetMinLength", ref(280))
+const layoutStore = useLayoutStore()
+const {
+  isFullscreen,
+  longTweetFilterEnabled,
+  longTweetMinLength,
+} = storeToRefs(layoutStore)
 
 const effectiveMinTextLength = computed(() => {
   return longTweetFilterEnabled.value ? longTweetMinLength.value : undefined
@@ -312,16 +223,6 @@ const pageSize = 20
 const authorsLoading = ref(false)
 const tweetsLoading = ref(false)
 
-/** 原文展开状态 */
-const expandedOriginals = ref<Set<string>>(new Set())
-
-function toggleOriginal(tweetId: string) {
-  const s = new Set(expandedOriginals.value)
-  if (s.has(tweetId)) s.delete(tweetId)
-  else s.add(tweetId)
-  expandedOriginals.value = s
-}
-
 /** ===== 时间线模式状态 ===== */
 type BrowseMode = "date" | "timeline"
 const mode = ref<BrowseMode>("date")
@@ -343,6 +244,9 @@ const timelinePresets: { label: string; days: number | null }[] = [
   { label: "1月", days: 30 },
   { label: "全部", days: null },
 ]
+const activeTimelinePreset = computed(
+  () => timelinePresets.find((preset) => isPresetActive(preset.days))?.days,
+)
 
 /** 代理 computed：统一两种模式的数据源 */
 const activeTweets = computed(() => mode.value === "timeline" ? timelineTweets.value : tweets.value)
@@ -376,25 +280,6 @@ const selectedAuthorInfo = computed(() => {
   return authors.value.find((a) => a.author_username === selectedAuthor.value) || null
 })
 
-/** 获取指定日期的推文数量 */
-function getDayCount(day: string): number {
-  return dailyCountMap.value[day] || 0
-}
-
-/** 获取引用类型标签 */
-function getReferenceLabel(type: string | null): string {
-  switch (type) {
-    case "retweeted":
-      return "转推"
-    case "quoted":
-      return "引用"
-    case "replied_to":
-      return "回复"
-    default:
-      return "引用"
-  }
-}
-
 /** 根据用户名查找作者介绍 */
 function findAuthorReason(username: string): string | null {
   const author = authors.value.find((a) => a.author_username === username)
@@ -403,7 +288,7 @@ function findAuthorReason(username: string): string | null {
 
 /** 构建人物介绍段落 */
 function buildProfileIntro(
-  tweet: BrowseTweetItem,
+  tweet: TweetCardData,
   profile: XUserProfile | null,
   reason: string | null,
 ): string {
@@ -435,7 +320,7 @@ function buildProfileIntro(
 
 /** 生成推文分享 Markdown 内容 */
 function buildShareMarkdown(
-  tweet: BrowseTweetItem,
+  tweet: TweetCardData,
   profile: XUserProfile | null,
   reason: string | null,
 ): string {
@@ -468,7 +353,7 @@ function buildShareMarkdown(
 }
 
 /** 分享推文：生成 Markdown 并复制到剪贴板 */
-async function handleShareTweet(tweet: BrowseTweetItem) {
+async function handleShareTweet(tweet: TweetCardData) {
   const reason = findAuthorReason(tweet.author_username)
 
   // 尝试获取完整档案，失败时降级
@@ -698,7 +583,7 @@ watch(selectedDateStr, () => {
 })
 
 /** 初始加载 */
-onMounted(() => {
+function initializeBrowse() {
   const authorParam = route.query.author as string
   if (authorParam) {
     mode.value = "timeline"
@@ -716,7 +601,9 @@ onMounted(() => {
     loadTweets()
   }
   document.addEventListener("keydown", handleKeydown)
-})
+}
+
+const { needsApiKey } = useApiKeyGuard(initializeBrowse)
 
 onUnmounted(() => {
   document.removeEventListener("keydown", handleKeydown)
@@ -758,159 +645,9 @@ onUnmounted(() => {
   font-family: var(--font-reading);
 }
 
-/* ========== 日历面板 ========== */
-.calendar-panel {
-  width: 320px;
-  flex-shrink: 0;
-  overflow-y: auto;
-}
-
-.browse-calendar {
-  --el-calendar-border: 1px solid var(--border-light);
-  background-color: var(--bg-card);
-  border-radius: var(--card-radius);
-}
-
-.browse-calendar :deep(.el-calendar__header) {
-  padding: 8px 12px;
-  font-family: var(--font-reading);
-}
-
-.browse-calendar :deep(.el-calendar__body) {
-  padding: 0 8px 8px;
-}
-
-.browse-calendar :deep(.el-calendar-table .el-calendar-day) {
-  height: 48px;
-  padding: 2px;
-}
-
-.calendar-cell {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  position: relative;
-}
-
-.calendar-cell.has-tweets {
-  font-weight: 600;
-}
-
-.calendar-day {
-  font-size: 13px;
-  font-family: var(--font-mono);
-}
-
-.tweet-count {
-  font-size: var(--label-font-size);
-  font-weight: 500;
-  color: var(--color-primary);
-  font-family: var(--font-mono);
-  white-space: nowrap;
-}
-
-.calendar-cell .tweet-count {
-  position: absolute;
-  top: 0;
-  right: 2px;
-}
-
-/* ========== 作者面板 ========== */
-.author-panel {
-  width: 240px;
-  flex-shrink: 0;
-  border: 1px solid var(--border-light);
-  border-radius: var(--card-radius);
-  background: var(--bg-card);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.panel-header {
-  padding: 12px 16px;
-  font-weight: 600;
-  font-size: 14px;
-  border-bottom: 1px solid var(--border-light);
-  color: var(--text-primary);
-  font-family: var(--font-reading);
-}
-
-.author-list {
-  flex: 1;
-  overflow-y: auto;
-}
-
-.author-item {
+.header-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 10px 16px;
-  cursor: pointer;
-  transition: background-color var(--transition-base);
-  border-bottom: 1px solid var(--border-light);
-}
-
-.author-item:last-child {
-  border-bottom: none;
-}
-
-.author-item:hover {
-  background-color: var(--bg-inset);
-}
-
-.author-item.active {
-  background-color: var(--color-primary-lighter);
-  color: var(--color-primary);
-}
-
-.author-info-block {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-  flex: 1;
-  margin-right: 8px;
-}
-
-.author-name-row {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.author-display-name {
-  font-size: var(--small-font-size);
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-primary);
-}
-
-.author-handle {
-  font-size: var(--label-font-size);
-  color: var(--text-tertiary);
-  font-family: var(--font-mono);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.author-reason {
-  font-size: var(--label-font-size);
-  color: var(--text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.author-name-text {
-  font-size: var(--small-font-size);
-  font-weight: 500;
-  color: var(--text-primary);
 }
 
 /* ========== 推文面板 ========== */
@@ -960,191 +697,6 @@ onUnmounted(() => {
   max-width: 720px;
 }
 
-.tweet-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border-light);
-  border-radius: var(--card-radius);
-  padding: var(--card-padding);
-  box-shadow: var(--shadow-card);
-  transition: box-shadow var(--transition-base), transform var(--transition-base), border-color var(--transition-base);
-  animation: card-enter 0.4s ease both;
-  animation-delay: calc(var(--index, 0) * 60ms);
-}
-
-.tweet-card:hover {
-  box-shadow: var(--shadow-card-hover);
-  transform: translateY(-1px);
-  border-color: var(--border-medium);
-}
-
-/* ---- 时间行 ---- */
-.tweet-time-row {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin-bottom: 14px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--border-light);
-}
-
-.tweet-time {
-  font-size: var(--xs-font-size);
-  color: var(--text-tertiary);
-  font-family: var(--font-mono);
-}
-
-.tweet-author-inline {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  flex: 1;
-}
-
-.inline-author-name {
-  font-size: var(--small-font-size);
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.inline-author-handle {
-  font-size: var(--xs-font-size);
-  color: var(--text-tertiary);
-  font-family: var(--font-mono);
-}
-
-/* ---- 推文内容区段 ---- */
-.tweet-section {
-  margin-bottom: var(--section-gap);
-}
-
-.tweet-section:last-child {
-  margin-bottom: 0;
-}
-
-.section-label {
-  font-size: var(--label-font-size);
-  color: var(--text-tertiary);
-  margin-bottom: 6px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.section-content {
-  font-size: var(--reading-font-size);
-  line-height: var(--reading-line-height);
-  letter-spacing: var(--reading-letter-spacing);
-  color: var(--text-primary);
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-family: var(--font-reading);
-}
-
-/* 摘要区：通过字号自然成为焦点，无背景色 */
-.summary-section .section-content {
-  font-size: var(--summary-font-size);
-  line-height: var(--reading-line-height);
-  letter-spacing: var(--reading-letter-spacing);
-  color: var(--text-primary);
-}
-
-/* 翻译区：淡底色 + 朱砂左边框 */
-.translation-section .section-content {
-  background: var(--bg-inset);
-  padding: 12px 16px;
-  border-radius: 6px;
-  border-left: 3px solid var(--color-primary);
-}
-
-/* 原文区：折叠 + 淡色 */
-.original-section {
-  position: relative;
-  cursor: pointer;
-  max-height: 5.6em;
-  overflow: hidden;
-  transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.original-section.expanded {
-  max-height: none;
-  cursor: default;
-}
-
-.original-text {
-  color: var(--text-tertiary);
-  font-size: var(--small-font-size);
-  line-height: 1.8;
-  font-family: var(--font-reading);
-}
-
-.original-fade-mask {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 2.4em;
-  background: linear-gradient(transparent, var(--bg-card));
-  pointer-events: none;
-}
-
-/* ---- 媒体 ---- */
-.tweet-media {
-  margin-top: 12px;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 8px;
-}
-
-.media-image {
-  width: 100%;
-  border-radius: 6px;
-  object-fit: cover;
-  max-height: 200px;
-  transition: transform var(--transition-base);
-}
-
-.media-image:hover {
-  transform: scale(1.02);
-}
-
-/* ---- 引用推文 ---- */
-.referenced-tweet {
-  margin-top: 12px;
-  padding: 12px 16px;
-  background: var(--bg-inset);
-  border-left: 2px solid var(--border-medium);
-  border-radius: 0 6px 6px 0;
-}
-
-.ref-label {
-  font-size: var(--label-font-size);
-  color: var(--text-tertiary);
-  margin-bottom: 4px;
-}
-
-.ref-content {
-  font-size: var(--small-font-size);
-  line-height: 1.7;
-  color: var(--text-secondary);
-  font-family: var(--font-reading);
-}
-
-.ref-author {
-  font-weight: 500;
-  color: var(--color-primary);
-  font-family: var(--font-mono);
-  margin-right: 6px;
-}
-
-.ref-text {
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.ref-media {
-  margin-top: 6px;
-}
-
 /* ---- 分页 ---- */
 .pagination-bar {
   display: flex;
@@ -1153,94 +705,4 @@ onUnmounted(() => {
   margin-top: auto;
 }
 
-/* ---- 分享按钮 ---- */
-.share-btn {
-  padding: 2px 4px;
-  margin-left: auto;
-  color: var(--text-tertiary);
-  transition: color var(--transition-base);
-}
-
-.share-btn:hover {
-  color: var(--color-primary);
-}
-
-/* ---- 作者列表操作区 ---- */
-.author-item-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-/* ---- 时间线按钮 ---- */
-.timeline-btn {
-  padding: 2px 4px;
-  color: var(--text-tertiary);
-  transition: color var(--transition-base);
-}
-
-.timeline-btn:hover {
-  color: var(--color-primary);
-}
-
-/* ========== 时间线侧边栏 ========== */
-.timeline-sidebar {
-  width: 320px;
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding: 16px;
-  border: 1px solid var(--border-light);
-  border-radius: var(--card-radius);
-  background: var(--bg-card);
-}
-
-.timeline-back {
-  margin-bottom: 4px;
-}
-
-.timeline-author-card {
-  padding: 16px;
-  background: var(--bg-inset);
-  border-radius: 6px;
-}
-
-.timeline-author-name {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-primary);
-  font-family: var(--font-reading);
-}
-
-.timeline-author-handle {
-  font-size: var(--small-font-size);
-  color: var(--text-tertiary);
-  font-family: var(--font-mono);
-  margin-top: 2px;
-}
-
-.timeline-author-reason {
-  font-size: var(--small-font-size);
-  color: var(--text-secondary);
-  margin-top: 8px;
-  line-height: 1.6;
-  font-family: var(--font-reading);
-}
-
-.timeline-range-section {
-  padding: 0;
-}
-
-.timeline-presets {
-  display: flex;
-  gap: 8px;
-}
-
-.timeline-stats {
-  font-size: var(--small-font-size);
-  color: var(--text-tertiary);
-  font-family: var(--font-mono);
-}
 </style>

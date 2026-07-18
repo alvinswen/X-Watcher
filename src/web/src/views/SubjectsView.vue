@@ -1,20 +1,24 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref } from "vue"
+import { computed, nextTick, reactive, ref } from "vue"
 import type { FormInstance, FormRules } from "element-plus"
 import { ElMessage, ElMessageBox } from "element-plus"
 import {
-  ChatLineSquare,
   Clock,
-  Delete,
-  Document,
   EditPen,
   Plus,
-  Refresh,
-  VideoPause,
-  VideoPlay,
   WarningFilled,
 } from "@element-plus/icons-vue"
 import { subjectsApi } from "@/api/subjects"
+import { ApiRequestError } from "@/api/client"
+import ApiKeyGuideEmpty from "@/components/ApiKeyGuideEmpty.vue"
+import { useApiKeyGuard } from "@/composables/useApiKeyGuard"
+import { formatRelativeTime } from "@/utils/format"
+import SubjectDigestTab from "@/views/subjects/SubjectDigestTab.vue"
+import SubjectFeedTab from "@/views/subjects/SubjectFeedTab.vue"
+import SubjectFormDrawer from "@/views/subjects/SubjectFormDrawer.vue"
+import SubjectListPanel from "@/views/subjects/SubjectListPanel.vue"
+import SubjectReviewTab from "@/views/subjects/SubjectReviewTab.vue"
+import { formatAbsoluteDateTime } from "@/views/subjects/subjectFormat"
 import type {
   Subject,
   SubjectDigest,
@@ -106,7 +110,9 @@ const classifyHintIcon = computed(() => (classifyHintState.value === "never" ? W
 const classifyHintPrefix = computed(() => (
   classifyHintState.value === "stale" ? "距上次分类已较久：" : "最近一次分类："
 ))
-const classifyHintRelativeText = computed(() => formatRelative(lastClassifiedAt.value))
+const classifyHintRelativeText = computed(
+  () => formatRelativeTime(lastClassifiedAt.value, "尚无更新"),
+)
 const classifyHintText = computed(() => {
   if (classifyHintState.value === "empty") {
     return "选择议题后查看最近一次分类时间"
@@ -119,9 +125,7 @@ const classifyHintText = computed(() => {
 const classifyHintTitle = computed(() => (lastClassifiedAt.value ? formatAbsoluteDateTime(lastClassifiedAt.value) : ""))
 const reviewRequestButtonText = computed(() => (reviewPending.value ? "已请求·待处理" : "请求更新综述"))
 
-onMounted(() => {
-  void loadSubjects()
-})
+const { needsApiKey } = useApiKeyGuard(loadSubjects)
 
 async function loadSubjects(preferId?: string) {
   loadingSubjects.value = true
@@ -138,7 +142,7 @@ async function loadSubjects(preferId?: string) {
     await loadSelectedData()
   } catch (error) {
     const message = error instanceof Error ? error.message : "议题加载失败"
-    permissionError.value = message.includes("认证") || message.includes("403") || message.includes("API Key")
+    permissionError.value = error instanceof ApiRequestError && error.status === 403
     pageError.value = permissionError.value ? "" : message
   } finally {
     loadingSubjects.value = false
@@ -275,15 +279,7 @@ function reviewUpdatedText(): string {
   if (!review.value?.updated_at) {
     return "尚未生成"
   }
-  return `更新于 ${formatRelative(review.value.updated_at)}`
-}
-
-function reviewSectionName(index: number): string {
-  return String(index)
-}
-
-function reviewCiteName(index: number): string {
-  return `cite-${index}`
+  return `更新于 ${formatRelativeTime(review.value.updated_at, "尚无更新")}`
 }
 
 function resetForm() {
@@ -400,90 +396,11 @@ async function confirmDelete(subject: Subject) {
   }
 }
 
-function formatRelative(value?: string | null): string {
-  if (!value) {
-    return "尚无更新"
-  }
-  const timestamp = new Date(value).getTime()
-  if (Number.isNaN(timestamp)) {
-    return value
-  }
-  const diff = Math.max(0, Date.now() - timestamp)
-  if (diff < 60_000) {
-    return "刚刚"
-  }
-  if (diff < 3_600_000) {
-    return `${Math.floor(diff / 60_000)} 分钟前`
-  }
-  if (diff < 86_400_000) {
-    return `${Math.floor(diff / 3_600_000)} 小时前`
-  }
-  return `${Math.floor(diff / 86_400_000)} 天前`
-}
-
-function formatDateTime(value: string): string {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return value
-  }
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date)
-}
-
-function formatAbsoluteDateTime(value: string): string {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return value
-  }
-  return new Intl.DateTimeFormat("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }).format(date)
-}
-
-function formatDatePart(date: Date): string {
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-  }).format(date).replace(/\//g, "-")
-}
-
-function formatTimePart(date: Date): string {
-  return new Intl.DateTimeFormat("zh-CN", {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date)
-}
-
-function sameLocalDate(start: Date, end: Date): boolean {
-  return start.getFullYear() === end.getFullYear()
-    && start.getMonth() === end.getMonth()
-    && start.getDate() === end.getDate()
-}
-
-function formatIntervalLabel(startValue: string, endValue: string): string {
-  const start = new Date(startValue)
-  const end = new Date(endValue)
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-    return `${startValue}~${endValue}`
-  }
-  if (sameLocalDate(start, end)) {
-    return `${formatDatePart(start)} ${formatTimePart(start)}~${formatTimePart(end)}`
-  }
-  return `${formatDatePart(start)} ${formatTimePart(start)} ~ ${formatDatePart(end)} ${formatTimePart(end)}`
-}
 </script>
 
 <template>
-  <div class="subjects-view">
+  <ApiKeyGuideEmpty v-if="needsApiKey" />
+  <div v-else class="subjects-view" data-testid="subjects-view">
     <el-result
       v-if="permissionError"
       icon="warning"
@@ -493,112 +410,20 @@ function formatIntervalLabel(startValue: string, endValue: string): string {
     />
 
     <template v-else>
-      <aside class="subjects-master">
-        <div class="master-head">
-          <div class="head-row">
-            <h2>议题</h2>
-            <span class="count-badge">活跃 {{ activeCount }}/20</span>
-            <el-tooltip
-              content="已达20活跃议题上限，请先停用旧议题"
-              :disabled="!activeLimitReached"
-              placement="bottom"
-            >
-              <span>
-                <el-button
-                  type="primary"
-                  size="small"
-                  :icon="Plus"
-                  :disabled="activeLimitReached"
-                  @click="openCreate"
-                >
-                  新建
-                </el-button>
-              </span>
-            </el-tooltip>
-          </div>
-
-          <el-radio-group v-model="statusFilter" size="small" class="status-filter">
-            <el-radio-button label="all">全部</el-radio-button>
-            <el-radio-button label="active">活跃</el-radio-button>
-            <el-radio-button label="paused">暂停</el-radio-button>
-          </el-radio-group>
-        </div>
-
-        <div class="master-list">
-          <el-alert
-            v-if="activeLimitReached"
-            type="warning"
-            :closable="false"
-            show-icon
-            class="limit-alert"
-          >
-            已达议题上限，先停用旧议题
-          </el-alert>
-
-          <template v-if="loadingSubjects">
-            <el-skeleton v-for="idx in 6" :key="idx" animated class="subject-skeleton">
-              <template #template>
-                <el-skeleton-item variant="text" class="sk-name" />
-                <el-skeleton-item variant="text" class="sk-meta" />
-              </template>
-            </el-skeleton>
-          </template>
-
-          <el-empty
-            v-else-if="subjects.length === 0"
-            description="还没有议题，去创建"
-            data-empty-state="first"
-            class="empty-state"
-          >
-            <el-button type="primary" :icon="Plus" @click="openCreate">新建议题</el-button>
-          </el-empty>
-
-          <el-empty
-            v-else-if="filteredSubjects.length === 0"
-            description="当前过滤无结果，调整过滤"
-            data-empty-state="filtered"
-            class="empty-state"
-          />
-
-          <template v-else>
-            <button
-              v-for="subject in filteredSubjects"
-              :key="subject.subject_id"
-              class="subject-item"
-              :class="{ selected: subject.subject_id === selectedId }"
-              :data-subject-id="subject.subject_id"
-              :data-status="subject.status"
-              :data-selected="subject.subject_id === selectedId ? 'true' : undefined"
-              @click="selectSubject(subject)"
-            >
-              <span class="item-line">
-                <span class="subject-name" :title="subject.name">{{ subject.name }}</span>
-                <span v-if="subject.status === 'paused'" data-paused-tag class="paused-tag">暂停</span>
-              </span>
-              <span class="item-meta">{{ formatRelative(subject.last_updated_at || subject.updated_at) }}</span>
-              <span class="row-actions">
-                <el-button
-                  text
-                  size="small"
-                  :icon="subject.status === 'active' ? VideoPause : VideoPlay"
-                  @click.stop="toggleSubjectStatus(subject)"
-                >
-                  {{ subject.status === "active" ? "暂停" : "恢复" }}
-                </el-button>
-                <el-button
-                  text
-                  size="small"
-                  type="danger"
-                  :icon="Delete"
-                  @click.stop="confirmDelete(subject)"
-                >
-                  删除
-                </el-button>
-              </span>
-            </button>
-          </template>
-        </div>
-      </aside>
+      <SubjectListPanel
+        v-model:status-filter="statusFilter"
+        :subjects="subjects"
+        :filtered-subjects="filteredSubjects"
+        :selected-id="selectedId"
+        :active-count="activeCount"
+        :active-limit-reached="activeLimitReached"
+        :loading="loadingSubjects"
+        :format-relative="(value) => formatRelativeTime(value ?? null, '尚无更新')"
+        @create="openCreate"
+        @select="selectSubject"
+        @toggle="toggleSubjectStatus"
+        @delete="confirmDelete"
+      />
 
       <main ref="detailScroll" class="subjects-detail">
         <el-alert v-if="pageError" type="error" :closable="false" show-icon class="page-error">
@@ -627,118 +452,27 @@ function formatIntervalLabel(startValue: string, endValue: string): string {
             <el-button :icon="EditPen" @click="openEdit(selectedSubject)">编辑</el-button>
           </header>
 
-          <el-tabs v-model="activeTab" class="subject-tabs">
-            <el-tab-pane label="feed" name="feed">
-              <div v-if="loadingDetail" class="tab-loading">
-                <div
-                  class="classify-hint classify-hint-skeleton"
-                  data-classify-hint="loading"
-                  data-last-classified-at=""
-                >
-                  <el-skeleton animated>
-                    <template #template>
-                      <el-skeleton-item variant="text" class="hint-skel-line" />
-                    </template>
-                  </el-skeleton>
-                </div>
-                <el-skeleton v-for="idx in 3" :key="idx" animated />
-              </div>
-
-              <template v-else>
-                <div
-                  class="classify-hint"
-                  :class="classifyHintState"
-                  :data-classify-hint="classifyHintState"
-                  :data-last-classified-at="lastClassifiedAt || ''"
-                  :title="classifyHintTitle"
-                >
-                  <el-icon><component :is="classifyHintIcon" /></el-icon>
-                  <span class="classify-hint-copy">
-                    <template v-if="classifyHintState === 'recent' || classifyHintState === 'stale'">
-                      <span>{{ classifyHintPrefix }}</span>
-                      <strong class="classify-hint-time">{{ classifyHintRelativeText }}</strong>
-                    </template>
-                    <template v-else>
-                      {{ classifyHintText }}
-                    </template>
-                  </span>
-                </div>
-
-                <el-empty
-                  v-if="feedItems.length === 0"
-                  description="暂无相关推文，等待外部分类节拍"
-                  data-empty-state="no-tweets"
-                  class="empty-state"
-                >
-                  <el-icon><ChatLineSquare /></el-icon>
-                </el-empty>
-
-                <article
-                  v-for="item in feedItems"
-                  v-else
-                  :key="item.tweet_id"
-                  class="feed-row"
-                >
-                  <div class="feed-meta">
-                    <span>@{{ item.author_username || item.author }}</span>
-                    <span>{{ formatDateTime(item.created_at) }}</span>
-                    <span>{{ item.tweet_id }}</span>
-                  </div>
-                  <p class="tweet-text">{{ item.text }}</p>
-                  <div v-if="item.summary" class="summary-box">
-                    <span>AI 摘要</span>
-                    <p>{{ item.summary }}</p>
-                  </div>
-                </article>
-              </template>
+          <el-tabs
+            v-model="activeTab"
+            class="subject-tabs"
+            data-testid="subjects-tabs"
+          >
+            <el-tab-pane label="事件流" name="feed">
+              <SubjectFeedTab
+                :loading="loadingDetail"
+                :items="feedItems"
+                :hint-state="classifyHintState"
+                :last-classified-at="lastClassifiedAt"
+                :hint-title="classifyHintTitle"
+                :hint-icon="classifyHintIcon"
+                :hint-prefix="classifyHintPrefix"
+                :hint-relative-text="classifyHintRelativeText"
+                :hint-text="classifyHintText"
+              />
             </el-tab-pane>
 
-            <el-tab-pane label="digest" name="digest">
-              <div v-if="loadingDetail" class="tab-loading">
-                <el-skeleton v-for="idx in 2" :key="idx" animated />
-              </div>
-
-              <el-empty
-                v-else-if="digests.length === 0"
-                description="暂无滚动新闻，等待外部分类节拍"
-                data-empty-state="no-tweets"
-                class="empty-state"
-              >
-                <el-icon><Clock /></el-icon>
-              </el-empty>
-
-              <article
-                v-for="(digest, index) in digests"
-                v-else
-                :key="`${digest.interval_start}-${digest.interval_end}-${digest.generated_at}-${index}`"
-                class="digest-card"
-                :data-interval-start="digest.interval_start"
-                :data-interval-end="digest.interval_end"
-              >
-                <div class="digest-head">
-                  <span class="interval-pill">
-                    {{ formatIntervalLabel(digest.interval_start, digest.interval_end) }}
-                  </span>
-                  <span class="digest-count">{{ digest.tweet_count }} 条</span>
-                </div>
-                <p class="digest-text">{{ digest.digest_text }}</p>
-                <el-collapse v-if="digest.highlights.length" class="highlight-collapse">
-                  <el-collapse-item
-                    v-for="(highlight, index) in digest.highlights"
-                    :key="`${digest.interval_start}-${digest.interval_end}-${index}`"
-                    :title="`引用 ${highlight.cited_tweet_ids.length} 条`"
-                    :name="`${digest.interval_start}-${digest.interval_end}-${index}`"
-                  >
-                    <div
-                      class="highlight-item"
-                      :data-cited-tweet-ids="highlight.cited_tweet_ids.join(',')"
-                    >
-                      <p>{{ highlight.point }}</p>
-                      <code>{{ highlight.cited_tweet_ids.join(", ") }}</code>
-                    </div>
-                  </el-collapse-item>
-                </el-collapse>
-              </article>
+            <el-tab-pane label="摘要" name="digest">
+              <SubjectDigestTab :loading="loadingDetail" :digests="digests" />
             </el-tab-pane>
 
             <el-tab-pane name="review">
@@ -746,253 +480,46 @@ function formatIntervalLabel(startValue: string, endValue: string): string {
                 <span data-review-tab-trigger>综述</span>
               </template>
 
-              <div v-if="loadingDetail && !review" class="review-pane">
-                <el-skeleton animated class="review-skeleton">
-                  <template #template>
-                    <el-skeleton-item variant="text" class="review-skel-title" />
-                    <el-skeleton-item variant="text" />
-                    <el-skeleton-item variant="text" />
-                  </template>
-                </el-skeleton>
-                <el-skeleton animated class="review-skeleton">
-                  <template #template>
-                    <el-skeleton-item variant="text" class="review-skel-title" />
-                    <el-skeleton-item variant="text" />
-                    <el-skeleton-item variant="text" />
-                  </template>
-                </el-skeleton>
-              </div>
+              <SubjectReviewTab
+                v-model:open-sections="reviewOpenSections"
+                v-model:open-cites="reviewOpenCites"
+                :loading="loadingDetail"
+                :review="review"
+                :version="reviewVersion"
+                :sections="reviewSections"
+                :has-trend="reviewHasTrend"
+                :error="reviewError"
+                :pending="reviewPending"
+                :refreshing="reviewRefreshing"
+                :request-button-text="reviewRequestButtonText"
+                :updated-text="reviewUpdatedText()"
+                @request="requestReviewUpdate"
+              />
 
-              <div
-                v-else
-                class="review-pane"
-                :data-review-version="reviewVersion"
-              >
-                <div v-if="reviewError" class="review-error" data-review-error>
-                  <el-icon><WarningFilled /></el-icon>
-                  <p>{{ reviewError }}</p>
-                  <el-button plain :icon="Refresh" @click="requestReviewUpdate">
-                    重试
-                  </el-button>
-                </div>
-
-                <template v-else>
-                  <div class="review-infobar">
-                    <div class="review-info-left">
-                      <span
-                        class="review-version-badge"
-                        :class="{ empty: reviewVersion === 0 }"
-                        :data-review-version-badge="reviewVersion"
-                      >
-                        v{{ reviewVersion }}
-                      </span>
-                      <span class="review-updated">{{ reviewUpdatedText() }}</span>
-                      <el-tag
-                        v-if="review?.generated_by === 'fallback'"
-                        type="warning"
-                        size="small"
-                        effect="plain"
-                        data-review-fallback
-                      >
-                        降级生成
-                      </el-tag>
-                    </div>
-                    <div class="review-actions">
-                      <span
-                        v-if="reviewPending"
-                        class="review-pending-badge"
-                        data-review-pending="true"
-                      >
-                        已请求更新·待外部综述节拍处理
-                      </span>
-                      <el-button
-                        plain
-                        :icon="Refresh"
-                        :loading="reviewRefreshing"
-                        :disabled="reviewRefreshing || reviewPending"
-                        data-review-request
-                        @click="requestReviewUpdate"
-                      >
-                        {{ reviewRequestButtonText }}
-                      </el-button>
-                    </div>
-                  </div>
-
-                  <el-empty
-                    v-if="reviewVersion === 0"
-                    description="暂无综述"
-                    data-empty-state="no-review"
-                    class="review-empty"
-                  >
-                    <template #image>
-                      <el-icon><Document /></el-icon>
-                    </template>
-                    <el-button
-                      plain
-                      :icon="Refresh"
-                      :loading="reviewRefreshing"
-                      :disabled="reviewRefreshing || reviewPending"
-                      @click="requestReviewUpdate"
-                    >
-                      {{ reviewRequestButtonText }}
-                    </el-button>
-                  </el-empty>
-
-                  <template v-else>
-                    <section
-                      v-if="reviewHasTrend"
-                      class="review-trend"
-                      data-trend-block
-                    >
-                      <h3>
-                        本轮变化
-                        <span v-if="review?.prev_version">· 相对 v{{ review.prev_version }}</span>
-                      </h3>
-                      <div v-if="review?.trend.emerging.length" class="trend-group">
-                        <strong class="trend-label added">＋ 新增论点</strong>
-                        <ul>
-                          <li
-                            v-for="item in review.trend.emerging"
-                            :key="item"
-                            class="trend-item added"
-                          >
-                            <span>＋</span>{{ item }}
-                          </li>
-                        </ul>
-                      </div>
-                      <div v-if="review?.trend.fading.length" class="trend-group">
-                        <strong class="trend-label fading">↓ 淡出论点</strong>
-                        <ul>
-                          <li
-                            v-for="item in review.trend.fading"
-                            :key="item"
-                            class="trend-item fading"
-                          >
-                            <span>↓</span>{{ item }}
-                          </li>
-                        </ul>
-                      </div>
-                    </section>
-
-                    <el-collapse
-                      v-model="reviewOpenSections"
-                      class="review-section-collapse"
-                      :data-sections-count="reviewSections.length"
-                    >
-                      <el-collapse-item
-                        v-for="(section, index) in reviewSections"
-                        :key="`${reviewVersion}-${index}`"
-                        :name="reviewSectionName(index)"
-                        :data-review-section="index"
-                      >
-                        <template #title>
-                          <span class="review-section-title" :title="section.title">
-                            {{ section.title }}
-                          </span>
-                          <span class="review-section-count">
-                            引用 {{ section.cited_tweet_ids.length }} 条
-                          </span>
-                        </template>
-
-                        <p class="review-section-body">{{ section.body }}</p>
-
-                        <el-collapse
-                          v-if="section.cited_tweet_ids.length"
-                          v-model="reviewOpenCites"
-                          class="review-cite-collapse"
-                          data-cite-collapse
-                        >
-                          <el-collapse-item
-                            :name="reviewCiteName(index)"
-                            :title="`引用 ${section.cited_tweet_ids.length} 条`"
-                          >
-                            <div
-                              class="review-cite-item"
-                              :data-cited-tweet-ids="section.cited_tweet_ids.join(',')"
-                            >
-                              <p>{{ section.body }}</p>
-                              <div class="review-cite-ids">
-                                <code
-                                  v-for="tweetId in section.cited_tweet_ids"
-                                  :key="tweetId"
-                                >
-                                  {{ tweetId }}
-                                </code>
-                              </div>
-                            </div>
-                          </el-collapse-item>
-                        </el-collapse>
-                      </el-collapse-item>
-                    </el-collapse>
-                  </template>
-                </template>
-              </div>
             </el-tab-pane>
           </el-tabs>
         </template>
       </main>
     </template>
 
-    <el-drawer
-      v-model="drawerVisible"
+    <SubjectFormDrawer
+      v-model:visible="drawerVisible"
+      v-model:form-ref="formRef"
+      v-model:keyword-input="keywordInput"
       :title="drawerTitle"
-      direction="rtl"
-      size="480px"
-      class="subject-drawer"
-    >
-      <el-form ref="formRef" :model="form" :rules="rules" label-position="top">
-        <el-form-item label="议题名" prop="name">
-          <el-input v-model="form.name" maxlength="120" show-word-limit />
-        </el-form-item>
-        <el-form-item label="语义描述" prop="nl_description">
-          <el-input
-            v-model="form.nl_description"
-            type="textarea"
-            :rows="6"
-          />
-        </el-form-item>
-        <el-form-item label="关键词">
-          <div class="keyword-editor">
-            <el-tag
-              v-for="keyword in form.keywords"
-              :key="keyword"
-              closable
-              type="info"
-              @close="removeKeyword(keyword)"
-            >
-              {{ keyword }}
-            </el-tag>
-            <el-input
-              v-model="keywordInput"
-              class="keyword-input"
-              placeholder="输入后回车"
-              @keydown.enter.prevent="addKeyword"
-              @blur="addKeyword"
-            />
-          </div>
-        </el-form-item>
-        <el-form-item label="状态">
-          <el-radio-group v-model="form.status">
-            <el-radio-button label="active">活跃</el-radio-button>
-            <el-radio-button label="paused">暂停</el-radio-button>
-          </el-radio-group>
-        </el-form-item>
-        <el-alert v-if="createError" type="error" :closable="false" show-icon>
-          {{ createError }}
-        </el-alert>
-      </el-form>
+      :form="form"
+      :rules="rules"
+      :error="createError"
+      :submitting="submitting"
+      @add-keyword="addKeyword"
+      @remove-keyword="removeKeyword"
+      @submit="submitSubject"
+    />
 
-      <template #footer>
-        <el-button @click="drawerVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="submitSubject">
-          保存
-        </el-button>
-      </template>
-    </el-drawer>
   </div>
 </template>
 
-<style scoped>
+<style>
 .subjects-view {
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr);

@@ -17,6 +17,8 @@ export interface TaskProgress {
 export interface TaskStatusResponse {
   /** 任务 ID */
   task_id: string
+  /** 任务名称 */
+  task_name: string
   /** 任务状态 */
   status: TaskStatus
   /** 任务结果（完成时） */

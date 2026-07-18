@@ -2,11 +2,16 @@
 
 /**
  * 相对时间（如"3分钟前"、"2天前"）
- * @param dateStr ISO 日期字符串，null 返回 "未知"
+ * @param dateStr ISO 日期字符串
+ * @param emptyText 空值文案
  */
-export function formatRelativeTime(dateStr: string | null): string {
-  if (!dateStr) return "未知"
+export function formatRelativeTime(
+  dateStr: string | null,
+  emptyText = "未知",
+): string {
+  if (!dateStr) return emptyText
   const date = new Date(dateStr)
+  if (Number.isNaN(date.getTime())) return dateStr
   const now = new Date()
   const diff = now.getTime() - date.getTime()
   const minutes = Math.floor(diff / 60000)
@@ -118,4 +123,12 @@ export function formatCostUsd(usd: number): string {
  */
 export function formatNumber(num: number): string {
   return num.toLocaleString("en-US")
+}
+
+/** 紧凑大数字格式化（如 1.2K / 3.4M）。 */
+export function formatCompactNumber(value: number | null | undefined): string {
+  if (value == null) return "-"
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`
+  return value.toString()
 }

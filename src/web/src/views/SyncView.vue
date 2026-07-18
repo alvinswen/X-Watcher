@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { ref, computed } from "vue"
 import { ElMessage, ElMessageBox } from "element-plus"
+import { UploadFilled } from "@element-plus/icons-vue"
 import { syncApi } from "@/api/sync"
+import ApiKeyGuideEmpty from "@/components/ApiKeyGuideEmpty.vue"
+import { useApiKeyGuard } from "@/composables/useApiKeyGuard"
 import type {
   SyncCategory,
   ConflictStrategy,
@@ -10,6 +13,8 @@ import type {
   ImportExecuteResponse,
   ImportTableStats,
 } from "@/types/sync"
+
+const { needsApiKey } = useApiKeyGuard(() => {})
 
 // ── 导出状态 ──
 
@@ -233,7 +238,8 @@ const strategyLabels: Record<ConflictStrategy, string> = {
 </script>
 
 <template>
-  <div class="sync-view">
+  <ApiKeyGuideEmpty v-if="needsApiKey" />
+  <div v-else class="sync-view" data-testid="sync-view">
     <el-row :gutter="20">
       <!-- 导出卡片 -->
       <el-col :span="12">
@@ -341,9 +347,10 @@ const strategyLabels: Record<ConflictStrategy, string> = {
                 :on-change="handleFileChange"
                 :on-remove="handleFileRemove"
                 drag
+                data-testid="sync-upload-area"
               >
                 <div class="upload-hint">
-                  <el-icon style="font-size: 28px; color: #909399"><UploadFilled /></el-icon>
+                  <el-icon style="font-size: 28px; color: var(--text-tertiary)"><UploadFilled /></el-icon>
                   <div>拖拽文件到此处，或点击选择</div>
                   <div class="upload-tip">仅支持 .json 文件</div>
                 </div>
@@ -458,14 +465,6 @@ const strategyLabels: Record<ConflictStrategy, string> = {
   </div>
 </template>
 
-<script lang="ts">
-import { UploadFilled } from "@element-plus/icons-vue"
-
-export default {
-  components: { UploadFilled },
-}
-</script>
-
 <style scoped>
 .sync-view {
   max-width: 1400px;
@@ -482,12 +481,12 @@ export default {
   align-items: center;
   gap: 8px;
   padding: 20px 0;
-  color: #606266;
+  color: var(--text-secondary);
 }
 
 .upload-tip {
   font-size: 12px;
-  color: #909399;
+  color: var(--text-tertiary);
 }
 
 .metadata-section {

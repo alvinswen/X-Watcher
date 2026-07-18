@@ -3,8 +3,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import { mount, flushPromises, VueWrapper } from "@vue/test-utils"
 import { createRouter, createMemoryHistory } from "vue-router"
+import { createPinia, setActivePinia } from "pinia"
 import { ElSkeleton, ElEmpty, ElPagination } from "element-plus"
 import TweetsView from "@/views/TweetsView.vue"
+import { useAuthStore } from "@/stores/auth"
 import type { TweetListItem } from "@/types"
 
 // Mock API
@@ -96,6 +98,8 @@ describe("TweetsView.vue", () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    setActivePinia(createPinia())
+    useAuthStore().setApiKey("test-key")
   })
 
   afterEach(() => {

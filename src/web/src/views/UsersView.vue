@@ -1,11 +1,18 @@
 <template>
-  <div class="users-view">
+  <ApiKeyGuideEmpty v-if="needsApiKey" />
+  <div v-else class="users-view" data-testid="users-view">
     <div class="page-header">
-      <el-button type="primary" @click="showCreateDialog">创建用户</el-button>
+      <el-button
+        type="primary"
+        data-testid="users-create"
+        @click="showCreateDialog"
+      >
+        创建用户
+      </el-button>
     </div>
 
     <!-- 用户列表 -->
-    <el-card>
+    <el-card data-testid="users-table-card">
       <el-skeleton v-if="loading" :rows="4" animated />
       <el-table v-else :data="users" stripe row-key="id">
         <el-table-column prop="id" label="ID" width="80" />
@@ -52,6 +59,7 @@
       width="500px"
       :close-on-click-modal="false"
       @closed="handleCreateDialogClosed"
+      data-testid="users-create-dialog"
     >
       <!-- 创建表单 -->
       <el-form
@@ -125,6 +133,7 @@
       title="编辑用户"
       width="500px"
       :close-on-click-modal="false"
+      data-testid="users-edit-dialog"
     >
       <el-form
         ref="editFormRef"
@@ -153,10 +162,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from "vue"
+import { ref, reactive } from "vue"
 import { ElMessage, ElMessageBox } from "element-plus"
 import type { FormInstance, FormRules } from "element-plus"
 import { usersApi } from "@/api"
+import { ApiRequestError } from "@/api/client"
+import ApiKeyGuideEmpty from "@/components/ApiKeyGuideEmpty.vue"
+import { useApiKeyGuard } from "@/composables/useApiKeyGuard"
 import { formatLocalizedDateTime } from "@/utils/format"
 import type { UserInfo } from "@/types"
 
@@ -175,6 +187,8 @@ async function loadUsers() {
     loading.value = false
   }
 }
+
+const { needsApiKey } = useApiKeyGuard(loadUsers)
 
 // ==================== 创建用户 ====================
 
@@ -222,8 +236,10 @@ async function handleCreate() {
     createdCredentials.temp_password = response.temp_password
     createdCredentials.api_key = response.api_key
     createSuccess.value = true
-  } catch (error: any) {
-    const message = error?.response?.data?.detail || "创建用户失败"
+  } catch (error) {
+    const message = error instanceof ApiRequestError
+      ? error.detail || "创建用户失败"
+      : "创建用户失败"
     ElMessage.error(message)
   } finally {
     creating.value = false
@@ -285,8 +301,10 @@ async function handleUpdate() {
     ElMessage.success("用户信息已更新")
     editDialogVisible.value = false
     await loadUsers()
-  } catch (error: any) {
-    const message = error?.response?.data?.detail || "更新用户失败"
+  } catch (error) {
+    const message = error instanceof ApiRequestError
+      ? error.detail || "更新用户失败"
+      : "更新用户失败"
     ElMessage.error(message)
   } finally {
     updating.value = false
@@ -313,8 +331,10 @@ async function handleResetPassword(user: UserInfo) {
       "密码已重置",
       { confirmButtonText: "确定", type: "success" },
     )
-  } catch (error: any) {
-    const message = error?.response?.data?.detail || "重置密码失败"
+  } catch (error) {
+    const message = error instanceof ApiRequestError
+      ? error.detail || "重置密码失败"
+      : "重置密码失败"
     ElMessage.error(message)
   }
 }
@@ -330,11 +350,6 @@ async function copyToClipboard(text: string) {
   }
 }
 
-// ==================== 生命周期 ====================
-
-onMounted(async () => {
-  await loadUsers()
-})
 </script>
 
 <style scoped>

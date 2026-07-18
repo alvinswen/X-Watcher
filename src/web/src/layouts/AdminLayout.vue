@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { provide, ref } from "vue"
+import { ref, watch } from "vue"
 import { useRoute } from "vue-router"
 import {
   Odometer,
@@ -9,7 +9,6 @@ import {
   UserFilled,
   Fold,
   Expand,
-  FullScreen,
   Search,
   Refresh,
   Moon,
@@ -17,33 +16,18 @@ import {
   Collection,
 } from "@element-plus/icons-vue"
 import { useAuthStore } from "@/stores/auth"
+import { useLayoutStore } from "@/stores/layout"
 import { useThemeStore } from "@/stores/theme"
 import { ElMessage } from "element-plus"
 import TwitterBalanceIndicator from "@/components/TwitterBalanceIndicator.vue"
 
 const route = useRoute()
 const authStore = useAuthStore()
+const layoutStore = useLayoutStore()
 const themeStore = useThemeStore()
 
 /** 侧边栏是否折叠 */
 const isCollapsed = ref(false)
-
-/** 全屏模式 */
-const isFullscreen = ref(false)
-provide("isFullscreen", isFullscreen)
-
-/** 长推文过滤 */
-const longTweetFilterEnabled = ref(false)
-const longTweetMinLength = ref(280)
-provide("longTweetFilterEnabled", longTweetFilterEnabled)
-provide("longTweetMinLength", longTweetMinLength)
-
-function toggleFullscreen() {
-  isFullscreen.value = !isFullscreen.value
-}
-
-/** API Key 设置对话框是否可见 */
-const apiKeyDialogVisible = ref(false)
 
 /** API Key 输入值 */
 const apiKeyInput = ref("")
@@ -51,22 +35,31 @@ const apiKeyInput = ref("")
 /** 菜单项配置 */
 const menuItems = [
   // —— 日常使用 ——
-  { index: "/dashboard", title: "仪表盘", icon: Odometer },
-  { index: "/browse", title: "推文浏览", icon: Reading },
-  { index: "/search", title: "推文搜索", icon: Search },
+  { index: "/dashboard", title: "仪表盘", icon: Odometer, testId: "menu-item-dashboard" },
+  { index: "/browse", title: "推文浏览", icon: Reading, testId: "menu-item-browse" },
+  { index: "/search", title: "推文搜索", icon: Search, testId: "menu-item-search" },
   // —— 管理功能 ——
-  { index: "/tweets", title: "推文管理", icon: Document },
-  { index: "/follows", title: "关注管理", icon: User },
-  { index: "/subjects", title: "议题管理", icon: Collection },
-  { index: "/users", title: "用户管理", icon: UserFilled },
-  { index: "/sync", title: "数据同步", icon: Refresh },
+  { index: "/tweets", title: "推文管理", icon: Document, testId: "menu-item-tweets" },
+  { index: "/follows", title: "关注管理", icon: User, testId: "menu-item-follows" },
+  { index: "/subjects", title: "议题管理", icon: Collection, testId: "menu-item-subjects" },
+  { index: "/users", title: "用户管理", icon: UserFilled, testId: "menu-item-users" },
+  { index: "/sync", title: "数据同步", icon: Refresh, testId: "menu-item-sync" },
 ]
 
 /** 打开 API Key 设置对话框 */
 function openApiKeyDialog() {
   apiKeyInput.value = authStore.apiKey || ""
-  apiKeyDialogVisible.value = true
+  authStore.openDialog()
 }
+
+watch(
+  () => authStore.dialogVisible,
+  (visible) => {
+    if (visible) {
+      apiKeyInput.value = authStore.apiKey || ""
+    }
+  },
+)
 
 /** 保存 API Key */
 function saveApiKey() {
@@ -76,7 +69,7 @@ function saveApiKey() {
     return
   }
   authStore.setApiKey(key)
-  apiKeyDialogVisible.value = false
+  authStore.dialogVisible = false
   ElMessage.success("API Key 已保存")
 }
 
@@ -84,7 +77,7 @@ function saveApiKey() {
 function clearApiKey() {
   authStore.clearApiKey()
   apiKeyInput.value = ""
-  apiKeyDialogVisible.value = false
+  authStore.dialogVisible = false
   ElMessage.success("API Key 已清除")
 }
 </script>
@@ -92,7 +85,12 @@ function clearApiKey() {
 <template>
   <el-container class="admin-layout">
     <!-- 侧边栏 -->
-    <el-aside v-show="!isFullscreen" :width="isCollapsed ? '64px' : '220px'" class="admin-aside">
+    <el-aside
+      v-show="!layoutStore.isFullscreen"
+      :width="isCollapsed ? '64px' : '220px'"
+      class="admin-aside"
+      data-testid="layout-aside"
+    >
       <div class="aside-header">
         <span v-if="!isCollapsed" class="aside-title">X-watcher</span>
       </div>
@@ -108,6 +106,7 @@ function clearApiKey() {
           v-for="item in menuItems"
           :key="item.index"
           :index="item.index"
+          :data-testid="item.testId"
         >
           <el-icon><component :is="item.icon" /></el-icon>
           <template #title>{{ item.title }}</template>
@@ -116,7 +115,11 @@ function clearApiKey() {
 
       <div class="aside-footer">
         <!-- API Key 状态指示器 -->
-        <div class="api-key-status" @click="openApiKeyDialog">
+        <div
+          class="api-key-status"
+          data-testid="api-key-status"
+          @click="openApiKeyDialog"
+        >
           <span
             class="status-dot"
             :class="authStore.isAuthenticated ? 'status-active' : 'status-inactive'"
@@ -130,6 +133,7 @@ function clearApiKey() {
           <!-- 主题切换按钮 -->
           <el-icon
             class="theme-toggle-btn"
+            data-testid="theme-toggle"
             :title="themeStore.mode === 'light' ? '亮色模式' : themeStore.mode === 'dark' ? '暗色模式' : '跟随系统'"
             @click="themeStore.toggle()"
           >
@@ -138,7 +142,11 @@ function clearApiKey() {
           </el-icon>
 
           <!-- 折叠/展开按钮 -->
-          <el-icon class="collapse-btn" @click="isCollapsed = !isCollapsed">
+          <el-icon
+            class="collapse-btn"
+            data-testid="collapse-toggle"
+            @click="isCollapsed = !isCollapsed"
+          >
             <Expand v-if="isCollapsed" />
             <Fold v-else />
           </el-icon>
@@ -148,38 +156,18 @@ function clearApiKey() {
 
     <!-- 右侧内容区 -->
     <el-container>
-      <el-header v-show="!isFullscreen" class="admin-header" height="50px">
+      <el-header v-show="!layoutStore.isFullscreen" class="admin-header" height="50px">
         <span class="header-title">{{ route.meta.title }}</span>
         <span class="header-spacer"></span>
-        <TwitterBalanceIndicator class="header-balance" />
-        <template v-if="route.path === '/browse'">
-          <el-switch
-            v-model="longTweetFilterEnabled"
-            active-text="长推"
-            size="small"
-            style="margin-right: 8px;"
-          />
-          <el-input-number
-            v-if="longTweetFilterEnabled"
-            v-model="longTweetMinLength"
-            :min="1"
-            :step="50"
-            size="small"
-            style="width: 130px; margin-right: 12px;"
-            :prefix-icon="undefined"
-            controls-position="right"
-          >
-            <template #prefix>≥</template>
-          </el-input-number>
-        </template>
-        <el-button
-          v-if="route.path === '/browse'"
-          text
-          :icon="FullScreen"
-          @click="toggleFullscreen"
-        >
-          全屏
-        </el-button>
+        <TwitterBalanceIndicator
+          class="header-balance"
+          data-testid="header-balance"
+        />
+        <div
+          id="header-toolbar-outlet"
+          class="header-toolbar-outlet"
+          data-testid="header-toolbar-outlet"
+        />
       </el-header>
       <el-main class="admin-main">
         <slot />
@@ -188,25 +176,54 @@ function clearApiKey() {
   </el-container>
 
   <!-- API Key 设置对话框 -->
-  <el-dialog v-model="apiKeyDialogVisible" title="API Key 设置" width="420px">
+  <el-dialog
+    v-model="authStore.dialogVisible"
+    title="API Key 设置"
+    width="420px"
+    data-testid="api-key-guide-dialog"
+  >
     <el-form>
-      <el-form-item label="Admin API Key">
+      <el-form-item label="管理员 API Key">
         <el-input
           v-model="apiKeyInput"
           placeholder="请输入管理员 API Key"
           show-password
+          data-testid="api-key-dialog-input"
         />
       </el-form-item>
+      <el-text
+        v-show="authStore.keyInvalid"
+        type="danger"
+        size="small"
+        data-testid="api-key-dialog-error"
+      >
+        API Key 无效，请重新配置
+      </el-text>
       <el-text type="info" size="small">
         API Key 用于访问管理功能（关注管理、任务管理等）。存储在浏览器本地。
       </el-text>
     </el-form>
     <template #footer>
-      <el-button @click="clearApiKey" :disabled="!authStore.isAuthenticated">
+      <el-button
+        :disabled="!authStore.isAuthenticated"
+        data-testid="api-key-dialog-clear"
+        @click="clearApiKey"
+      >
         清除
       </el-button>
-      <el-button @click="apiKeyDialogVisible = false">取消</el-button>
-      <el-button type="primary" @click="saveApiKey">保存</el-button>
+      <el-button
+        data-testid="api-key-dialog-cancel"
+        @click="authStore.dialogVisible = false"
+      >
+        取消
+      </el-button>
+      <el-button
+        type="primary"
+        data-testid="api-key-dialog-save"
+        @click="saveApiKey"
+      >
+        保存
+      </el-button>
     </template>
   </el-dialog>
 </template>
@@ -338,6 +355,11 @@ function clearApiKey() {
 
 .header-balance {
   margin-right: 12px;
+}
+
+.header-toolbar-outlet {
+  display: flex;
+  align-items: center;
 }
 
 .admin-main {

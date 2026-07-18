@@ -1,8 +1,14 @@
 <template>
-  <div class="tweets-view">
+  <ApiKeyGuideEmpty v-if="needsApiKey" />
+  <div v-else class="tweets-view" data-testid="tweets-view">
     <div class="page-header">
       <h1>推文列表</h1>
-      <el-button :icon="Refresh" @click="handleRefresh" :loading="loading">
+      <el-button
+        :icon="Refresh"
+        :loading="loading"
+        data-testid="tweets-refresh"
+        @click="handleRefresh"
+      >
         刷新
       </el-button>
     </div>
@@ -14,11 +20,16 @@
         placeholder="按作者筛选"
         clearable
         style="width: 200px"
+        data-testid="tweets-author-filter"
         @clear="handleFilterChange"
         @keyup.enter="handleFilterChange"
       >
         <template #append>
-          <el-button :icon="Search" @click="handleFilterChange" />
+          <el-button
+            :icon="Search"
+            data-testid="tweets-filter-submit"
+            @click="handleFilterChange"
+          />
         </template>
       </el-input>
     </div>
@@ -35,9 +46,11 @@
         v-for="tweet in tweets"
         :key="tweet.tweet_id"
         class="tweet-card-wrapper"
+        data-testid="tweets-card-wrapper"
       >
         <div
           class="tweet-card"
+          data-testid="mgmt-tweet-card"
           @click="handleTweetClick(tweet.tweet_id)"
         >
           <div class="tweet-header">
@@ -68,6 +81,7 @@
         :page-sizes="[10, 20, 50, 100]"
         :total="total"
         layout="total, sizes, prev, pager, next, jumper"
+        data-testid="tweets-pagination"
         @current-change="handlePageChange"
         @size-change="handleSizeChange"
       />
@@ -77,10 +91,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from "vue"
+import { ref } from "vue"
 import { useRouter } from "vue-router"
 import { Refresh, Search } from "@element-plus/icons-vue"
 import { tweetsApi } from "@/api"
+import ApiKeyGuideEmpty from "@/components/ApiKeyGuideEmpty.vue"
+import { useApiKeyGuard } from "@/composables/useApiKeyGuard"
 import { formatRelativeTime } from "@/utils/format"
 import type { TweetListItem } from "@/types"
 
@@ -158,10 +174,7 @@ function handleTweetClick(tweetId: string) {
   router.push(`/tweets/${tweetId}`)
 }
 
-/** 组件挂载时加载数据 */
-onMounted(() => {
-  loadTweets()
-})
+const { needsApiKey } = useApiKeyGuard(loadTweets)
 </script>
 
 <style scoped>
@@ -180,7 +193,7 @@ onMounted(() => {
 .page-header h1 {
   margin: 0;
   font-size: 1.5rem;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .filters {
@@ -205,15 +218,15 @@ onMounted(() => {
 .tweet-card {
   flex: 1;
   padding: 1rem;
-  background-color: #fff;
-  border: 1px solid #e0e0e0;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-light);
   border-radius: 8px;
   cursor: pointer;
-  transition: box-shadow 0.2s, transform 0.2s;
+  transition: var(--transition-base);
 }
 
 .tweet-card:hover {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-card-hover);
   transform: translateY(-2px);
 }
 
@@ -226,17 +239,17 @@ onMounted(() => {
 
 .tweet-author {
   font-weight: 600;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .tweet-username {
-  color: #666;
+  color: var(--text-secondary);
   font-size: 0.875rem;
 }
 
 .tweet-time {
   margin-left: auto;
-  color: #999;
+  color: var(--text-tertiary);
   font-size: 0.75rem;
   text-align: right;
   white-space: nowrap;
@@ -244,11 +257,11 @@ onMounted(() => {
 
 .tweet-db-time {
   margin-left: 0.75rem;
-  color: #bbb;
+  color: var(--text-tertiary);
 }
 
 .tweet-content {
-  color: #333;
+  color: var(--text-primary);
   line-height: 1.6;
   margin-bottom: 0.75rem;
   display: -webkit-box;
