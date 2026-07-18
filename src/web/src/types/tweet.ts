@@ -37,7 +37,9 @@ export interface MediaItem {
   /** 媒体类型 */
   type: string
   /** 媒体 URL */
-  url: string
+  url?: string | null
+  /** 媒体预览图 URL */
+  preview_image_url?: string | null
   /** 媒体宽度 */
   width?: number
   /** 媒体高度 */

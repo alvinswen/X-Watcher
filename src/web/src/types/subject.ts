@@ -86,7 +86,8 @@ export interface SubjectReview {
   cited_tweet_ids: string[]
   prev_version?: number | null
   generated_at?: string | null
-  generated_by?: "llm" | "fallback" | null
+  generated_by?: "llm" | "fallback" | "skill" | null
+  covered_until?: string | null
   updated_at?: string | null
 }
 

@@ -1,4 +1,5 @@
 /** 推文搜索相关类型定义。 */
+import type { MediaItem } from "./tweet"
 
 /** 搜索参数 */
 export interface SearchParams {
@@ -23,8 +24,8 @@ export interface SearchTweetItem {
   referenced_tweet_id: string | null
   referenced_tweet_text: string | null
   referenced_tweet_author_username: string | null
-  media: Record<string, unknown>[] | null
-  referenced_tweet_media: Record<string, unknown>[] | null
+  media: MediaItem[] | null
+  referenced_tweet_media: MediaItem[] | null
   summary_text: string | null
   translation_text: string | null
 }

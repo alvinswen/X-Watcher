@@ -24,7 +24,7 @@
           <img
             v-for="(media, index) in tweet.media"
             :key="index"
-            :src="media.url || (media as any).preview_image_url"
+            :src="media.url || media.preview_image_url || undefined"
             :alt="`媒体 ${index + 1}`"
             class="media-image"
           />

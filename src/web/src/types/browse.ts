@@ -1,4 +1,5 @@
 /** 推文浏览相关类型定义。 */
+import type { MediaItem } from "./tweet"
 
 /** 每日推文数量 */
 export interface DailyCount {
@@ -41,8 +42,8 @@ export interface BrowseTweetItem {
   referenced_tweet_id: string | null
   referenced_tweet_text: string | null
   referenced_tweet_author_username: string | null
-  media: Record<string, unknown>[] | null
-  referenced_tweet_media: Record<string, unknown>[] | null
+  media: MediaItem[] | null
+  referenced_tweet_media: MediaItem[] | null
 }
 
 /** 推文浏览列表响应 */
