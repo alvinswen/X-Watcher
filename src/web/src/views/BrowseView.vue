@@ -1,6 +1,32 @@
 <template>
   <ApiKeyGuideEmpty v-if="needsApiKey" />
   <div v-else class="browse-view">
+    <Teleport to="#header-toolbar-outlet" defer>
+      <div v-show="!isFullscreen" class="header-toolbar">
+        <el-switch
+          v-model="longTweetFilterEnabled"
+          active-text="长推"
+          size="small"
+          style="margin-right: 8px"
+        />
+        <el-input-number
+          v-if="longTweetFilterEnabled"
+          v-model="longTweetMinLength"
+          :min="1"
+          :step="50"
+          size="small"
+          style="width: 130px; margin-right: 12px"
+          :prefix-icon="undefined"
+          controls-position="right"
+        >
+          <template #prefix>≥</template>
+        </el-input-number>
+        <el-button text :icon="FullScreen" @click="isFullscreen = true">
+          全屏
+        </el-button>
+      </div>
+    </Teleport>
+
     <!-- 全屏模式下的工具条 -->
     <div v-if="isFullscreen" class="fullscreen-toolbar">
       <span class="fullscreen-title">{{ mode === 'timeline' ? `${timelineAuthorInfo?.author_display_name || timelineAuthor} 的时间线` : '推文浏览' }}</span>
@@ -101,9 +127,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, inject, onUnmounted, type Ref } from "vue"
+import { ref, computed, watch, onUnmounted } from "vue"
+import { storeToRefs } from "pinia"
 import { useRoute, useRouter } from "vue-router"
-import { User, CloseBold } from "@element-plus/icons-vue"
+import { User, CloseBold, FullScreen } from "@element-plus/icons-vue"
 import { ElMessage } from "element-plus"
 import { browseApi, followsApi } from "@/api"
 import ApiKeyGuideEmpty from "@/components/ApiKeyGuideEmpty.vue"
@@ -112,18 +139,19 @@ import AuthorPanel from "@/views/browse/AuthorPanel.vue"
 import CalendarPanel from "@/views/browse/CalendarPanel.vue"
 import TimelineControls from "@/views/browse/TimelineControls.vue"
 import { useApiKeyGuard } from "@/composables/useApiKeyGuard"
+import { useLayoutStore } from "@/stores/layout"
 import { formatChineseDateTime } from "@/utils/format"
 import type { AuthorInfo, BrowseTweetItem, TweetCardData, XUserProfile } from "@/types"
 
 const route = useRoute()
 const router = useRouter()
 
-/** 全屏模式 */
-const isFullscreen = inject<Ref<boolean>>("isFullscreen", ref(false))
-
-/** 长推文过滤 */
-const longTweetFilterEnabled = inject<Ref<boolean>>("longTweetFilterEnabled", ref(false))
-const longTweetMinLength = inject<Ref<number>>("longTweetMinLength", ref(280))
+const layoutStore = useLayoutStore()
+const {
+  isFullscreen,
+  longTweetFilterEnabled,
+  longTweetMinLength,
+} = storeToRefs(layoutStore)
 
 const effectiveMinTextLength = computed(() => {
   return longTweetFilterEnabled.value ? longTweetMinLength.value : undefined
@@ -601,6 +629,11 @@ onUnmounted(() => {
   font-weight: 500;
   color: var(--text-primary);
   font-family: var(--font-reading);
+}
+
+.header-toolbar {
+  display: flex;
+  align-items: center;
 }
 
 /* ========== 推文面板 ========== */

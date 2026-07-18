@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { provide, ref, watch } from "vue"
+import { ref, watch } from "vue"
 import { useRoute } from "vue-router"
 import {
   Odometer,
@@ -9,7 +9,6 @@ import {
   UserFilled,
   Fold,
   Expand,
-  FullScreen,
   Search,
   Refresh,
   Moon,
@@ -17,30 +16,18 @@ import {
   Collection,
 } from "@element-plus/icons-vue"
 import { useAuthStore } from "@/stores/auth"
+import { useLayoutStore } from "@/stores/layout"
 import { useThemeStore } from "@/stores/theme"
 import { ElMessage } from "element-plus"
 import TwitterBalanceIndicator from "@/components/TwitterBalanceIndicator.vue"
 
 const route = useRoute()
 const authStore = useAuthStore()
+const layoutStore = useLayoutStore()
 const themeStore = useThemeStore()
 
 /** 侧边栏是否折叠 */
 const isCollapsed = ref(false)
-
-/** 全屏模式 */
-const isFullscreen = ref(false)
-provide("isFullscreen", isFullscreen)
-
-/** 长推文过滤 */
-const longTweetFilterEnabled = ref(false)
-const longTweetMinLength = ref(280)
-provide("longTweetFilterEnabled", longTweetFilterEnabled)
-provide("longTweetMinLength", longTweetMinLength)
-
-function toggleFullscreen() {
-  isFullscreen.value = !isFullscreen.value
-}
 
 /** API Key 输入值 */
 const apiKeyInput = ref("")
@@ -98,7 +85,11 @@ function clearApiKey() {
 <template>
   <el-container class="admin-layout">
     <!-- 侧边栏 -->
-    <el-aside v-show="!isFullscreen" :width="isCollapsed ? '64px' : '220px'" class="admin-aside">
+    <el-aside
+      v-show="!layoutStore.isFullscreen"
+      :width="isCollapsed ? '64px' : '220px'"
+      class="admin-aside"
+    >
       <div class="aside-header">
         <span v-if="!isCollapsed" class="aside-title">X-watcher</span>
       </div>
@@ -154,38 +145,11 @@ function clearApiKey() {
 
     <!-- 右侧内容区 -->
     <el-container>
-      <el-header v-show="!isFullscreen" class="admin-header" height="50px">
+      <el-header v-show="!layoutStore.isFullscreen" class="admin-header" height="50px">
         <span class="header-title">{{ route.meta.title }}</span>
         <span class="header-spacer"></span>
         <TwitterBalanceIndicator class="header-balance" />
-        <template v-if="route.path === '/browse'">
-          <el-switch
-            v-model="longTweetFilterEnabled"
-            active-text="长推"
-            size="small"
-            style="margin-right: 8px;"
-          />
-          <el-input-number
-            v-if="longTweetFilterEnabled"
-            v-model="longTweetMinLength"
-            :min="1"
-            :step="50"
-            size="small"
-            style="width: 130px; margin-right: 12px;"
-            :prefix-icon="undefined"
-            controls-position="right"
-          >
-            <template #prefix>≥</template>
-          </el-input-number>
-        </template>
-        <el-button
-          v-if="route.path === '/browse'"
-          text
-          :icon="FullScreen"
-          @click="toggleFullscreen"
-        >
-          全屏
-        </el-button>
+        <div id="header-toolbar-outlet" class="header-toolbar-outlet" />
       </el-header>
       <el-main class="admin-main">
         <slot />
@@ -344,6 +308,11 @@ function clearApiKey() {
 
 .header-balance {
   margin-right: 12px;
+}
+
+.header-toolbar-outlet {
+  display: flex;
+  align-items: center;
 }
 
 .admin-main {

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from "vue"
 import { ElMessage, ElMessageBox } from "element-plus"
+import { UploadFilled } from "@element-plus/icons-vue"
 import { syncApi } from "@/api/sync"
 import ApiKeyGuideEmpty from "@/components/ApiKeyGuideEmpty.vue"
 import { useApiKeyGuard } from "@/composables/useApiKeyGuard"
@@ -462,14 +463,6 @@ const strategyLabels: Record<ConflictStrategy, string> = {
     </el-row>
   </div>
 </template>
-
-<script lang="ts">
-import { UploadFilled } from "@element-plus/icons-vue"
-
-export default {
-  components: { UploadFilled },
-}
-</script>
 
 <style scoped>
 .sync-view {
