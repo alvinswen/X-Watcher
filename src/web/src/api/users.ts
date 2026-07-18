@@ -25,6 +25,7 @@ export const usersApi = {
     const response = await client.post<CreateUserResponse>(
       USERS_PREFIX,
       data,
+      { suppressErrorToast: true },
     )
     return response.data
   },
@@ -33,6 +34,8 @@ export const usersApi = {
   async resetPassword(userId: number): Promise<ResetPasswordResponse> {
     const response = await client.post<ResetPasswordResponse>(
       `${USERS_PREFIX}/${userId}/reset-password`,
+      undefined,
+      { suppressErrorToast: true },
     )
     return response.data
   },
@@ -42,6 +45,7 @@ export const usersApi = {
     const response = await client.put<UserInfo>(
       `${USERS_PREFIX}/${userId}`,
       data,
+      { suppressErrorToast: true },
     )
     return response.data
   },

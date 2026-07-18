@@ -69,7 +69,11 @@ describe("usersApi - 用户管理 API", () => {
 
     const result = await usersApi.create(requestData)
 
-    expect(mockedClient.post).toHaveBeenCalledWith("/admin/users", requestData)
+    expect(mockedClient.post).toHaveBeenCalledWith(
+      "/admin/users",
+      requestData,
+      { suppressErrorToast: true },
+    )
     expect(result).toEqual(mockData)
   })
 
@@ -81,8 +85,9 @@ describe("usersApi - 用户管理 API", () => {
 
     expect(mockedClient.post).toHaveBeenCalledWith(
       "/admin/users/1/reset-password",
+      undefined,
+      { suppressErrorToast: true },
     )
     expect(result).toEqual(mockData)
   })
 })
-

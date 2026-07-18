@@ -5,6 +5,7 @@ import { createPinia, setActivePinia } from "pinia"
 
 vi.mock("@/api/client", () => ({
   setApiKeyProvider: vi.fn(),
+  setUnauthorizedHandler: vi.fn(),
 }))
 
 import { useAuthStore } from "./auth"
