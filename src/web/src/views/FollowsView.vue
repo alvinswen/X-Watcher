@@ -53,7 +53,7 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column prop="platform_user_id" label="User ID" width="160">
+      <el-table-column prop="platform_user_id" label="平台永久 ID" width="160">
         <template #default="{ row }">
           <span v-if="row.platform_user_id" class="user-id-text">
             {{ row.platform_user_id }}
@@ -210,33 +210,33 @@
         <!-- 统计数据 -->
         <div class="profile-stats">
           <div class="stat-item">
-            <span class="stat-value">{{ formatNumber(selectedProfile.followers_count) }}</span>
+            <span class="stat-value">{{ formatCompactNumber(selectedProfile.followers_count) }}</span>
             <span class="stat-label">粉丝</span>
           </div>
           <div class="stat-item">
-            <span class="stat-value">{{ formatNumber(selectedProfile.following_count) }}</span>
+            <span class="stat-value">{{ formatCompactNumber(selectedProfile.following_count) }}</span>
             <span class="stat-label">关注</span>
           </div>
           <div class="stat-item">
-            <span class="stat-value">{{ formatNumber(selectedProfile.statuses_count) }}</span>
+            <span class="stat-value">{{ formatCompactNumber(selectedProfile.statuses_count) }}</span>
             <span class="stat-label">推文</span>
           </div>
           <div class="stat-item">
-            <span class="stat-value">{{ formatNumber(selectedProfile.media_count) }}</span>
+            <span class="stat-value">{{ formatCompactNumber(selectedProfile.media_count) }}</span>
             <span class="stat-label">媒体</span>
           </div>
         </div>
 
         <!-- 详细信息 -->
         <el-descriptions :column="1" border size="small" class="profile-details">
-          <el-descriptions-item label="User ID">
+          <el-descriptions-item label="平台永久 ID">
             <span class="user-id-text">{{ selectedProfile.platform_user_id }}</span>
           </el-descriptions-item>
           <el-descriptions-item label="账号创建">
             {{ selectedProfile.account_created_at || "-" }}
           </el-descriptions-item>
           <el-descriptions-item label="点赞数">
-            {{ formatNumber(selectedProfile.favourites_count) }}
+            {{ formatCompactNumber(selectedProfile.favourites_count) }}
           </el-descriptions-item>
           <el-descriptions-item label="自动化账号">
             {{ selectedProfile.is_automated ? "是" : "否" }}
@@ -267,7 +267,7 @@ import { followsApi, tasksApi } from "@/api"
 import ApiKeyGuideEmpty from "@/components/ApiKeyGuideEmpty.vue"
 import { useApiKeyGuard } from "@/composables/useApiKeyGuard"
 import { useAuthStore } from "@/stores/auth"
-import { formatLocalizedDateTime } from "@/utils/format"
+import { formatCompactNumber, formatLocalizedDateTime } from "@/utils/format"
 import type { ScrapingFollow, XUserProfile } from "@/types"
 
 const authStore = useAuthStore()
@@ -327,14 +327,6 @@ const profilesMap = computed(() => {
 /** 根据用户名获取档案 */
 function getProfile(username: string): XUserProfile | undefined {
   return profilesMap.value.get(username.toLowerCase())
-}
-
-/** 格式化数字 */
-function formatNumber(value: number | null | undefined): string {
-  if (value == null) return "-"
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
-  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`
-  return value.toString()
 }
 
 /** 表单验证规则 */
@@ -518,7 +510,7 @@ const { needsApiKey } = useApiKeyGuard(loadFollows)
 .page-header h1 {
   margin: 0;
   font-size: 1.5rem;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .header-actions {
@@ -529,7 +521,7 @@ const { needsApiKey } = useApiKeyGuard(loadFollows)
 .user-id-text {
   font-family: monospace;
   font-size: 0.85em;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 .username-cell {
@@ -544,7 +536,7 @@ const { needsApiKey } = useApiKeyGuard(loadFollows)
 
 .username-link {
   cursor: pointer;
-  color: #409eff;
+  color: var(--color-primary);
   font-weight: 500;
 }
 
@@ -580,7 +572,7 @@ const { needsApiKey } = useApiKeyGuard(loadFollows)
 .display-name {
   font-size: 1.1rem;
   font-weight: 600;
-  color: #333;
+  color: var(--text-primary);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -591,19 +583,19 @@ const { needsApiKey } = useApiKeyGuard(loadFollows)
 }
 
 .handle {
-  color: #999;
+  color: var(--text-tertiary);
   font-size: 0.9rem;
 }
 
 .profile-bio {
-  color: #555;
+  color: var(--text-secondary);
   line-height: 1.5;
   margin-bottom: 0.75rem;
   white-space: pre-wrap;
 }
 
 .profile-location {
-  color: #888;
+  color: var(--text-tertiary);
   font-size: 0.85rem;
   margin-bottom: 1rem;
 }
@@ -613,8 +605,8 @@ const { needsApiKey } = useApiKeyGuard(loadFollows)
   gap: 1.5rem;
   padding: 0.75rem 0;
   margin-bottom: 1rem;
-  border-top: 1px solid #eee;
-  border-bottom: 1px solid #eee;
+  border-top: 1px solid var(--border-light);
+  border-bottom: 1px solid var(--border-light);
 }
 
 .stat-item {
@@ -626,12 +618,12 @@ const { needsApiKey } = useApiKeyGuard(loadFollows)
 .stat-value {
   font-weight: 600;
   font-size: 1rem;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .stat-label {
   font-size: 0.75rem;
-  color: #999;
+  color: var(--text-tertiary);
 }
 
 .profile-details {

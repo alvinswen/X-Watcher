@@ -196,7 +196,7 @@ function clearApiKey() {
   <!-- API Key 设置对话框 -->
   <el-dialog v-model="authStore.dialogVisible" title="API Key 设置" width="420px">
     <el-form>
-      <el-form-item label="Admin API Key">
+      <el-form-item label="管理员 API Key">
         <el-input
           v-model="apiKeyInput"
           placeholder="请输入管理员 API Key"

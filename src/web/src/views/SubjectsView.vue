@@ -12,6 +12,7 @@ import { subjectsApi } from "@/api/subjects"
 import { ApiRequestError } from "@/api/client"
 import ApiKeyGuideEmpty from "@/components/ApiKeyGuideEmpty.vue"
 import { useApiKeyGuard } from "@/composables/useApiKeyGuard"
+import { formatRelativeTime } from "@/utils/format"
 import SubjectDigestTab from "@/views/subjects/SubjectDigestTab.vue"
 import SubjectFeedTab from "@/views/subjects/SubjectFeedTab.vue"
 import SubjectFormDrawer from "@/views/subjects/SubjectFormDrawer.vue"
@@ -109,7 +110,9 @@ const classifyHintIcon = computed(() => (classifyHintState.value === "never" ? W
 const classifyHintPrefix = computed(() => (
   classifyHintState.value === "stale" ? "距上次分类已较久：" : "最近一次分类："
 ))
-const classifyHintRelativeText = computed(() => formatRelative(lastClassifiedAt.value))
+const classifyHintRelativeText = computed(
+  () => formatRelativeTime(lastClassifiedAt.value, "尚无更新"),
+)
 const classifyHintText = computed(() => {
   if (classifyHintState.value === "empty") {
     return "选择议题后查看最近一次分类时间"
@@ -276,7 +279,7 @@ function reviewUpdatedText(): string {
   if (!review.value?.updated_at) {
     return "尚未生成"
   }
-  return `更新于 ${formatRelative(review.value.updated_at)}`
+  return `更新于 ${formatRelativeTime(review.value.updated_at, "尚无更新")}`
 }
 
 function resetForm() {
@@ -393,26 +396,6 @@ async function confirmDelete(subject: Subject) {
   }
 }
 
-const formatRelative = (value?: string | null): string => {
-  if (!value) {
-    return "尚无更新"
-  }
-  const timestamp = new Date(value).getTime()
-  if (Number.isNaN(timestamp)) {
-    return value
-  }
-  const diff = Math.max(0, Date.now() - timestamp)
-  if (diff < 60_000) {
-    return "刚刚"
-  }
-  if (diff < 3_600_000) {
-    return `${Math.floor(diff / 60_000)} 分钟前`
-  }
-  if (diff < 86_400_000) {
-    return `${Math.floor(diff / 3_600_000)} 小时前`
-  }
-  return `${Math.floor(diff / 86_400_000)} 天前`
-}
 </script>
 
 <template>
@@ -435,7 +418,7 @@ const formatRelative = (value?: string | null): string => {
         :active-count="activeCount"
         :active-limit-reached="activeLimitReached"
         :loading="loadingSubjects"
-        :format-relative="formatRelative"
+        :format-relative="(value) => formatRelativeTime(value ?? null, '尚无更新')"
         @create="openCreate"
         @select="selectSubject"
         @toggle="toggleSubjectStatus"
@@ -470,7 +453,7 @@ const formatRelative = (value?: string | null): string => {
           </header>
 
           <el-tabs v-model="activeTab" class="subject-tabs">
-            <el-tab-pane label="feed" name="feed">
+            <el-tab-pane label="事件流" name="feed">
               <SubjectFeedTab
                 :loading="loadingDetail"
                 :items="feedItems"
@@ -484,7 +467,7 @@ const formatRelative = (value?: string | null): string => {
               />
             </el-tab-pane>
 
-            <el-tab-pane label="digest" name="digest">
+            <el-tab-pane label="摘要" name="digest">
               <SubjectDigestTab :loading="loadingDetail" :digests="digests" />
             </el-tab-pane>
 

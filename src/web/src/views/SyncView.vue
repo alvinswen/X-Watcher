@@ -348,7 +348,7 @@ const strategyLabels: Record<ConflictStrategy, string> = {
                 drag
               >
                 <div class="upload-hint">
-                  <el-icon style="font-size: 28px; color: #909399"><UploadFilled /></el-icon>
+                  <el-icon style="font-size: 28px; color: var(--text-tertiary)"><UploadFilled /></el-icon>
                   <div>拖拽文件到此处，或点击选择</div>
                   <div class="upload-tip">仅支持 .json 文件</div>
                 </div>
@@ -487,12 +487,12 @@ export default {
   align-items: center;
   gap: 8px;
   padding: 20px 0;
-  color: #606266;
+  color: var(--text-secondary);
 }
 
 .upload-tip {
   font-size: 12px;
-  color: #909399;
+  color: var(--text-tertiary);
 }
 
 .metadata-section {
