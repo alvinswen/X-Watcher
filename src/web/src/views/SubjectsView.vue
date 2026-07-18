@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref } from "vue"
+import { computed, nextTick, reactive, ref } from "vue"
 import type { FormInstance, FormRules } from "element-plus"
 import { ElMessage, ElMessageBox } from "element-plus"
 import {
@@ -15,6 +15,9 @@ import {
   WarningFilled,
 } from "@element-plus/icons-vue"
 import { subjectsApi } from "@/api/subjects"
+import { ApiRequestError } from "@/api/client"
+import ApiKeyGuideEmpty from "@/components/ApiKeyGuideEmpty.vue"
+import { useApiKeyGuard } from "@/composables/useApiKeyGuard"
 import type {
   Subject,
   SubjectDigest,
@@ -119,9 +122,7 @@ const classifyHintText = computed(() => {
 const classifyHintTitle = computed(() => (lastClassifiedAt.value ? formatAbsoluteDateTime(lastClassifiedAt.value) : ""))
 const reviewRequestButtonText = computed(() => (reviewPending.value ? "已请求·待处理" : "请求更新综述"))
 
-onMounted(() => {
-  void loadSubjects()
-})
+const { needsApiKey } = useApiKeyGuard(loadSubjects)
 
 async function loadSubjects(preferId?: string) {
   loadingSubjects.value = true
@@ -138,7 +139,7 @@ async function loadSubjects(preferId?: string) {
     await loadSelectedData()
   } catch (error) {
     const message = error instanceof Error ? error.message : "议题加载失败"
-    permissionError.value = message.includes("认证") || message.includes("403") || message.includes("API Key")
+    permissionError.value = error instanceof ApiRequestError && error.status === 403
     pageError.value = permissionError.value ? "" : message
   } finally {
     loadingSubjects.value = false
@@ -483,7 +484,8 @@ function formatIntervalLabel(startValue: string, endValue: string): string {
 </script>
 
 <template>
-  <div class="subjects-view">
+  <ApiKeyGuideEmpty v-if="needsApiKey" />
+  <div v-else class="subjects-view">
     <el-result
       v-if="permissionError"
       icon="warning"

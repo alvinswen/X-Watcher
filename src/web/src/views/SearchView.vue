@@ -1,5 +1,6 @@
 <template>
-  <div class="search-view">
+  <ApiKeyGuideEmpty v-if="needsApiKey" />
+  <div v-else class="search-view">
     <!-- 搜索栏 -->
     <el-form :inline="true" class="search-form" @submit.prevent="handleSearch">
       <el-form-item>
@@ -128,10 +129,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from "vue"
+import { ref } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import { Search } from "@element-plus/icons-vue"
 import { searchApi } from "@/api"
+import ApiKeyGuideEmpty from "@/components/ApiKeyGuideEmpty.vue"
+import { useApiKeyGuard } from "@/composables/useApiKeyGuard"
 import { formatFullDateTime } from "@/utils/format"
 import type { SearchTweetItem } from "@/types/search"
 
@@ -225,9 +228,7 @@ function handlePageChange(newPage: number) {
   doSearch()
 }
 
-onMounted(() => {
-  restoreFromQuery()
-})
+const { needsApiKey } = useApiKeyGuard(restoreFromQuery)
 </script>
 
 <style scoped>

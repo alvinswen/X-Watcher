@@ -1,5 +1,6 @@
 <template>
-  <div class="dashboard-view">
+  <ApiKeyGuideEmpty v-if="needsApiKey" />
+  <div v-else class="dashboard-view">
     <!-- 统计卡片 - 第一行 -->
     <el-row :gutter="16" class="stats-row">
       <el-col :xs="24" :sm="12" :lg="6">
@@ -166,8 +167,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from "vue"
+import { ref } from "vue"
 import { statusApi, configApi, tasksApi } from "@/api"
+import ApiKeyGuideEmpty from "@/components/ApiKeyGuideEmpty.vue"
+import { useApiKeyGuard } from "@/composables/useApiKeyGuard"
 import { formatRelativeTime, formatFullDateTime } from "@/utils/format"
 import type { StatusOverviewResponse, ConfigValidateResponse } from "@/types/status"
 import type { TaskListItem } from "@/types"
@@ -258,9 +261,7 @@ async function loadDashboardData() {
   tasksLoading.value = false
 }
 
-onMounted(() => {
-  loadDashboardData()
-})
+const { needsApiKey } = useApiKeyGuard(loadDashboardData)
 </script>
 
 <style scoped>

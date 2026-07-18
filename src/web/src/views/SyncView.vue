@@ -2,6 +2,8 @@
 import { ref, computed } from "vue"
 import { ElMessage, ElMessageBox } from "element-plus"
 import { syncApi } from "@/api/sync"
+import ApiKeyGuideEmpty from "@/components/ApiKeyGuideEmpty.vue"
+import { useApiKeyGuard } from "@/composables/useApiKeyGuard"
 import type {
   SyncCategory,
   ConflictStrategy,
@@ -10,6 +12,8 @@ import type {
   ImportExecuteResponse,
   ImportTableStats,
 } from "@/types/sync"
+
+const { needsApiKey } = useApiKeyGuard(() => {})
 
 // ── 导出状态 ──
 
@@ -233,7 +237,8 @@ const strategyLabels: Record<ConflictStrategy, string> = {
 </script>
 
 <template>
-  <div class="sync-view">
+  <ApiKeyGuideEmpty v-if="needsApiKey" />
+  <div v-else class="sync-view">
     <el-row :gutter="20">
       <!-- 导出卡片 -->
       <el-col :span="12">

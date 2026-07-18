@@ -1,5 +1,6 @@
 <template>
-  <div class="tweet-detail-view">
+  <ApiKeyGuideEmpty v-if="needsApiKey" />
+  <div v-else class="tweet-detail-view">
     <!-- 返回按钮 -->
     <el-button :icon="ArrowLeft" @click="handleGoBack" class="back-button">
       返回
@@ -97,10 +98,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from "vue"
+import { ref } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import { ArrowLeft } from "@element-plus/icons-vue"
 import { tweetsApi } from "@/api"
+import ApiKeyGuideEmpty from "@/components/ApiKeyGuideEmpty.vue"
+import { useApiKeyGuard } from "@/composables/useApiKeyGuard"
 import { formatFullDateTime } from "@/utils/format"
 import type { TweetDetail } from "@/types"
 
@@ -136,10 +139,7 @@ function handleGoBack() {
   router.back()
 }
 
-/** 组件挂载时加载数据 */
-onMounted(() => {
-  loadTweetDetail()
-})
+const { needsApiKey } = useApiKeyGuard(loadTweetDetail)
 </script>
 
 <style scoped>

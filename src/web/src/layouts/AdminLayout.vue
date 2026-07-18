@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { provide, ref } from "vue"
+import { provide, ref, watch } from "vue"
 import { useRoute } from "vue-router"
 import {
   Odometer,
@@ -42,9 +42,6 @@ function toggleFullscreen() {
   isFullscreen.value = !isFullscreen.value
 }
 
-/** API Key 设置对话框是否可见 */
-const apiKeyDialogVisible = ref(false)
-
 /** API Key 输入值 */
 const apiKeyInput = ref("")
 
@@ -65,8 +62,17 @@ const menuItems = [
 /** 打开 API Key 设置对话框 */
 function openApiKeyDialog() {
   apiKeyInput.value = authStore.apiKey || ""
-  apiKeyDialogVisible.value = true
+  authStore.openDialog()
 }
+
+watch(
+  () => authStore.dialogVisible,
+  (visible) => {
+    if (visible) {
+      apiKeyInput.value = authStore.apiKey || ""
+    }
+  },
+)
 
 /** 保存 API Key */
 function saveApiKey() {
@@ -76,7 +82,7 @@ function saveApiKey() {
     return
   }
   authStore.setApiKey(key)
-  apiKeyDialogVisible.value = false
+  authStore.dialogVisible = false
   ElMessage.success("API Key 已保存")
 }
 
@@ -84,7 +90,7 @@ function saveApiKey() {
 function clearApiKey() {
   authStore.clearApiKey()
   apiKeyInput.value = ""
-  apiKeyDialogVisible.value = false
+  authStore.dialogVisible = false
   ElMessage.success("API Key 已清除")
 }
 </script>
@@ -188,7 +194,7 @@ function clearApiKey() {
   </el-container>
 
   <!-- API Key 设置对话框 -->
-  <el-dialog v-model="apiKeyDialogVisible" title="API Key 设置" width="420px">
+  <el-dialog v-model="authStore.dialogVisible" title="API Key 设置" width="420px">
     <el-form>
       <el-form-item label="Admin API Key">
         <el-input
@@ -205,7 +211,7 @@ function clearApiKey() {
       <el-button @click="clearApiKey" :disabled="!authStore.isAuthenticated">
         清除
       </el-button>
-      <el-button @click="apiKeyDialogVisible = false">取消</el-button>
+      <el-button @click="authStore.dialogVisible = false">取消</el-button>
       <el-button type="primary" @click="saveApiKey">保存</el-button>
     </template>
   </el-dialog>

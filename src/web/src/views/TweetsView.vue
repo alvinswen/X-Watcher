@@ -1,5 +1,6 @@
 <template>
-  <div class="tweets-view">
+  <ApiKeyGuideEmpty v-if="needsApiKey" />
+  <div v-else class="tweets-view">
     <div class="page-header">
       <h1>推文列表</h1>
       <el-button :icon="Refresh" @click="handleRefresh" :loading="loading">
@@ -77,10 +78,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from "vue"
+import { ref } from "vue"
 import { useRouter } from "vue-router"
 import { Refresh, Search } from "@element-plus/icons-vue"
 import { tweetsApi } from "@/api"
+import ApiKeyGuideEmpty from "@/components/ApiKeyGuideEmpty.vue"
+import { useApiKeyGuard } from "@/composables/useApiKeyGuard"
 import { formatRelativeTime } from "@/utils/format"
 import type { TweetListItem } from "@/types"
 
@@ -158,10 +161,7 @@ function handleTweetClick(tweetId: string) {
   router.push(`/tweets/${tweetId}`)
 }
 
-/** 组件挂载时加载数据 */
-onMounted(() => {
-  loadTweets()
-})
+const { needsApiKey } = useApiKeyGuard(loadTweets)
 </script>
 
 <style scoped>

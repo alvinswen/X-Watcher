@@ -1,5 +1,6 @@
 <template>
-  <div class="follows-view">
+  <ApiKeyGuideEmpty v-if="needsApiKey" />
+  <div v-else class="follows-view">
     <div class="page-header">
       <h1>抓取账号管理</h1>
       <div class="header-actions">
@@ -259,10 +260,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, reactive, computed } from "vue"
+import { ref, reactive, computed } from "vue"
 import { Plus, Refresh, VideoPlay } from "@element-plus/icons-vue"
 import { ElMessageBox, ElMessage, type FormInstance, type FormRules } from "element-plus"
 import { followsApi, tasksApi } from "@/api"
+import ApiKeyGuideEmpty from "@/components/ApiKeyGuideEmpty.vue"
+import { useApiKeyGuard } from "@/composables/useApiKeyGuard"
 import { useAuthStore } from "@/stores/auth"
 import { formatLocalizedDateTime } from "@/utils/format"
 import type { ScrapingFollow, XUserProfile } from "@/types"
@@ -496,10 +499,7 @@ async function handleToggleActive(follow: ScrapingFollow) {
   }
 }
 
-/** 组件挂载时加载数据 */
-onMounted(() => {
-  loadFollows()
-})
+const { needsApiKey } = useApiKeyGuard(loadFollows)
 </script>
 
 <style scoped>

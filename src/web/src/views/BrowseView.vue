@@ -1,5 +1,6 @@
 <template>
-  <div class="browse-view">
+  <ApiKeyGuideEmpty v-if="needsApiKey" />
+  <div v-else class="browse-view">
     <!-- 全屏模式下的工具条 -->
     <div v-if="isFullscreen" class="fullscreen-toolbar">
       <span class="fullscreen-title">{{ mode === 'timeline' ? `${timelineAuthorInfo?.author_display_name || timelineAuthor} 的时间线` : '推文浏览' }}</span>
@@ -238,11 +239,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, inject, onMounted, onUnmounted, type Ref } from "vue"
+import { ref, computed, watch, inject, onUnmounted, type Ref } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import { ArrowLeft, User, CloseBold, CopyDocument } from "@element-plus/icons-vue"
 import { ElMessage } from "element-plus"
 import { browseApi, followsApi } from "@/api"
+import ApiKeyGuideEmpty from "@/components/ApiKeyGuideEmpty.vue"
+import { useApiKeyGuard } from "@/composables/useApiKeyGuard"
 import { formatFullDateTime, formatChineseDateTime } from "@/utils/format"
 import type { AuthorInfo, BrowseTweetItem, XUserProfile } from "@/types"
 
@@ -698,7 +701,7 @@ watch(selectedDateStr, () => {
 })
 
 /** 初始加载 */
-onMounted(() => {
+function initializeBrowse() {
   const authorParam = route.query.author as string
   if (authorParam) {
     mode.value = "timeline"
@@ -716,7 +719,9 @@ onMounted(() => {
     loadTweets()
   }
   document.addEventListener("keydown", handleKeydown)
-})
+}
+
+const { needsApiKey } = useApiKeyGuard(initializeBrowse)
 
 onUnmounted(() => {
   document.removeEventListener("keydown", handleKeydown)
