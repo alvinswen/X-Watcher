@@ -46,6 +46,23 @@ export interface MediaItem {
   height?: number
 }
 
+/** 浏览与搜索共享的推文卡片数据。 */
+export interface TweetCardData {
+  tweet_id: string
+  text: string
+  created_at: string | null
+  author_username: string
+  author_display_name: string | null
+  summary_text: string | null
+  translation_text: string | null
+  media: MediaItem[] | null
+  reference_type: string | null
+  referenced_tweet_id: string | null
+  referenced_tweet_text: string | null
+  referenced_tweet_author_username: string | null
+  referenced_tweet_media: MediaItem[] | null
+}
+
 /** 摘要信息。 */
 export interface Summary {
   /** 摘要 ID */

@@ -143,84 +143,17 @@
         <el-skeleton v-if="activeTweetsLoading" :rows="8" animated />
         <el-empty v-else-if="activeTweets.length === 0" :description="mode === 'timeline' ? '该时间段暂无推文' : '该日期暂无推文'" />
         <div v-else class="tweet-list">
-          <div
+          <TweetCard
             v-for="(tweet, tweetIndex) in activeTweets"
             :key="tweet.tweet_id"
-            class="tweet-card"
-            :style="{ '--index': tweetIndex }"
-          >
-            <!-- 发布时刻 -->
-            <div class="tweet-time-row">
-              <span class="tweet-time">{{ formatFullDateTime(tweet.created_at) }}</span>
-              <!-- 日期模式且未选作者：显示作者信息 -->
-              <div v-if="mode === 'date' && !selectedAuthor" class="tweet-author-inline">
-                <span class="inline-author-name">{{ tweet.author_display_name || tweet.author_username }}</span>
-                <span class="inline-author-handle">@{{ tweet.author_username }}</span>
-              </div>
-              <el-button
-                text
-                size="small"
-                class="share-btn"
-                title="复制为 Markdown"
-                @click="handleShareTweet(tweet)"
-              >
-                <el-icon :size="14"><CopyDocument /></el-icon>
-              </el-button>
-            </div>
-
-            <!-- 摘要（无标签，通过字号建立层次） -->
-            <div v-if="tweet.summary_text" class="tweet-section summary-section">
-              <div class="section-content">{{ tweet.summary_text }}</div>
-            </div>
-
-            <!-- 中文翻译 -->
-            <div v-if="tweet.translation_text" class="tweet-section translation-section">
-              <div class="section-label">翻译</div>
-              <div class="section-content">{{ tweet.translation_text }}</div>
-            </div>
-
-            <!-- 原文（可折叠） -->
-            <div
-              class="tweet-section original-section"
-              :class="{ expanded: expandedOriginals.has(tweet.tweet_id) }"
-              @click="toggleOriginal(tweet.tweet_id)"
-            >
-              <div class="section-label">原文</div>
-              <div class="section-content original-text">{{ tweet.text }}</div>
-              <div v-if="!expandedOriginals.has(tweet.tweet_id)" class="original-fade-mask"></div>
-            </div>
-
-            <!-- 媒体附件 -->
-            <div v-if="tweet.media && tweet.media.length > 0" class="tweet-media">
-              <img
-                v-for="(media, index) in tweet.media"
-                :key="index"
-                :src="media.url || media.preview_image_url || undefined"
-                :alt="`媒体 ${index + 1}`"
-                class="media-image"
-              />
-            </div>
-
-            <!-- 引用推文 -->
-            <div v-if="tweet.referenced_tweet_id" class="referenced-tweet">
-              <div class="ref-label">
-                {{ getReferenceLabel(tweet.reference_type) }}
-              </div>
-              <div class="ref-content">
-                <span class="ref-author">@{{ tweet.referenced_tweet_author_username }}</span>
-                <span class="ref-text">{{ tweet.referenced_tweet_text }}</span>
-              </div>
-              <div v-if="tweet.referenced_tweet_media && tweet.referenced_tweet_media.length > 0" class="tweet-media ref-media">
-                <img
-                  v-for="(media, index) in tweet.referenced_tweet_media"
-                  :key="index"
-                  :src="media.url || media.preview_image_url || undefined"
-                  :alt="`引用媒体 ${index + 1}`"
-                  class="media-image"
-                />
-              </div>
-            </div>
-          </div>
+            :tweet="tweet"
+            :show-author="mode === 'date' && !selectedAuthor"
+            collapsible-original
+            show-share
+            :animation-index="tweetIndex"
+            media-hover-zoom
+            @share="handleShareTweet"
+          />
         </div>
 
         <!-- 分页 -->
@@ -241,13 +174,14 @@
 <script setup lang="ts">
 import { ref, computed, watch, inject, onUnmounted, type Ref } from "vue"
 import { useRoute, useRouter } from "vue-router"
-import { ArrowLeft, User, CloseBold, CopyDocument } from "@element-plus/icons-vue"
+import { ArrowLeft, User, CloseBold } from "@element-plus/icons-vue"
 import { ElMessage } from "element-plus"
 import { browseApi, followsApi } from "@/api"
 import ApiKeyGuideEmpty from "@/components/ApiKeyGuideEmpty.vue"
+import TweetCard from "@/components/TweetCard.vue"
 import { useApiKeyGuard } from "@/composables/useApiKeyGuard"
-import { formatFullDateTime, formatChineseDateTime } from "@/utils/format"
-import type { AuthorInfo, BrowseTweetItem, XUserProfile } from "@/types"
+import { formatChineseDateTime } from "@/utils/format"
+import type { AuthorInfo, BrowseTweetItem, TweetCardData, XUserProfile } from "@/types"
 
 const route = useRoute()
 const router = useRouter()
@@ -315,16 +249,6 @@ const pageSize = 20
 const authorsLoading = ref(false)
 const tweetsLoading = ref(false)
 
-/** 原文展开状态 */
-const expandedOriginals = ref<Set<string>>(new Set())
-
-function toggleOriginal(tweetId: string) {
-  const s = new Set(expandedOriginals.value)
-  if (s.has(tweetId)) s.delete(tweetId)
-  else s.add(tweetId)
-  expandedOriginals.value = s
-}
-
 /** ===== 时间线模式状态 ===== */
 type BrowseMode = "date" | "timeline"
 const mode = ref<BrowseMode>("date")
@@ -384,20 +308,6 @@ function getDayCount(day: string): number {
   return dailyCountMap.value[day] || 0
 }
 
-/** 获取引用类型标签 */
-function getReferenceLabel(type: string | null): string {
-  switch (type) {
-    case "retweeted":
-      return "转推"
-    case "quoted":
-      return "引用"
-    case "replied_to":
-      return "回复"
-    default:
-      return "引用"
-  }
-}
-
 /** 根据用户名查找作者介绍 */
 function findAuthorReason(username: string): string | null {
   const author = authors.value.find((a) => a.author_username === username)
@@ -406,7 +316,7 @@ function findAuthorReason(username: string): string | null {
 
 /** 构建人物介绍段落 */
 function buildProfileIntro(
-  tweet: BrowseTweetItem,
+  tweet: TweetCardData,
   profile: XUserProfile | null,
   reason: string | null,
 ): string {
@@ -438,7 +348,7 @@ function buildProfileIntro(
 
 /** 生成推文分享 Markdown 内容 */
 function buildShareMarkdown(
-  tweet: BrowseTweetItem,
+  tweet: TweetCardData,
   profile: XUserProfile | null,
   reason: string | null,
 ): string {
@@ -471,7 +381,7 @@ function buildShareMarkdown(
 }
 
 /** 分享推文：生成 Markdown 并复制到剪贴板 */
-async function handleShareTweet(tweet: BrowseTweetItem) {
+async function handleShareTweet(tweet: TweetCardData) {
   const reason = findAuthorReason(tweet.author_username)
 
   // 尝试获取完整档案，失败时降级
@@ -965,209 +875,12 @@ onUnmounted(() => {
   max-width: 720px;
 }
 
-.tweet-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border-light);
-  border-radius: var(--card-radius);
-  padding: var(--card-padding);
-  box-shadow: var(--shadow-card);
-  transition: box-shadow var(--transition-base), transform var(--transition-base), border-color var(--transition-base);
-  animation: card-enter 0.4s ease both;
-  animation-delay: calc(var(--index, 0) * 60ms);
-}
-
-.tweet-card:hover {
-  box-shadow: var(--shadow-card-hover);
-  transform: translateY(-1px);
-  border-color: var(--border-medium);
-}
-
-/* ---- 时间行 ---- */
-.tweet-time-row {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin-bottom: 14px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--border-light);
-}
-
-.tweet-time {
-  font-size: var(--xs-font-size);
-  color: var(--text-tertiary);
-  font-family: var(--font-mono);
-}
-
-.tweet-author-inline {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  flex: 1;
-}
-
-.inline-author-name {
-  font-size: var(--small-font-size);
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.inline-author-handle {
-  font-size: var(--xs-font-size);
-  color: var(--text-tertiary);
-  font-family: var(--font-mono);
-}
-
-/* ---- 推文内容区段 ---- */
-.tweet-section {
-  margin-bottom: var(--section-gap);
-}
-
-.tweet-section:last-child {
-  margin-bottom: 0;
-}
-
-.section-label {
-  font-size: var(--label-font-size);
-  color: var(--text-tertiary);
-  margin-bottom: 6px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.section-content {
-  font-size: var(--reading-font-size);
-  line-height: var(--reading-line-height);
-  letter-spacing: var(--reading-letter-spacing);
-  color: var(--text-primary);
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-family: var(--font-reading);
-}
-
-/* 摘要区：通过字号自然成为焦点，无背景色 */
-.summary-section .section-content {
-  font-size: var(--summary-font-size);
-  line-height: var(--reading-line-height);
-  letter-spacing: var(--reading-letter-spacing);
-  color: var(--text-primary);
-}
-
-/* 翻译区：淡底色 + 朱砂左边框 */
-.translation-section .section-content {
-  background: var(--bg-inset);
-  padding: 12px 16px;
-  border-radius: 6px;
-  border-left: 3px solid var(--color-primary);
-}
-
-/* 原文区：折叠 + 淡色 */
-.original-section {
-  position: relative;
-  cursor: pointer;
-  max-height: 5.6em;
-  overflow: hidden;
-  transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.original-section.expanded {
-  max-height: none;
-  cursor: default;
-}
-
-.original-text {
-  color: var(--text-tertiary);
-  font-size: var(--small-font-size);
-  line-height: 1.8;
-  font-family: var(--font-reading);
-}
-
-.original-fade-mask {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 2.4em;
-  background: linear-gradient(transparent, var(--bg-card));
-  pointer-events: none;
-}
-
-/* ---- 媒体 ---- */
-.tweet-media {
-  margin-top: 12px;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 8px;
-}
-
-.media-image {
-  width: 100%;
-  border-radius: 6px;
-  object-fit: cover;
-  max-height: 200px;
-  transition: transform var(--transition-base);
-}
-
-.media-image:hover {
-  transform: scale(1.02);
-}
-
-/* ---- 引用推文 ---- */
-.referenced-tweet {
-  margin-top: 12px;
-  padding: 12px 16px;
-  background: var(--bg-inset);
-  border-left: 2px solid var(--border-medium);
-  border-radius: 0 6px 6px 0;
-}
-
-.ref-label {
-  font-size: var(--label-font-size);
-  color: var(--text-tertiary);
-  margin-bottom: 4px;
-}
-
-.ref-content {
-  font-size: var(--small-font-size);
-  line-height: 1.7;
-  color: var(--text-secondary);
-  font-family: var(--font-reading);
-}
-
-.ref-author {
-  font-weight: 500;
-  color: var(--color-primary);
-  font-family: var(--font-mono);
-  margin-right: 6px;
-}
-
-.ref-text {
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.ref-media {
-  margin-top: 6px;
-}
-
 /* ---- 分页 ---- */
 .pagination-bar {
   display: flex;
   justify-content: center;
   padding: 20px 0;
   margin-top: auto;
-}
-
-/* ---- 分享按钮 ---- */
-.share-btn {
-  padding: 2px 4px;
-  margin-left: auto;
-  color: var(--text-tertiary);
-  transition: color var(--transition-base);
-}
-
-.share-btn:hover {
-  color: var(--color-primary);
 }
 
 /* ---- 作者列表操作区 ---- */
