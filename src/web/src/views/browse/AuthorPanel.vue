@@ -16,7 +16,7 @@ defineEmits<{
 </script>
 
 <template>
-  <div class="author-panel">
+  <div class="author-panel" data-testid="browse-author-panel">
     <div class="panel-header">作者列表</div>
     <el-skeleton v-if="loading" :rows="5" animated />
     <div v-else class="author-list">

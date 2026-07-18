@@ -1,8 +1,13 @@
 <template>
   <ApiKeyGuideEmpty v-if="needsApiKey" />
-  <div v-else class="tweet-detail-view">
+  <div v-else class="tweet-detail-view" data-testid="tweet-detail-view">
     <!-- 返回按钮 -->
-    <el-button :icon="ArrowLeft" @click="handleGoBack" class="back-button">
+    <el-button
+      :icon="ArrowLeft"
+      class="back-button"
+      data-testid="tweet-detail-back"
+      @click="handleGoBack"
+    >
       返回
     </el-button>
 

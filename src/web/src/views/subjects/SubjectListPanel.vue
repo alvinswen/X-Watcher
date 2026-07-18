@@ -39,6 +39,7 @@ defineEmits<{
               size="small"
               :icon="Plus"
               :disabled="activeLimitReached"
+              data-testid="subjects-create"
               @click="$emit('create')"
             >
               新建
@@ -51,6 +52,7 @@ defineEmits<{
         :model-value="statusFilter"
         size="small"
         class="status-filter"
+        data-testid="subjects-status-filter"
         @update:model-value="$emit('update:statusFilter', $event)"
       >
         <el-radio-button label="all">全部</el-radio-button>
@@ -59,7 +61,7 @@ defineEmits<{
       </el-radio-group>
     </div>
 
-    <div class="master-list">
+    <div class="master-list" data-testid="subjects-list">
       <el-alert
         v-if="activeLimitReached"
         type="warning"

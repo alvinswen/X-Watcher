@@ -1,6 +1,6 @@
 <template>
   <ApiKeyGuideEmpty v-if="needsApiKey" />
-  <div v-else class="search-view">
+  <div v-else class="search-view" data-testid="search-view">
     <!-- 搜索栏 -->
     <el-form :inline="true" class="search-form" @submit.prevent="handleSearch">
       <el-form-item>
@@ -9,6 +9,7 @@
           placeholder="搜索关键词"
           clearable
           style="width: 300px"
+          data-testid="search-input"
           @keyup.enter="handleSearch"
         >
           <template #prefix>
@@ -22,6 +23,7 @@
           placeholder="作者筛选"
           clearable
           style="width: 160px"
+          data-testid="search-author-filter"
         />
       </el-form-item>
       <el-form-item>
@@ -33,10 +35,16 @@
           end-placeholder="结束日期"
           value-format="YYYY-MM-DDTHH:mm:ss"
           style="width: 280px"
+          data-testid="search-date-range"
         />
       </el-form-item>
       <el-form-item>
-        <el-button type="primary" :loading="loading" @click="handleSearch">
+        <el-button
+          type="primary"
+          :loading="loading"
+          data-testid="search-submit"
+          @click="handleSearch"
+        >
           搜索
         </el-button>
       </el-form-item>
@@ -57,7 +65,11 @@
     />
 
     <!-- 搜索结果列表 -->
-    <div v-else-if="items.length > 0" class="tweet-list">
+    <div
+      v-else-if="items.length > 0"
+      class="tweet-list"
+      data-testid="search-results"
+    >
       <TweetCard
         v-for="tweet in items"
         :key="tweet.tweet_id"
@@ -68,7 +80,11 @@
     </div>
 
     <!-- 分页 -->
-    <div v-if="total > 0" class="pagination-bar">
+    <div
+      v-if="total > 0"
+      class="pagination-bar"
+      data-testid="search-pagination"
+    >
       <el-pagination
         v-model:current-page="page"
         :page-size="pageSize"

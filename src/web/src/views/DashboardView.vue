@@ -1,6 +1,6 @@
 <template>
   <ApiKeyGuideEmpty v-if="needsApiKey" />
-  <div v-else class="dashboard-view">
+  <div v-else class="dashboard-view" data-testid="dashboard-view">
     <!-- 统计卡片 - 第一行 -->
     <el-row :gutter="16" class="stats-row">
       <el-col :xs="24" :sm="12" :lg="6">
@@ -61,6 +61,7 @@
             type="primary"
             size="small"
             :loading="configLoading"
+            data-testid="dashboard-config-refresh"
             @click="refreshConfig"
           >
             刷新
@@ -135,7 +136,7 @@
     </el-card>
 
     <!-- 最近任务 -->
-    <el-card class="section-card">
+    <el-card class="section-card" data-testid="dashboard-health-card">
       <template #header>
         <span>最近任务</span>
       </template>

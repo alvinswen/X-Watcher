@@ -1,6 +1,6 @@
 <template>
   <ApiKeyGuideEmpty v-if="needsApiKey" />
-  <div v-else class="browse-view">
+  <div v-else class="browse-view" data-testid="browse-view">
     <Teleport to="#header-toolbar-outlet" defer>
       <div v-show="!isFullscreen" class="header-toolbar">
         <el-switch
@@ -8,6 +8,7 @@
           active-text="长推"
           size="small"
           style="margin-right: 8px"
+          data-testid="browse-long-tweet-filter"
         />
         <el-input-number
           v-if="longTweetFilterEnabled"
@@ -21,7 +22,12 @@
         >
           <template #prefix>≥</template>
         </el-input-number>
-        <el-button text :icon="FullScreen" @click="isFullscreen = true">
+        <el-button
+          text
+          :icon="FullScreen"
+          data-testid="browse-fullscreen-toggle"
+          @click="isFullscreen = true"
+        >
           全屏
         </el-button>
       </div>
@@ -46,7 +52,14 @@
         style="width: 130px; margin-right: 12px;"
         controls-position="right"
       />
-      <el-button text :icon="CloseBold" @click="exitFullscreen">退出全屏</el-button>
+      <el-button
+        text
+        :icon="CloseBold"
+        data-testid="browse-fullscreen-exit"
+        @click="exitFullscreen"
+      >
+        退出全屏
+      </el-button>
     </div>
 
     <div class="browse-layout" :class="{ 'browse-layout--fullscreen': isFullscreen }">
@@ -79,7 +92,7 @@
       />
 
       <!-- 推文展示面板 -->
-      <div class="tweet-panel">
+      <div class="tweet-panel" data-testid="browse-tweet-panel">
         <!-- 日期模式：选中作者时显示作者信息，全部作者时显示日期+总数 -->
         <div v-if="mode === 'date' && selectedAuthorInfo" class="selected-author-header">
           <span class="selected-author-name">{{ selectedAuthorInfo.author_display_name || selectedAuthorInfo.author_username }}</span>
@@ -118,6 +131,7 @@
             :page-size="pageSize"
             :total="activeTotal"
             layout="total, prev, pager, next"
+            data-testid="browse-pagination"
             @current-change="handleActivePageChange"
           />
         </div>

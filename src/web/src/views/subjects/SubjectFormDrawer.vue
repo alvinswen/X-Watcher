@@ -43,6 +43,7 @@ const visibleModel = computed({
     direction="rtl"
     size="480px"
     class="subject-drawer"
+    data-testid="subjects-form-drawer"
   >
     <el-form
       :ref="(value: unknown) => $emit('update:formRef', value as FormInstance | undefined)"

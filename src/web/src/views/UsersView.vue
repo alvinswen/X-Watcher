@@ -1,12 +1,18 @@
 <template>
   <ApiKeyGuideEmpty v-if="needsApiKey" />
-  <div v-else class="users-view">
+  <div v-else class="users-view" data-testid="users-view">
     <div class="page-header">
-      <el-button type="primary" @click="showCreateDialog">创建用户</el-button>
+      <el-button
+        type="primary"
+        data-testid="users-create"
+        @click="showCreateDialog"
+      >
+        创建用户
+      </el-button>
     </div>
 
     <!-- 用户列表 -->
-    <el-card>
+    <el-card data-testid="users-table-card">
       <el-skeleton v-if="loading" :rows="4" animated />
       <el-table v-else :data="users" stripe row-key="id">
         <el-table-column prop="id" label="ID" width="80" />
@@ -53,6 +59,7 @@
       width="500px"
       :close-on-click-modal="false"
       @closed="handleCreateDialogClosed"
+      data-testid="users-create-dialog"
     >
       <!-- 创建表单 -->
       <el-form
@@ -126,6 +133,7 @@
       title="编辑用户"
       width="500px"
       :close-on-click-modal="false"
+      data-testid="users-edit-dialog"
     >
       <el-form
         ref="editFormRef"

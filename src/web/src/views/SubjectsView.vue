@@ -400,7 +400,7 @@ async function confirmDelete(subject: Subject) {
 
 <template>
   <ApiKeyGuideEmpty v-if="needsApiKey" />
-  <div v-else class="subjects-view">
+  <div v-else class="subjects-view" data-testid="subjects-view">
     <el-result
       v-if="permissionError"
       icon="warning"
@@ -452,7 +452,11 @@ async function confirmDelete(subject: Subject) {
             <el-button :icon="EditPen" @click="openEdit(selectedSubject)">编辑</el-button>
           </header>
 
-          <el-tabs v-model="activeTab" class="subject-tabs">
+          <el-tabs
+            v-model="activeTab"
+            class="subject-tabs"
+            data-testid="subjects-tabs"
+          >
             <el-tab-pane label="事件流" name="feed">
               <SubjectFeedTab
                 :loading="loadingDetail"

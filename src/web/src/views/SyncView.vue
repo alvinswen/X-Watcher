@@ -239,7 +239,7 @@ const strategyLabels: Record<ConflictStrategy, string> = {
 
 <template>
   <ApiKeyGuideEmpty v-if="needsApiKey" />
-  <div v-else class="sync-view">
+  <div v-else class="sync-view" data-testid="sync-view">
     <el-row :gutter="20">
       <!-- 导出卡片 -->
       <el-col :span="12">
@@ -347,6 +347,7 @@ const strategyLabels: Record<ConflictStrategy, string> = {
                 :on-change="handleFileChange"
                 :on-remove="handleFileRemove"
                 drag
+                data-testid="sync-upload-area"
               >
                 <div class="upload-hint">
                   <el-icon style="font-size: 28px; color: var(--text-tertiary)"><UploadFilled /></el-icon>

@@ -59,6 +59,7 @@ function toggleOriginal() {
       'media-hover-zoom': mediaHoverZoom,
     }"
     :style="animationIndex !== undefined ? { '--index': animationIndex } : undefined"
+    data-testid="tweet-card"
     @click="handleCardClick"
   >
     <div class="tweet-time-row">
@@ -75,6 +76,7 @@ function toggleOriginal() {
         size="small"
         class="share-btn"
         title="复制为 Markdown"
+        data-testid="tweet-card-share"
         @click.stop="emit('share', tweet)"
       >
         <el-icon :size="14"><CopyDocument /></el-icon>
@@ -82,13 +84,15 @@ function toggleOriginal() {
     </div>
 
     <div v-if="tweet.summary_text" class="tweet-section summary-section">
-      <div class="section-label">摘要</div>
+      <div class="section-label" data-testid="tweet-card-summary-label">摘要</div>
       <div class="section-content">{{ tweet.summary_text }}</div>
     </div>
 
     <div v-if="tweet.translation_text" class="tweet-section translation-section">
       <div class="section-label">翻译</div>
-      <div class="section-content">{{ tweet.translation_text }}</div>
+      <div class="section-content" data-testid="tweet-card-translation">
+        {{ tweet.translation_text }}
+      </div>
     </div>
 
     <div

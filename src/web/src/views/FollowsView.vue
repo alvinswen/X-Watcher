@@ -1,6 +1,6 @@
 <template>
   <ApiKeyGuideEmpty v-if="needsApiKey" />
-  <div v-else class="follows-view">
+  <div v-else class="follows-view" data-testid="follows-view">
     <div class="page-header">
       <h1>抓取账号管理</h1>
       <div class="header-actions">
@@ -10,6 +10,7 @@
           :icon="VideoPlay"
           :loading="scrapeSubmitting"
           :disabled="loading"
+          data-testid="follows-trigger-scrape"
           @click="handleTriggerScraping"
         >
           立即抓取
@@ -18,10 +19,16 @@
           :icon="Refresh"
           @click="handleSyncProfiles"
           :loading="syncing"
+          data-testid="follows-sync-profiles"
         >
           同步档案
         </el-button>
-        <el-button type="primary" :icon="Plus" @click="handleAdd">
+        <el-button
+          type="primary"
+          :icon="Plus"
+          data-testid="follows-add"
+          @click="handleAdd"
+        >
           添加账号
         </el-button>
       </div>
@@ -46,6 +53,7 @@
             </el-avatar>
             <span
               class="username-link"
+              data-testid="follows-username-link"
               @click="handleShowProfile(row)"
             >
               @{{ row.username }}
@@ -119,6 +127,7 @@
       v-model="dialogVisible"
       :title="isEditMode ? '编辑账号' : '添加账号'"
       width="500px"
+      data-testid="follows-editor-dialog"
     >
       <el-form
         ref="formRef"

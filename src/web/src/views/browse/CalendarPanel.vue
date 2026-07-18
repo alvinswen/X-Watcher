@@ -21,7 +21,7 @@ function getDayCount(day: string): number {
 </script>
 
 <template>
-  <div class="calendar-panel">
+  <div class="calendar-panel" data-testid="browse-calendar">
     <el-calendar v-model="selectedDate" class="browse-calendar">
       <template #date-cell="{ data }">
         <div class="calendar-cell" :class="{ 'has-tweets': getDayCount(data.day) > 0 }">
