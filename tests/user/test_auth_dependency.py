@@ -14,7 +14,7 @@ from src.user.domain.models import BOOTSTRAP_ADMIN
 from src.user.infrastructure.file_user_repository import FileUserStore
 from src.user.services.auth_service import AuthService
 
-JWT_SECRET = "test-auth-dep-jwt-secret"
+JWT_SECRET = "test-auth-dep-jwt-secret-0123456789ab"
 ADMIN_API_KEY_VALUE = "test-admin-api-key-12345"
 
 

@@ -12,7 +12,6 @@ import logging
 import os
 import tempfile
 from logging.handlers import QueueHandler
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -123,37 +122,6 @@ def test_settings():
 
     # 清除缓存
     clear_settings_cache()
-
-
-@pytest.fixture(scope="function")
-def temp_file():
-    """临时文件 Fixture。
-
-    创建一个临时文件，测试后自动删除。
-    """
-    fd, path = tempfile.mkstemp()
-    import os
-
-    try:
-        yield Path(path)
-    finally:
-        os.close(fd)
-        os.unlink(path)
-
-
-@pytest.fixture(scope="function")
-def temp_dir():
-    """临时目录 Fixture。
-
-    创建一个临时目录，测试后自动删除。
-    """
-    path = tempfile.mkdtemp()
-    import shutil
-
-    try:
-        yield Path(path)
-    finally:
-        shutil.rmtree(path, ignore_errors=True)
 
 
 @pytest.fixture(scope="function")
