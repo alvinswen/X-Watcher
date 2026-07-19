@@ -18,6 +18,16 @@ import jwt
 from src.config import get_settings
 
 
+def _hash_password(password: str) -> str:
+    """bcrypt 哈希密码。"""
+    password_bytes = password.encode("utf-8")
+    if len(password_bytes) > 72:
+        password_bytes = base64.b64encode(
+            hashlib.sha256(password_bytes).digest()
+        )
+    return bcrypt.hashpw(password_bytes, bcrypt.gensalt(rounds=12)).decode("utf-8")
+
+
 class AuthService:
     """认证原语服务 -- 纯函数式设计，不持有数据库访问权限。"""
 
