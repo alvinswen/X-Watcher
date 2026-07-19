@@ -38,25 +38,29 @@ def test_health_check_file_mode_unhealthy_when_data_root_missing(monkeypatch, tm
 
 
 def test_config_routes_check_database_file_mode(monkeypatch, tmp_path):
-    """config_routes._check_database 探 data_root,healthy。"""
+    """共享检查探 data_root,healthy。"""
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
 
-    from src.api.routes.config_routes import _check_database
+    from src.shared.connectivity_check import check_database
 
-    result = asyncio.run(_check_database())
+    result = check_database()
     assert result["status"] == "healthy"
     assert result["mode"] == "file"
 
 
 def test_cli_validate_check_database_file_mode(monkeypatch, tmp_path):
-    """cli validate_command._check_database 探 data_root。"""
+    """CLI validate 复用共享检查并打印汇总。"""
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    monkeypatch.setenv("TWITTER_API_KEY", "")
 
-    from src.cli.validate_command import _check_database
+    from click.testing import CliRunner
 
-    result = _check_database()
-    assert result["status"] == "healthy"
-    assert result["name"] == "database"
+    from src.cli.validate_command import validate
+
+    result = CliRunner().invoke(validate)
+    assert result.exit_code == 0
+    assert "[OK] database" in result.output
+    assert "结果: 1/2 项检查通过" in result.output
 
 
 # ---------------------------------------------------------------------------
