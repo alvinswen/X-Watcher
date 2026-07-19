@@ -1,7 +1,7 @@
 """认证依赖 get_current_user / get_current_admin_user 测试。"""
 
 import os
-from datetime import datetime, timedelta, timezone, UTC
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -13,7 +13,6 @@ from src.user.api.auth import get_current_admin_user, get_current_user
 from src.user.domain.models import BOOTSTRAP_ADMIN
 from src.user.infrastructure.file_user_repository import FileUserStore
 from src.user.services.auth_service import AuthService
-
 
 JWT_SECRET = "test-auth-dep-jwt-secret"
 ADMIN_API_KEY_VALUE = "test-admin-api-key-12345"

@@ -4,7 +4,7 @@
 """
 
 import logging
-from datetime import timezone, UTC
+from datetime import UTC
 from typing import Any
 
 from src.scraper.domain.models import ArticlePreview, Media, ReferenceType, Tweet

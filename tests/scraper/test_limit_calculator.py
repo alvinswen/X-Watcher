@@ -3,7 +3,7 @@
 测试动态 limit 计算逻辑的各种场景。
 """
 
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 
 import pytest
 

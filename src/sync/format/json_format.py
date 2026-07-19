@@ -1,7 +1,7 @@
 """JSON 文件读写和 schema 版本校验。"""
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 from src.sync.domain.models import ExportFilters, ExportMetadata, ExportPackage

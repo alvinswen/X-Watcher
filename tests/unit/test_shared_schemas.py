@@ -1,7 +1,7 @@
 """公共 Pydantic 基类测试。"""
 
 import json
-from datetime import datetime, timezone, timedelta, UTC
+from datetime import UTC, datetime, timedelta, timezone
 
 from src.shared.schemas import UTCDatetimeModel
 

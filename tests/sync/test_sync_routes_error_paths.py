@@ -2,7 +2,7 @@
 
 import json
 import logging
-from datetime import timezone, UTC
+from datetime import UTC
 
 import pytest
 from fastapi import HTTPException

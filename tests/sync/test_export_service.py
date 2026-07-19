@@ -1,7 +1,7 @@
 """Export 服务测试。"""
 
 import asyncio
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 
 import pytest
 

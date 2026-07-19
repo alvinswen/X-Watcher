@@ -1,7 +1,7 @@
 """JSON 格式读写测试。"""
 
 import json
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 
 import pytest
 

@@ -4,7 +4,7 @@
 """
 
 import logging
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 
 from src.scraper.domain.fetch_stats import FetchStats
 

@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 import pytest
-
 from returns.result import Failure, Success
 
 from src.scraper.client import TwitterClient

@@ -17,10 +17,9 @@ file 模式不依赖 ORM,组合既有 file store(FileTweetStore + FileSummarySto
   顺序/total/has_summary/db_created_at 关系/媒体等结构字段(created_at 类型两侧本就不同形态,
   由序列化层统一),用 TestClient 比 JSON 时才严格逐字节等。
 """
-from datetime import datetime, timedelta, timezone, UTC
+from datetime import UTC, datetime, timedelta
 
 import pytest
-
 
 # ── 种子助手 ───────────────────────────────────────────────
 
@@ -246,6 +245,7 @@ async def test_endpoints_file_mode_via_handler(monkeypatch, tmp_path):
     await _seed_summaries(tmp_path, [_summary("e1")])
 
     from fastapi import HTTPException
+
     from src.api.routes import tweets as tweets_route
 
     # list_tweets handler:session 传 None(file 门面忽略)

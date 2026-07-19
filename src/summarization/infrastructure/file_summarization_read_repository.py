@@ -6,7 +6,7 @@ summarization_tools.py 两条读路径(get_unsummarized_tweets 反连接 / get_t
 反连接 created_at DESC(契约,NULL 殿后),author 精确匹配,半开区间 [since, until)。"""
 from __future__ import annotations
 
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 

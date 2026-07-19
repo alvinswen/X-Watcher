@@ -2,7 +2,7 @@
 
 import asyncio
 import json
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 
 from click.testing import CliRunner
 

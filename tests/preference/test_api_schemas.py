@@ -3,7 +3,7 @@
 测试关注列表管理相关的 Pydantic 数据模型。
 """
 
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError

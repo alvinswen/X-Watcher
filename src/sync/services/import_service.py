@@ -7,13 +7,13 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.data_layer.provider import get_import_repo
 from src.sync.domain.models import (
     ConflictStrategy,
     ExportPackage,
     ImportResult,
     SyncCategory,
 )
-from src.data_layer.provider import get_import_repo
 
 
 class ImportService:

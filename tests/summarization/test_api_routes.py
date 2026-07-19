@@ -1,7 +1,7 @@
 """摘要读取 API 端点集成测试。"""
 
 import os
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 

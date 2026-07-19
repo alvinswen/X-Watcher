@@ -1,7 +1,7 @@
 """Import 服务测试。"""
 
 import asyncio
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 
 from src.preference.domain.models import ScraperFollow as FollowDomain
 from src.preference.infrastructure.file_follow_repository import FileFollowStore

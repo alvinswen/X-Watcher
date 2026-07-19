@@ -1,7 +1,7 @@
 """browse get_tweets/get_author_timeline 在 XWATCHER_DATA_LAYER=file 下走文件层。
 路径可证:种子只进文件层;跨模式对账:同数据 file vs sqlalchemy 同 (items,total)/author_meta
 (browse 列表无聚合 div/cast→SQLite 是有效 oracle;seed distinct created_at 避 tie-break)。"""
-from datetime import datetime, timedelta, timezone, UTC
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -22,9 +22,9 @@ def _summary(tid):
 
 
 async def _seed_file(tmp_path, tweets, summaries=(), follows=()):
+    from src.preference.infrastructure.file_follow_repository import FileFollowStore
     from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
     from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
-    from src.preference.infrastructure.file_follow_repository import FileFollowStore
     await FileTweetStore(tmp_path).save_tweets(list(tweets), early_stop_threshold=0)
     if summaries:
         await FileSummaryStore(tmp_path).seed(list(summaries))
@@ -83,6 +83,7 @@ async def test_get_tweets_file_mode_media_shape(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     import json
+
     from src.scraper.domain.models import Media, Tweet
     now = datetime.now(UTC)
     base = now.replace(hour=12, minute=0, second=0, microsecond=0) - timedelta(days=1)
@@ -139,6 +140,7 @@ async def test_mcp_browse_tweets_file_mode(monkeypatch, tmp_path):
                                 _tweet("mb2", "alice", base + timedelta(minutes=2))],
                      summaries=[_summary("mb2")])
     from mcp.server.fastmcp import FastMCP
+
     from src.mcp.tools import browse_tools
     mcp = FastMCP("test"); browse_tools.register(mcp)
     fn = mcp._tool_manager._tools["browse_tweets"].fn
@@ -303,6 +305,7 @@ async def test_mcp_get_daily_stats_file_mode(monkeypatch, tmp_path):
         _tweet("md2", "bob", datetime(2026, 5, 2, 9, 0, tzinfo=UTC)),
     ])
     from mcp.server.fastmcp import FastMCP
+
     from src.mcp.tools import browse_tools
     mcp = FastMCP("test"); browse_tools.register(mcp)
     fn = mcp._tool_manager._tools["get_daily_stats"].fn
@@ -321,6 +324,7 @@ async def test_mcp_get_authors_for_date_file_mode(monkeypatch, tmp_path):
         _tweet("ma1", "alice", day), _tweet("ma2", "bob", day.replace(hour=8)),
     ], follows=[("alice", "AI 研究者")])
     from mcp.server.fastmcp import FastMCP
+
     from src.mcp.tools import browse_tools
     mcp = FastMCP("test"); browse_tools.register(mcp)
     fn = mcp._tool_manager._tools["get_authors_for_date"].fn

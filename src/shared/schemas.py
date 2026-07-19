@@ -3,7 +3,7 @@
 提供 UTC datetime 序列化支持，解决 SQLite naive datetime 的时区问题。
 """
 
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import (

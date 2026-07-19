@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from datetime import date, datetime, timezone, UTC
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 

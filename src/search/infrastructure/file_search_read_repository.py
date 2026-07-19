@@ -10,7 +10,7 @@ FileSummaryStore.get_all_summaries(全量摘要建 map 左连接)。复刻旧 Se
 """
 from __future__ import annotations
 
-from datetime import timezone, UTC
+from datetime import UTC
 from pathlib import Path
 from typing import Any
 

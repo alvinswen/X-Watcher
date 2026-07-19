@@ -1,6 +1,6 @@
 """M-5 4a 文件层 round-trip:经 provider 写→读一致(summary / user 重表达)。"""
 
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 
 
 async def test_user_create_then_password_hash_roundtrip(monkeypatch, tmp_path):

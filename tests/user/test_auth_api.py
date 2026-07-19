@@ -4,13 +4,12 @@ import os
 from pathlib import Path
 
 import pytest
-from httpx import AsyncClient, ASGITransport
+from httpx import ASGITransport, AsyncClient
 
 from src.config import clear_settings_cache
 from src.main import app
 from src.user.infrastructure.file_user_repository import FileUserStore
 from src.user.services.auth_service import AuthService
-
 
 JWT_SECRET = "test-auth-api-jwt-secret-key-32bytes!"
 

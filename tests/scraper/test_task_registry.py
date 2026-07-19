@@ -3,11 +3,7 @@
 测试异步任务状态管理功能。
 """
 
-import time
 from datetime import datetime, timedelta
-from enum import Enum
-
-import pytest
 
 from src.scraper.task_registry import TaskRegistry, TaskStatus
 

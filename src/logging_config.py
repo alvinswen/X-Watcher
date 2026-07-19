@@ -17,7 +17,7 @@ import logging
 import os
 import queue
 import time
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 from logging.handlers import QueueHandler, QueueListener, RotatingFileHandler
 from typing import Any
 

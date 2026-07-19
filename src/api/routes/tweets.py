@@ -4,8 +4,8 @@
 """
 
 import logging
-from datetime import datetime, timezone, UTC
-from typing import Any, Literal
+from datetime import UTC, datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field

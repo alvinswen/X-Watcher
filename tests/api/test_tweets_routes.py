@@ -3,7 +3,7 @@
 测试推文列表和详情 API 端点。
 """
 
-from datetime import datetime, timedelta, timezone, UTC
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest

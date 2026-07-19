@@ -2,12 +2,12 @@
 
 import os
 import re
+from datetime import UTC
 
 import pytest
 
 from src.config import clear_settings_cache
 from src.user.services.auth_service import AuthService
-from datetime import UTC
 
 
 @pytest.fixture(autouse=True)
@@ -95,8 +95,9 @@ def test_jwt_create_and_decode(auth_service):
 
 def test_jwt_expired(auth_service):
     """过期 JWT Token 抛出 ExpiredSignatureError。"""
+    from datetime import datetime, timedelta
+
     import jwt as pyjwt
-    from datetime import datetime, timezone, timedelta
 
     settings_secret = "test-jwt-secret-key-for-unit-tests"
     expired_payload = {

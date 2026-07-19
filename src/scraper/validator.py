@@ -6,9 +6,8 @@
 import logging
 import re
 from collections.abc import Sequence
+from datetime import UTC
 from typing import Any
-
-from datetime import timezone, UTC
 
 from returns.result import Failure, Result, Success
 

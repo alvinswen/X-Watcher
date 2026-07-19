@@ -5,7 +5,7 @@
 """
 
 import os
-from datetime import datetime, timedelta, timezone, UTC
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -18,6 +18,7 @@ from src.scraper.domain.models import Tweet
 from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
 from src.user.api.auth import get_current_admin_user
 from src.user.domain.models import BOOTSTRAP_ADMIN
+
 
 @pytest.fixture(scope="module")
 def client() -> TestClient:

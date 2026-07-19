@@ -14,8 +14,9 @@ def test_export_then_import_follow_roundtrip(monkeypatch, tmp_path):
 
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(src_root))
-    from src.data_layer.provider import get_export_repo, get_import_repo, get_follows_repo
     import asyncio
+
+    from src.data_layer.provider import get_export_repo, get_follows_repo, get_import_repo
 
     asyncio.run(get_follows_repo().create_scraper_follow(username="alice", reason="m5", added_by="t"))
 
@@ -34,8 +35,9 @@ def test_dry_run_does_not_touch_real_data(monkeypatch, tmp_path):
     """dry_run import 后真 data_root 字节不变。"""
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    from src.data_layer.provider import get_import_repo, get_follows_repo
     import asyncio
+
+    from src.data_layer.provider import get_follows_repo, get_import_repo
 
     asyncio.run(get_follows_repo().create_scraper_follow(username="existing", reason="r", added_by="t"))
     follows_file = tmp_path / "follows" / "follows.json"

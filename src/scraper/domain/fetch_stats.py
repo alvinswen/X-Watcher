@@ -3,7 +3,7 @@
 记录每个用户的抓取历史统计，用于动态计算 limit。
 """
 
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 

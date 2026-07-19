@@ -3,11 +3,9 @@
 测试推文数据解析功能。
 """
 
-from datetime import datetime, timezone
 
-import pytest
 
-from src.scraper.domain.models import ArticlePreview, Media, ReferenceType, Tweet
+from src.scraper.domain.models import ReferenceType
 from src.scraper.parser import TweetParser
 
 

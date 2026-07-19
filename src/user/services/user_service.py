@@ -2,9 +2,9 @@
 
 import logging
 
-from src.user.domain.models import UserDomain, ApiKeyInfo
-from src.user.infrastructure.user_store import NotFoundError
 from src.data_layer.provider import get_user_repo
+from src.user.domain.models import ApiKeyInfo, UserDomain
+from src.user.infrastructure.user_store import NotFoundError
 from src.user.services.auth_service import AuthService
 
 logger = logging.getLogger(__name__)

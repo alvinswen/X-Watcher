@@ -2,7 +2,7 @@
 路径可证:种子只进文件层;跨模式对账:同数据 file vs sqlalchemy 同 (items 除 db_created_at, total)
 (search 无聚合 div/cast→SQLite 对 ASCII keyword 有效;distinct created_at 避 tie-break;created_at
 按 instant 比 + 钉 file aware;db_created_at file None 单独断言)。"""
-from datetime import datetime, timedelta, timezone, UTC
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -136,6 +136,7 @@ async def test_search_file_mode_media_shape(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     import json
+
     from src.scraper.domain.models import Media
     now = datetime.now(UTC)
     base = now - timedelta(days=1)
@@ -153,7 +154,8 @@ async def test_search_file_mode_media_shape(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_search_tweet_item_accepts_none_db_created_at():
     """schema 改 Optional 后 SearchTweetItem 接受 file 模式 db_created_at=None。"""
-    from datetime import datetime, timezone
+    from datetime import datetime
+
     from src.search.api.schemas import SearchTweetItem
     item = {"tweet_id": "x", "text": "t", "author_username": "a", "author_display_name": None,
             "created_at": datetime(2024, 1, 1, tzinfo=UTC), "db_created_at": None,
@@ -174,6 +176,7 @@ async def test_mcp_search_tweets_file_mode(monkeypatch, tmp_path):
     await _seed_file(tmp_path, [_tweet("ms1", "alice", base + timedelta(minutes=1), text="needle here"),
                                 _tweet("ms2", "alice", base + timedelta(minutes=2), text="other")])
     from mcp.server.fastmcp import FastMCP
+
     from src.mcp.tools import feed_tools
     mcp = FastMCP("test"); feed_tools.register(mcp)
     fn = mcp._tool_manager._tools["search_tweets"].fn

@@ -4,7 +4,7 @@ XWATCHER_DATA_LAYER=file 下走文件层。
 - #8 tweet_time_range / #9 period_analysis:无 round 陷阱,SQLite 是有效 oracle,既做 file
   路径可证又做跨模式(file vs sqlalchemy SQLite)对账。
 """
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest

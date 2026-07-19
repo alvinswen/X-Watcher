@@ -6,7 +6,7 @@
 每条配故障注入(改接缝/篡改数据应翻红)。
 """
 
-from datetime import datetime, timedelta, timezone, UTC
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -191,6 +191,7 @@ async def test_mcp_get_system_status_file_mode(monkeypatch, tmp_path):
     await _seed_follows(tmp_path, [_follow(1, "alice", True), _follow(2, "bob", False)])
 
     from mcp.server.fastmcp import FastMCP
+
     from src.mcp.tools import status_tools
 
     mcp = FastMCP("test")
@@ -216,8 +217,9 @@ async def test_mcp_status_seam_rename_breaks(monkeypatch):
 
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     from mcp.server.fastmcp import FastMCP
-    from src.mcp.tools import status_tools
+
     import src.data_layer.provider as provider
+    from src.mcp.tools import status_tools
 
     # 删掉 get_status_repo 模拟接缝改名 → 工具内 import 失败 → error_response
     monkeypatch.delattr(provider, "get_status_repo", raising=True)
@@ -249,6 +251,7 @@ async def test_mcp_status_resource_file_mode(monkeypatch, tmp_path):
     await _seed_follows(tmp_path, [_follow(1, "alice", True)])
 
     from mcp.server.fastmcp import FastMCP
+
     from src.mcp.resources import providers
 
     mcp = FastMCP("test")

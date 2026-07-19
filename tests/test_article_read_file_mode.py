@@ -8,10 +8,9 @@
 ⚠️ 无 round 陷阱豁免:过滤/排序/截断,无除法分桶 → SQLite 是有效 oracle。
 created_at 用非 NULL 且互异(limit-边界 tie-order 是已知限制,见门面 docstring)。
 """
-from datetime import datetime, timedelta, timezone, UTC
+from datetime import UTC, datetime, timedelta
 
 import pytest
-
 
 # ── 种子助手 ───────────────────────────────────────────────
 

@@ -9,7 +9,7 @@ import base64
 import hashlib
 import secrets
 import string
-from datetime import datetime, timezone, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import bcrypt

@@ -4,7 +4,7 @@ export / import-data 子命令。
 """
 
 import platform
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 from pathlib import Path
 
 import click

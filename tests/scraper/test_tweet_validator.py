@@ -3,13 +3,12 @@
 测试推文数据验证和清理功能。
 """
 
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 
-import pytest
 from returns.result import Failure, Success
 
 from src.scraper.domain.models import Tweet
-from src.scraper.validator import TweetValidator, ValidationError
+from src.scraper.validator import TweetValidator
 
 
 class TestTweetValidator:

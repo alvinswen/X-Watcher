@@ -1,7 +1,7 @@
 """搜索 API 集成测试。"""
 
 import os
-from datetime import datetime, timedelta, timezone, UTC
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 

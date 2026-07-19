@@ -8,7 +8,7 @@ import asyncio
 import logging
 import threading
 import time
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 from typing import Any, cast
 
 from returns.result import Failure, Success

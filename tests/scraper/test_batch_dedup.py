@@ -4,7 +4,7 @@
 批量去重的 save_tweets 以及 Early Termination 逻辑。
 """
 
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 
 import pytest
 

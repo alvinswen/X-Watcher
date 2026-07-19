@@ -3,7 +3,7 @@
 测试 SummaryRecord(唯一活体 · MCP Agent 回写通道契约)。
 """
 
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError

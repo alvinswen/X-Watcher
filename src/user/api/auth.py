@@ -10,8 +10,8 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 
 from src.config import get_settings
-from src.user.domain.models import BOOTSTRAP_ADMIN, UserDomain
 from src.data_layer.provider import get_user_repo
+from src.user.domain.models import BOOTSTRAP_ADMIN, UserDomain
 from src.user.services.auth_service import AuthService
 
 logger = logging.getLogger(__name__)

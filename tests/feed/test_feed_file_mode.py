@@ -2,7 +2,7 @@
 路径可证:种子只进文件层;跨模式对账:同数据 file vs sqlalchemy 同 (items 除 db_created_at,
 count,total,has_more)(feed 无聚合 div/cast→SQLite 对 ASCII keyword 是有效 oracle;seed distinct
 created_at 避 tie-break;created_at 按 instant 比 + 单独钉 file aware;db_created_at file None 单独断言)。"""
-from datetime import datetime, timedelta, timezone, UTC
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -149,6 +149,7 @@ async def test_get_feed_file_mode_media_shape(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     import json
+
     from src.scraper.domain.models import Media
     now = datetime.now(UTC)
     base = now - timedelta(days=1)
@@ -167,7 +168,8 @@ async def test_get_feed_file_mode_media_shape(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_feed_tweet_item_accepts_none_db_created_at():
     """schema 改 Optional 后 FeedTweetItem 接受 file 模式 db_created_at=None。"""
-    from datetime import datetime, timezone
+    from datetime import datetime
+
     from src.feed.api.schemas import FeedTweetItem
     item = {"tweet_id": "x", "text": "t", "author_username": "a", "author_display_name": None,
             "created_at": datetime(2024, 1, 1, tzinfo=UTC), "db_created_at": None,
@@ -209,6 +211,7 @@ async def test_mcp_get_feed_file_mode(monkeypatch, tmp_path):
                                 _tweet("mf2", "alice", base + timedelta(minutes=2))],
                      summaries=[_summary("mf2")])
     from mcp.server.fastmcp import FastMCP
+
     from src.mcp.tools import feed_tools
     mcp = FastMCP("test"); feed_tools.register(mcp)
     fn = mcp._tool_manager._tools["get_feed"].fn

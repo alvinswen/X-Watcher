@@ -7,14 +7,14 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from src.preference.infrastructure.file_follow_repository import FileFollowStore
+from src.scraper.infrastructure.file_article_repository import FileArticleStore
 from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
 from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
-from src.scraper.infrastructure.file_article_repository import FileArticleStore
 from src.sync.domain.models import ConflictStrategy, ImportStats
 from src.sync.infrastructure.file_export_repository import FileExportStore
 
