@@ -2,7 +2,7 @@
 
 import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from click.testing import CliRunner
 
@@ -47,7 +47,7 @@ class TestExportCommand:
                     username="alice",
                     reason="KOL",
                     added_by="admin",
-                    added_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    added_at=datetime(2026, 1, 1, tzinfo=UTC),
                     is_active=True,
                 )
             ],
@@ -74,7 +74,7 @@ class TestExportCommand:
         assert "scraper_follows: 1" in result.output
 
         # 验证文件内容
-        with open(output_path, "r", encoding="utf-8") as f:
+        with open(output_path, encoding="utf-8") as f:
             data = json.load(f)
         assert data["metadata"]["source_instance_id"] == "test-server"
         assert len(data["data"]["config"]["scraper_follows"]) == 1
@@ -96,7 +96,8 @@ class TestExportCommand:
         )
 
         assert result.exit_code == 0
-        content = open(output_path, "r", encoding="utf-8").read()
+        with open(output_path, encoding="utf-8") as output_file:
+            content = output_file.read()
         assert "\n  " in content
 
     def test_export_with_since_filter(self, monkeypatch, tmp_path):
@@ -109,13 +110,13 @@ class TestExportCommand:
                     tweet_id="tw_old",
                     text="Old tweet",
                     author_username="alice",
-                    created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    created_at=datetime(2026, 1, 1, tzinfo=UTC),
                 ),
                 Tweet(
                     tweet_id="tw_new",
                     text="New tweet",
                     author_username="alice",
-                    created_at=datetime(2026, 2, 15, tzinfo=timezone.utc),
+                    created_at=datetime(2026, 2, 15, tzinfo=UTC),
                 ),
             ],
         )
@@ -137,7 +138,7 @@ class TestExportCommand:
         )
 
         assert result.exit_code == 0
-        with open(output_path, "r", encoding="utf-8") as f:
+        with open(output_path, encoding="utf-8") as f:
             data = json.load(f)
         assert data["metadata"]["counts"]["tweets"] == 1
 
@@ -278,7 +279,7 @@ class TestEndToEnd:
                     username="alice",
                     reason="KOL",
                     added_by="admin",
-                    added_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    added_at=datetime(2026, 1, 1, tzinfo=UTC),
                     is_active=True,
                 )
             ],
@@ -287,7 +288,7 @@ class TestEndToEnd:
                     tweet_id="tw_001",
                     text="Hello",
                     author_username="alice",
-                    created_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
+                    created_at=datetime(2026, 2, 1, tzinfo=UTC),
                 )
             ],
             summaries=[
@@ -302,8 +303,8 @@ class TestEndToEnd:
                     total_tokens=150,
                     cost_usd=0.01,
                     content_hash="hash1",
-                    created_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
-                    updated_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
+                    created_at=datetime(2026, 2, 1, tzinfo=UTC),
+                    updated_at=datetime(2026, 2, 1, tzinfo=UTC),
                 )
             ],
         )

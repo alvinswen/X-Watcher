@@ -5,7 +5,7 @@
 """
 
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -18,6 +18,7 @@ from src.scraper.domain.models import Tweet
 from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
 from src.user.api.auth import get_current_admin_user
 from src.user.domain.models import BOOTSTRAP_ADMIN
+
 
 @pytest.fixture(scope="module")
 def client() -> TestClient:
@@ -42,7 +43,7 @@ def tweet_file_data_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Pat
 @pytest.fixture
 def seed_test_tweets(tweet_file_data_root: Path) -> list[Tweet]:
     """准备测试推文数据。"""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     tweets = [
         Tweet(
             tweet_id="tweet1",

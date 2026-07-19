@@ -4,7 +4,7 @@
 """
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def _default_serializer(obj: object) -> str:
@@ -37,7 +37,7 @@ def parse_datetime(value: str) -> datetime:
     """
     dt = datetime.fromisoformat(value)
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     return dt
 
 

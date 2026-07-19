@@ -11,7 +11,7 @@ instant 比对 + 单独钉 file 为 aware "+00:00"。
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -83,13 +83,14 @@ class FileBrowseReadStore:
         """按用户本地时区分组的每日推文数量。复刻 BrowseService.get_daily_stats:
         月窗 UTC 算术 + get_feed 窗口读 + 按本地日分组计数(date cast=截断,无 round 陷阱)。"""
         from collections import Counter
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
+
         from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
 
         local_start = datetime(year, month, 1)
         local_end = datetime(year + 1, 1, 1) if month == 12 else datetime(year, month + 1, 1)
-        utc_start = (local_start + timedelta(minutes=tz_offset)).replace(tzinfo=timezone.utc)
-        utc_end = (local_end + timedelta(minutes=tz_offset)).replace(tzinfo=timezone.utc)
+        utc_start = (local_start + timedelta(minutes=tz_offset)).replace(tzinfo=UTC)
+        utc_end = (local_end + timedelta(minutes=tz_offset)).replace(tzinfo=UTC)
 
         feed = await FileTweetStore(self._root).get_feed(utc_start, utc_end, limit=_NO_LIMIT)
         min_len = min_text_length or 0
@@ -97,7 +98,7 @@ class FileBrowseReadStore:
         for tw in feed.items:
             if len(tw.text or "") < min_len:
                 continue
-            created = tw.created_at if tw.created_at.tzinfo else tw.created_at.replace(tzinfo=timezone.utc)
+            created = tw.created_at if tw.created_at.tzinfo else tw.created_at.replace(tzinfo=UTC)
             # 复刻 sql_date_with_offset(col, -tz_offset)::DATE:local=UTC+(-tz_offset)分,取日(截断)
             local_date = (created + timedelta(minutes=-tz_offset)).date()
             counter[local_date.isoformat()] += 1
@@ -108,6 +109,7 @@ class FileBrowseReadStore:
         复刻 BrowseService.get_authors:精确 author_username 分组 + 大小写不敏感最新 display_name
         + 精确 username reason 匹配(active follow)。COUNT/MAX 无除法,无 round 陷阱。"""
         from datetime import datetime
+
         from src.data_layer.provider import get_follows_repo
         from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
 

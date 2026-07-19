@@ -56,6 +56,7 @@ def test_config_validation_error_when_invalid_log_level(monkeypatch):
     monkeypatch.setenv("LOG_LEVEL", "INVALID")
 
     from pydantic import ValidationError
+
     from src.config import Settings
 
     # 应该抛出 ValidationError

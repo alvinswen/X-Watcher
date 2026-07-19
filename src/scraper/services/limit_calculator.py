@@ -4,7 +4,7 @@
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from src.scraper.domain.fetch_stats import FetchStats
 
@@ -120,7 +120,7 @@ class LimitCalculator:
         Returns:
             FetchStats: 更新后的统计数据
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         if stats is None:
             # 新用户，创建初始统计
@@ -146,10 +146,7 @@ class LimitCalculator:
             new_avg = stats.avg_new_rate
 
         # 更新连续空抓取计数
-        if new_count == 0:
-            consecutive_empty = stats.consecutive_empty_fetches + 1
-        else:
-            consecutive_empty = 0
+        consecutive_empty = stats.consecutive_empty_fetches + 1 if new_count == 0 else 0
 
         return FetchStats(
             username=username,

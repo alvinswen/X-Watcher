@@ -2,7 +2,7 @@
 路径可证:种子只进文件层;跨模式对账:同数据 file vs sqlalchemy 同 (items 除 db_created_at, total)
 (search 无聚合 div/cast→SQLite 对 ASCII keyword 有效;distinct created_at 避 tie-break;created_at
 按 instant 比 + 钉 file aware;db_created_at file None 单独断言)。"""
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -15,7 +15,7 @@ def _tweet(tid, author, created_at, text="hello world", ref_text=None, media=Non
 
 def _summary(tid, summary_text=None, translation_text=None):
     from src.summarization.domain.models import SummaryRecord
-    now = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    now = datetime(2024, 1, 1, tzinfo=UTC)
     return SummaryRecord(summary_id=f"s-{tid}", tweet_id=tid,
                          summary_text=summary_text if summary_text is not None else f"摘要{tid}",
                          translation_text=translation_text if translation_text is not None else f"译文{tid}",
@@ -35,7 +35,7 @@ async def _seed_file(tmp_path, tweets, summaries=()):
 async def test_search_file_mode_multi_keyword_and(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     base = now - timedelta(days=1)
     # s1 含 alpha+beta;s2 仅 alpha;s3 仅 beta
     await _seed_file(tmp_path, [
@@ -58,7 +58,7 @@ async def test_search_file_mode_referenced_text_and_summary(monkeypatch, tmp_pat
     """keyword 命中 referenced_tweet_text(feed 没有的字段)/ summary;include_summary=False 不搜 summary。"""
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     base = now - timedelta(days=1)
     await _seed_file(tmp_path, [
         _tweet("r1", "alice", base + timedelta(minutes=1), text="plain", ref_text="引用里有 zebra"),
@@ -79,7 +79,7 @@ async def test_search_file_mode_referenced_text_and_summary(monkeypatch, tmp_pat
 async def test_search_file_mode_14_field_shape(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     base = now - timedelta(days=1)
     await _seed_file(tmp_path, [_tweet("f1", "alice", base + timedelta(minutes=1), text="findme")],
                      summaries=[_summary("f1")])
@@ -100,7 +100,7 @@ async def test_search_file_mode_window_fastpath_and_pagination(monkeypatch, tmp_
     """since 提供→窗口快路径;offset 分页(page=2)。"""
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     base = now - timedelta(days=1)
     await _seed_file(tmp_path, [_tweet(f"w{i}", "alice", base + timedelta(minutes=i), text="kw") for i in range(5)])
     from src.data_layer.provider import get_search_repo
@@ -117,7 +117,7 @@ async def test_search_file_mode_author_and_until_only(monkeypatch, tmp_path):
     """author 过滤 + until-only(since 无)全扫兜底路径。"""
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     base = now - timedelta(days=1)
     await _seed_file(tmp_path, [
         _tweet("a1", "alice", base + timedelta(minutes=1), text="kw"),
@@ -136,8 +136,9 @@ async def test_search_file_mode_media_shape(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     import json
+
     from src.scraper.domain.models import Media
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     base = now - timedelta(days=1)
     tw = _tweet("m1", "alice", base + timedelta(minutes=1), text="kw", media=[Media(media_key="k1", type="photo")])
     await _seed_file(tmp_path, [tw])
@@ -153,10 +154,11 @@ async def test_search_file_mode_media_shape(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_search_tweet_item_accepts_none_db_created_at():
     """schema 改 Optional 后 SearchTweetItem 接受 file 模式 db_created_at=None。"""
-    from datetime import datetime, timezone
+    from datetime import datetime
+
     from src.search.api.schemas import SearchTweetItem
     item = {"tweet_id": "x", "text": "t", "author_username": "a", "author_display_name": None,
-            "created_at": datetime(2024, 1, 1, tzinfo=timezone.utc), "db_created_at": None,
+            "created_at": datetime(2024, 1, 1, tzinfo=UTC), "db_created_at": None,
             "reference_type": None, "referenced_tweet_id": None, "referenced_tweet_text": None,
             "referenced_tweet_author_username": None, "media": None, "referenced_tweet_media": None,
             "summary_text": None, "translation_text": None}
@@ -169,13 +171,15 @@ async def test_mcp_search_tweets_file_mode(monkeypatch, tmp_path):
     import json
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     base = now - timedelta(days=1)
     await _seed_file(tmp_path, [_tweet("ms1", "alice", base + timedelta(minutes=1), text="needle here"),
                                 _tweet("ms2", "alice", base + timedelta(minutes=2), text="other")])
     from mcp.server.fastmcp import FastMCP
+
     from src.mcp.tools import feed_tools
-    mcp = FastMCP("test"); feed_tools.register(mcp)
+    mcp = FastMCP("test")
+    feed_tools.register(mcp)
     fn = mcp._tool_manager._tools["search_tweets"].fn
     raw = await fn(q="needle")
     data = json.loads(raw)

@@ -1,7 +1,7 @@
 """公共 Pydantic 基类测试。"""
 
 import json
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 
 from src.shared.schemas import UTCDatetimeModel
 
@@ -35,7 +35,7 @@ class TestUTCDatetimeSerialization:
     def test_utc_datetime_serialized_correctly(self):
         """测试已有 UTC 时区的 datetime 序列化正确。"""
         model = _TestModel(
-            created_at=datetime(2026, 2, 22, 10, 30, 0, tzinfo=timezone.utc)
+            created_at=datetime(2026, 2, 22, 10, 30, 0, tzinfo=UTC)
         )
         data = json.loads(model.model_dump_json())
 

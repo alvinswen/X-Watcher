@@ -5,7 +5,7 @@
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -290,7 +290,7 @@ async def sync_user_profiles(
             return SyncProfilesResponse(synced=0, message="API 返回空结果")
 
         # 转换并持久化
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        now = datetime.now(UTC).replace(tzinfo=None)
         profiles = []
         raw_data_map: dict[str, dict[str, Any]] = {}
         for u in users_data:

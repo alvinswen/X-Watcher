@@ -3,13 +3,12 @@
 测试推文数据验证和清理功能。
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-import pytest
 from returns.result import Failure, Success
 
 from src.scraper.domain.models import Tweet
-from src.scraper.validator import TweetValidator, ValidationError
+from src.scraper.validator import TweetValidator
 
 
 class TestTweetValidator:
@@ -22,7 +21,7 @@ class TestTweetValidator:
         tweet = Tweet(
             tweet_id="123",
             text="Valid tweet",
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
             author_username="testuser",
         )
 
@@ -41,7 +40,7 @@ class TestTweetValidator:
         tweet = Tweet(
             tweet_id="123",
             text="Valid tweet",
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
             author_username="testuser",
         )
         # 手动设置为空字符串
@@ -59,7 +58,7 @@ class TestTweetValidator:
         tweet = Tweet(
             tweet_id="123",
             text="Line 1\nLine 2\rLine 3\r\nLine 4",
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
             author_username="testuser",
         )
 
@@ -76,7 +75,7 @@ class TestTweetValidator:
         tweet = Tweet(
             tweet_id="123",
             text="  Multiple   spaces   between   words  ",
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
             author_username="testuser",
         )
 
@@ -96,7 +95,7 @@ class TestTweetValidator:
         tweet = Tweet(
             tweet_id="123",
             text=long_text,
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
             author_username="testuser",
         )
 
@@ -113,7 +112,7 @@ class TestTweetValidator:
         tweet = Tweet(
             tweet_id="123",
             text="My comment",
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
             author_username="testuser",
             referenced_tweet_text="Original  text\nwith  newlines\n\nand  spaces",
         )
@@ -133,7 +132,7 @@ class TestTweetValidator:
             Tweet(
                 tweet_id=str(i),
                 text=f"Tweet {i} with\n newlines",
-                created_at=datetime.now(timezone.utc),
+                created_at=datetime.now(UTC),
                 author_username="user",
             )
             for i in range(5)
@@ -154,7 +153,7 @@ class TestTweetValidator:
         tweet = Tweet(
             tweet_id="123",
             text="Tweet with emojis 😊 and special chars: <>&\"'",
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
             author_username="testuser",
         )
 
@@ -168,7 +167,7 @@ class TestTweetValidator:
         tweet = Tweet(
             tweet_id="123",
             text="Check out https://example.com for more info",
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
             author_username="testuser",
         )
 
@@ -204,7 +203,7 @@ class TestTweetValidator:
         tweet = Tweet(
             tweet_id="123",
             text="   ",
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
             author_username="testuser",
         )
 
@@ -221,7 +220,7 @@ class TestTweetValidator:
         tweet = Tweet(
             tweet_id="123",
             text="Tweet with media",
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
             author_username="testuser",
             media=[
                 Media(
@@ -248,7 +247,7 @@ class TestTweetValidator:
         tweet = Tweet(
             tweet_id="123",
             text="Retweet",
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
             author_username="testuser",
             referenced_tweet_id="456",
             reference_type=ReferenceType.retweeted,

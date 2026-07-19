@@ -1,6 +1,6 @@
 """M-5 summarization read facade file-mode integration tests."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -9,12 +9,12 @@ from src.summarization.domain.models import SummaryRecord
 
 
 def _tweet(tid, author="alice", created=datetime(2050, 1, 1), text=None, **kw):
-    base = dict(
-        tweet_id=tid,
-        text=text if text is not None else "t" + tid,
-        created_at=created,
-        author_username=author,
-    )
+    base = {
+        "tweet_id": tid,
+        "text": text if text is not None else "t" + tid,
+        "created_at": created,
+        "author_username": author,
+    }
     base.update(kw)
     return Tweet(**base)
 
@@ -47,19 +47,19 @@ async def test_unsummarized_file_controlled(monkeypatch, tmp_path):
     from src.data_layer.provider import get_summarization_read_repo
 
     tweets = [
-        _tweet("1", "alice", created=datetime(2050, 1, 1, tzinfo=timezone.utc), text="a1"),
-        _tweet("2", "alice", created=datetime(2050, 5, 1, tzinfo=timezone.utc), text="a2"),
+        _tweet("1", "alice", created=datetime(2050, 1, 1, tzinfo=UTC), text="a1"),
+        _tweet("2", "alice", created=datetime(2050, 5, 1, tzinfo=UTC), text="a2"),
         _tweet(
             "3",
             "alice",
-            created=datetime(2050, 3, 1, tzinfo=timezone.utc),
+            created=datetime(2050, 3, 1, tzinfo=UTC),
             text="a3",
             reference_type=ReferenceType.quoted,
             referenced_tweet_text="orig",
             referenced_tweet_author_username="orig_a",
             author_display_name="Alice",
         ),
-        _tweet("4", "bob", created=datetime(2050, 2, 1, tzinfo=timezone.utc), text="b4"),
+        _tweet("4", "bob", created=datetime(2050, 2, 1, tzinfo=UTC), text="b4"),
     ]
     summaries = [_summary("s2", "2")]
 
@@ -74,12 +74,12 @@ async def test_unsummarized_file_controlled(monkeypatch, tmp_path):
     assert [t["tweet_id"] for t in by_author] == ["3", "1"]
 
     since = await store.get_unsummarized_tweets(
-        since=datetime(2050, 3, 1, tzinfo=timezone.utc)
+        since=datetime(2050, 3, 1, tzinfo=UTC)
     )
     assert {t["tweet_id"] for t in since} == {"3"}
 
     until = await store.get_unsummarized_tweets(
-        until=datetime(2050, 3, 1, tzinfo=timezone.utc)
+        until=datetime(2050, 3, 1, tzinfo=UTC)
     )
     assert {t["tweet_id"] for t in until} == {"1", "4"}
 
@@ -139,10 +139,10 @@ async def test_list_unsummarized_ids_file_path(monkeypatch, tmp_path):
     from src.data_layer.provider import get_summarization_read_repo
 
     tweets = [
-        _tweet("1", "alice", created=datetime(2050, 1, 1, tzinfo=timezone.utc)),
-        _tweet("2", "alice", created=datetime(2050, 5, 1, tzinfo=timezone.utc)),
-        _tweet("3", "bob", created=datetime(2050, 3, 1, tzinfo=timezone.utc)),
-        _tweet("4", "bob", created=datetime(2050, 2, 1, tzinfo=timezone.utc)),
+        _tweet("1", "alice", created=datetime(2050, 1, 1, tzinfo=UTC)),
+        _tweet("2", "alice", created=datetime(2050, 5, 1, tzinfo=UTC)),
+        _tweet("3", "bob", created=datetime(2050, 3, 1, tzinfo=UTC)),
+        _tweet("4", "bob", created=datetime(2050, 2, 1, tzinfo=UTC)),
     ]
     store = get_summarization_read_repo()
     await store.seed_tweets(tweets)
@@ -152,12 +152,12 @@ async def test_list_unsummarized_ids_file_path(monkeypatch, tmp_path):
     assert ids == ["1", "3", "4"]
 
     ids_since = await store.list_unsummarized_ids(
-        since=datetime(2050, 3, 1, tzinfo=timezone.utc)
+        since=datetime(2050, 3, 1, tzinfo=UTC)
     )
     assert set(ids_since) == {"3"}
 
     ids_until = await store.list_unsummarized_ids(
-        until=datetime(2050, 3, 1, tzinfo=timezone.utc)
+        until=datetime(2050, 3, 1, tzinfo=UTC)
     )
     assert set(ids_until) == {"1", "4"}
 
@@ -172,26 +172,26 @@ async def test_list_tweet_ids_in_window_file_path(monkeypatch, tmp_path):
     from src.data_layer.provider import get_summarization_read_repo
 
     tweets = [
-        _tweet("1", "alice", created=datetime(2050, 1, 1, tzinfo=timezone.utc)),
-        _tweet("2", "alice", created=datetime(2050, 3, 1, tzinfo=timezone.utc)),
-        _tweet("3", "bob", created=datetime(2050, 5, 1, tzinfo=timezone.utc)),
+        _tweet("1", "alice", created=datetime(2050, 1, 1, tzinfo=UTC)),
+        _tweet("2", "alice", created=datetime(2050, 3, 1, tzinfo=UTC)),
+        _tweet("3", "bob", created=datetime(2050, 5, 1, tzinfo=UTC)),
     ]
     store = get_summarization_read_repo()
     await store.seed_tweets(tweets)
     await store.seed_summaries([_summary("s2", "2")])
 
     ids = await store.list_tweet_ids_in_window(
-        datetime(2050, 3, 1, tzinfo=timezone.utc),
-        datetime(2050, 5, 1, tzinfo=timezone.utc),
+        datetime(2050, 3, 1, tzinfo=UTC),
+        datetime(2050, 5, 1, tzinfo=UTC),
     )
     assert set(ids) == {"2"}
 
     ids_all = await store.list_tweet_ids_in_window(
-        datetime(2049, 1, 1, tzinfo=timezone.utc),
-        datetime(2051, 1, 1, tzinfo=timezone.utc),
+        datetime(2049, 1, 1, tzinfo=UTC),
+        datetime(2051, 1, 1, tzinfo=UTC),
     )
     assert set(ids_all) == {"1", "2", "3"}
     assert len(ids_all) == await store.count_tweets_in_window(
-        datetime(2049, 1, 1, tzinfo=timezone.utc),
-        datetime(2051, 1, 1, tzinfo=timezone.utc),
+        datetime(2049, 1, 1, tzinfo=UTC),
+        datetime(2051, 1, 1, tzinfo=UTC),
     )

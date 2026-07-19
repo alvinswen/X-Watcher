@@ -1,16 +1,15 @@
 """管理员用户操作 API (AdminUserRouter) 测试。"""
 
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from fastapi import HTTPException, status
-from httpx import AsyncClient, ASGITransport
+from httpx import ASGITransport, AsyncClient
 
 from src.config import clear_settings_cache
 from src.main import app
 from src.user.domain.models import UserDomain
-
 
 JWT_SECRET = "test-admin-api-jwt-secret-32bytes!!"
 
@@ -43,7 +42,7 @@ def _make_admin_user(user_id: int = 1) -> UserDomain:
         name="admin",
         email="admin@test.com",
         is_admin=True,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
 
 
@@ -54,7 +53,7 @@ def _make_normal_user(user_id: int = 2) -> UserDomain:
         name="normaluser",
         email="normal@test.com",
         is_admin=False,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
 
 

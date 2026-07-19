@@ -4,13 +4,10 @@ import os
 from pathlib import Path
 
 import pytest
-from httpx import AsyncClient, ASGITransport
 
 from src.config import clear_settings_cache
-from src.main import app
 from src.user.infrastructure.file_user_repository import FileUserStore
 from src.user.services.auth_service import AuthService
-
 
 JWT_SECRET = "test-auth-api-jwt-secret-key-32bytes!"
 
@@ -34,14 +31,6 @@ def setup_env(tmp_path):
         else:
             os.environ[key] = value
     clear_settings_cache()
-
-
-@pytest.fixture
-async def client_and_session():
-    """提供 async_client 和占位 session。"""
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        yield ac, None
 
 
 @pytest.fixture

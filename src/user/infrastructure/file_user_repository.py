@@ -16,18 +16,18 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from src.user.domain.models import ApiKeyInfo, UserDomain
-from src.user.infrastructure.user_store import DuplicateError, NotFoundError
 from src.storage.atomic import shard_lock
 from src.storage.doc_store import atomic_write_doc, read_doc
+from src.user.domain.models import ApiKeyInfo, UserDomain
+from src.user.infrastructure.user_store import DuplicateError, NotFoundError
 
 
 def _now_naive() -> str:
-    return datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+    return datetime.now(UTC).replace(tzinfo=None).isoformat()
 
 
 class FileUserStore:

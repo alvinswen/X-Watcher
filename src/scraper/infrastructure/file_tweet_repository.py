@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +22,7 @@ _PERSISTED_EXCLUDE = {"article_preview"}
 def _to_record(tweet: Tweet) -> dict[str, Any]:
     t = tweet
     if t.created_at.tzinfo is None:
-        t = t.model_copy(update={"created_at": t.created_at.replace(tzinfo=timezone.utc)})
+        t = t.model_copy(update={"created_at": t.created_at.replace(tzinfo=UTC)})
     return t.model_dump(mode="json", exclude=_PERSISTED_EXCLUDE)
 
 
@@ -141,7 +141,7 @@ class FileTweetStore:
     async def get_feed(self, since: datetime, until: datetime | None = None, *,
                        limit: int = 50) -> Feed[Tweet]:
         since = paths.as_utc(since)
-        until_eff = paths.as_utc(until) if until is not None else datetime(9999, 12, 31, tzinfo=timezone.utc)
+        until_eff = paths.as_utc(until) if until is not None else datetime(9999, 12, 31, tzinfo=UTC)
         records = views.read_by_day_range(self._root, since, until_eff)
         matched = [r for r in records if since <= _parse(r) < until_eff]
         total = len(matched)

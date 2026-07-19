@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from returns.result import Failure
@@ -37,7 +37,7 @@ class AccountInfoService:
     def _is_fresh(self) -> bool:
         if self._cached_at is None:
             return False
-        return datetime.now(timezone.utc) - self._cached_at < timedelta(
+        return datetime.now(UTC) - self._cached_at < timedelta(
             seconds=self.CACHE_TTL_SECONDS
         )
 
@@ -69,7 +69,7 @@ class AccountInfoService:
                 credits = payload.get("recharge_credits")
                 if isinstance(credits, int):
                     self._cached_credits = credits
-                    self._cached_at = datetime.now(timezone.utc)
+                    self._cached_at = datetime.now(UTC)
                     return {
                         "recharge_credits": credits,
                         "fetched_at": self._cached_at,

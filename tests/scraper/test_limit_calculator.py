@@ -3,7 +3,7 @@
 测试动态 limit 计算逻辑的各种场景。
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -34,7 +34,7 @@ def _make_stats(
     """创建测试用 FetchStats。"""
     return FetchStats(
         username=username,
-        last_fetch_at=datetime.now(timezone.utc),
+        last_fetch_at=datetime.now(UTC),
         last_fetched_count=last_fetched_count,
         last_new_count=last_new_count,
         total_fetches=total_fetches,

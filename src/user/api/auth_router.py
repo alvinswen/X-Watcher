@@ -4,8 +4,8 @@ import logging
 
 from fastapi import APIRouter, HTTPException, status
 
-from src.user.domain.schemas import LoginRequest, LoginResponse
 from src.data_layer.provider import get_user_repo
+from src.user.domain.schemas import LoginRequest, LoginResponse
 from src.user.services.auth_service import AuthService
 
 logger = logging.getLogger(__name__)

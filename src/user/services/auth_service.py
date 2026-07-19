@@ -9,13 +9,23 @@ import base64
 import hashlib
 import secrets
 import string
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import bcrypt
 import jwt
 
 from src.config import get_settings
+
+
+def _hash_password(password: str) -> str:
+    """bcrypt 哈希密码。"""
+    password_bytes = password.encode("utf-8")
+    if len(password_bytes) > 72:
+        password_bytes = base64.b64encode(
+            hashlib.sha256(password_bytes).digest()
+        )
+    return bcrypt.hashpw(password_bytes, bcrypt.gensalt(rounds=12)).decode("utf-8")
 
 
 class AuthService:
@@ -63,8 +73,8 @@ class AuthService:
             "sub": str(user_id),
             "email": email,
             "is_admin": is_admin,
-            "exp": datetime.now(timezone.utc) + timedelta(hours=settings.jwt_expire_hours),
-            "iat": datetime.now(timezone.utc),
+            "exp": datetime.now(UTC) + timedelta(hours=settings.jwt_expire_hours),
+            "iat": datetime.now(UTC),
         }
         return jwt.encode(payload, settings.jwt_secret_key, algorithm="HS256")
 

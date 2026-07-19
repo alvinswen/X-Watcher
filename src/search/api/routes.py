@@ -2,7 +2,7 @@
 
 import logging
 import math
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -27,7 +27,7 @@ def _parse_time_param(name: str, raw: str) -> datetime:
             detail=SEARCH_TIME_FORMAT_INVALID_TMPL.format(name=name, value=raw),
         )
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
+        parsed = parsed.replace(tzinfo=UTC)
     return parsed
 
 

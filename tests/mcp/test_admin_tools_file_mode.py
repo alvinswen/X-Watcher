@@ -7,7 +7,7 @@
 """
 import inspect
 import json
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -37,7 +37,7 @@ def _make_tweet(tweet_id, author, created_at, text="t"):
 def _make_summary(summary_id, tweet_id):
     from src.summarization.domain.models import SummaryRecord
 
-    now = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    now = datetime(2026, 6, 1, tzinfo=UTC)
     return SummaryRecord(
         summary_id=summary_id,
         tweet_id=tweet_id,
@@ -89,8 +89,8 @@ class TestFollowAccountsInfoFileMode:
 
         store = FileProfileStore(file_mode)
         await store.seed([
-            _make_profile("u1", "alice", datetime(2026, 6, 1, tzinfo=timezone.utc)),
-            _make_profile("u2", "bob", datetime(2026, 6, 2, tzinfo=timezone.utc)),
+            _make_profile("u1", "alice", datetime(2026, 6, 1, tzinfo=UTC)),
+            _make_profile("u2", "bob", datetime(2026, 6, 2, tzinfo=UTC)),
         ])
 
         result = await _tool_funcs()["get_follow_accounts_info"](info_type="profiles")
@@ -115,7 +115,7 @@ class TestFollowAccountsInfoFileMode:
         await follows.create_scraper_follow("bob", "r", "admin")
 
         read = FileSummarizationReadStore(file_mode)
-        base = datetime(2026, 6, 10, tzinfo=timezone.utc)
+        base = datetime(2026, 6, 10, tzinfo=UTC)
         await read.seed_tweets([
             _make_tweet("1", "alice", base),
             _make_tweet("2", "alice", base + timedelta(hours=1)),
@@ -137,7 +137,7 @@ class TestFollowAccountsInfoFileMode:
         )
 
         read = FileSummarizationReadStore(file_mode)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         await read.seed_tweets([
             _make_tweet("1", "alice", now - timedelta(hours=1)),
             _make_tweet("2", "alice", now - timedelta(hours=2)),
@@ -159,7 +159,7 @@ class TestFollowAccountsInfoFileMode:
         from src.preference.infrastructure.file_profile_repository import FileProfileStore
 
         store = FileProfileStore(file_mode)
-        await store.seed([_make_profile("u1", "alice", datetime(2026, 6, 1, tzinfo=timezone.utc))])
+        await store.seed([_make_profile("u1", "alice", datetime(2026, 6, 1, tzinfo=UTC))])
 
         monkeypatch.delattr(FileProfileStore, "get_all_profiles")
         result = await _tool_funcs()["get_follow_accounts_info"](info_type="profiles")

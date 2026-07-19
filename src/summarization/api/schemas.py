@@ -4,10 +4,14 @@
 """
 
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from pydantic import Field
 
 from src.shared.schemas import UTCDatetimeModel
+
+if TYPE_CHECKING:
+    from src.summarization.domain.models import SummaryRecord
 
 
 class SummaryResponse(UTCDatetimeModel):
@@ -34,7 +38,7 @@ class SummaryResponse(UTCDatetimeModel):
     updated_at: datetime = Field(..., description="更新时间")
 
     @classmethod
-    def from_domain(cls, record: "SummaryRecord") -> "SummaryResponse":  # type: ignore[name-defined]
+    def from_domain(cls, record: "SummaryRecord") -> "SummaryResponse":
         """从领域模型创建响应。
 
         Args:

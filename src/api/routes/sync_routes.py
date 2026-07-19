@@ -6,7 +6,7 @@
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -65,7 +65,7 @@ def _parse_datetime(value: str | None) -> datetime | None:
     try:
         dt = datetime.fromisoformat(value)
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
         return dt
     except ValueError:
         raise HTTPException(
@@ -103,7 +103,6 @@ def _parse_upload_file(content: bytes) -> ExportPackage:
         )
 
     try:
-        from src.sync.format.json_format import read_export_file
         from src.sync.domain.models import ExportFilters, ExportMetadata
 
         meta_raw = raw["metadata"]

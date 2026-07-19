@@ -6,7 +6,7 @@
 每条配故障注入(改接缝/篡改数据应翻红)。
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -28,7 +28,7 @@ def _tweet(tid, author, created_at, text="hello world"):
 def _summary(tid):
     from src.summarization.domain.models import SummaryRecord
 
-    now = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    now = datetime(2024, 1, 1, tzinfo=UTC)
     return SummaryRecord(
         summary_id=f"s-{tid}",
         tweet_id=tid,
@@ -52,7 +52,7 @@ def _follow(fid, username, is_active, added_at=None):
     return ScraperFollow(
         id=fid,
         username=username,
-        added_at=added_at or datetime(2024, 1, 1, tzinfo=timezone.utc),
+        added_at=added_at or datetime(2024, 1, 1, tzinfo=UTC),
         reason="r",
         added_by="tester",
         is_active=is_active,
@@ -81,7 +81,7 @@ async def _seed_follows(root, follows):
 async def test_get_tweet_stats_file_mode(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     today0 = now.replace(hour=0, minute=0, second=0, microsecond=0)
     # 2 条今日(午夜后)+ 1 条昨日;latest=今日最大
     t_late = today0 + timedelta(hours=10)
@@ -144,7 +144,7 @@ async def test_get_follow_stats_file_mode(monkeypatch, tmp_path):
 async def test_get_summary_stats_file_mode(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     # 4 tweet,2 有 summary → pending(反连接)=2
     await _seed_tweets(
         tmp_path,
@@ -178,7 +178,7 @@ async def test_mcp_get_system_status_file_mode(monkeypatch, tmp_path):
 
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     today0 = now.replace(hour=0, minute=0, second=0, microsecond=0)
     await _seed_tweets(
         tmp_path,
@@ -191,6 +191,7 @@ async def test_mcp_get_system_status_file_mode(monkeypatch, tmp_path):
     await _seed_follows(tmp_path, [_follow(1, "alice", True), _follow(2, "bob", False)])
 
     from mcp.server.fastmcp import FastMCP
+
     from src.mcp.tools import status_tools
 
     mcp = FastMCP("test")
@@ -216,8 +217,9 @@ async def test_mcp_status_seam_rename_breaks(monkeypatch):
 
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     from mcp.server.fastmcp import FastMCP
-    from src.mcp.tools import status_tools
+
     import src.data_layer.provider as provider
+    from src.mcp.tools import status_tools
 
     # 删掉 get_status_repo 模拟接缝改名 → 工具内 import 失败 → error_response
     monkeypatch.delattr(provider, "get_status_repo", raising=True)
@@ -237,7 +239,7 @@ async def test_mcp_status_resource_file_mode(monkeypatch, tmp_path):
 
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     await _seed_tweets(
         tmp_path,
         [
@@ -249,6 +251,7 @@ async def test_mcp_status_resource_file_mode(monkeypatch, tmp_path):
     await _seed_follows(tmp_path, [_follow(1, "alice", True)])
 
     from mcp.server.fastmcp import FastMCP
+
     from src.mcp.resources import providers
 
     mcp = FastMCP("test")

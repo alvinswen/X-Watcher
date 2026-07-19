@@ -4,12 +4,12 @@
 """
 
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from datetime import datetime, timezone
-from httpx import AsyncClient, ASGITransport
 from fastapi import FastAPI, status
+from httpx import ASGITransport, AsyncClient
 
 from src.preference.api.routes import scraper_config_router
 from src.preference.infrastructure.file_follow_repository import FileFollowStore
@@ -88,7 +88,7 @@ class TestScraperConfigAPI:
             name="admin",
             email="admin@example.com",
             is_admin=True,
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
 
         async def override_get_current_admin_user():

@@ -4,7 +4,7 @@
 def test_get_export_repo_file_mode(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    from src.data_layer.provider import get_export_repo, _FileExportSyncAdapter
+    from src.data_layer.provider import _FileExportSyncAdapter, get_export_repo
 
     repo = get_export_repo()
     assert isinstance(repo, _FileExportSyncAdapter)
@@ -26,7 +26,7 @@ def test_file_export_adapter_returns_dicts(monkeypatch, tmp_path):
 def test_get_import_repo_file_mode(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    from src.data_layer.provider import get_import_repo, _FileImportSyncAdapter
+    from src.data_layer.provider import _FileImportSyncAdapter, get_import_repo
 
     repo = get_import_repo(dry_run=False)
     assert isinstance(repo, _FileImportSyncAdapter)

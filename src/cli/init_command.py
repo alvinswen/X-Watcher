@@ -190,8 +190,7 @@ def _create_admin(email: str, password: str) -> str | None:
     Returns:
         raw API Key（用户已存在时返回 None）。
     """
-    from scripts.seed_admin import _hash_password
-    from src.user.services.auth_service import AuthService
+    from src.user.services.auth_service import AuthService, _hash_password
 
     return _create_admin_file(email, password, _hash_password, AuthService)
 

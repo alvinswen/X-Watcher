@@ -1,7 +1,7 @@
 """Import 服务测试。"""
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from src.preference.domain.models import ScraperFollow as FollowDomain
 from src.preference.infrastructure.file_follow_repository import FileFollowStore
@@ -23,7 +23,7 @@ def _make_package(data: dict, categories: list[str] | None = None) -> ExportPack
         categories = list(data.keys())
     return ExportPackage(
         metadata=ExportMetadata(
-            exported_at=datetime(2026, 2, 24, tzinfo=timezone.utc),
+            exported_at=datetime(2026, 2, 24, tzinfo=UTC),
             source_instance_id="test",
             categories=categories,
         ),
@@ -42,7 +42,7 @@ def _follow_seed(username: str, reason: str, *, id: int = 1) -> FollowDomain:
         username=username,
         reason=reason,
         added_by="admin",
-        added_at=datetime(2026, 1, id, tzinfo=timezone.utc),
+        added_at=datetime(2026, 1, id, tzinfo=UTC),
         is_active=True,
     )
 
@@ -65,7 +65,7 @@ def _seed_file_roundtrip_data(root) -> None:
                 username="alice",
                 reason="KOL",
                 added_by="admin",
-                added_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                added_at=datetime(2026, 1, 1, tzinfo=UTC),
                 is_active=True,
             )
         ])
@@ -75,7 +75,7 @@ def _seed_file_roundtrip_data(root) -> None:
                     tweet_id="tw_001",
                     text="Hello",
                     author_username="alice",
-                    created_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
+                    created_at=datetime(2026, 2, 1, tzinfo=UTC),
                 )
             ],
             early_stop_threshold=0,
@@ -92,8 +92,8 @@ def _seed_file_roundtrip_data(root) -> None:
                 total_tokens=150,
                 cost_usd=0.01,
                 content_hash="hash1",
-                created_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
-                updated_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
+                created_at=datetime(2026, 2, 1, tzinfo=UTC),
+                updated_at=datetime(2026, 2, 1, tzinfo=UTC),
             )
         ])
 
@@ -233,7 +233,7 @@ class TestImportContent:
                     Tweet(
                         tweet_id="tw_001",
                         text="Original",
-                        created_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
+                        created_at=datetime(2026, 2, 1, tzinfo=UTC),
                         author_username="alice",
                     )
                 ],

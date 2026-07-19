@@ -8,9 +8,7 @@ from datetime import datetime
 
 from src.preference.domain.models import ScraperFollow
 from src.preference.infrastructure.follow_store import (
-    DuplicateError,
     FollowStore,
-    NotFoundError,
 )
 
 logger = logging.getLogger(__name__)

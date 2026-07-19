@@ -3,7 +3,7 @@
 测试 SummaryRecord(唯一活体 · MCP Agent 回写通道契约)。
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError
@@ -31,8 +31,8 @@ class TestSummaryRecord:
             "cost_usd": 0.002,
             "cached": False,
             "content_hash": "abc123def456",
-            "created_at": datetime.now(timezone.utc),
-            "updated_at": datetime.now(timezone.utc),
+            "created_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC),
         }
 
     def test_create_valid_summary_record(self, sample_record_data):

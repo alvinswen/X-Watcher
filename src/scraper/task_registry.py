@@ -62,11 +62,11 @@ class TaskRegistry:
     使用线程锁确保并发安全。
     """
 
-    _instance: "TaskRegistry | None" = None
+    _instance: TaskRegistry | None = None
     _lock = threading.Lock()
     _initialized = False
 
-    def __new__(cls) -> "TaskRegistry":
+    def __new__(cls) -> TaskRegistry:
         """实现单例模式。"""
         if cls._instance is None:
             with cls._lock:
@@ -83,7 +83,7 @@ class TaskRegistry:
             logger.debug("TaskRegistry 单例已初始化")
 
     @classmethod
-    def get_instance(cls) -> "TaskRegistry":
+    def get_instance(cls) -> TaskRegistry:
         """获取 TaskRegistry 单例实例。
 
         Returns:
@@ -157,12 +157,14 @@ class TaskRegistry:
             old_status = task["status"]
 
             # 状态转换守卫：防止从终态回退到活跃状态
-            if old_status in (TaskStatus.COMPLETED, TaskStatus.FAILED):
-                if status in (TaskStatus.PENDING, TaskStatus.RUNNING):
-                    logger.debug(
-                        f"忽略状态转换 {old_status.value} -> {status.value}: {task_id}"
-                    )
-                    return
+            if old_status in (
+                TaskStatus.COMPLETED,
+                TaskStatus.FAILED,
+            ) and status in (TaskStatus.PENDING, TaskStatus.RUNNING):
+                logger.debug(
+                    f"忽略状态转换 {old_status.value} -> {status.value}: {task_id}"
+                )
+                return
 
             # 防止 RUNNING -> PENDING 回退
             if old_status == TaskStatus.RUNNING and status == TaskStatus.PENDING:

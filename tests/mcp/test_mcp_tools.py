@@ -4,7 +4,7 @@
 """
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -39,7 +39,7 @@ class TestGetFeed:
                 "tweet_id": "123",
                 "text": "Hello world",
                 "author_username": "testuser",
-                "created_at": datetime(2026, 2, 24, tzinfo=timezone.utc),
+                "created_at": datetime(2026, 2, 24, tzinfo=UTC),
             }
         ]
         mock_result.count = 1
@@ -176,7 +176,7 @@ class TestGetAuthorsForDate:
                 "author_username": "user1",
                 "author_display_name": "User One",
                 "tweet_count": 5,
-                "last_tweet_at": datetime(2026, 2, 24, 12, 0, tzinfo=timezone.utc),
+                "last_tweet_at": datetime(2026, 2, 24, 12, 0, tzinfo=UTC),
                 "reason": "KOL",
             }
         ]
@@ -266,7 +266,7 @@ class TestHelpers:
     def test_datetime_serialization(self):
         from src.mcp.helpers import success_response
 
-        dt = datetime(2026, 2, 24, 12, 0, tzinfo=timezone.utc)
+        dt = datetime(2026, 2, 24, 12, 0, tzinfo=UTC)
         result = json.loads(success_response({"time": dt}))
         assert result["data"]["time"] == "2026-02-24T12:00:00+00:00"
 

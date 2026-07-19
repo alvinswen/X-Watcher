@@ -4,7 +4,7 @@
 """
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ class BrowseService:
         """
         local_midnight = datetime.strptime(date_str, "%Y-%m-%d")
         utc_start = (local_midnight + timedelta(minutes=tz_offset)).replace(
-            tzinfo=timezone.utc
+            tzinfo=UTC
         )
         utc_end = utc_start + timedelta(days=1)
         return utc_start, utc_end

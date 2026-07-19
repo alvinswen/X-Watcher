@@ -34,10 +34,10 @@ def test_health_endpoint(client):
 
 def test_cors_middleware_configured():
     """测试 CORS 中间件已配置。"""
-    from src.main import app
-
     # 检查 CORS 中间件是否存在
     from fastapi.middleware.cors import CORSMiddleware
+
+    from src.main import app
 
     cors_middleware = None
     for middleware in app.user_middleware:

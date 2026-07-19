@@ -5,7 +5,7 @@
 """
 
 import os
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -47,7 +47,7 @@ class TestPublicScraperFollowsAPI:
             name="regular_user",
             email="user@example.com",
             is_admin=False,
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
 
         async def override_get_current_user():

@@ -8,7 +8,7 @@ import asyncio
 import logging
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, cast
 
 from returns.result import Failure, Success
@@ -549,7 +549,7 @@ class ScrapingService:
             # 标记回溯完成
             await self._update_backfill_status(
                 username, "completed",
-                completed_at=datetime.now(timezone.utc).replace(tzinfo=None),
+                completed_at=datetime.now(UTC).replace(tzinfo=None),
             )
             result["success"] = True
 
@@ -797,7 +797,7 @@ class ScrapingService:
             "user_results": [],
         }
 
-        for username, result in zip(usernames, results):
+        for username, result in zip(usernames, results, strict=False):
             if isinstance(result, Exception):
                 summary["failed"] += 1
                 summary["errors"] += 1

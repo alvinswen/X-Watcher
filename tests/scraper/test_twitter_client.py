@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 import pytest
-
 from returns.result import Failure, Success
 
 from src.scraper.client import TwitterClient
@@ -791,7 +790,9 @@ class TestCursorPagination:
     async def test_paginated_stops_at_max_pages(self, client, mock_httpx_client):
         """测试 fetch_user_tweets_paginated 达到 max_pages 时停止。"""
         # 每页都返回 next_cursor（无限页）
-        def make_page(call_count=[0]):
+        call_count = [0]
+
+        def make_page():
             call_count[0] += 1
             return self._make_twitterapi_response(
                 tweets=[{"id": str(call_count[0]), "text": f"T{call_count[0]}",

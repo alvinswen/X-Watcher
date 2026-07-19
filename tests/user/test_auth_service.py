@@ -2,6 +2,7 @@
 
 import os
 import re
+from datetime import UTC
 
 import pytest
 
@@ -94,16 +95,17 @@ def test_jwt_create_and_decode(auth_service):
 
 def test_jwt_expired(auth_service):
     """过期 JWT Token 抛出 ExpiredSignatureError。"""
+    from datetime import datetime, timedelta
+
     import jwt as pyjwt
-    from datetime import datetime, timezone, timedelta
 
     settings_secret = "test-jwt-secret-key-for-unit-tests"
     expired_payload = {
         "sub": "1",
         "email": "test@example.com",
         "is_admin": False,
-        "exp": datetime.now(timezone.utc) - timedelta(hours=1),
-        "iat": datetime.now(timezone.utc) - timedelta(hours=2),
+        "exp": datetime.now(UTC) - timedelta(hours=1),
+        "iat": datetime.now(UTC) - timedelta(hours=2),
     }
     expired_token = pyjwt.encode(expired_payload, settings_secret, algorithm="HS256")
 

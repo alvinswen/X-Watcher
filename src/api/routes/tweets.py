@@ -4,8 +4,8 @@
 """
 
 import logging
-from datetime import datetime, timezone
-from typing import Any, Literal
+from datetime import UTC, datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -64,7 +64,7 @@ class TweetListResponse(BaseModel):
 def _ensure_utc(dt: datetime) -> datetime:
     """将 naive datetime 转换为 UTC aware datetime；已有时区信息则原样返回。"""
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
+        return dt.replace(tzinfo=UTC)
     return dt
 
 
@@ -113,12 +113,11 @@ async def list_tweets(
         created_before = _ensure_utc(created_before)
 
     # 时间范围校验
-    if created_after is not None and created_before is not None:
-        if created_after >= created_before:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="时间范围无效: created_after 必须早于 created_before",
-            )
+    if created_after is not None and created_before is not None and created_after >= created_before:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="时间范围无效: created_after 必须早于 created_before",
+        )
 
     try:
         # 经数据层 provider 取 tweet 读门面(file/sqlalchemy 切换;pg 下线后 file-safe)
@@ -221,7 +220,7 @@ async def get_tweet_detail(
                     if dt is None:
                         return None
                     if dt.tzinfo is None:
-                        dt = dt.replace(tzinfo=timezone.utc)
+                        dt = dt.replace(tzinfo=UTC)
                     return dt.isoformat()
 
                 summary = {

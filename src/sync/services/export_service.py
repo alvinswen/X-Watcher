@@ -3,16 +3,16 @@
 编排 repository → serializer → ExportPackage 组装。
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
+from src.data_layer.provider import get_export_repo
 from src.sync.domain.models import (
     ExportFilters,
     ExportMetadata,
     ExportPackage,
     SyncCategory,
 )
-from src.data_layer.provider import get_export_repo
 
 
 class ExportService:
@@ -60,7 +60,7 @@ class ExportService:
             counts.update(content_counts)
 
         metadata = ExportMetadata(
-            exported_at=datetime.now(timezone.utc),
+            exported_at=datetime.now(UTC),
             source_instance_id=instance_id,
             categories=[c.value for c in categories],
             filters=ExportFilters(since=since, until=until, authors=authors),

@@ -4,7 +4,7 @@
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -64,20 +64,17 @@ async def get_feed(
         settings = get_settings()
 
         # 处理默认值
-        actual_until = until if until is not None else datetime.now(timezone.utc)
+        actual_until = until if until is not None else datetime.now(UTC)
 
         # 统一时区：确保 since 和 actual_until 都是 aware 或都是 naive
         if since.tzinfo is not None and actual_until.tzinfo is None:
-            actual_until = actual_until.replace(tzinfo=timezone.utc)
+            actual_until = actual_until.replace(tzinfo=UTC)
         elif since.tzinfo is None and actual_until.tzinfo is not None:
-            since = since.replace(tzinfo=timezone.utc)
+            since = since.replace(tzinfo=UTC)
 
         # 处理 limit：未提供或超过系统配置上限时，使用配置值
         max_limit = settings.feed_max_tweets
-        if limit is None or limit > max_limit:
-            actual_limit = max_limit
-        else:
-            actual_limit = limit
+        actual_limit = max_limit if limit is None or limit > max_limit else limit
 
         # 验证时间区间
         if since >= actual_until:

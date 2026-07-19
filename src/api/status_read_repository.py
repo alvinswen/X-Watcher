@@ -14,7 +14,7 @@ created_at 比较统一经 as_utc 归一(file 落盘 aware +00:00;比较安全),
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -42,7 +42,7 @@ class FileStatusReadStore:
             latest = max(paths.as_utc(t.created_at) for t in tweets)
 
         # today_count:created_at >= 今日 UTC 午夜(复刻旧 datetime.now(UTC).replace(hour=0...))
-        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        today_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
         today_count = sum(1 for t in tweets if paths.as_utc(t.created_at) >= today_start)
 
         return TweetStats(

@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +22,7 @@ from src.storage.doc_store import atomic_write_doc, read_doc
 
 
 def _now_naive_iso() -> str:
-    return datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+    return datetime.now(UTC).replace(tzinfo=None).isoformat()
 
 
 class FileProfileStore:
@@ -48,7 +48,7 @@ class FileProfileStore:
             atomic_write_doc(self._path, {"profiles": recs})
 
     async def upsert_profiles(self, profiles: list[XUserProfile],
-                              raw_data_map: dict[str, dict[str, Any]] | None = None) -> int:
+                              raw_data_map: dict[str, dict[str, Any]] | None = None) -> int:  # noqa: ARG002  # 契约参数由关键字调用，契约下不可观测
         # raw_data_map 接受但不持久化(契约下不可观测,见 spec §1 OUT)
         async with shard_lock(self._path):
             doc = self._load()

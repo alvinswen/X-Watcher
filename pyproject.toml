@@ -65,7 +65,7 @@ dev = [
 
     # 代码质量
     "black>=23.11.0",
-    "ruff>=0.1.6",
+    "ruff==0.15.21",  # 门禁版本钉死·唯一事实源·升级路径见 scripts/check-lint.sh 尾注
     "mypy>=1.7.0",
 
 ]
@@ -104,8 +104,9 @@ extend-exclude = '''
 # Ruff 配置
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
+[tool.ruff.lint]
 select = [
     "E",   # pycodestyle errors
     "W",   # pycodestyle warnings
@@ -123,13 +124,17 @@ ignore = [
     "B008",  # 函数调用中的默认参数（FastAPI 依赖）
     "B904",  # raise from (可能太严格）
     "ARG001",  # 未使用的参数（FastAPI 路由参数）
+    "UP042",  # 字符串枚举旧写法保留：5 个域模型枚举值随推文落盘（黑名单③）·StrEnum 化行为审计另立议题（CHG-038 Q1=A）
+    "UP046",  # PEP695 泛型类改写涉黑名单③ Pydantic 域模型（pagination.py Page/Feed）·与 UP042 同批行为审计另立议题（CHG-038 留册）
 ]
 
-[tool.ruff.per-file-ignores]
+[tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # 允许未使用的导入
 "tests/**/*.py" = ["ARG", "S101"]  # 测试中的未使用参数和 assert
+"src/main.py" = ["E402"]  # 启动时序 import 刻意设计（18 处·dotenv/中间件/路由注册次序敏感）·结构改造不在本包（CHG-038 Q2=A）
+"tests/conftest.py" = ["E402"]  # 测试根 conftest 启动时序（2 处）·同上
 
-[tool.ruff.isort]
+[tool.ruff.lint.isort]
 known-first-party = ["src"]
 
 # Pytest 配置
@@ -141,11 +146,6 @@ python_functions = ["test_*"]
 asyncio_mode = "auto"
 addopts = [
     "--strict-markers",
-]
-markers = [
-    "unit: Unit tests",
-    "integration: Integration tests",
-    "slow: Slow running tests",
 ]
 
 # Coverage 配置

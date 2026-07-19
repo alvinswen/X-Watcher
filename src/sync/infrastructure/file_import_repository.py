@@ -7,14 +7,14 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from src.preference.infrastructure.file_follow_repository import FileFollowStore
+from src.scraper.infrastructure.file_article_repository import FileArticleStore
 from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
 from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
-from src.scraper.infrastructure.file_article_repository import FileArticleStore
 from src.sync.domain.models import ConflictStrategy, ImportStats
 from src.sync.infrastructure.file_export_repository import FileExportStore
 
@@ -25,7 +25,7 @@ def _to_naive(s: Any) -> datetime | None:
         return None
     dt = datetime.fromisoformat(s) if isinstance(s, str) else s
     if dt.tzinfo is not None:
-        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+        dt = dt.astimezone(UTC).replace(tzinfo=None)
     return dt
 
 
@@ -120,9 +120,7 @@ class FileImportStore:
             if not await self._tweets.tweet_exists(item["tweet_id"]):
                 await self._tweets.upsert_tweets([item])
                 stats.inserted += 1
-            elif strategy == ConflictStrategy.merge:
-                stats.skipped += 1
-            elif strategy == ConflictStrategy.skip:
+            elif strategy == ConflictStrategy.merge or strategy == ConflictStrategy.skip:
                 stats.skipped += 1
             elif strategy == ConflictStrategy.overwrite:
                 await self._tweets.upsert_tweets([item])
@@ -136,9 +134,7 @@ class FileImportStore:
             if not await self._summaries.summary_exists(item["summary_id"]):
                 await self._summaries.upsert_summary(item)
                 stats.inserted += 1
-            elif strategy == ConflictStrategy.skip:
-                stats.skipped += 1
-            elif strategy == ConflictStrategy.merge:
+            elif strategy == ConflictStrategy.skip or strategy == ConflictStrategy.merge:
                 stats.skipped += 1
             elif strategy == ConflictStrategy.overwrite:
                 await self._summaries.upsert_summary(item)
@@ -152,9 +148,7 @@ class FileImportStore:
             if await self._articles.get_article(item["tweet_id"]) is None:
                 await self._articles.overwrite_article(item)
                 stats.inserted += 1
-            elif strategy == ConflictStrategy.skip:
-                stats.skipped += 1
-            elif strategy == ConflictStrategy.merge:
+            elif strategy == ConflictStrategy.skip or strategy == ConflictStrategy.merge:
                 stats.skipped += 1
             elif strategy == ConflictStrategy.overwrite:
                 await self._articles.overwrite_article(item)

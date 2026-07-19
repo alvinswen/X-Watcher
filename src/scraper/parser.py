@@ -4,7 +4,7 @@
 """
 
 import logging
-from datetime import timezone
+from datetime import UTC
 from typing import Any
 
 from src.scraper.domain.models import ArticlePreview, Media, ReferenceType, Tweet
@@ -234,6 +234,6 @@ class TweetParser:
 
         # 确保有时区信息
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
 
         return dt

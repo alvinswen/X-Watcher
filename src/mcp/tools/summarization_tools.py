@@ -8,7 +8,7 @@ import hashlib
 import json
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
@@ -116,7 +116,7 @@ def register(mcp: FastMCP) -> None:
             failed = 0
             errors = []
             rejected: list[dict[str, Any]] = []  # 验证门拒绝项，供编排回灌重生成
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
 
             repo = get_summary_repo()
 
