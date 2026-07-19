@@ -92,6 +92,14 @@ async def _close_article_fetch_service(
         logger.warning(f"关闭 ArticleFetchService 连接失败{context}: {e}")
 
 
+def _validate_username_format(username: str) -> None:
+    """执行管理端严格用户名格式校验，不做剥 @ 或大小写规范化。"""
+    if not (1 <= len(username) <= 15):
+        raise ValueError(f"用户名 '{username}' 长度必须在 1-15 字符之间")
+    if not username.replace("_", "").isalnum():
+        raise ValueError(f"用户名 '{username}' 只能包含字母、数字和下划线")
+
+
 class ScrapeRequest(BaseModel):
     """抓取请求模型（wire 双格式：列表或逗号分隔字符串）。"""
 
@@ -134,10 +142,7 @@ class ScrapeRequest(BaseModel):
         if not parsed:
             raise ValueError("至少需要提供一个有效的用户名")
         for username in parsed:
-            if not (1 <= len(username) <= 15):
-                raise ValueError(f"用户名 '{username}' 长度必须在 1-15 字符之间")
-            if not username.replace("_", "").isalnum():
-                raise ValueError(f"用户名 '{username}' 只能包含字母、数字和下划线")
+            _validate_username_format(username)
         return self
 
 
@@ -219,10 +224,7 @@ class BackfillRequest(BaseModel):
         username = self.username or ""
         if not username:
             raise ValueError("username 不能为空")
-        if not (1 <= len(username) <= 15):
-            raise ValueError(f"用户名 '{username}' 长度必须在 1-15 字符之间")
-        if not username.replace("_", "").isalnum():
-            raise ValueError(f"用户名 '{username}' 只能包含字母、数字和下划线")
+        _validate_username_format(username)
         return self
 
 
