@@ -9,12 +9,12 @@ from src.summarization.domain.models import SummaryRecord
 
 
 def _tweet(tid, author="alice", created=datetime(2050, 1, 1), text=None, **kw):
-    base = dict(
-        tweet_id=tid,
-        text=text if text is not None else "t" + tid,
-        created_at=created,
-        author_username=author,
-    )
+    base = {
+        "tweet_id": tid,
+        "text": text if text is not None else "t" + tid,
+        "created_at": created,
+        "author_username": author,
+    }
     base.update(kw)
     return Tweet(**base)
 

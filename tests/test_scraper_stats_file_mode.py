@@ -75,7 +75,6 @@ async def test_period_analysis_file_mode(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     now = datetime.now(UTC)
-    interval = timedelta(hours=12)
     # periods=3:窗口(正序前)= [now-3i.., now-2i..)依次。造定位明确的推文:
     #   period i=0(最新): [now-12h, now) → 放 2 条
     #   period i=1:        [now-24h, now-12h) → 放 1 条

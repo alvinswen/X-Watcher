@@ -166,7 +166,7 @@ class TestTaskRegistry:
 
         task_id1 = registry.create_task("task1")
         task_id2 = registry.create_task("task2")
-        task_id3 = registry.create_task("task3")
+        registry.create_task("task3")
 
         registry.update_task_status(task_id1, TaskStatus.RUNNING)
         registry.update_task_status(task_id2, TaskStatus.COMPLETED)

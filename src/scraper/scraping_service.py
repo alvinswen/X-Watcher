@@ -797,7 +797,7 @@ class ScrapingService:
             "user_results": [],
         }
 
-        for username, result in zip(usernames, results):
+        for username, result in zip(usernames, results, strict=False):
             if isinstance(result, Exception):
                 summary["failed"] += 1
                 summary["errors"] += 1

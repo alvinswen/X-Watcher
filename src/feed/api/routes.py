@@ -74,10 +74,7 @@ async def get_feed(
 
         # 处理 limit：未提供或超过系统配置上限时，使用配置值
         max_limit = settings.feed_max_tweets
-        if limit is None or limit > max_limit:
-            actual_limit = max_limit
-        else:
-            actual_limit = limit
+        actual_limit = max_limit if limit is None or limit > max_limit else limit
 
         # 验证时间区间
         if since >= actual_until:

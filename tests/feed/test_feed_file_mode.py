@@ -83,7 +83,11 @@ async def test_get_feed_file_mode_author_filter(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     now = datetime.now(UTC)
     base = now - timedelta(days=1)
-    win = dict(since=base - timedelta(hours=1), until=base + timedelta(hours=1), limit=10)
+    win = {
+        "since": base - timedelta(hours=1),
+        "until": base + timedelta(hours=1),
+        "limit": 10,
+    }
     await _seed_file(tmp_path, [
         _tweet("p1", "alice", base + timedelta(minutes=1)),
         _tweet("p2", "BOB", base + timedelta(minutes=2)),
@@ -105,7 +109,11 @@ async def test_get_feed_file_mode_keyword(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     now = datetime.now(UTC)
     base = now - timedelta(days=1)
-    win = dict(since=base - timedelta(hours=1), until=base + timedelta(hours=1), limit=10)
+    win = {
+        "since": base - timedelta(hours=1),
+        "until": base + timedelta(hours=1),
+        "limit": 10,
+    }
     # k1 text 含 GPT;k2 text 无但 summary 含;k3 text 无 summary 无
     await _seed_file(tmp_path, [
         _tweet("k1", "alice", base + timedelta(minutes=1), text="new GPT model"),
@@ -130,7 +138,11 @@ async def test_get_feed_file_mode_keyword_like_wildcard(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     now = datetime.now(UTC)
     base = now - timedelta(days=1)
-    win = dict(since=base - timedelta(hours=1), until=base + timedelta(hours=1), limit=10)
+    win = {
+        "since": base - timedelta(hours=1),
+        "until": base + timedelta(hours=1),
+        "limit": 10,
+    }
     await _seed_file(tmp_path, [
         _tweet("w1", "alice", base + timedelta(minutes=1), text="abc here"),   # a_c 匹配 abc
         _tweet("w2", "alice", base + timedelta(minutes=2), text="axc here"),   # a_c 匹配 axc

@@ -146,10 +146,7 @@ class LimitCalculator:
             new_avg = stats.avg_new_rate
 
         # 更新连续空抓取计数
-        if new_count == 0:
-            consecutive_empty = stats.consecutive_empty_fetches + 1
-        else:
-            consecutive_empty = 0
+        consecutive_empty = stats.consecutive_empty_fetches + 1 if new_count == 0 else 0
 
         return FetchStats(
             username=username,
