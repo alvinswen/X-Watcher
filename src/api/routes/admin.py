@@ -20,6 +20,7 @@ from pydantic import (
 
 from src.mcp.security import audit_log
 from src.scraper import ArticleFetchService, ScrapingService, TaskRegistry, TaskStatus
+from src.shared.error_messages import ARTICLE_BACKFILL_FAILED
 from src.user.api.auth import get_current_admin_user
 from src.user.domain.models import UserDomain
 
@@ -121,11 +122,7 @@ class ScrapeRequest(BaseModel):
     @field_validator("limit", mode="before")
     @classmethod
     def _validate_limit_range(cls, value: Any) -> Any:
-        if (
-            isinstance(value, int)
-            and not isinstance(value, bool)
-            and not (1 <= value <= 1000)
-        ):
+        if isinstance(value, int) and not isinstance(value, bool) and not (1 <= value <= 1000):
             raise ValueError("limit 必须在 1-1000 之间")
         return value
 
@@ -650,13 +647,11 @@ async def backfill_articles(
         logger.exception(f"Article 回溯异常: username={username}, error={e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Article 回溯失败: {e}",
+            detail=ARTICLE_BACKFILL_FAILED,
         )
     finally:
         # 单用户模式无 task_id,context 传端点名+username 供运维定位,A5 加固 4
-        await _close_article_fetch_service(
-            service, f" (backfill_articles, username={username})"
-        )
+        await _close_article_fetch_service(service, f" (backfill_articles, username={username})")
 
     logger.info(f"Article 回溯完成: username={username}, result={result}")
 

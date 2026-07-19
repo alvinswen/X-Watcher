@@ -2,17 +2,33 @@
 
 import logging
 import math
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from src.data_layer.provider import get_search_repo
 from src.search.api.schemas import SearchResponse, SearchTweetItem
+from src.shared.error_messages import SEARCH_TIME_FORMAT_INVALID_TMPL
 from src.user.api.auth import get_current_user
 from src.user.domain.models import UserDomain
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/search", tags=["search"])
+
+
+def _parse_time_param(name: str, raw: str) -> datetime:
+    """解析搜索时间参数并保留原有 naive→UTC 语义。"""
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=SEARCH_TIME_FORMAT_INVALID_TMPL.format(name=name, value=raw),
+        )
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
 
 
 @router.get(
@@ -24,9 +40,7 @@ router = APIRouter(prefix="/api/search", tags=["search"])
 async def search_tweets(
     q: str = Query(..., min_length=1, description="搜索关键词（空格分隔多词为 AND 逻辑）"),
     author: str | None = Query(None, description="按作者用户名筛选（大小写不敏感）"),
-    authors: str | None = Query(
-        None, description="按多个作者筛选（逗号分隔，大小写不敏感）"
-    ),
+    authors: str | None = Query(None, description="按多个作者筛选（逗号分隔，大小写不敏感）"),
     since: str | None = Query(None, description="起始时间（含），ISO 8601 格式"),
     until: str | None = Query(None, description="截止时间（不含），ISO 8601 格式"),
     page: int = Query(1, ge=1, description="页码"),
@@ -49,25 +63,12 @@ async def search_tweets(
         if not authors_list:
             authors_list = None
 
-    # 解析时间参数
-    from datetime import datetime, timezone
-
     parsed_since = None
     parsed_until = None
-    try:
-        if since:
-            parsed_since = datetime.fromisoformat(since)
-            if parsed_since.tzinfo is None:
-                parsed_since = parsed_since.replace(tzinfo=timezone.utc)
-        if until:
-            parsed_until = datetime.fromisoformat(until)
-            if parsed_until.tzinfo is None:
-                parsed_until = parsed_until.replace(tzinfo=timezone.utc)
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f"时间格式无效: {e}",
-        )
+    if since:
+        parsed_since = _parse_time_param("since", since)
+    if until:
+        parsed_until = _parse_time_param("until", until)
 
     if parsed_since and parsed_until and parsed_since >= parsed_until:
         raise HTTPException(

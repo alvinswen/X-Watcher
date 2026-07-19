@@ -1,13 +1,20 @@
 """CHG-037 全局 REST 错误兜底与框架放行链。"""
 
 import logging
+from unittest.mock import AsyncMock, MagicMock
 
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
 from src.main import app
-from src.shared.error_messages import INTERNAL_SERVER_ERROR_DETAIL
+from src.shared.error_messages import (
+    ARTICLE_BACKFILL_FAILED,
+    INTERNAL_SERVER_ERROR_DETAIL,
+    SUMMARY_QUERY_FAILED,
+    TWEETS_DETAIL_QUERY_FAILED,
+    TWEETS_LIST_QUERY_FAILED,
+)
 
 
 class _ValidationPayload(BaseModel):
@@ -75,3 +82,69 @@ def test_request_validation_error_keeps_default_detail_array() -> None:
 
     assert response.status_code == 422
     assert isinstance(response.json()["detail"], list)
+
+
+async def test_list_tweets_hides_internal_error_and_logs_traceback(
+    async_client,
+    monkeypatch,
+    caplog,
+) -> None:
+    repo = MagicMock()
+    repo.list_tweets = AsyncMock(side_effect=RuntimeError("tweets-list-secret"))
+    monkeypatch.setattr("src.data_layer.provider.get_tweet_read_repo", lambda: repo)
+
+    with caplog.at_level(logging.ERROR, logger="src.api.routes.tweets"):
+        response = await async_client.get("/api/tweets")
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": TWEETS_LIST_QUERY_FAILED}
+    assert "tweets-list-secret" not in response.text
+    assert "tweets-list-secret" in caplog.text
+    assert any(record.exc_info is not None for record in caplog.records)
+
+
+async def test_tweet_detail_hides_internal_error(async_client, monkeypatch) -> None:
+    repo = MagicMock()
+    repo.get_tweet_detail = AsyncMock(side_effect=RuntimeError("tweets-detail-secret"))
+    monkeypatch.setattr("src.data_layer.provider.get_tweet_read_repo", lambda: repo)
+
+    response = await async_client.get("/api/tweets/tweet-1")
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": TWEETS_DETAIL_QUERY_FAILED}
+    assert "tweets-detail-secret" not in response.text
+
+
+async def test_summary_hides_internal_error(async_client, monkeypatch) -> None:
+    repo = MagicMock()
+    repo.get_summary_by_tweet = AsyncMock(side_effect=RuntimeError("summary-secret"))
+    monkeypatch.setattr("src.summarization.api.routes.get_summary_repo", lambda: repo)
+
+    response = await async_client.get("/api/summaries/tweets/tweet-1")
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": SUMMARY_QUERY_FAILED}
+    assert "summary-secret" not in response.text
+
+
+async def test_article_backfill_hides_internal_error_and_closes_service(
+    async_client,
+    monkeypatch,
+) -> None:
+    service = MagicMock()
+    service.backfill_articles_for_user = AsyncMock(side_effect=RuntimeError("article-secret"))
+    service.close = AsyncMock()
+    monkeypatch.setattr(
+        "src.api.routes.admin.get_article_fetch_service",
+        lambda: service,
+    )
+
+    response = await async_client.post(
+        "/api/admin/articles/backfill",
+        json={"username": "alice", "max_tweets": 10},
+    )
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": ARTICLE_BACKFILL_FAILED}
+    assert "article-secret" not in response.text
+    service.close.assert_awaited_once()
