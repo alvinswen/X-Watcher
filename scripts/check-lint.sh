@@ -21,7 +21,7 @@ if [ -z "$PINNED" ]; then
 fi
 ACTUAL="$(ruff --version | awk '{print $2}')"
 if [ "$ACTUAL" != "$PINNED" ]; then
-    echo "❌ ruff 版本不匹配：环境 $ACTUAL ≠ 钉定 $PINNED——请 pip install -e '.[dev]' 对齐后重试（拒跑防门禁语义漂移）"
+    echo "❌ ruff 版本不匹配：环境 $ACTUAL ≠ 钉定 ${PINNED}——请 pip install -e '.[dev]' 对齐后重试（拒跑防门禁语义漂移）"
     exit 3
 fi
 

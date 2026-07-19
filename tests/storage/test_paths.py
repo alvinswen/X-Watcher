@@ -131,9 +131,7 @@ def test_subject_paths_match_current_layout(tmp_path):
     subject_id = "subject-1"
     when = datetime(2026, 7, 19, tzinfo=UTC)
 
-    assert subject_doc(tmp_path, subject_id) == (
-        tmp_path / "subjects" / f"{subject_id}.json"
-    )
+    assert subject_doc(tmp_path, subject_id) == (tmp_path / "subjects" / f"{subject_id}.json")
     assert subject_index(tmp_path) == tmp_path / "subjects" / "index.json"
     assert subject_match_shard(tmp_path, subject_id, when) == (
         tmp_path / "subjects" / subject_id / "matches" / "2026-07.jsonl"
@@ -154,10 +152,5 @@ def test_subject_paths_match_current_layout(tmp_path):
         tmp_path / "subjects" / subject_id / "review" / "history" / "3.json"
     )
     assert subject_provenance_doc(tmp_path, subject_id, "matches", "item-1") == (
-        tmp_path
-        / "subjects"
-        / subject_id
-        / "provenance"
-        / "matches"
-        / "item-1.json"
+        tmp_path / "subjects" / subject_id / "provenance" / "matches" / "item-1.json"
     )
