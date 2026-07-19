@@ -1,7 +1,7 @@
 """Export 服务测试。"""
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 import pytest
 
@@ -26,7 +26,7 @@ def _seed_file_data(root) -> None:
                 username="alice",
                 reason="KOL",
                 added_by="admin",
-                added_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                added_at=datetime(2026, 1, 1, tzinfo=UTC),
                 is_active=True,
             ),
             ScraperFollow(
@@ -34,7 +34,7 @@ def _seed_file_data(root) -> None:
                 username="bob",
                 reason="Developer",
                 added_by="admin",
-                added_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
+                added_at=datetime(2026, 1, 2, tzinfo=UTC),
                 is_active=True,
             ),
         ])
@@ -43,13 +43,13 @@ def _seed_file_data(root) -> None:
                 Tweet(
                     tweet_id="tw_001",
                     text="Hello from Alice",
-                    created_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
+                    created_at=datetime(2026, 2, 1, tzinfo=UTC),
                     author_username="alice",
                 ),
                 Tweet(
                     tweet_id="tw_002",
                     text="Hello from Bob",
-                    created_at=datetime(2026, 2, 10, tzinfo=timezone.utc),
+                    created_at=datetime(2026, 2, 10, tzinfo=UTC),
                     author_username="bob",
                 ),
             ],
@@ -67,8 +67,8 @@ def _seed_file_data(root) -> None:
                 total_tokens=150,
                 cost_usd=0.01,
                 content_hash="hash1",
-                created_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
-                updated_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
+                created_at=datetime(2026, 2, 1, tzinfo=UTC),
+                updated_at=datetime(2026, 2, 1, tzinfo=UTC),
             )
         ])
         await FileArticleStore(root).seed([
@@ -127,7 +127,7 @@ class TestExportService:
         svc = ExportService()
         pkg = svc.export(
             categories=[SyncCategory.content],
-            since=datetime(2026, 2, 5, tzinfo=timezone.utc),
+            since=datetime(2026, 2, 5, tzinfo=UTC),
         )
 
         # 只有 bob 的推文在 2026-02-10

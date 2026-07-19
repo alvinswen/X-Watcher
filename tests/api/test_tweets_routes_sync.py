@@ -5,7 +5,7 @@
 """
 
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 from pathlib import Path
 
 import pytest
@@ -42,7 +42,7 @@ def tweet_file_data_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Pat
 @pytest.fixture
 def seed_test_tweets(tweet_file_data_root: Path) -> list[Tweet]:
     """准备测试推文数据。"""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     tweets = [
         Tweet(
             tweet_id="tweet1",

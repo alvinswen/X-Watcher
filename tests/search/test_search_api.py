@@ -1,7 +1,7 @@
 """搜索 API 集成测试。"""
 
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 from pathlib import Path
 from uuid import uuid4
 
@@ -67,7 +67,7 @@ async def search_client_no_auth():
 @pytest.fixture
 async def seed_search_data():
     """准备搜索测试数据。"""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     base_time = now - timedelta(hours=2)
 
     tweets = [

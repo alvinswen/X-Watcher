@@ -8,7 +8,7 @@
 ⚠️ 无 round 陷阱豁免:过滤/排序/截断,无除法分桶 → SQLite 是有效 oracle。
 created_at 用非 NULL 且互异(limit-边界 tie-order 是已知限制,见门面 docstring)。
 """
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 
 import pytest
 
@@ -25,7 +25,7 @@ def _tweet(tid, author, created_at, text="hello world"):
 def _article(tid, author):
     from src.scraper.domain.models import Article
     return Article(tweet_id=tid, title=f"t-{tid}", author_username=author,
-                   fetched_at=datetime(2024, 1, 1, tzinfo=timezone.utc))
+                   fetched_at=datetime(2024, 1, 1, tzinfo=UTC))
 
 
 async def _seed_tweets(root, tweets):
@@ -45,7 +45,7 @@ async def _seed_articles(root, articles):
 async def test_unarticled_excludes_articled_filters_author_desc(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    base = datetime(2024, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+    base = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
     # alice: t1(最新)/t2/t3;t2 已有 article → 排除。bob: t4(他人作者)→ 排除。
     await _seed_tweets(tmp_path, [
         _tweet("t1", "alice", base + timedelta(hours=3)),
@@ -66,7 +66,7 @@ async def test_unarticled_excludes_articled_filters_author_desc(monkeypatch, tmp
 async def test_unarticled_limit_truncation(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    base = datetime(2024, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+    base = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
     await _seed_tweets(tmp_path, [
         _tweet("a", "alice", base + timedelta(hours=1)),
         _tweet("b", "alice", base + timedelta(hours=2)),
@@ -84,7 +84,7 @@ async def test_unarticled_case_sensitive_author(monkeypatch, tmp_path):
     """作者名精确匹配(大小写敏感),复刻 ORM `==`。"""
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    base = datetime(2024, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+    base = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
     await _seed_tweets(tmp_path, [
         _tweet("x", "Alice", base + timedelta(hours=1)),
         _tweet("y", "alice", base + timedelta(hours=2)),
@@ -109,7 +109,7 @@ async def test_unarticled_all_articled(monkeypatch, tmp_path):
     """该作者全部推文都有 article → 返回空。"""
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    base = datetime(2024, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+    base = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
     await _seed_tweets(tmp_path, [
         _tweet("p", "alice", base + timedelta(hours=1)),
         _tweet("q", "alice", base + timedelta(hours=2)),
@@ -132,7 +132,7 @@ async def test_faultinj_missing_antijoin_filter(monkeypatch, tmp_path):
     """
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    base = datetime(2024, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+    base = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
     await _seed_tweets(tmp_path, [
         _tweet("t1", "alice", base + timedelta(hours=2)),
         _tweet("t2", "alice", base + timedelta(hours=1)),

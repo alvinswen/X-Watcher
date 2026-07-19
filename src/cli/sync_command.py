@@ -4,7 +4,7 @@ export / import-data 子命令。
 """
 
 import platform
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from pathlib import Path
 
 import click
@@ -176,7 +176,7 @@ def _parse_datetime(raw: str | None, name: str) -> datetime | None:
     try:
         dt = datetime.fromisoformat(raw)
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
         return dt
     except ValueError:
         click.echo(f"错误: {name} 格式无效 '{raw}'，请使用 ISO 8601", err=True)

@@ -4,7 +4,7 @@
 """
 
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 from pathlib import Path
 from unittest.mock import patch
 from uuid import uuid4
@@ -48,7 +48,7 @@ def mock_user() -> UserDomain:
 @pytest.fixture
 def mock_start_time() -> datetime:
     """模拟的服务启动时间。"""
-    return datetime(2026, 2, 19, 8, 0, 0, tzinfo=timezone.utc)
+    return datetime(2026, 2, 19, 8, 0, 0, tzinfo=UTC)
 
 
 @pytest.fixture
@@ -80,7 +80,7 @@ async def seed_status_data():
     - 3 条摘要（2 条推文待摘要）
     - 3 个关注账号（2 活跃 + 1 非活跃）
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
     # 今日推文

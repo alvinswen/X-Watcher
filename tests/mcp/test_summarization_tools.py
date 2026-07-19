@@ -5,7 +5,7 @@
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -56,7 +56,7 @@ class TestGetUnsummarizedTweets:
                 text="Hello world from @elonmusk",
                 author_username="elonmusk",
                 author_display_name="Elon Musk",
-                created_at=datetime(2026, 4, 1, 10, 0, tzinfo=timezone.utc),
+                created_at=datetime(2026, 4, 1, 10, 0, tzinfo=UTC),
             )
         ])
 
@@ -111,7 +111,7 @@ class TestGetUnsummarizedTweets:
                 reference_type=ReferenceType.quoted,
                 referenced_tweet_text="Original content here",
                 referenced_tweet_author_username="originalauthor",
-                created_at=datetime(2026, 4, 1, 12, 0, tzinfo=timezone.utc),
+                created_at=datetime(2026, 4, 1, 12, 0, tzinfo=UTC),
             )
         ])
 
@@ -270,7 +270,7 @@ class TestSaveSummaries:
                     "on and the only way to solve that would be invasion!"
                 ),
                 author_username="alice",
-                created_at=datetime(2026, 4, 1, 10, 0, tzinfo=timezone.utc),
+                created_at=datetime(2026, 4, 1, 10, 0, tzinfo=UTC),
             )
         ])
         with (

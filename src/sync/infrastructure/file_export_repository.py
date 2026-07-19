@@ -5,7 +5,7 @@ parity store 额外暴露 seed_*(委派各底层 store 的 seed/save)供 case �
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +17,7 @@ from src.sync.infrastructure import export_serializers as S
 
 
 def _as_utc(dt: datetime) -> datetime:
-    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
+    return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
 
 
 class FileExportStore:

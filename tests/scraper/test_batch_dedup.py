@@ -4,7 +4,7 @@
 批量去重的 save_tweets 以及 Early Termination 逻辑。
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 import pytest
 
@@ -17,7 +17,7 @@ def _make_tweet(tweet_id: str, text: str = "test tweet") -> Tweet:
     return Tweet(
         tweet_id=tweet_id,
         text=text,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
         author_username="testuser",
     )
 

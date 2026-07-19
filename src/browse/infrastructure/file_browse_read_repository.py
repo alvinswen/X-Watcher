@@ -11,7 +11,7 @@ instant 比对 + 单独钉 file 为 aware "+00:00"。
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any
 
@@ -88,8 +88,8 @@ class FileBrowseReadStore:
 
         local_start = datetime(year, month, 1)
         local_end = datetime(year + 1, 1, 1) if month == 12 else datetime(year, month + 1, 1)
-        utc_start = (local_start + timedelta(minutes=tz_offset)).replace(tzinfo=timezone.utc)
-        utc_end = (local_end + timedelta(minutes=tz_offset)).replace(tzinfo=timezone.utc)
+        utc_start = (local_start + timedelta(minutes=tz_offset)).replace(tzinfo=UTC)
+        utc_end = (local_end + timedelta(minutes=tz_offset)).replace(tzinfo=UTC)
 
         feed = await FileTweetStore(self._root).get_feed(utc_start, utc_end, limit=_NO_LIMIT)
         min_len = min_text_length or 0
@@ -97,7 +97,7 @@ class FileBrowseReadStore:
         for tw in feed.items:
             if len(tw.text or "") < min_len:
                 continue
-            created = tw.created_at if tw.created_at.tzinfo else tw.created_at.replace(tzinfo=timezone.utc)
+            created = tw.created_at if tw.created_at.tzinfo else tw.created_at.replace(tzinfo=UTC)
             # 复刻 sql_date_with_offset(col, -tz_offset)::DATE:local=UTC+(-tz_offset)分,取日(截断)
             local_date = (created + timedelta(minutes=-tz_offset)).date()
             counter[local_date.isoformat()] += 1

@@ -3,7 +3,7 @@
 测试推文列表和详情 API 端点。
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 from pathlib import Path
 
 import pytest
@@ -32,7 +32,7 @@ async def seed_test_tweets(tweet_file_data_root: Path) -> list[Tweet]:
     Returns:
         创建的推文领域对象列表
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     tweets = [
         Tweet(
             tweet_id="tweet1",
@@ -294,7 +294,7 @@ class TestTweetListAPI:
         self, async_client: AsyncClient, seed_test_tweets: list[Tweet]
     ) -> None:
         """测试 created_after >= created_before 返回 422。"""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         # 使用 URL 安全的日期格式（用 %2B 编码 +，或直接构造不带 +00:00 的格式）
         later = (now + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
         earlier = (now - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")

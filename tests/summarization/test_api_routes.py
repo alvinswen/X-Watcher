@@ -1,7 +1,7 @@
 """摘要读取 API 端点集成测试。"""
 
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -60,8 +60,8 @@ def sample_summary_record():
         cost_usd=0.001,
         cached=False,
         content_hash="abc123",
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
     )
 
 

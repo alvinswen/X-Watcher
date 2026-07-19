@@ -9,7 +9,7 @@ import base64
 import hashlib
 import secrets
 import string
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, UTC
 from typing import Any
 
 import bcrypt
@@ -63,8 +63,8 @@ class AuthService:
             "sub": str(user_id),
             "email": email,
             "is_admin": is_admin,
-            "exp": datetime.now(timezone.utc) + timedelta(hours=settings.jwt_expire_hours),
-            "iat": datetime.now(timezone.utc),
+            "exp": datetime.now(UTC) + timedelta(hours=settings.jwt_expire_hours),
+            "iat": datetime.now(UTC),
         }
         return jwt.encode(payload, settings.jwt_secret_key, algorithm="HS256")
 

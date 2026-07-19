@@ -17,7 +17,7 @@ file 模式不依赖 ORM,组合既有 file store(FileTweetStore + FileSummarySto
   顺序/total/has_summary/db_created_at 关系/媒体等结构字段(created_at 类型两侧本就不同形态,
   由序列化层统一),用 TestClient 比 JSON 时才严格逐字节等。
 """
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 
 import pytest
 
@@ -37,7 +37,7 @@ def _tweet(tid, author, created_at, text="hello world", media=None,
 
 def _summary(tid, sid=None):
     from src.summarization.domain.models import SummaryRecord
-    now = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    now = datetime(2024, 1, 1, tzinfo=UTC)
     return SummaryRecord(
         summary_id=sid or f"sum-{tid}",
         tweet_id=tid,
@@ -69,7 +69,7 @@ async def test_list_tweets_basic_desc_total(monkeypatch, tmp_path):
     """分页 total + DESC 排序 + 默认全量。"""
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    base = datetime(2026, 2, 18, 0, 0, 0, tzinfo=timezone.utc)
+    base = datetime(2026, 2, 18, 0, 0, 0, tzinfo=UTC)
     await _seed_tweets(tmp_path, [
         _tweet("t1", "alice", base + timedelta(hours=3)),
         _tweet("t2", "alice", base + timedelta(hours=1)),
@@ -88,7 +88,7 @@ async def test_list_tweets_pagination(monkeypatch, tmp_path):
     """分页 offset/limit:page2 取不同子集。"""
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    base = datetime(2026, 2, 18, 0, 0, 0, tzinfo=timezone.utc)
+    base = datetime(2026, 2, 18, 0, 0, 0, tzinfo=UTC)
     await _seed_tweets(tmp_path, [
         _tweet(f"t{i}", "alice", base + timedelta(hours=i)) for i in range(5)
     ])
@@ -107,7 +107,7 @@ async def test_list_tweets_author_case_insensitive(monkeypatch, tmp_path):
     """author 过滤大小写不敏感(func.lower == author.lower())。"""
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    base = datetime(2026, 2, 18, 0, 0, 0, tzinfo=timezone.utc)
+    base = datetime(2026, 2, 18, 0, 0, 0, tzinfo=UTC)
     await _seed_tweets(tmp_path, [
         _tweet("u1", "Alice", base + timedelta(hours=1)),
         _tweet("u2", "ALICE", base + timedelta(hours=2)),
@@ -130,8 +130,8 @@ async def test_list_tweets_created_window_half_open(monkeypatch, tmp_path):
     """created 窗 [after, before):after 含、before 不含。"""
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    after = datetime(2026, 2, 18, 0, 0, 0, tzinfo=timezone.utc)
-    before = datetime(2026, 2, 19, 0, 0, 0, tzinfo=timezone.utc)
+    after = datetime(2026, 2, 18, 0, 0, 0, tzinfo=UTC)
+    before = datetime(2026, 2, 19, 0, 0, 0, tzinfo=UTC)
     await _seed_tweets(tmp_path, [
         _tweet("before", "alice", after - timedelta(seconds=1)),  # 早于 after → 排除
         _tweet("at_after", "alice", after),                       # = after → 含
@@ -152,7 +152,7 @@ async def test_list_tweets_has_summary(monkeypatch, tmp_path):
     """has_summary:有 summary 的 tweet→True,无→False。"""
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    base = datetime(2026, 2, 18, 0, 0, 0, tzinfo=timezone.utc)
+    base = datetime(2026, 2, 18, 0, 0, 0, tzinfo=UTC)
     await _seed_tweets(tmp_path, [
         _tweet("withsum", "alice", base + timedelta(hours=2)),
         _tweet("nosum", "alice", base + timedelta(hours=1)),
@@ -172,7 +172,7 @@ async def test_list_tweets_media_count_and_reference_type(monkeypatch, tmp_path)
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     from src.scraper.domain.models import Media, ReferenceType
-    base = datetime(2026, 2, 18, 0, 0, 0, tzinfo=timezone.utc)
+    base = datetime(2026, 2, 18, 0, 0, 0, tzinfo=UTC)
     await _seed_tweets(tmp_path, [
         _tweet("m2", "alice", base + timedelta(hours=2),
                media=[Media(media_key="k1", type="photo"),
@@ -196,7 +196,7 @@ async def test_get_tweet_detail_found_and_missing(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     from src.scraper.domain.models import Media
-    base = datetime(2026, 2, 18, 0, 0, 0, tzinfo=timezone.utc)
+    base = datetime(2026, 2, 18, 0, 0, 0, tzinfo=UTC)
     await _seed_tweets(tmp_path, [
         _tweet("d1", "alice", base, media=[Media(media_key="k", type="photo")]),
     ])
@@ -219,7 +219,7 @@ async def test_db_created_at_degradation_file_equals_created_at(monkeypatch, tmp
     """file 模式:list + detail 的 db_created_at == 该推文 created_at(降级)。"""
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    base = datetime(2026, 2, 18, 3, 30, 0, tzinfo=timezone.utc)
+    base = datetime(2026, 2, 18, 3, 30, 0, tzinfo=UTC)
     await _seed_tweets(tmp_path, [_tweet("t1", "alice", base)])
     from src.data_layer.provider import get_tweet_read_repo
 
@@ -238,7 +238,7 @@ async def test_endpoints_file_mode_via_handler(monkeypatch, tmp_path):
     """直调 handler:file 模式两端点不崩、404 正常、分页正确、created_at JSON 序列化带 +00:00。"""
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    base = datetime(2026, 2, 18, 0, 0, 0, tzinfo=timezone.utc)
+    base = datetime(2026, 2, 18, 0, 0, 0, tzinfo=UTC)
     await _seed_tweets(tmp_path, [
         _tweet("e1", "alice", base + timedelta(hours=2)),
         _tweet("e2", "alice", base + timedelta(hours=1)),
@@ -282,8 +282,8 @@ async def test_faultinj_created_window_closed_vs_half_open(monkeypatch, tmp_path
     """故意把 created_before 写成闭区间(<=)→ before 边界推文混入 → 断言翻红还原。"""
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    after = datetime(2026, 2, 18, 0, 0, 0, tzinfo=timezone.utc)
-    before = datetime(2026, 2, 19, 0, 0, 0, tzinfo=timezone.utc)
+    after = datetime(2026, 2, 18, 0, 0, 0, tzinfo=UTC)
+    before = datetime(2026, 2, 19, 0, 0, 0, tzinfo=UTC)
     await _seed_tweets(tmp_path, [
         _tweet("mid", "alice", after + timedelta(hours=5)),
         _tweet("at_before", "alice", before),  # 半开 [after, before) 应排除
@@ -329,7 +329,7 @@ async def test_faultinj_has_summary_always_false(monkeypatch, tmp_path):
     """故意让 has_summary 恒 False(漏 JOIN)→ 与真有 summary 不符 → 断言能抓到。"""
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    base = datetime(2026, 2, 18, 0, 0, 0, tzinfo=timezone.utc)
+    base = datetime(2026, 2, 18, 0, 0, 0, tzinfo=UTC)
     await _seed_tweets(tmp_path, [_tweet("t1", "alice", base)])
     await _seed_summaries(tmp_path, [_summary("t1")])
     from src.data_layer.provider import get_tweet_read_repo
@@ -353,7 +353,7 @@ async def test_faultinj_db_created_at_not_degraded(monkeypatch, tmp_path):
     """故意让 file 门面 db_created_at 不降级(返 None)→ 响应模型必填字段校验崩 → 证降级载体被测。"""
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    base = datetime(2026, 2, 18, 0, 0, 0, tzinfo=timezone.utc)
+    base = datetime(2026, 2, 18, 0, 0, 0, tzinfo=UTC)
     await _seed_tweets(tmp_path, [_tweet("t1", "alice", base)])
     from src.data_layer.provider import get_tweet_read_repo
 

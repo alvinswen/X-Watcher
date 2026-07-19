@@ -2,7 +2,7 @@
 路径可证:种子只进文件层;跨模式对账:同数据 file vs sqlalchemy 同 (items 除 db_created_at,
 count,total,has_more)(feed 无聚合 div/cast→SQLite 对 ASCII keyword 是有效 oracle;seed distinct
 created_at 避 tie-break;created_at 按 instant 比 + 单独钉 file aware;db_created_at file None 单独断言)。"""
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 
 import pytest
 
@@ -15,7 +15,7 @@ def _tweet(tid, author, created_at, text="hello world", media=None):
 
 def _summary(tid, summary_text=None, translation_text=None):
     from src.summarization.domain.models import SummaryRecord
-    now = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    now = datetime(2024, 1, 1, tzinfo=UTC)
     return SummaryRecord(summary_id=f"s-{tid}", tweet_id=tid,
                          summary_text=summary_text if summary_text is not None else f"摘要{tid}",
                          translation_text=translation_text if translation_text is not None else f"译文{tid}",
@@ -35,7 +35,7 @@ async def _seed_file(tmp_path, tweets, summaries=()):
 async def test_get_feed_file_mode_window_join_shape(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     base = now - timedelta(days=1)
     since = base - timedelta(hours=1)
     until = base + timedelta(hours=1)
@@ -66,7 +66,7 @@ async def test_get_feed_file_mode_window_join_shape(monkeypatch, tmp_path):
 async def test_get_feed_file_mode_limit_cursor(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     base = now - timedelta(days=1)
     await _seed_file(tmp_path, [_tweet(f"c{i}", "alice", base + timedelta(minutes=i)) for i in range(5)])
     from src.data_layer.provider import get_feed_repo
@@ -81,7 +81,7 @@ async def test_get_feed_file_mode_limit_cursor(monkeypatch, tmp_path):
 async def test_get_feed_file_mode_author_filter(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     base = now - timedelta(days=1)
     win = dict(since=base - timedelta(hours=1), until=base + timedelta(hours=1), limit=10)
     await _seed_file(tmp_path, [
@@ -103,7 +103,7 @@ async def test_get_feed_file_mode_author_filter(monkeypatch, tmp_path):
 async def test_get_feed_file_mode_keyword(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     base = now - timedelta(days=1)
     win = dict(since=base - timedelta(hours=1), until=base + timedelta(hours=1), limit=10)
     # k1 text 含 GPT;k2 text 无但 summary 含;k3 text 无 summary 无
@@ -128,7 +128,7 @@ async def test_get_feed_file_mode_keyword_like_wildcard(monkeypatch, tmp_path):
     """keyword 内 `_` 复刻 SQL LIKE 通配(任意单字符),非 naive substring。"""
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     base = now - timedelta(days=1)
     win = dict(since=base - timedelta(hours=1), until=base + timedelta(hours=1), limit=10)
     await _seed_file(tmp_path, [
@@ -150,7 +150,7 @@ async def test_get_feed_file_mode_media_shape(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     import json
     from src.scraper.domain.models import Media
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     base = now - timedelta(days=1)
     tw = _tweet("m1", "alice", base + timedelta(minutes=1), media=[Media(media_key="k1", type="photo")])
     await _seed_file(tmp_path, [tw])
@@ -170,7 +170,7 @@ async def test_feed_tweet_item_accepts_none_db_created_at():
     from datetime import datetime, timezone
     from src.feed.api.schemas import FeedTweetItem
     item = {"tweet_id": "x", "text": "t", "author_username": "a", "author_display_name": None,
-            "created_at": datetime(2024, 1, 1, tzinfo=timezone.utc), "db_created_at": None,
+            "created_at": datetime(2024, 1, 1, tzinfo=UTC), "db_created_at": None,
             "reference_type": None, "referenced_tweet_id": None, "media": None,
             "summary_text": None, "translation_text": None}
     obj = FeedTweetItem(**item)
@@ -183,7 +183,7 @@ async def test_get_feed_file_mode_reference_type(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     from src.scraper.domain.models import ReferenceType, Tweet
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     base = now - timedelta(days=1)
     tw = Tweet(tweet_id="r1", text="reply tweet", created_at=base + timedelta(minutes=1),
                author_username="alice", author_display_name="alice disp",
@@ -203,7 +203,7 @@ async def test_mcp_get_feed_file_mode(monkeypatch, tmp_path):
     import json
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     base = now - timedelta(days=1)
     await _seed_file(tmp_path, [_tweet("mf1", "alice", base + timedelta(minutes=1)),
                                 _tweet("mf2", "alice", base + timedelta(minutes=2))],

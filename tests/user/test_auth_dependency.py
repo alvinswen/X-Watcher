@@ -1,7 +1,7 @@
 """认证依赖 get_current_user / get_current_admin_user 测试。"""
 
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -149,8 +149,8 @@ async def test_jwt_auth_expired(normal_user_with_key):
         "sub": str(user_orm.id),
         "email": user_orm.email,
         "is_admin": False,
-        "exp": datetime.now(timezone.utc) - timedelta(hours=1),
-        "iat": datetime.now(timezone.utc) - timedelta(hours=2),
+        "exp": datetime.now(UTC) - timedelta(hours=1),
+        "iat": datetime.now(UTC) - timedelta(hours=2),
     }
     expired_token = pyjwt.encode(expired_payload, JWT_SECRET, algorithm="HS256")
     bearer = _make_bearer(expired_token)

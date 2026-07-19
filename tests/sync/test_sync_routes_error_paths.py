@@ -2,7 +2,7 @@
 
 import json
 import logging
-from datetime import timezone
+from datetime import timezone, UTC
 
 import pytest
 from fastapi import HTTPException
@@ -84,7 +84,7 @@ def test_search_time_error_keeps_422_and_parameter_context() -> None:
 def test_search_time_without_timezone_defaults_to_utc() -> None:
     parsed = _parse_time_param("since", "2026-01-01T00:00:00")
 
-    assert parsed.tzinfo is timezone.utc
+    assert parsed.tzinfo is UTC
 
 
 async def test_last_admin_demotion_keeps_exact_detail_and_user_state(

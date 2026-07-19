@@ -3,7 +3,7 @@
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -62,7 +62,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001 - app �
 
     # 记录服务启动时间
     global _server_start_time
-    _server_start_time = datetime.now(timezone.utc)
+    _server_start_time = datetime.now(UTC)
 
     yield
 

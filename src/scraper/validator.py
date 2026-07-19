@@ -8,7 +8,7 @@ import re
 from collections.abc import Sequence
 from typing import Any
 
-from datetime import timezone
+from datetime import timezone, UTC
 
 from returns.result import Failure, Result, Success
 
@@ -165,7 +165,7 @@ class TweetValidator:
         """
         # 如果没有时区信息，添加 UTC 时区
         if dt.tzinfo is None:
-            return dt.replace(tzinfo=timezone.utc)
+            return dt.replace(tzinfo=UTC)
 
         # 已有时区信息，直接返回
         return dt

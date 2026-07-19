@@ -1,7 +1,7 @@
 """browse get_tweets/get_author_timeline 在 XWATCHER_DATA_LAYER=file 下走文件层。
 路径可证:种子只进文件层;跨模式对账:同数据 file vs sqlalchemy 同 (items,total)/author_meta
 (browse 列表无聚合 div/cast→SQLite 是有效 oracle;seed distinct created_at 避 tie-break)。"""
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 
 import pytest
 
@@ -14,7 +14,7 @@ def _tweet(tid, author, created_at, text="hello world"):
 
 def _summary(tid):
     from src.summarization.domain.models import SummaryRecord
-    now = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    now = datetime(2024, 1, 1, tzinfo=UTC)
     return SummaryRecord(summary_id=f"s-{tid}", tweet_id=tid, summary_text=f"摘要{tid}",
                          translation_text=f"译文{tid}", model_provider="p", model_name="m",
                          prompt_tokens=1, completion_tokens=1, total_tokens=2, cost_usd=0.0,
@@ -36,7 +36,7 @@ async def _seed_file(tmp_path, tweets, summaries=(), follows=()):
 async def test_get_tweets_file_mode_join_and_shape(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     base = now.replace(hour=12, minute=0, second=0, microsecond=0) - timedelta(days=1)
     date_str = base.strftime("%Y-%m-%d")
     await _seed_file(tmp_path, [
@@ -63,7 +63,7 @@ async def test_get_tweets_file_mode_join_and_shape(monkeypatch, tmp_path):
 async def test_get_author_timeline_file_mode(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     since = now - timedelta(days=2); until = now + timedelta(days=1)
     await _seed_file(tmp_path, [
         _tweet("a1", "alice", now - timedelta(hours=3)),
@@ -84,7 +84,7 @@ async def test_get_tweets_file_mode_media_shape(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     import json
     from src.scraper.domain.models import Media, Tweet
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     base = now.replace(hour=12, minute=0, second=0, microsecond=0) - timedelta(days=1)
     tw = Tweet(tweet_id="m1", text="x", created_at=base + timedelta(minutes=1), author_username="alice",
                media=[Media(media_key="k1", type="photo")])
@@ -107,7 +107,7 @@ async def test_pagination_and_empty_file_mode(monkeypatch, tmp_path):
     """应用层分页(offset 切片)≡ 预期 + total 全量计数 + 空结果分支(M3 钉 off-by-one)。"""
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     base = now.replace(hour=12, minute=0, second=0, microsecond=0) - timedelta(days=1)
     date_str = base.strftime("%Y-%m-%d")
     await _seed_file(tmp_path, [_tweet(f"p{i}", "alice", base + timedelta(minutes=i)) for i in range(1, 4)],
@@ -133,7 +133,7 @@ async def test_mcp_browse_tweets_file_mode(monkeypatch, tmp_path):
     import json
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     base = now.replace(hour=12, minute=0, second=0, microsecond=0) - timedelta(days=1)
     await _seed_file(tmp_path, [_tweet("mb1", "alice", base + timedelta(minutes=1)),
                                 _tweet("mb2", "alice", base + timedelta(minutes=2))],
@@ -156,9 +156,9 @@ async def test_get_daily_stats_file_mode_basic(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     # tz_offset=0(UTC):2026-05-02 两条 / 2026-05-04 一条
     await _seed_file(tmp_path, [
-        _tweet("d1", "alice", datetime(2026, 5, 2, 3, 0, tzinfo=timezone.utc)),
-        _tweet("d2", "bob", datetime(2026, 5, 2, 9, 0, tzinfo=timezone.utc)),
-        _tweet("d3", "alice", datetime(2026, 5, 4, 1, 0, tzinfo=timezone.utc)),
+        _tweet("d1", "alice", datetime(2026, 5, 2, 3, 0, tzinfo=UTC)),
+        _tweet("d2", "bob", datetime(2026, 5, 2, 9, 0, tzinfo=UTC)),
+        _tweet("d3", "alice", datetime(2026, 5, 4, 1, 0, tzinfo=UTC)),
     ])
     from src.data_layer.provider import get_browse_repo
     days = await get_browse_repo().get_daily_stats(2026, 5, tz_offset=0)
@@ -174,8 +174,8 @@ async def test_get_daily_stats_tz_offset_boundary(monkeypatch, tmp_path):
     # UTC 2026-05-01 15:00 → local 2026-05-01 23:00 → 本地日 05-01
     # UTC 2026-05-01 17:00 → local 2026-05-02 01:00 → 本地日 05-02
     await _seed_file(tmp_path, [
-        _tweet("b1", "alice", datetime(2026, 5, 1, 15, 0, tzinfo=timezone.utc)),
-        _tweet("b2", "alice", datetime(2026, 5, 1, 17, 0, tzinfo=timezone.utc)),
+        _tweet("b1", "alice", datetime(2026, 5, 1, 15, 0, tzinfo=UTC)),
+        _tweet("b2", "alice", datetime(2026, 5, 1, 17, 0, tzinfo=UTC)),
     ])
     from src.data_layer.provider import get_browse_repo
     days = await get_browse_repo().get_daily_stats(2026, 5, tz_offset=-480)
@@ -188,8 +188,8 @@ async def test_get_daily_stats_min_text_length(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     await _seed_file(tmp_path, [
-        _tweet("s1", "alice", datetime(2026, 5, 2, 3, 0, tzinfo=timezone.utc), text="hi"),       # len 2
-        _tweet("s2", "alice", datetime(2026, 5, 2, 4, 0, tzinfo=timezone.utc), text="hello!!"),  # len 7
+        _tweet("s1", "alice", datetime(2026, 5, 2, 3, 0, tzinfo=UTC), text="hi"),       # len 2
+        _tweet("s2", "alice", datetime(2026, 5, 2, 4, 0, tzinfo=UTC), text="hello!!"),  # len 7
     ])
     from src.data_layer.provider import get_browse_repo
     days = await get_browse_repo().get_daily_stats(2026, 5, tz_offset=0, min_text_length=5)
@@ -202,8 +202,8 @@ async def test_get_daily_stats_december_cross_year(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     await _seed_file(tmp_path, [
-        _tweet("dc1", "alice", datetime(2026, 12, 31, 3, 0, tzinfo=timezone.utc)),
-        _tweet("dc2", "alice", datetime(2027, 1, 1, 3, 0, tzinfo=timezone.utc)),  # 次年,不计入
+        _tweet("dc1", "alice", datetime(2026, 12, 31, 3, 0, tzinfo=UTC)),
+        _tweet("dc2", "alice", datetime(2027, 1, 1, 3, 0, tzinfo=UTC)),  # 次年,不计入
     ])
     from src.data_layer.provider import get_browse_repo
     days = await get_browse_repo().get_daily_stats(2026, 12, tz_offset=0)
@@ -215,7 +215,7 @@ async def test_get_daily_stats_empty_month(monkeypatch, tmp_path):
     """空月返回 [](窗口排除其它月推文)。"""
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    await _seed_file(tmp_path, [_tweet("x", "alice", datetime(2026, 5, 2, 3, 0, tzinfo=timezone.utc))])
+    await _seed_file(tmp_path, [_tweet("x", "alice", datetime(2026, 5, 2, 3, 0, tzinfo=UTC))])
     from src.data_layer.provider import get_browse_repo
     days = await get_browse_repo().get_daily_stats(2026, 7, tz_offset=0)  # 7 月无推文
     assert days == []
@@ -226,7 +226,7 @@ async def test_get_authors_file_mode_basic(monkeypatch, tmp_path):
     """按作者分组(count+max),按 max DESC 排序,last_tweet_at aware,reason 命中 active follow。"""
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    day = datetime(2026, 5, 10, 3, 0, tzinfo=timezone.utc)
+    day = datetime(2026, 5, 10, 3, 0, tzinfo=UTC)
     await _seed_file(tmp_path, [
         _tweet("g1", "alice", day),                          # alice max 03:00
         _tweet("g2", "alice", day.replace(hour=5)),          # alice max→05:00 count 2
@@ -252,7 +252,7 @@ async def test_get_authors_display_name_latest_and_min_len(monkeypatch, tmp_path
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     from src.scraper.domain.models import Tweet
-    day = datetime(2026, 5, 10, 3, 0, tzinfo=timezone.utc)
+    day = datetime(2026, 5, 10, 3, 0, tzinfo=UTC)
     await _seed_file(tmp_path, [
         Tweet(tweet_id="n1", text="hello world", created_at=day, author_username="alice",
               author_display_name="OLD NAME"),
@@ -274,7 +274,7 @@ async def test_get_authors_reason_exact_username(monkeypatch, tmp_path):
     →不匹配(故障注入:reason 改 lower 则误匹配返 "大写关注" 翻红)。FileFollowStore 精确 username 保 case。"""
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    day = datetime(2026, 5, 10, 3, 0, tzinfo=timezone.utc)
+    day = datetime(2026, 5, 10, 3, 0, tzinfo=UTC)
     await _seed_file(tmp_path, [_tweet("e1", "alice", day)], follows=[("Alice", "大写关注")])
     from src.data_layer.provider import get_browse_repo
     authors = await get_browse_repo().get_authors("2026-05-10", tz_offset=0)
@@ -287,7 +287,7 @@ async def test_get_authors_empty_day(monkeypatch, tmp_path):
     """无推文日返回 [](与 get_daily_stats 空月对称)。"""
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    await _seed_file(tmp_path, [_tweet("z1", "alice", datetime(2026, 5, 10, 3, 0, tzinfo=timezone.utc))])
+    await _seed_file(tmp_path, [_tweet("z1", "alice", datetime(2026, 5, 10, 3, 0, tzinfo=UTC))])
     from src.data_layer.provider import get_browse_repo
     authors = await get_browse_repo().get_authors("2026-05-11", tz_offset=0)  # 11 日无推文
     assert authors == []
@@ -299,8 +299,8 @@ async def test_mcp_get_daily_stats_file_mode(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     await _seed_file(tmp_path, [
-        _tweet("md1", "alice", datetime(2026, 5, 2, 3, 0, tzinfo=timezone.utc)),
-        _tweet("md2", "bob", datetime(2026, 5, 2, 9, 0, tzinfo=timezone.utc)),
+        _tweet("md1", "alice", datetime(2026, 5, 2, 3, 0, tzinfo=UTC)),
+        _tweet("md2", "bob", datetime(2026, 5, 2, 9, 0, tzinfo=UTC)),
     ])
     from mcp.server.fastmcp import FastMCP
     from src.mcp.tools import browse_tools
@@ -316,7 +316,7 @@ async def test_mcp_get_authors_for_date_file_mode(monkeypatch, tmp_path):
     import json
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    day = datetime(2026, 5, 10, 3, 0, tzinfo=timezone.utc)
+    day = datetime(2026, 5, 10, 3, 0, tzinfo=UTC)
     await _seed_file(tmp_path, [
         _tweet("ma1", "alice", day), _tweet("ma2", "bob", day.replace(hour=8)),
     ], follows=[("alice", "AI 研究者")])

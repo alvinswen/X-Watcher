@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 
 import pytest
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from httpx import AsyncClient, ASGITransport
 from fastapi import FastAPI, status
 
@@ -88,7 +88,7 @@ class TestScraperConfigAPI:
             name="admin",
             email="admin@example.com",
             is_admin=True,
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
 
         async def override_get_current_admin_user():

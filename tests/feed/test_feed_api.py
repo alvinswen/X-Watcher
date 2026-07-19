@@ -4,7 +4,7 @@
 """
 
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 from pathlib import Path
 from uuid import uuid4
 
@@ -74,7 +74,7 @@ async def seed_feed_data():
     created_at（Feed 时间过滤基准）: base+50, +40, +30, +20, +10 min
     db_created_at（入库时间，与 created_at 故意不同）: base+10, +20, +30, +40, +50 min
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     base_time = now - timedelta(hours=2)
 
     tweets = []
@@ -122,7 +122,7 @@ async def seed_multi_author_data():
     - bob: 1 条推文（text 含 "beta"）
     摘要：alice 的第一条有摘要
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     base_time = now - timedelta(hours=2)
 
     tweets = [

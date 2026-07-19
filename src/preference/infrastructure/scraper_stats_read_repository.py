@@ -12,7 +12,7 @@ author 匹配复刻旧 SQL func.lower(author_username) + in_([u.lower()...])(大
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 from pathlib import Path
 
 from src.storage import paths
@@ -65,7 +65,7 @@ class FileScraperStatsReadStore:
         """
         from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         interval = timedelta(hours=interval_hours)
         wanted = username.lower()
 

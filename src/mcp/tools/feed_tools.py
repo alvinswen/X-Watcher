@@ -4,7 +4,7 @@
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 from mcp.server.fastmcp import FastMCP
 
@@ -46,7 +46,7 @@ def register(mcp: FastMCP) -> None:
         """
         try:
             since_dt = parse_datetime(since)
-            until_dt = parse_datetime(until) if until else datetime.now(timezone.utc)
+            until_dt = parse_datetime(until) if until else datetime.now(UTC)
 
             authors_list = (
                 [a.strip() for a in authors.split(",") if a.strip()]

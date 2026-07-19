@@ -2,7 +2,7 @@
 
 import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 from click.testing import CliRunner
 
@@ -47,7 +47,7 @@ class TestExportCommand:
                     username="alice",
                     reason="KOL",
                     added_by="admin",
-                    added_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    added_at=datetime(2026, 1, 1, tzinfo=UTC),
                     is_active=True,
                 )
             ],
@@ -109,13 +109,13 @@ class TestExportCommand:
                     tweet_id="tw_old",
                     text="Old tweet",
                     author_username="alice",
-                    created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    created_at=datetime(2026, 1, 1, tzinfo=UTC),
                 ),
                 Tweet(
                     tweet_id="tw_new",
                     text="New tweet",
                     author_username="alice",
-                    created_at=datetime(2026, 2, 15, tzinfo=timezone.utc),
+                    created_at=datetime(2026, 2, 15, tzinfo=UTC),
                 ),
             ],
         )
@@ -278,7 +278,7 @@ class TestEndToEnd:
                     username="alice",
                     reason="KOL",
                     added_by="admin",
-                    added_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    added_at=datetime(2026, 1, 1, tzinfo=UTC),
                     is_active=True,
                 )
             ],
@@ -287,7 +287,7 @@ class TestEndToEnd:
                     tweet_id="tw_001",
                     text="Hello",
                     author_username="alice",
-                    created_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
+                    created_at=datetime(2026, 2, 1, tzinfo=UTC),
                 )
             ],
             summaries=[
@@ -302,8 +302,8 @@ class TestEndToEnd:
                     total_tokens=150,
                     cost_usd=0.01,
                     content_hash="hash1",
-                    created_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
-                    updated_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
+                    created_at=datetime(2026, 2, 1, tzinfo=UTC),
+                    updated_at=datetime(2026, 2, 1, tzinfo=UTC),
                 )
             ],
         )

@@ -10,7 +10,7 @@ FileSummaryStore.get_all_summaries(全量摘要建 map 左连接)。复刻旧 Se
 """
 from __future__ import annotations
 
-from datetime import timezone
+from datetime import timezone, UTC
 from pathlib import Path
 from typing import Any
 
@@ -37,7 +37,7 @@ class FileSearchReadStore:
         # since 无:全扫兜底 + until 过滤(created_at < until)
         tweets = await store.get_all_tweets()
         if until is not None:
-            until_cmp = until if until.tzinfo is not None else until.replace(tzinfo=timezone.utc)
+            until_cmp = until if until.tzinfo is not None else until.replace(tzinfo=UTC)
             tweets = [t for t in tweets if t.created_at < until_cmp]
         return tweets
 

@@ -3,7 +3,7 @@
 记录每个用户的抓取历史统计，用于动态计算 limit。
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 from pydantic import BaseModel, Field
 
@@ -16,7 +16,7 @@ class FetchStats(BaseModel):
 
     username: str = Field(..., description="Twitter 用户名")
     last_fetch_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(UTC),
         description="上次抓取时间",
     )
     last_fetched_count: int = Field(

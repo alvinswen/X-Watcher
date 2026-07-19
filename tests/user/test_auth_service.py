@@ -7,6 +7,7 @@ import pytest
 
 from src.config import clear_settings_cache
 from src.user.services.auth_service import AuthService
+from datetime import UTC
 
 
 @pytest.fixture(autouse=True)
@@ -102,8 +103,8 @@ def test_jwt_expired(auth_service):
         "sub": "1",
         "email": "test@example.com",
         "is_admin": False,
-        "exp": datetime.now(timezone.utc) - timedelta(hours=1),
-        "iat": datetime.now(timezone.utc) - timedelta(hours=2),
+        "exp": datetime.now(UTC) - timedelta(hours=1),
+        "iat": datetime.now(UTC) - timedelta(hours=2),
     }
     expired_token = pyjwt.encode(expired_payload, settings_secret, algorithm="HS256")
 

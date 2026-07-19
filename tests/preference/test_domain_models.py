@@ -3,7 +3,7 @@
 测试关注列表管理相关的领域模型。
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 import pytest
 
@@ -21,7 +21,7 @@ class TestScraperFollow:
         return {
             "id": 1,
             "username": "karpathy",
-            "added_at": datetime.now(timezone.utc),
+            "added_at": datetime.now(UTC),
             "reason": "AI 研究相关",
             "added_by": "admin@metalight.ai",
             "is_active": True,

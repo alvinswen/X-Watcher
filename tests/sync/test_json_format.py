@@ -1,7 +1,7 @@
 """JSON 格式读写测试。"""
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 import pytest
 
@@ -12,7 +12,7 @@ from src.sync.format.json_format import read_export_file, write_export_file
 def _make_package(**overrides) -> ExportPackage:
     """创建测试用 ExportPackage。"""
     meta = ExportMetadata(
-        exported_at=datetime(2026, 2, 24, 12, 0, 0, tzinfo=timezone.utc),
+        exported_at=datetime(2026, 2, 24, 12, 0, 0, tzinfo=UTC),
         source_instance_id="test-server",
         categories=["config"],
         counts={"scraper_follows": 2},
@@ -64,11 +64,11 @@ class TestWriteAndRead:
 
     def test_filters_roundtrip(self, tmp_path):
         meta = ExportMetadata(
-            exported_at=datetime(2026, 2, 24, tzinfo=timezone.utc),
+            exported_at=datetime(2026, 2, 24, tzinfo=UTC),
             source_instance_id="s1",
             categories=["content"],
             filters=ExportFilters(
-                since=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                since=datetime(2026, 1, 1, tzinfo=UTC),
                 authors=["alice", "bob"],
             ),
         )

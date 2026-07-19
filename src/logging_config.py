@@ -17,7 +17,7 @@ import logging
 import os
 import queue
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from logging.handlers import QueueHandler, QueueListener, RotatingFileHandler
 from typing import Any
 
@@ -85,7 +85,7 @@ class JSONFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         log_entry: dict[str, Any] = {
             "timestamp": datetime.fromtimestamp(
-                record.created, tz=timezone.utc
+                record.created, tz=UTC
             ).isoformat(),
             "level": record.levelname,
             "logger": record.name,

@@ -4,7 +4,7 @@
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -64,7 +64,7 @@ class TweetListResponse(BaseModel):
 def _ensure_utc(dt: datetime) -> datetime:
     """将 naive datetime 转换为 UTC aware datetime；已有时区信息则原样返回。"""
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
+        return dt.replace(tzinfo=UTC)
     return dt
 
 
@@ -221,7 +221,7 @@ async def get_tweet_detail(
                     if dt is None:
                         return None
                     if dt.tzinfo is None:
-                        dt = dt.replace(tzinfo=timezone.utc)
+                        dt = dt.replace(tzinfo=UTC)
                     return dt.isoformat()
 
                 summary = {

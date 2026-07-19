@@ -4,7 +4,7 @@
 """
 
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 from pathlib import Path
 from uuid import uuid4
 
@@ -38,9 +38,9 @@ async def seed_browse_data():
     创建跨两天、两个作者的推文，部分推文有摘要。
     """
     # 2026-02-15 的推文
-    day1 = datetime(2026, 2, 15, 10, 0, 0, tzinfo=timezone.utc)
+    day1 = datetime(2026, 2, 15, 10, 0, 0, tzinfo=UTC)
     # 2026-02-16 的推文
-    day2 = datetime(2026, 2, 16, 8, 0, 0, tzinfo=timezone.utc)
+    day2 = datetime(2026, 2, 16, 8, 0, 0, tzinfo=UTC)
 
     tweets = [
         # Day 1: user_a 2条, user_b 1条
@@ -245,7 +245,7 @@ class TestBrowseAuthors:
         self, async_client: AsyncClient
     ):
         """没有 ScraperFollow 记录的作者，reason 应为 null。"""
-        day = datetime(2026, 3, 1, 10, 0, 0, tzinfo=timezone.utc)
+        day = datetime(2026, 3, 1, 10, 0, 0, tzinfo=UTC)
         tweet = Tweet(
             tweet_id="browse_orphan",
             text="Tweet from unknown author",

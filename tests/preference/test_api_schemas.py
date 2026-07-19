@@ -3,7 +3,7 @@
 测试关注列表管理相关的 Pydantic 数据模型。
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 import pytest
 from pydantic import ValidationError
@@ -102,7 +102,7 @@ class TestResponseModels:
 
     def test_scraper_follow_response(self):
         """测试抓取账号响应。"""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         response = ScraperFollowResponse(
             id=1,
             username="testuser",

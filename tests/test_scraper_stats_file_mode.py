@@ -27,7 +27,7 @@ def _norm_instant(dt):
     if dt is None:
         return None
     if dt.tzinfo is not None:
-        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt.astimezone(UTC).replace(tzinfo=None)
     return dt
 
 
@@ -38,7 +38,7 @@ def _norm_instant(dt):
 async def test_tweet_time_range_file_mode(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    base = datetime(2024, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
+    base = datetime(2024, 3, 1, 12, 0, 0, tzinfo=UTC)
     earliest = base
     latest = base + timedelta(days=10)
     specs = [
@@ -74,7 +74,7 @@ async def test_tweet_time_range_file_mode(monkeypatch, tmp_path):
 async def test_period_analysis_file_mode(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     interval = timedelta(hours=12)
     # periods=3:窗口(正序前)= [now-3i.., now-2i..)依次。造定位明确的推文:
     #   period i=0(最新): [now-12h, now) → 放 2 条
@@ -119,10 +119,10 @@ async def test_endpoints_file_mode_smoke(monkeypatch, tmp_path):
     from src.preference.domain.models import ScraperFollow
     from src.preference.infrastructure.file_follow_repository import FileFollowStore
     await FileFollowStore(tmp_path).seed([
-        ScraperFollow(id=1, username="alice", added_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        ScraperFollow(id=1, username="alice", added_at=datetime(2024, 1, 1, tzinfo=UTC),
                       reason="r", added_by="t", is_active=True),
     ])
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     await _seed_tweets(tmp_path, [
         _tweet("e1", "alice", now - timedelta(hours=1)),
         _tweet("e2", "alice", now - timedelta(hours=2)),

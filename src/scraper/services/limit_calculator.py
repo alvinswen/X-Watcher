@@ -4,7 +4,7 @@
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 from src.scraper.domain.fetch_stats import FetchStats
 
@@ -120,7 +120,7 @@ class LimitCalculator:
         Returns:
             FetchStats: 更新后的统计数据
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         if stats is None:
             # 新用户，创建初始统计

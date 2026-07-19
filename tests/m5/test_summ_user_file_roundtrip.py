@@ -1,6 +1,6 @@
 """M-5 4a 文件层 round-trip:经 provider 写→读一致(summary / user 重表达)。"""
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 
 async def test_user_create_then_password_hash_roundtrip(monkeypatch, tmp_path):
@@ -31,7 +31,7 @@ async def test_summary_save_get_roundtrip(monkeypatch, tmp_path):
     from src.summarization.domain.models import SummaryRecord
 
     repo = get_summary_repo()
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.now(UTC).replace(tzinfo=None)
     rec = SummaryRecord(
         summary_id="s-roundtrip-1",
         tweet_id="t-1",

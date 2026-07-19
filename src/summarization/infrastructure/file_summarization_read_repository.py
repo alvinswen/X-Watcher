@@ -6,18 +6,18 @@ summarization_tools.py 两条读路径(get_unsummarized_tweets 反连接 / get_t
 反连接 created_at DESC(契约,NULL 殿后),author 精确匹配,半开区间 [since, until)。"""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from pathlib import Path
 from typing import Any
 
 from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
 from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
 
-_MIN = datetime.min.replace(tzinfo=timezone.utc)
+_MIN = datetime.min.replace(tzinfo=UTC)
 
 
 def _as_utc(dt: datetime) -> datetime:
-    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
+    return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
 
 
 def _dt_to_iso(dt: Any) -> str | None:
