@@ -74,7 +74,7 @@ class TestExportCommand:
         assert "scraper_follows: 1" in result.output
 
         # 验证文件内容
-        with open(output_path, "r", encoding="utf-8") as f:
+        with open(output_path, encoding="utf-8") as f:
             data = json.load(f)
         assert data["metadata"]["source_instance_id"] == "test-server"
         assert len(data["data"]["config"]["scraper_follows"]) == 1
@@ -96,7 +96,7 @@ class TestExportCommand:
         )
 
         assert result.exit_code == 0
-        content = open(output_path, "r", encoding="utf-8").read()
+        content = open(output_path, encoding="utf-8").read()
         assert "\n  " in content
 
     def test_export_with_since_filter(self, monkeypatch, tmp_path):
@@ -137,7 +137,7 @@ class TestExportCommand:
         )
 
         assert result.exit_code == 0
-        with open(output_path, "r", encoding="utf-8") as f:
+        with open(output_path, encoding="utf-8") as f:
             data = json.load(f)
         assert data["metadata"]["counts"]["tweets"] == 1
 

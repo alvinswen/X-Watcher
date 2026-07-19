@@ -120,9 +120,7 @@ class FileImportStore:
             if not await self._tweets.tweet_exists(item["tweet_id"]):
                 await self._tweets.upsert_tweets([item])
                 stats.inserted += 1
-            elif strategy == ConflictStrategy.merge:
-                stats.skipped += 1
-            elif strategy == ConflictStrategy.skip:
+            elif strategy == ConflictStrategy.merge or strategy == ConflictStrategy.skip:
                 stats.skipped += 1
             elif strategy == ConflictStrategy.overwrite:
                 await self._tweets.upsert_tweets([item])
@@ -136,9 +134,7 @@ class FileImportStore:
             if not await self._summaries.summary_exists(item["summary_id"]):
                 await self._summaries.upsert_summary(item)
                 stats.inserted += 1
-            elif strategy == ConflictStrategy.skip:
-                stats.skipped += 1
-            elif strategy == ConflictStrategy.merge:
+            elif strategy == ConflictStrategy.skip or strategy == ConflictStrategy.merge:
                 stats.skipped += 1
             elif strategy == ConflictStrategy.overwrite:
                 await self._summaries.upsert_summary(item)
@@ -152,9 +148,7 @@ class FileImportStore:
             if await self._articles.get_article(item["tweet_id"]) is None:
                 await self._articles.overwrite_article(item)
                 stats.inserted += 1
-            elif strategy == ConflictStrategy.skip:
-                stats.skipped += 1
-            elif strategy == ConflictStrategy.merge:
+            elif strategy == ConflictStrategy.skip or strategy == ConflictStrategy.merge:
                 stats.skipped += 1
             elif strategy == ConflictStrategy.overwrite:
                 await self._articles.overwrite_article(item)

@@ -44,7 +44,7 @@ def read_export_file(path: Path, force: bool = False) -> ExportPackage:
         FileNotFoundError: 文件不存在
         ValueError: 格式错误或版本不兼容
     """
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         raw = json.load(f)
 
     if not isinstance(raw, dict):

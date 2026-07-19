@@ -13,7 +13,7 @@ class TweetIdIndex:
         self._ids: set[str] = set()
 
     @classmethod
-    def build(cls, data_root: Path) -> "TweetIdIndex":
+    def build(cls, data_root: Path) -> TweetIdIndex:
         idx = cls()
         for shard in iter_canonical_shards(data_root):
             for rec in read_shard(shard):

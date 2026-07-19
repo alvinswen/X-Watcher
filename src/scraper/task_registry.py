@@ -62,11 +62,11 @@ class TaskRegistry:
     使用线程锁确保并发安全。
     """
 
-    _instance: "TaskRegistry | None" = None
+    _instance: TaskRegistry | None = None
     _lock = threading.Lock()
     _initialized = False
 
-    def __new__(cls) -> "TaskRegistry":
+    def __new__(cls) -> TaskRegistry:
         """实现单例模式。"""
         if cls._instance is None:
             with cls._lock:
@@ -83,7 +83,7 @@ class TaskRegistry:
             logger.debug("TaskRegistry 单例已初始化")
 
     @classmethod
-    def get_instance(cls) -> "TaskRegistry":
+    def get_instance(cls) -> TaskRegistry:
         """获取 TaskRegistry 单例实例。
 
         Returns:
