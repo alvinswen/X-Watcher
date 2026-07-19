@@ -7,6 +7,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator
 
+from src.preference.domain.models import ScraperFollow, XUserProfile
 from src.shared.schemas import UTCDatetimeModel
 
 
@@ -57,6 +58,9 @@ class CreateScraperFollowRequest(BaseModel):
     def validate_and_normalize_username(cls, v: str) -> str:
         """验证并标准化 Twitter 用户名。
 
+        此处保持宽容语义（剥 @、转小写）；管理抓取接口的严格语义独立保留。
+        两者的业务语义归一须另立议题，不在 CHG-037 内选边。
+
         Args:
             v: 用户名
 
@@ -74,9 +78,7 @@ class CreateScraperFollowRequest(BaseModel):
             raise ValueError("用户名不能超过 15 个字符")
 
         if not normalized.replace("_", "").isalnum():
-            raise ValueError(
-                "用户名只能包含字母、数字和下划线"
-            )
+            raise ValueError("用户名只能包含字母、数字和下划线")
 
         return normalized
 
@@ -96,6 +98,21 @@ class ScraperFollowResponse(UTCDatetimeModel):
     is_active: bool = Field(..., description="是否启用")
     manual_limit: int | None = Field(None, description="手动推文数量限制")
     brief_intro: str | None = Field(None, description="极简介绍（≤10汉字）")
+
+    @classmethod
+    def from_domain(cls, follow: ScraperFollow) -> "ScraperFollowResponse":
+        """从抓取账号领域模型构造 wire 响应。"""
+        return cls(
+            id=follow.id,
+            username=follow.username,
+            platform_user_id=follow.platform_user_id,
+            added_at=follow.added_at,
+            reason=follow.reason,
+            added_by=follow.added_by,
+            is_active=follow.is_active,
+            manual_limit=follow.manual_limit,
+            brief_intro=follow.brief_intro,
+        )
 
 
 class UpdateScraperFollowRequest(BaseModel):
@@ -186,6 +203,33 @@ class XUserProfileResponse(UTCDatetimeModel):
     unavailable: bool = Field(False, description="账号不可用")
     unavailable_reason: str | None = Field(None, description="不可用原因")
     fetched_at: datetime = Field(..., description="数据获取时间")
+
+    @classmethod
+    def from_domain(cls, profile: XUserProfile) -> "XUserProfileResponse":
+        """从用户档案领域模型构造 wire 响应。"""
+        return cls(
+            platform_user_id=profile.platform_user_id,
+            username=profile.username,
+            display_name=profile.display_name,
+            is_blue_verified=profile.is_blue_verified,
+            verified_type=profile.verified_type,
+            profile_picture=profile.profile_picture,
+            cover_picture=profile.cover_picture,
+            description=profile.description,
+            location=profile.location,
+            followers_count=profile.followers_count,
+            following_count=profile.following_count,
+            statuses_count=profile.statuses_count,
+            favourites_count=profile.favourites_count,
+            media_count=profile.media_count,
+            account_created_at=profile.account_created_at,
+            is_automated=profile.is_automated,
+            possibly_sensitive=profile.possibly_sensitive,
+            pinned_tweet_ids=profile.pinned_tweet_ids,
+            unavailable=profile.unavailable,
+            unavailable_reason=profile.unavailable_reason,
+            fetched_at=profile.fetched_at,
+        )
 
 
 class SyncProfilesResponse(BaseModel):

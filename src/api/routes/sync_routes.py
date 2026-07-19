@@ -12,6 +12,11 @@ from typing import Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
+from src.shared.error_messages import (
+    SYNC_EXPORT_FILE_MISSING_FIELD_TMPL,
+    SYNC_EXPORT_FILE_PARSE_FAILED,
+    SYNC_JSON_PARSE_FAILED_TMPL,
+)
 from src.sync.domain.models import (
     ConflictStrategy,
     ExportPackage,
@@ -74,7 +79,14 @@ def _parse_upload_file(content: bytes) -> ExportPackage:
     try:
         raw = json.loads(content)
     except json.JSONDecodeError as e:
-        raise HTTPException(status_code=400, detail=f"JSON 解析失败: {e}")
+        lineno, colno = e.lineno, e.colno
+        raise HTTPException(
+            status_code=400,
+            detail=SYNC_JSON_PARSE_FAILED_TMPL.format(
+                lineno=lineno,
+                colno=colno,
+            ),
+        )
 
     if not isinstance(raw, dict):
         raise HTTPException(status_code=400, detail="导出文件格式错误：顶层必须是 JSON 对象")
@@ -111,8 +123,18 @@ def _parse_upload_file(content: bytes) -> ExportPackage:
             counts=meta_raw.get("counts", {}),
         )
         return ExportPackage(metadata=metadata, data=raw["data"])
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"导出文件解析失败: {e}")
+    except KeyError as e:
+        field = e.args[0] if e.args else "unknown"
+        raise HTTPException(
+            status_code=400,
+            detail=SYNC_EXPORT_FILE_MISSING_FIELD_TMPL.format(field=field),
+        )
+    except Exception:
+        logger.warning("导出文件解析失败", exc_info=True)
+        raise HTTPException(
+            status_code=400,
+            detail=SYNC_EXPORT_FILE_PARSE_FAILED,
+        )
 
 
 @router.post("/export")

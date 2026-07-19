@@ -4,6 +4,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from src.shared.error_messages import USER_LAST_ADMIN_DEMOTE_REFUSED
 from src.user.api.auth import get_current_admin_user
 from src.user.domain.models import UserDomain
 from src.user.domain.schemas import (
@@ -33,9 +34,7 @@ async def create_user(
     """创建用户（管理员）。"""
     service = UserService()
     try:
-        user, temp_password, raw_key = await service.create_user(
-            request.name, request.email
-        )
+        user, temp_password, raw_key = await service.create_user(request.name, request.email)
     except DuplicateError:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -99,9 +98,15 @@ async def update_user(
             detail="该邮箱已被注册",
         )
     except ValueError as e:
+        # update_user 路径新增 ValueError 来源时，须同步改为显式映射并更新逐字测试。
+        logger.warning(
+            "更新用户被业务规则拒绝: user_id=%s, reason=%s",
+            user_id,
+            e,
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail=USER_LAST_ADMIN_DEMOTE_REFUSED,
         )
     return UserResponse(
         id=user.id,

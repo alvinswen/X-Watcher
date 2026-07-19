@@ -56,6 +56,22 @@ async def _get_scraper_config_service() -> ScraperConfigService:
     return ScraperConfigService(repository)
 
 
+async def _list_follow_responses(
+    service: ScraperConfigService,
+    *,
+    include_inactive: bool,
+) -> list[ScraperFollowResponse]:
+    follows = await service.get_all_follows(include_inactive=include_inactive)
+    return [ScraperFollowResponse.from_domain(follow) for follow in follows]
+
+
+async def _list_profile_responses() -> list[XUserProfileResponse]:
+    from src.data_layer.provider import get_profile_repo
+
+    profiles = await get_profile_repo().get_all_profiles()
+    return [XUserProfileResponse.from_domain(profile) for profile in profiles]
+
+
 @router.post(
     "/follows",
     response_model=ScraperFollowResponse,
@@ -94,17 +110,7 @@ async def add_scraper_follow(
             added_by=request.added_by,
         )
         logger.info(f"管理员添加抓取账号: {request.username} by {request.added_by}")
-        return ScraperFollowResponse(
-            id=result.id,
-            username=result.username,
-            platform_user_id=result.platform_user_id,
-            added_at=result.added_at,
-            reason=result.reason,
-            added_by=result.added_by,
-            is_active=result.is_active,
-            manual_limit=result.manual_limit,
-            brief_intro=result.brief_intro,
-        )
+        return ScraperFollowResponse.from_domain(result)
     except DuplicateError as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=f"抓取账号 '{request.username}' 已存在"
@@ -141,21 +147,10 @@ async def get_scraper_follows(
         list[ScraperFollowResponse]: 抓取账号列表
     """
     try:
-        result = await service.get_all_follows(include_inactive=include_inactive)
-        return [
-            ScraperFollowResponse(
-                id=f.id,
-                username=f.username,
-                platform_user_id=f.platform_user_id,
-                added_at=f.added_at,
-                reason=f.reason,
-                added_by=f.added_by,
-                is_active=f.is_active,
-                manual_limit=f.manual_limit,
-                brief_intro=f.brief_intro,
-            )
-            for f in result
-        ]
+        return await _list_follow_responses(
+            service,
+            include_inactive=include_inactive,
+        )
     except Exception as e:
         logger.error(f"获取抓取账号列表失败: {e}")
         raise HTTPException(
@@ -235,37 +230,8 @@ async def get_user_profiles(
 
     返回从 TwitterAPI.io 获取并缓存的 X 平台用户档案列表。
     """
-    from src.data_layer.provider import get_profile_repo
-
     try:
-        repo = get_profile_repo()
-        profiles = await repo.get_all_profiles()
-        return [
-            XUserProfileResponse(
-                platform_user_id=p.platform_user_id,
-                username=p.username,
-                display_name=p.display_name,
-                is_blue_verified=p.is_blue_verified,
-                verified_type=p.verified_type,
-                profile_picture=p.profile_picture,
-                cover_picture=p.cover_picture,
-                description=p.description,
-                location=p.location,
-                followers_count=p.followers_count,
-                following_count=p.following_count,
-                statuses_count=p.statuses_count,
-                favourites_count=p.favourites_count,
-                media_count=p.media_count,
-                account_created_at=p.account_created_at,
-                is_automated=p.is_automated,
-                possibly_sensitive=p.possibly_sensitive,
-                pinned_tweet_ids=p.pinned_tweet_ids,
-                unavailable=p.unavailable,
-                unavailable_reason=p.unavailable_reason,
-                fetched_at=p.fetched_at,
-            )
-            for p in profiles
-        ]
+        return await _list_profile_responses()
     except Exception as e:
         logger.error(f"获取用户档案列表失败: {e}", exc_info=True)
         raise HTTPException(
@@ -377,29 +343,7 @@ async def get_user_profile(
                 detail=f"用户 {username} 的档案不存在（可能尚未同步）",
             )
 
-        return XUserProfileResponse(
-            platform_user_id=profile.platform_user_id,
-            username=profile.username,
-            display_name=profile.display_name,
-            is_blue_verified=profile.is_blue_verified,
-            verified_type=profile.verified_type,
-            profile_picture=profile.profile_picture,
-            cover_picture=profile.cover_picture,
-            description=profile.description,
-            location=profile.location,
-            followers_count=profile.followers_count,
-            following_count=profile.following_count,
-            statuses_count=profile.statuses_count,
-            favourites_count=profile.favourites_count,
-            media_count=profile.media_count,
-            account_created_at=profile.account_created_at,
-            is_automated=profile.is_automated,
-            possibly_sensitive=profile.possibly_sensitive,
-            pinned_tweet_ids=profile.pinned_tweet_ids,
-            unavailable=profile.unavailable,
-            unavailable_reason=profile.unavailable_reason,
-            fetched_at=profile.fetched_at,
-        )
+        return XUserProfileResponse.from_domain(profile)
     except HTTPException:
         raise
     except Exception as e:
@@ -450,17 +394,7 @@ async def update_scraper_follow(
             brief_intro=request.brief_intro,
         )
         logger.info(f"管理员更新抓取账号: {username}")
-        return ScraperFollowResponse(
-            id=result.id,
-            username=result.username,
-            platform_user_id=result.platform_user_id,
-            added_at=result.added_at,
-            reason=result.reason,
-            added_by=result.added_by,
-            is_active=result.is_active,
-            manual_limit=result.manual_limit,
-            brief_intro=result.brief_intro,
-        )
+        return ScraperFollowResponse.from_domain(result)
     except NotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"抓取账号 '@{username}' 不存在"
@@ -548,9 +482,7 @@ async def get_follow_analysis(
     try:
         # 显式窗口逐周期 count 走 provider(sqlalchemy 转调原 per-period count SQL;
         # file 组合 FileTweetStore Python 计数)。已正序(最早在前),无 round 陷阱。
-        windows = await get_scraper_stats_repo().period_analysis(
-            username, interval_hours, periods
-        )
+        windows = await get_scraper_stats_repo().period_analysis(username, interval_hours, periods)
 
         period_stats = [
             PeriodStats(
@@ -603,21 +535,10 @@ async def get_scraper_follows_public(
         list[ScraperFollowResponse]: 活跃抓取账号列表
     """
     try:
-        result = await service.get_all_follows(include_inactive=False)
-        return [
-            ScraperFollowResponse(
-                id=f.id,
-                username=f.username,
-                platform_user_id=f.platform_user_id,
-                added_at=f.added_at,
-                reason=f.reason,
-                added_by=f.added_by,
-                is_active=f.is_active,
-                manual_limit=f.manual_limit,
-                brief_intro=f.brief_intro,
-            )
-            for f in result
-        ]
+        return await _list_follow_responses(
+            service,
+            include_inactive=False,
+        )
     except Exception as e:
         logger.error(f"获取抓取账号列表失败: {e}")
         raise HTTPException(
@@ -639,37 +560,8 @@ async def get_user_profiles_public(
 
     普通用户可访问此端点查看已缓存的用户档案信息。
     """
-    from src.data_layer.provider import get_profile_repo
-
     try:
-        repo = get_profile_repo()
-        profiles = await repo.get_all_profiles()
-        return [
-            XUserProfileResponse(
-                platform_user_id=p.platform_user_id,
-                username=p.username,
-                display_name=p.display_name,
-                is_blue_verified=p.is_blue_verified,
-                verified_type=p.verified_type,
-                profile_picture=p.profile_picture,
-                cover_picture=p.cover_picture,
-                description=p.description,
-                location=p.location,
-                followers_count=p.followers_count,
-                following_count=p.following_count,
-                statuses_count=p.statuses_count,
-                favourites_count=p.favourites_count,
-                media_count=p.media_count,
-                account_created_at=p.account_created_at,
-                is_automated=p.is_automated,
-                possibly_sensitive=p.possibly_sensitive,
-                pinned_tweet_ids=p.pinned_tweet_ids,
-                unavailable=p.unavailable,
-                unavailable_reason=p.unavailable_reason,
-                fetched_at=p.fetched_at,
-            )
-            for p in profiles
-        ]
+        return await _list_profile_responses()
     except Exception as e:
         logger.error(f"获取用户档案列表失败（公共）: {e}")
         raise HTTPException(

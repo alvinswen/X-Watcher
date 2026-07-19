@@ -5,20 +5,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import HTTPException, status
 
-from src.api.routes.config_routes import (
-    _check_database,
-    _check_twitter_api,
-)
+from src.shared.connectivity_check import check_twitter_api
 
 
 class TestCheckTwitterAPI:
-    """测试 _check_twitter_api 内部函数。"""
+    """测试共享 Twitter API 连通性检查。"""
 
     @pytest.mark.asyncio
     async def test_missing_api_key(self):
         """测试未配置 API Key 返回 unhealthy。"""
         with patch.dict("os.environ", {"TWITTER_API_KEY": ""}, clear=False):
-            result = await _check_twitter_api()
+            result = await check_twitter_api()
 
         assert result["status"] == "unhealthy"
         assert "未配置" in result["error"]
@@ -40,9 +37,12 @@ class TestCheckTwitterAPI:
                 {"TWITTER_API_KEY": "test-key"},
                 clear=False,
             ),
-            patch("src.api.routes.config_routes.httpx.AsyncClient", return_value=mock_client),
+            patch(
+                "src.shared.connectivity_check.httpx.AsyncClient",
+                return_value=mock_client,
+            ),
         ):
-            result = await _check_twitter_api()
+            result = await check_twitter_api()
 
         assert result["status"] == "healthy"
         assert "latency_ms" in result
@@ -64,9 +64,12 @@ class TestCheckTwitterAPI:
                 {"TWITTER_API_KEY": "bad-key"},
                 clear=False,
             ),
-            patch("src.api.routes.config_routes.httpx.AsyncClient", return_value=mock_client),
+            patch(
+                "src.shared.connectivity_check.httpx.AsyncClient",
+                return_value=mock_client,
+            ),
         ):
-            result = await _check_twitter_api()
+            result = await check_twitter_api()
 
         assert result["status"] == "unhealthy"
         assert "401" in result["error"]
@@ -75,9 +78,7 @@ class TestCheckTwitterAPI:
     async def test_network_error(self):
         """测试网络异常返回 unhealthy。"""
         mock_client = AsyncMock()
-        mock_client.get = AsyncMock(
-            side_effect=ConnectionError("DNS 解析失败")
-        )
+        mock_client.get = AsyncMock(side_effect=ConnectionError("DNS 解析失败"))
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
@@ -87,9 +88,12 @@ class TestCheckTwitterAPI:
                 {"TWITTER_API_KEY": "test-key"},
                 clear=False,
             ),
-            patch("src.api.routes.config_routes.httpx.AsyncClient", return_value=mock_client),
+            patch(
+                "src.shared.connectivity_check.httpx.AsyncClient",
+                return_value=mock_client,
+            ),
         ):
-            result = await _check_twitter_api()
+            result = await check_twitter_api()
 
         assert result["status"] == "unhealthy"
         assert "DNS" in result["error"]
@@ -116,9 +120,7 @@ class TestValidateConfigEndpointAuth:
         app.dependency_overrides[get_current_admin_user] = override_deny
 
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get("/api/admin/config/validate")
             assert resp.status_code == 401
         finally:
@@ -145,9 +147,7 @@ class TestValidateConfigEndpointAuth:
         app.dependency_overrides[get_current_admin_user] = override_forbidden
 
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get("/api/admin/config/validate")
             assert resp.status_code == 403
         finally:

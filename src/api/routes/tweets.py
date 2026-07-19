@@ -10,6 +10,10 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
+from src.shared.error_messages import (
+    TWEETS_DETAIL_QUERY_FAILED,
+    TWEETS_LIST_QUERY_FAILED,
+)
 from src.shared.schemas import ErrorResponse, UTCDatetimeModel
 from src.user.api.auth import get_current_admin_user
 from src.user.domain.models import UserDomain
@@ -79,8 +83,12 @@ async def list_tweets(
     page: int = Query(1, ge=1, description="页码（从 1 开始）"),
     page_size: int = Query(20, ge=1, le=100, description="每页数量"),
     author: str | None = Query(None, description="按作者用户名筛选"),
-    created_after: datetime | None = Query(None, description="推文创建时间起始（含），ISO 8601 格式"),
-    created_before: datetime | None = Query(None, description="推文创建时间截止（不含），ISO 8601 格式"),
+    created_after: datetime | None = Query(
+        None, description="推文创建时间起始（含），ISO 8601 格式"
+    ),
+    created_before: datetime | None = Query(
+        None, description="推文创建时间截止（不含），ISO 8601 格式"
+    ),
     _admin: UserDomain = Depends(get_current_admin_user),
 ) -> TweetListResponse:
     """获取推文列表。
@@ -154,10 +162,10 @@ async def list_tweets(
         )
 
     except Exception as e:
-        logger.error(f"查询推文列表失败: {e}")
+        logger.error(f"查询推文列表失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
+            detail=TWEETS_LIST_QUERY_FAILED,
         ) from e
 
 
@@ -208,6 +216,7 @@ async def get_tweet_detail(
             summary_record = await summary_repo.get_summary_by_tweet(tweet_id)
 
             if summary_record:
+
                 def _utc_iso(dt: datetime | None) -> str | None:
                     if dt is None:
                         return None
@@ -238,8 +247,8 @@ async def get_tweet_detail(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"查询推文详情失败: {e}")
+        logger.error(f"查询推文详情失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
+            detail=TWEETS_DETAIL_QUERY_FAILED,
         ) from e

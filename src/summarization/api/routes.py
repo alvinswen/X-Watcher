@@ -8,6 +8,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from src.data_layer.provider import get_summary_repo
+from src.shared.error_messages import SUMMARY_QUERY_FAILED
 from src.shared.schemas import ErrorResponse
 from src.summarization.api.schemas import SummaryResponse
 from src.user.api.auth import get_current_admin_user
@@ -46,8 +47,8 @@ async def get_tweet_summary(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("查询推文摘要失败 (tweet_id=%s): %s", tweet_id, e)
+        logger.error("查询推文摘要失败 (tweet_id=%s): %s", tweet_id, e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
+            detail=SUMMARY_QUERY_FAILED,
         ) from e
