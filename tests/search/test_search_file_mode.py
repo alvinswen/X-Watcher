@@ -178,7 +178,8 @@ async def test_mcp_search_tweets_file_mode(monkeypatch, tmp_path):
     from mcp.server.fastmcp import FastMCP
 
     from src.mcp.tools import feed_tools
-    mcp = FastMCP("test"); feed_tools.register(mcp)
+    mcp = FastMCP("test")
+    feed_tools.register(mcp)
     fn = mcp._tool_manager._tools["search_tweets"].fn
     raw = await fn(q="needle")
     data = json.loads(raw)

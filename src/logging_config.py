@@ -11,6 +11,7 @@
 """
 
 import atexit
+import contextlib
 import contextvars
 import json
 import logging
@@ -184,10 +185,8 @@ class WindowsSafeRotatingFileHandler(RotatingFileHandler):
         if self.backupCount > 0:
             # 备份链轮转
             for i in range(self.backupCount - 1, 0, -1):
-                sfn = self.rotation_filename(
-                    "%s.%d" % (self.baseFilename, i))
-                dfn = self.rotation_filename(
-                    "%s.%d" % (self.baseFilename, i + 1))
+                sfn = self.rotation_filename(f"{self.baseFilename}.{i}")
+                dfn = self.rotation_filename(f"{self.baseFilename}.{i + 1}")
                 if os.path.exists(sfn):
                     self._safe_remove(dfn)
                     self._safe_rename(sfn, dfn)
@@ -205,10 +204,9 @@ class WindowsSafeRotatingFileHandler(RotatingFileHandler):
     def _copy_truncate(self, source: Any, dest: Any) -> None:
         """拷贝文件内容到目标，然后截断源文件。"""
         import shutil
-        try:
+
+        with contextlib.suppress(Exception):
             shutil.copy2(source, dest)
-        except Exception:
-            pass  # 拷贝失败也不阻塞
         try:
             with open(source, "w", encoding=self.encoding):
                 pass  # 截断

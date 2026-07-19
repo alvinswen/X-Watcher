@@ -96,7 +96,8 @@ class TestExportCommand:
         )
 
         assert result.exit_code == 0
-        content = open(output_path, encoding="utf-8").read()
+        with open(output_path, encoding="utf-8") as output_file:
+            content = output_file.read()
         assert "\n  " in content
 
     def test_export_with_since_filter(self, monkeypatch, tmp_path):

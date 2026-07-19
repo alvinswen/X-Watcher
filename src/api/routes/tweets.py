@@ -113,12 +113,15 @@ async def list_tweets(
         created_before = _ensure_utc(created_before)
 
     # 时间范围校验
-    if created_after is not None and created_before is not None:
-        if created_after >= created_before:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="时间范围无效: created_after 必须早于 created_before",
-            )
+    if (
+        created_after is not None
+        and created_before is not None
+        and created_after >= created_before
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="时间范围无效: created_after 必须早于 created_before",
+        )
 
     try:
         # 经数据层 provider 取 tweet 读门面(file/sqlalchemy 切换;pg 下线后 file-safe)

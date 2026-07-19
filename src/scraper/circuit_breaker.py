@@ -47,13 +47,15 @@ class CircuitBreaker:
     def state(self) -> CircuitState:
         """获取当前状态（自动检查是否应从 OPEN 转为 HALF_OPEN）。"""
         with self._lock:
-            if self._state == CircuitState.OPEN:
-                if time.monotonic() - self._last_failure_time >= self.recovery_timeout:
-                    self._state = CircuitState.HALF_OPEN
-                    logger.info(
-                        "熔断器 [%s] 状态变更: OPEN → HALF_OPEN（冷却期已过）",
-                        self.name,
-                    )
+            if (
+                self._state == CircuitState.OPEN
+                and time.monotonic() - self._last_failure_time >= self.recovery_timeout
+            ):
+                self._state = CircuitState.HALF_OPEN
+                logger.info(
+                    "熔断器 [%s] 状态变更: OPEN → HALF_OPEN（冷却期已过）",
+                    self.name,
+                )
             return self._state
 
     def allow_request(self) -> bool:
@@ -107,13 +109,15 @@ class CircuitBreaker:
     def get_status(self) -> dict[str, Any]:
         """获取熔断器状态摘要（用于健康检查/监控）。"""
         with self._lock:
-            if self._state == CircuitState.OPEN:
-                if time.monotonic() - self._last_failure_time >= self.recovery_timeout:
-                    self._state = CircuitState.HALF_OPEN
-                    logger.info(
-                        "熔断器 [%s] 状态变更: OPEN → HALF_OPEN（冷却期已过）",
-                        self.name,
-                    )
+            if (
+                self._state == CircuitState.OPEN
+                and time.monotonic() - self._last_failure_time >= self.recovery_timeout
+            ):
+                self._state = CircuitState.HALF_OPEN
+                logger.info(
+                    "熔断器 [%s] 状态变更: OPEN → HALF_OPEN（冷却期已过）",
+                    self.name,
+                )
             return {
                 "name": self.name,
                 "state": self._state.value,
