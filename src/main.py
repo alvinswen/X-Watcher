@@ -5,11 +5,13 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from src.config import get_settings, validate_jwt_secret_strength
 from src.logging_config import setup_logging
+from src.shared.error_messages import INTERNAL_SERVER_ERROR_DETAIL
 
 # 配置应用层日志：结构化格式 + 文件轮转 + trace_id 支持
 _settings = get_settings()
@@ -81,6 +83,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """将未捕获异常归一为不泄漏内部信息的 JSON 500 响应。"""
+    logger.error(
+        "未捕获异常: %s %s -> 500",
+        request.method,
+        request.url.path,
+        exc_info=exc,
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": INTERNAL_SERVER_ERROR_DETAIL},
+    )
+
 
 # 配置 Prometheus 监控中间件（在 CORS 之后）
 from src.monitoring.middleware import PrometheusMiddleware
@@ -192,7 +210,6 @@ import os
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.requests import Request
 
 web_dir = os.path.join(os.path.dirname(__file__), "web", "dist")
 if os.path.exists(web_dir):
