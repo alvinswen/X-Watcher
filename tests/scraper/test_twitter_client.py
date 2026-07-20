@@ -3,6 +3,7 @@
 测试 Twitter API 客户端功能，包括重试策略和错误处理。
 """
 
+import inspect
 from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
@@ -63,9 +64,19 @@ class TestTwitterClient:
         assert len(data["data"]) == 1
         assert data["data"][0]["id"] == "1234567890"
 
+    def test_fetch_user_tweets_signature_without_limit(self):
+        """单页客户端签名只保留 username 与 cursor。"""
+        assert set(inspect.signature(TwitterClient.fetch_user_tweets).parameters) == {
+            "self",
+            "username",
+            "cursor",
+        }
+
     @pytest.mark.asyncio
-    async def test_fetch_user_tweets_with_limit(self, client, mock_httpx_client):
-        """测试使用 userName 参数获取推文。"""
+    async def test_fetch_user_tweets_params_exclude_limit(
+        self, client, mock_httpx_client
+    ):
+        """请求参数保持 userName，且不向上游发送 limit。"""
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.json.return_value = {"data": [], "includes": {"users": []}}
@@ -73,15 +84,15 @@ class TestTwitterClient:
         mock_httpx_client.get.return_value = mock_response
 
         with patch("httpx.AsyncClient", return_value=mock_httpx_client):
-            result = await client.fetch_user_tweets("testuser", limit=50)
+            result = await client.fetch_user_tweets("testuser")
 
         assert isinstance(result, Success)
 
-        # 验证 userName 参数被正确设置
         call_args = mock_httpx_client.get.call_args
         params = call_args[1]["params"]
         assert params["userName"] == "testuser"
         assert params["includeReplies"] is True
+        assert "limit" not in params
 
     @pytest.mark.asyncio
     async def test_fetch_user_tweets_401_error(self, client, mock_httpx_client):
@@ -300,13 +311,6 @@ class TestTwitterClient:
         # 验证是 TwitterClientError 类型
         from src.scraper.client import TwitterClientError
         assert isinstance(result.failure(), TwitterClientError)
-
-    @pytest.mark.asyncio
-    async def test_fetch_user_tweets_invalid_limit(self, client):
-        """测试无效的 limit 参数。"""
-        result = await client.fetch_user_tweets("testuser", limit=0)
-
-        assert isinstance(result, Failure)
 
     @pytest.mark.asyncio
     async def test_context_manager(self, test_settings):
