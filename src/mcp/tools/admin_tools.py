@@ -135,6 +135,11 @@ def register(mcp: FastMCP) -> None:
             elif action == "update":
                 if not username:
                     return error_response("更新时 username 必填", "validation")
+                if manual_limit is not None and not (0 <= manual_limit <= 1000):
+                    return error_response(
+                        "manual_limit 必须在 0-1000 之间（0 表示清除手动设置恢复自动计算）",
+                        "validation",
+                    )
                 # 记录变更前状态
                 old_follow = await repo.get_follow_by_username(username)
                 old_values = (

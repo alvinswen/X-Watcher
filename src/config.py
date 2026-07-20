@@ -91,8 +91,11 @@ class Settings(BaseSettings):
     scraper_early_stop_threshold: int = Field(
         default=5, ge=0, le=50, description="连续已存在推文阈值，达到后提前终止（0 禁用）"
     )
-    scraper_max_extra_pages: int = Field(
-        default=3, ge=0, le=20, description="增量抓取满页时自动翻页的最大额外页数（0 禁用）"
+    scraper_max_pages_per_scrape: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        description="常规增量抓取单次单账号最大翻页数硬上限（每页至多 20 条，默认 10 页 ≈ 200 条/次）",
     )
 
     # 任务超时配置

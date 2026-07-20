@@ -497,14 +497,12 @@ class TwitterClient:
         self,
         username: str,
         *,
-        limit: int = 100,
         cursor: str | None = None,
     ) -> Result[dict[str, Any], TwitterClientError]:
         """获取指定用户的推文列表。
 
         Args:
             username: Twitter 用户名（不带 @ 符号）
-            limit: 返回推文数量限制（1-1000）
             cursor: 分页游标（用于获取下一页，首页传 None）
 
         Returns:
@@ -516,11 +514,6 @@ class TwitterClient:
         if not username or not username.strip():
             return Failure(
                 TwitterClientError("用户名不能为空")
-            )
-
-        if limit < 1:
-            return Failure(
-                TwitterClientError("limit 必须大于 0")
             )
 
         # TwitterAPI.io 使用 /user/last_tweets 端点
