@@ -56,7 +56,7 @@ class TestTwitterClient:
         mock_httpx_client.get.return_value = mock_response
 
         with patch("httpx.AsyncClient", return_value=mock_httpx_client):
-            result = await client.fetch_user_tweets("testuser", limit=10)
+            result = await client.fetch_user_tweets("testuser")
 
         assert isinstance(result, Success)
         data = result.unwrap()
@@ -376,7 +376,7 @@ class TestTwitterClientReferenceTypeConversion:
         mock_httpx_client.get.return_value = mock_response
 
         with patch("httpx.AsyncClient", return_value=mock_httpx_client):
-            result = await client.fetch_user_tweets("testuser", limit=10)
+            result = await client.fetch_user_tweets("testuser")
 
         assert isinstance(result, Success)
         data = result.unwrap()
@@ -407,7 +407,7 @@ class TestTwitterClientReferenceTypeConversion:
         mock_httpx_client.get.return_value = mock_response
 
         with patch("httpx.AsyncClient", return_value=mock_httpx_client):
-            result = await client.fetch_user_tweets("quoter", limit=10)
+            result = await client.fetch_user_tweets("quoter")
 
         assert isinstance(result, Success)
         data = result.unwrap()
@@ -436,7 +436,7 @@ class TestTwitterClientReferenceTypeConversion:
         mock_httpx_client.get.return_value = mock_response
 
         with patch("httpx.AsyncClient", return_value=mock_httpx_client):
-            result = await client.fetch_user_tweets("replier", limit=10)
+            result = await client.fetch_user_tweets("replier")
 
         assert isinstance(result, Success)
         data = result.unwrap()
@@ -461,7 +461,7 @@ class TestTwitterClientReferenceTypeConversion:
         mock_httpx_client.get.return_value = mock_response
 
         with patch("httpx.AsyncClient", return_value=mock_httpx_client):
-            result = await client.fetch_user_tweets("original", limit=10)
+            result = await client.fetch_user_tweets("original")
 
         assert isinstance(result, Success)
         data = result.unwrap()
@@ -487,7 +487,7 @@ class TestTwitterClientReferenceTypeConversion:
         mock_httpx_client.get.return_value = mock_response
 
         with patch("httpx.AsyncClient", return_value=mock_httpx_client):
-            result = await client.fetch_user_tweets("both", limit=10)
+            result = await client.fetch_user_tweets("both")
 
         assert isinstance(result, Success)
         data = result.unwrap()
@@ -512,7 +512,7 @@ class TestTwitterClientReferenceTypeConversion:
         mock_httpx_client.get.return_value = mock_response
 
         with patch("httpx.AsyncClient", return_value=mock_httpx_client):
-            result = await client.fetch_user_tweets("testuser", limit=10)
+            result = await client.fetch_user_tweets("testuser")
 
         assert isinstance(result, Success)
         data = result.unwrap()
@@ -548,7 +548,7 @@ class TestTwitterClientReferenceTypeConversion:
         mock_httpx_client.get.return_value = mock_response
 
         with patch("httpx.AsyncClient", return_value=mock_httpx_client):
-            result = await client.fetch_user_tweets("notreply", limit=10)
+            result = await client.fetch_user_tweets("notreply")
 
         assert isinstance(result, Success)
         data = result.unwrap()
@@ -659,7 +659,7 @@ class TestExtractFullText:
         mock_httpx_client.get = AsyncMock(return_value=mock_response)
 
         with patch("httpx.AsyncClient", return_value=mock_httpx_client):
-            result = await client.fetch_user_tweets("retweeter", limit=10)
+            result = await client.fetch_user_tweets("retweeter")
 
         assert isinstance(result, Success)
         data = result.unwrap()
@@ -946,7 +946,7 @@ class TestArticleFieldNormalization:
         mock_httpx_client.get.return_value = mock_response
 
         with patch("httpx.AsyncClient", return_value=mock_httpx_client):
-            result = await client.fetch_user_tweets("author1", limit=10)
+            result = await client.fetch_user_tweets("author1")
 
         assert isinstance(result, Success)
         data = result.unwrap()
@@ -971,7 +971,7 @@ class TestArticleFieldNormalization:
         mock_httpx_client.get.return_value = mock_response
 
         with patch("httpx.AsyncClient", return_value=mock_httpx_client):
-            result = await client.fetch_user_tweets("user1", limit=10)
+            result = await client.fetch_user_tweets("user1")
 
         assert isinstance(result, Success)
         data = result.unwrap()
@@ -992,7 +992,7 @@ class TestArticleFieldNormalization:
         mock_httpx_client.get.return_value = mock_response
 
         with patch("httpx.AsyncClient", return_value=mock_httpx_client):
-            result = await client.fetch_user_tweets("user2", limit=10)
+            result = await client.fetch_user_tweets("user2")
 
         assert isinstance(result, Success)
         data = result.unwrap()

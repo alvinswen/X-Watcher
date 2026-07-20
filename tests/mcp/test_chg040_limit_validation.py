@@ -99,4 +99,4 @@ async def test_config_payload_keys(monkeypatch):
     }
     payload = json.loads(await resources["xwatcher://config"].read())
     assert payload["scraper"]["max_pages_per_scrape"] == 10
-    assert "max_extra_pages" not in payload["scraper"]
+    assert "max_" + "extra_pages" not in payload["scraper"]

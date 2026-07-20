@@ -232,6 +232,10 @@ class ScrapingService:
                 "skipped": int,
                 "errors": int,
                 "error_message": str | None,
+                "limit_effective": int,
+                "pages_fetched": int,
+                "limit_capped": bool,
+                "discarded_by_limit": int,
             }
         """
         result: dict[str, Any] = {
@@ -242,6 +246,10 @@ class ScrapingService:
             "skipped": 0,
             "errors": 0,
             "error_message": None,
+            "limit_effective": 0,
+            "pages_fetched": 0,
+            "limit_capped": False,
+            "discarded_by_limit": 0,
         }
 
         # 并发抓取防护：同一用户不允许同时抓取
@@ -273,163 +281,223 @@ class ScrapingService:
         _retry_count: int = 0,
     ) -> dict[str, Any]:
         """抓取单个用户的推文（内部实现，由 scrape_single_user 调用）。"""
+        result.setdefault("limit_effective", 0)
+        result.setdefault("pages_fetched", 0)
+        result.setdefault("limit_capped", False)
+        result.setdefault("discarded_by_limit", 0)
+
         try:
             # 0. 计算 limit：手动优先，否则动态计算
             fetch_stats = await self._get_fetch_stats(username)
             if manual_limit is not None and manual_limit > 0:
                 actual_limit = manual_limit
-                logger.info(
-                    "开始抓取用户: %s (手动 limit=%d)",
-                    username, actual_limit,
-                )
+                limit_source = "手动"
             else:
                 dynamic_limit = self._limit_calculator.calculate_next_limit(fetch_stats)
                 actual_limit = min(dynamic_limit, limit)  # 不超过传入的上限
-                logger.info(
-                    "开始抓取用户: %s (动态 limit=%d, 传入上限=%d)",
-                    username, actual_limit, limit,
-                )
+                limit_source = "动态"
 
-            # 1. 调用 Twitter API
-            api_result = await self._client.fetch_user_tweets(
-                username,
-                limit=actual_limit,
-            )
-
-            if isinstance(api_result, Failure):
-                error = api_result.failure()
-
-                # 检测改名：404 + 有 platform_user_id + 未重试过
-                if (
-                    getattr(error, "status_code", None) == 404
-                    and _retry_count == 0
-                ):
-                    new_username = await self._profile_service.detect_and_fix_rename(
-                        username
-                    )
-                    if new_username:
-                        logger.info(
-                            "检测到改名: %s -> %s，使用新用户名重试",
-                            username, new_username,
-                        )
-                        return await self.scrape_single_user(
-                            new_username,
-                            limit=limit,
-                            manual_limit=manual_limit,
-                            _retry_count=1,
-                        )
-
-                result["success"] = False
+            result["limit_effective"] = actual_limit
+            if actual_limit < 1:
                 result["errors"] = 1
-                result["error_message"] = error.message
-                logger.error(f"抓取用户 {username} 失败: {error.message}")
+                result["error_message"] = "limit 必须大于 0"
                 return result
 
-            raw_data = api_result.unwrap()
+            settings = get_settings()
+            budget_pages = (actual_limit + 19) // 20
+            page_cap = settings.scraper_max_pages_per_scrape
+            max_pages = min(budget_pages, page_cap)
+            result["limit_capped"] = budget_pages > page_cap
+            logger.info(
+                "开始抓取用户: %s (%s limit=%d, 预算页数=%d, 单次总闸=%d, "
+                "本次最多=%d页%s)",
+                username,
+                limit_source,
+                actual_limit,
+                budget_pages,
+                page_cap,
+                max_pages,
+                ", 预算页数已被总闸封顶" if result["limit_capped"] else "",
+            )
 
-            # 2. 为 TwitterAPI.io 响应添加用户信息
-            # TwitterAPI.io 的 /user/last_tweets 不返回用户信息，因为所有推文属于同一用户
-            # 我们需要手动添加用户信息和 author_id
-            if "data" in raw_data and isinstance(raw_data["data"], list):
-                # 检查推文是否缺少 author_id
-                needs_author_info = any(
-                    tweet.get("author_id") is None
-                    for tweet in raw_data["data"]
-                )
+            cursor: str | None = None
+            sent_total = 0
+            platform_user_id_backfilled = False
 
-                if needs_author_info:
-                    logger.debug(f"为用户 {username} 的推文添加作者信息")
+            for page_index in range(max_pages):
+                if cursor is None:
+                    api_result = await self._client.fetch_user_tweets(username)
+                else:
+                    api_result = await self._client.fetch_user_tweets(
+                        username,
+                        cursor=cursor,
+                    )
 
-                    # 仅在 author_id 缺失时用 username 填充（保留 API 返回的真实 ID）
-                    for tweet in raw_data["data"]:
-                        if tweet.get("author_id") is None:
-                            tweet["author_id"] = username
+                if isinstance(api_result, Failure):
+                    error = api_result.failure()
 
-                    # 收集所有 author_id 值，确保 includes.users 中有对应映射
-                    existing_users = {}
-                    for u in raw_data.get("includes", {}).get("users", []):
-                        existing_users[u.get("id")] = u
+                    # 改名自愈只允许挂在第一页，重试时重跑整个账号。
+                    if (
+                        page_index == 0
+                        and getattr(error, "status_code", None) == 404
+                        and _retry_count == 0
+                    ):
+                        new_username = (
+                            await self._profile_service.detect_and_fix_rename(username)
+                        )
+                        if new_username:
+                            logger.info(
+                                "检测到改名: %s -> %s，使用新用户名重试",
+                                username,
+                                new_username,
+                            )
+                            return await self.scrape_single_user(
+                                new_username,
+                                limit=limit,
+                                manual_limit=manual_limit,
+                                _retry_count=1,
+                            )
 
-                    author_ids_in_tweets = {
-                        t["author_id"] for t in raw_data["data"] if t.get("author_id")
-                    }
+                    if page_index == 0:
+                        result["errors"] = 1
+                        result["error_message"] = error.message
+                        logger.error("抓取用户 %s 失败: %s", username, error.message)
+                        return result
 
-                    new_users = []
-                    for aid in author_ids_in_tweets:
-                        if aid not in existing_users:
-                            new_users.append({
-                                "id": aid,
+                    result["errors"] += 1
+                    result["error_message"] = (
+                        f"翻页第 {page_index + 1} 页失败: {error.message}"
+                    )
+                    logger.warning(
+                        "用户 %s 翻页第 %d 页失败，保留前序结果: %s",
+                        username,
+                        page_index + 1,
+                        error.message,
+                    )
+                    break
+
+                raw_data = api_result.unwrap()
+                result["pages_fetched"] += 1
+
+                # TwitterAPI.io 的单账号端点不总是返回用户 includes，补齐解析所需映射。
+                if "data" in raw_data and isinstance(raw_data["data"], list):
+                    needs_author_info = any(
+                        tweet.get("author_id") is None
+                        for tweet in raw_data["data"]
+                    )
+                    if needs_author_info:
+                        logger.debug("为用户 %s 的推文添加作者信息", username)
+                        for tweet_data in raw_data["data"]:
+                            if tweet_data.get("author_id") is None:
+                                tweet_data["author_id"] = username
+
+                        existing_users = {
+                            user.get("id"): user
+                            for user in raw_data.get("includes", {}).get("users", [])
+                        }
+                        author_ids = {
+                            tweet_data["author_id"]
+                            for tweet_data in raw_data["data"]
+                            if tweet_data.get("author_id")
+                        }
+                        new_users = [
+                            {
+                                "id": author_id,
                                 "username": username,
                                 "name": username,
-                            })
+                            }
+                            for author_id in author_ids
+                            if author_id not in existing_users
+                        ]
+                        if new_users:
+                            includes = raw_data.setdefault("includes", {})
+                            includes.setdefault("users", []).extend(new_users)
 
-                    if new_users:
-                        includes = raw_data.setdefault("includes", {})
-                        includes.setdefault("users", []).extend(new_users)
+                tweets = self._parser.parse_tweet_response(raw_data)
+                result["fetched"] += len(tweets)
+                page_save_result: SaveResult | None = None
 
-            # 3. 解析推文
-            tweets = self._parser.parse_tweet_response(raw_data)
-            result["fetched"] = len(tweets)
+                if tweets:
+                    validation_results = self._validator.validate_and_clean_batch(
+                        tweets
+                    )
+                    cleaned_tweets = []
+                    validation_errors = 0
+                    for validation_result in validation_results:
+                        match validation_result:
+                            case Success(tweet):
+                                cleaned_tweets.append(tweet)
+                            case Failure(error):
+                                validation_errors += 1
+                                logger.warning("验证失败: %s", error.message)
 
-            if tweets:
-                # 3. 验证和清理
-                validation_results = self._validator.validate_and_clean_batch(tweets)
-
-                # 过滤出验证成功的推文
-                cleaned_tweets = []
-                validation_errors = 0
-
-                for vr in validation_results:
-                    match vr:
-                        case Success(tweet):
-                            cleaned_tweets.append(tweet)
-                        case Failure(error):
-                            validation_errors += 1
-                            logger.warning(f"验证失败: {error.message}")
-
-                if validation_errors > 0:
-                    logger.warning(f"用户 {username} 有 {validation_errors} 条推文验证失败")
-
-                if cleaned_tweets:
-                    # 4. 保存到数据库
-                    save_result = await self._save_tweets(cleaned_tweets)
-                    result["new"] = save_result.success_count
-                    result["skipped"] = save_result.skipped_count
-                    result["errors"] = save_result.error_count
-
-                    # 5. 自动补全 platform_user_id
-                    if cleaned_tweets and cleaned_tweets[0].author_user_id:
-                        await self._backfill_platform_user_id(
-                            username, cleaned_tweets[0].author_user_id
+                    if validation_errors > 0:
+                        logger.warning(
+                            "用户 %s 有 %d 条推文验证失败",
+                            username,
+                            validation_errors,
                         )
 
-                    # 5a. 检测并获取 X Articles
-                    await self._article_service.fetch_and_save_articles(cleaned_tweets)
+                    remaining = actual_limit - sent_total
+                    to_save = cleaned_tweets[:remaining]
+                    result["discarded_by_limit"] += len(cleaned_tweets) - len(
+                        to_save
+                    )
 
-            # 5b. 满页检测：第一页全是新推文且接近 limit → 自动翻页
-            settings = get_settings()
-            max_extra_pages = settings.scraper_max_extra_pages
-            next_cursor = raw_data.get("next_cursor")
+                    if to_save:
+                        page_save_result = await self._save_tweets(to_save)
+                        sent_total += len(to_save)
+                        result["new"] += page_save_result.success_count
+                        result["skipped"] += page_save_result.skipped_count
+                        result["errors"] += page_save_result.error_count
 
-            if (
-                max_extra_pages > 0
-                and next_cursor
-                and result["new"] > 0
-                and result["fetched"] > 0
-                and result["new"] >= result["fetched"] * 0.8
-            ):
-                logger.info(
-                    "用户 %s 满页检测触发: new=%d, fetched=%d, 开始翻页（最多 %d 页）",
-                    username, result["new"], result["fetched"], max_extra_pages,
-                )
-                extra = await self._scrape_additional_pages(
-                    username=username,
-                    next_cursor=next_cursor,
-                    max_extra_pages=max_extra_pages,
-                )
-                result["new"] += extra["new"]
-                result["skipped"] += extra["skipped"]
-                result["fetched"] += extra["fetched"]
+                        if not platform_user_id_backfilled:
+                            author_user_id = next(
+                                (
+                                    tweet.author_user_id
+                                    for tweet in cleaned_tweets
+                                    if tweet.author_user_id
+                                ),
+                                None,
+                            )
+                            if author_user_id:
+                                await self._backfill_platform_user_id(
+                                    username,
+                                    author_user_id,
+                                )
+                                platform_user_id_backfilled = True
+
+                        await self._article_service.fetch_and_save_articles(to_save)
+
+                next_cursor = raw_data.get("next_cursor")
+
+                # 判停顺序是契约：limit、游标、跳过率、空页、页数边界。
+                if sent_total >= actual_limit:
+                    break
+                if not next_cursor:
+                    break
+                if page_save_result is not None:
+                    page_processed = (
+                        page_save_result.success_count
+                        + page_save_result.skipped_count
+                    )
+                    if (
+                        page_processed > 0
+                        and page_save_result.skipped_count / page_processed > 0.8
+                    ):
+                        logger.info(
+                            "用户 %s 第 %d 页跳过率 %.0f%%，停止翻页",
+                            username,
+                            page_index + 1,
+                            page_save_result.skipped_count / page_processed * 100,
+                        )
+                        break
+                if not tweets:
+                    break
+
+                cursor = next_cursor
+                if page_index < max_pages - 1:
+                    await asyncio.sleep(1.0)
 
             result["success"] = True
 
@@ -437,14 +505,21 @@ class ScrapingService:
             await self._update_fetch_stats(
                 username=username,
                 old_stats=fetch_stats,
-                fetched_count=result["fetched"],
+                fetched_count=sent_total,
                 new_count=result["new"],
             )
 
             logger.info(
-                "用户 %s 抓取完成: 获取 %d 条, 新增 %d 条, 跳过 %d 条 (limit=%d)",
-                username, result["fetched"], result["new"], result["skipped"],
+                "用户 %s 抓取完成: 获取 %d 条, 新增 %d, 跳过 %d, 截断丢弃 %d "
+                "(生效limit=%d, 页数=%d%s)",
+                username,
+                result["fetched"],
+                result["new"],
+                result["skipped"],
+                result["discarded_by_limit"],
                 actual_limit,
+                result["pages_fetched"],
+                ", 预算页数已被总闸封顶" if result["limit_capped"] else "",
             )
 
         except TwitterClientError as e:
@@ -637,95 +712,6 @@ class ScrapingService:
             # 统计更新失败不影响抓取结果
             logger.warning("更新抓取统计失败（不影响抓取结果）: %s", e)
 
-    async def _scrape_additional_pages(
-        self,
-        username: str,
-        next_cursor: str,
-        max_extra_pages: int = 3,
-    ) -> dict[str, int]:
-        """抓取后续页面的推文（满页翻页机制）。
-
-        当第一页几乎全是新推文时，继续翻页获取更多推文，
-        直到遇到大量已存在推文（skip 率 >80%）或达到页数上限。
-
-        Args:
-            username: 用户名
-            next_cursor: 下一页的分页游标
-            max_extra_pages: 最多翻几页
-
-        Returns:
-            dict: 额外页面的抓取统计 {fetched, new, skipped}
-        """
-        totals = {"fetched": 0, "new": 0, "skipped": 0}
-        cursor: str | None = next_cursor
-
-        for page_num in range(1, max_extra_pages + 1):
-            logger.info(
-                "用户 %s 翻页 %d/%d (cursor=%s...)",
-                username, page_num, max_extra_pages, cursor[:20] if cursor else "",
-            )
-
-            api_result = await self._client.fetch_user_tweets(
-                username, cursor=cursor,
-            )
-
-            if isinstance(api_result, Failure):
-                logger.warning(
-                    "用户 %s 翻页 %d 失败: %s",
-                    username, page_num, api_result.failure().message,
-                )
-                break
-
-            page_data = api_result.unwrap()
-
-            # 解析
-            tweets = self._parser.parse_tweet_response(page_data)
-            totals["fetched"] += len(tweets)
-
-            if not tweets:
-                logger.info("用户 %s 翻页 %d 返回空结果，停止翻页", username, page_num)
-                break
-
-            # 验证
-            validation_results = self._validator.validate_and_clean_batch(tweets)
-            cleaned_tweets = []
-            for vr in validation_results:
-                match vr:
-                    case Success(tweet):
-                        cleaned_tweets.append(tweet)
-                    case Failure(error):
-                        logger.warning(f"翻页验证失败: {error.message}")
-
-            if cleaned_tweets:
-                save_result = await self._save_tweets(cleaned_tweets)
-                totals["new"] += save_result.success_count
-                totals["skipped"] += save_result.skipped_count
-
-                # 停止条件：本页大部分推文已存在
-                total_processed = save_result.success_count + save_result.skipped_count
-                if total_processed > 0 and save_result.skipped_count / total_processed > 0.8:
-                    logger.info(
-                        "用户 %s 翻页 %d 跳过率 %.0f%%，停止翻页",
-                        username, page_num,
-                        save_result.skipped_count / total_processed * 100,
-                    )
-                    break
-
-            # 检查下一页游标
-            cursor = page_data.get("next_cursor")
-            if not cursor:
-                logger.info("用户 %s 翻页 %d 无更多页面", username, page_num)
-                break
-
-            # 页间延迟
-            await asyncio.sleep(1.0)
-
-        logger.info(
-            "用户 %s 翻页完成: 额外获取 %d 条, 新增 %d 条, 跳过 %d 条",
-            username, totals["fetched"], totals["new"], totals["skipped"],
-        )
-        return totals
-
     async def _save_tweets(self, tweets: list[Tweet]) -> SaveResult:
         """保存推文到数据库。
 
@@ -824,6 +810,10 @@ class ScrapingService:
                     "new": result.get("new", 0),
                     "skipped": result.get("skipped", 0),
                     "error": result.get("error_message"),
+                    "limit_effective": result.get("limit_effective", 0),
+                    "pages_fetched": result.get("pages_fetched", 0),
+                    "limit_capped": result.get("limit_capped", False),
+                    "discarded_by_limit": result.get("discarded_by_limit", 0),
                 })
 
         return summary

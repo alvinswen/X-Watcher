@@ -88,7 +88,7 @@ def register(mcp: FastMCP) -> None:
                     "scraper": {
                         "limit": settings.scraper_limit,
                         "early_stop_threshold": settings.scraper_early_stop_threshold,
-                        "max_extra_pages": settings.scraper_max_extra_pages,
+                        "max_pages_per_scrape": settings.scraper_max_pages_per_scrape,
                     },
                     "feed": {
                         "max_tweets": settings.feed_max_tweets,

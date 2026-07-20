@@ -1,4 +1,4 @@
-"""CHG-040 常规抓取 limit 生效契约。"""
+"""CHG-040 常规抓取 limit 与 scraper_max_pages_per_scrape 生效契约。"""
 
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock, patch
@@ -114,7 +114,7 @@ async def test_e1_manual_limit_5_single_call_truncate(monkeypatch):
     )
 
     assert fetch.call_count == 1
-    assert fetch.await_args.kwargs.get("cursor") is None
+    assert "cursor" not in fetch.await_args.kwargs
     assert [len(batch) for batch in saved] == [5]
     assert result["discarded_by_limit"] == 15
     assert result["limit_effective"] == 5
@@ -129,7 +129,7 @@ async def test_e2_manual_limit_25_two_calls_cursor(monkeypatch):
     )
 
     assert fetch.call_count == 2
-    assert fetch.await_args_list[0].kwargs.get("cursor") is None
+    assert "cursor" not in fetch.await_args_list[0].kwargs
     assert fetch.await_args_list[1].kwargs["cursor"] == "cursor-2"
     assert [len(batch) for batch in saved] == [20, 5]
     assert result["pages_fetched"] == 2
