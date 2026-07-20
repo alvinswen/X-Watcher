@@ -21,6 +21,9 @@ from pydantic import (
 from src.mcp.security import audit_log
 from src.scraper import ArticleFetchService, ScrapingService, TaskRegistry, TaskStatus
 from src.shared.error_messages import ARTICLE_BACKFILL_FAILED
+from src.shared.username import (
+    validate_username_format as _validate_username_format,
+)
 from src.user.api.auth import get_current_admin_user
 from src.user.domain.models import UserDomain
 
@@ -90,14 +93,6 @@ async def _close_article_fetch_service(
         await service.close()
     except Exception as e:
         logger.warning(f"关闭 ArticleFetchService 连接失败{context}: {e}")
-
-
-def _validate_username_format(username: str) -> None:
-    """执行管理端严格用户名格式校验，不做剥 @ 或大小写规范化。"""
-    if not (1 <= len(username) <= 15):
-        raise ValueError(f"用户名 '{username}' 长度必须在 1-15 字符之间")
-    if not username.replace("_", "").isalnum():
-        raise ValueError(f"用户名 '{username}' 只能包含字母、数字和下划线")
 
 
 class ScrapeRequest(BaseModel):

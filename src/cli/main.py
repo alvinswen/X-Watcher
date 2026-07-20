@@ -24,7 +24,11 @@ cli.add_command(import_data)
 
 
 @cli.command()
-@click.option("--host", default="0.0.0.0", help="监听地址")
+@click.option(
+    "--host",
+    default="127.0.0.1",
+    help="监听地址（默认 127.0.0.1，仅本机；LAN 访问请显式指定对外监听地址）",
+)
 @click.option("--port", default=8000, type=int, help="监听端口")
 @click.option("--reload", is_flag=True, help="启用热重载（开发模式）")
 def serve(host: str, port: int, reload: bool) -> None:
@@ -46,7 +50,11 @@ def serve(host: str, port: int, reload: bool) -> None:
     default="stdio",
     help="传输模式：stdio（本地 AI 助手）或 sse（内网远程访问）",
 )
-@click.option("--host", default="0.0.0.0", help="SSE 模式监听地址")
+@click.option(
+    "--host",
+    default="127.0.0.1",
+    help="SSE 模式监听地址（默认 127.0.0.1；LAN 访问请显式指定对外监听地址）",
+)
 @click.option("--port", default=8001, type=int, help="SSE 模式监听端口")
 @click.option("--api-key", default=None, help="SSE 模式 API Key（用于权限验证）")
 def mcp(transport: str, host: str, port: int, api_key: str | None) -> None:

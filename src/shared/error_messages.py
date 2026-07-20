@@ -26,6 +26,16 @@ SEARCH_TIME_FORMAT_INVALID_TMPL = (
     "请使用如 2026-01-01T00:00:00+00:00 的格式"
 )
 
+# —— 数据导入用户名白名单拦截回显（CHG-041 · REST/CLI 三入口同源）——
+SYNC_IMPORT_USERNAME_BLOCKED_TMPL = (
+    "[{table}] 已拦截 {count} 条用户名格式非法的记录"
+    "（用户名须为 1-15 位字母/数字/下划线；示例: {examples}），"
+    "被拦截条目未导入，其余数据不受影响"
+)
+
+# —— 登录限流 429（auth_router · CHG-041）——
+LOGIN_RATE_LIMITED_TMPL = "登录尝试过于频繁，请约 {minutes} 分钟后重试"
+
 # update_user 路径 ValueError 当前唯一来源为 user_service.py 的最后管理员保护。
 # 若该路径未来新增 ValueError 来源，必须同步改为显式映射并更新逐字测试。
 USER_LAST_ADMIN_DEMOTE_REFUSED = "不能将最后一个管理员降级为普通用户"

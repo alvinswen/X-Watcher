@@ -8,12 +8,40 @@ from __future__ import annotations
 from typing import Any
 
 from src.data_layer.provider import get_import_repo
+from src.shared.error_messages import SYNC_IMPORT_USERNAME_BLOCKED_TMPL
+from src.shared.username import is_valid_username_format
 from src.sync.domain.models import (
     ConflictStrategy,
     ExportPackage,
     ImportResult,
+    ImportStats,
     SyncCategory,
 )
+
+
+def _split_by_username_validity(
+    items: list[dict[str, Any]], field: str
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """按严格版白名单切分。缺字段/None/非 str 一律判非法（拼路径同样危险）。"""
+    valid: list[dict[str, Any]] = []
+    blocked: list[str] = []
+    for item in items:
+        value = item.get(field)
+        if isinstance(value, str) and is_valid_username_format(value):
+            valid.append(item)
+        else:
+            blocked.append(repr(value))
+    return valid, blocked
+
+
+def _record_blocked(result: ImportResult, table: str, blocked: list[str]) -> None:
+    stats = result.stats.setdefault(table, ImportStats())
+    stats.skipped += len(blocked)
+    result.errors.append(
+        SYNC_IMPORT_USERNAME_BLOCKED_TMPL.format(
+            table=table, count=len(blocked), examples=", ".join(blocked[:5])
+        )
+    )
 
 
 class ImportService:
@@ -78,7 +106,11 @@ class ImportService:
     ) -> None:
         follows = data.get("scraper_follows", [])
         if follows:
-            result.stats["scraper_follows"] = repo.import_follows(follows, strategy)
+            valid, blocked = _split_by_username_validity(follows, "username")
+            if valid:
+                result.stats["scraper_follows"] = repo.import_follows(valid, strategy)
+            if blocked:
+                _record_blocked(result, "scraper_follows", blocked)
 
     def _import_content(
         self,
@@ -90,7 +122,11 @@ class ImportService:
         # 按 FK 顺序：tweets → summaries → articles
         tweets = data.get("tweets", [])
         if tweets:
-            result.stats["tweets"] = repo.import_tweets(tweets, strategy)
+            valid, blocked = _split_by_username_validity(tweets, "author_username")
+            if valid:
+                result.stats["tweets"] = repo.import_tweets(valid, strategy)
+            if blocked:
+                _record_blocked(result, "tweets", blocked)
 
         summaries = data.get("summaries", [])
         if summaries:

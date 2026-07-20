@@ -4,6 +4,7 @@
 """
 
 import logging
+import secrets
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
@@ -47,7 +48,9 @@ async def get_current_user(
                 return user
         # Fallback: 检查是否匹配 ADMIN_API_KEY 环境变量
         settings = get_settings()
-        if settings.admin_api_key and api_key == settings.admin_api_key:
+        if settings.admin_api_key and secrets.compare_digest(
+            api_key.encode("utf-8"), settings.admin_api_key.encode("utf-8")
+        ):
             logger.debug("ADMIN_API_KEY 引导认证成功")
             return BOOTSTRAP_ADMIN
         logger.warning("API Key 认证失败: 无效或非活跃的 Key")
@@ -123,7 +126,9 @@ async def get_current_admin_user(
                 e.status_code == status.HTTP_401_UNAUTHORIZED
                 and api_key
                 and settings.admin_api_key
-                and api_key == settings.admin_api_key
+                and secrets.compare_digest(
+                    api_key.encode("utf-8"), settings.admin_api_key.encode("utf-8")
+                )
             ):
                 logger.debug("ADMIN_API_KEY 引导认证成功")
                 return BOOTSTRAP_ADMIN
