@@ -130,6 +130,17 @@ x-watcher import-data backup.json --dry-run
 x-watcher import-data backup.json --strategy merge
 ```
 
+### 监听地址迁移
+
+REST API 与 MCP SSE 的默认监听地址已收窄为 `127.0.0.1`，只接受本机连接，以避免服务在未明确授权时暴露到局域网。需要从 LAN 中的其他机器访问时，请显式放开监听地址：
+
+```bash
+x-watcher serve --host 0.0.0.0 --port 8000
+x-watcher mcp --transport sse --host 0.0.0.0 --port 8001
+```
+
+升级后如果其他机器连不上，请先检查启动命令是否仍使用默认地址；确认网络边界、防火墙和认证配置符合预期后，再按上例显式指定 `--host 0.0.0.0`。本机访问仍使用 `127.0.0.1` 或 `localhost`。
+
 ## MCP Server
 
 本地 Agent 推荐使用 stdio：

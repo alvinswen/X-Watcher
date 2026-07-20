@@ -41,7 +41,7 @@ async def mcp_lifespan(server: FastMCP) -> AsyncIterator[None]:
 
 
 def create_mcp_server(
-    host: str = "0.0.0.0",
+    host: str = "127.0.0.1",
     port: int = 8001,
     *,
     use_auth: bool = False,
@@ -112,7 +112,7 @@ def create_mcp_server(
 
 def run_mcp_server(
     transport: str = "stdio",
-    host: str = "0.0.0.0",
+    host: str = "127.0.0.1",
     port: int = 8001,
     api_key: str | None = None,
 ) -> None:

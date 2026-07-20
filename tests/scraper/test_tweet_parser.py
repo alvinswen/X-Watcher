@@ -3,7 +3,7 @@
 测试推文数据解析功能。
 """
 
-
+import logging
 
 from src.scraper.domain.models import ReferenceType
 from src.scraper.parser import TweetParser
@@ -455,3 +455,70 @@ class TestTweetParser:
         tweet = tweets[0]
         assert tweet.has_article is False
         assert tweet.article_preview is None
+
+    def test_invalid_author_username_is_skipped_without_stopping_batch(self, caplog):
+        """非法作者名只跳过本条、记录 warning，同批合法条目正常返回。"""
+        raw_data = {
+            "data": [
+                {
+                    "id": "blocked",
+                    "text": "blocked",
+                    "created_at": "2026-07-21T00:00:00.000Z",
+                    "author_id": "bad-user",
+                },
+                {
+                    "id": "legal",
+                    "text": "legal",
+                    "created_at": "2026-07-21T00:00:00.000Z",
+                    "author_id": "good-user",
+                },
+            ],
+            "includes": {
+                "users": [
+                    {
+                        "id": "bad-user",
+                        "username": "../../evil",
+                        "name": "Bad",
+                    },
+                    {
+                        "id": "good-user",
+                        "username": "alice",
+                        "name": "Alice",
+                    },
+                ]
+            },
+        }
+
+        with caplog.at_level(logging.WARNING, logger="src.scraper.parser"):
+            tweets = TweetParser().parse_tweet_response(raw_data)
+
+        assert [tweet.tweet_id for tweet in tweets] == ["legal"]
+        assert "Tweet blocked author username 格式非法，已跳过: '../../evil'" in caplog.text
+
+    def test_referenced_author_username_is_not_validated(self):
+        """仅校验发推人，引用推文原作者字段保持原值。"""
+        raw_data = {
+            "data": [
+                {
+                    "id": "quoted",
+                    "text": "quoted",
+                    "created_at": "2026-07-21T00:00:00.000Z",
+                    "author_id": "good-user",
+                    "referenced_tweet_author_username": "../original",
+                }
+            ],
+            "includes": {
+                "users": [
+                    {
+                        "id": "good-user",
+                        "username": "alice",
+                        "name": "Alice",
+                    }
+                ]
+            },
+        }
+
+        tweets = TweetParser().parse_tweet_response(raw_data)
+
+        assert len(tweets) == 1
+        assert tweets[0].referenced_tweet_author_username == "../original"

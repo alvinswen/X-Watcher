@@ -131,11 +131,35 @@ def test_run_mcp_server_allows_strong_jwt_secret(monkeypatch):
     init_logging.assert_called_once_with(stderr_only=True)
     configure_transport.assert_called_once_with("stdio")
     create_mcp_server.assert_called_once_with(
-        host="0.0.0.0",
+        host="127.0.0.1",
         port=8001,
         use_auth=False,
     )
     mcp.run.assert_called_once_with(transport="stdio")
+
+    clear_settings_cache()
+
+
+@pytest.mark.asyncio
+async def test_admin_token_verifier_correct_wrong_and_non_ascii(
+    monkeypatch,
+    tmp_path,
+):
+    """MCP ADMIN_API_KEY 三态保持放行/拒绝/拒绝，非 ASCII 不抛异常。"""
+    from src.config import clear_settings_cache
+    from src.mcp.token_verifier import XWatcherTokenVerifier
+
+    admin_key = "mcp-admin-api-key"
+    monkeypatch.setenv("ADMIN_API_KEY", admin_key)
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    clear_settings_cache()
+
+    verifier = XWatcherTokenVerifier()
+    accepted = await verifier.verify_token(admin_key)
+    assert accepted is not None
+    assert accepted.client_id == "admin"
+    assert await verifier.verify_token("wrong-admin-key") is None
+    assert await verifier.verify_token("sná_密钥") is None
 
     clear_settings_cache()
 

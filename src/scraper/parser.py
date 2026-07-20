@@ -8,6 +8,7 @@ from datetime import UTC
 from typing import Any
 
 from src.scraper.domain.models import ArticlePreview, Media, ReferenceType, Tweet
+from src.shared.username import is_valid_username_format
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +99,13 @@ class TweetParser:
         author_username = author_info.get("username")
         if author_username is None:
             logger.warning(f"Tweet {tweet_data.get('id')} author missing username")
+            return None
+
+        if not is_valid_username_format(author_username):
+            logger.warning(
+                f"Tweet {tweet_data.get('id')} author username 格式非法，已跳过: "
+                f"{author_username!r}"
+            )
             return None
 
         # 解析引用关系

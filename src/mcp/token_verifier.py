@@ -6,6 +6,7 @@
 
 import hashlib
 import logging
+import secrets
 
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 
@@ -37,7 +38,9 @@ class XWatcherTokenVerifier(TokenVerifier):
         from src.config import get_settings
 
         settings = get_settings()
-        if settings.admin_api_key and token == settings.admin_api_key:
+        if settings.admin_api_key and secrets.compare_digest(
+            token.encode("utf-8"), settings.admin_api_key.encode("utf-8")
+        ):
             logger.debug("Token 验证通过: admin API key")
             return AccessToken(
                 token=token,
