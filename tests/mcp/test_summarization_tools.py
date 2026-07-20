@@ -30,7 +30,6 @@ def tool_funcs():
 
 @pytest.fixture(autouse=True)
 def file_data_root(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
 
 

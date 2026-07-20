@@ -17,7 +17,6 @@ from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
 @pytest.fixture(autouse=True)
 def tweet_file_data_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     """Route tests now exercise the file-backed tweet read provider."""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     return tmp_path
 

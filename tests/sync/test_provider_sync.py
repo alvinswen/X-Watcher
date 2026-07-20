@@ -2,7 +2,6 @@
 
 
 def test_get_export_repo_file_mode(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     from src.data_layer.provider import _FileExportSyncAdapter, get_export_repo
 
@@ -12,7 +11,6 @@ def test_get_export_repo_file_mode(monkeypatch, tmp_path):
 
 def test_file_export_adapter_returns_dicts(monkeypatch, tmp_path):
     """file 适配器 get_* 返 dict(空 data_root→空 list)。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     from src.data_layer.provider import get_export_repo
 
@@ -24,7 +22,6 @@ def test_file_export_adapter_returns_dicts(monkeypatch, tmp_path):
 
 
 def test_get_import_repo_file_mode(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     from src.data_layer.provider import _FileImportSyncAdapter, get_import_repo
 
@@ -34,7 +31,6 @@ def test_get_import_repo_file_mode(monkeypatch, tmp_path):
 
 def test_file_import_adapter_real_write_persists(monkeypatch, tmp_path):
     """非 dry_run:import_follows 真写 data_root,follows.json 落地。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     from src.data_layer.provider import get_import_repo
     from src.sync.domain.models import ConflictStrategy
@@ -49,7 +45,6 @@ def test_file_import_adapter_real_write_persists(monkeypatch, tmp_path):
 
 def test_file_import_adapter_dry_run_does_not_persist(monkeypatch, tmp_path):
     """dry_run:import_follows 在 temp 副本上跑,真 data_root 未落地。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     from src.data_layer.provider import get_import_repo
     from src.sync.domain.models import ConflictStrategy

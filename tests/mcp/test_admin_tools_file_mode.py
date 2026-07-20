@@ -1,4 +1,4 @@
-"""admin_tools MCP 聚合工具在 XWATCHER_DATA_LAYER=file 下走文件层(pg 下线 A2-2b')。
+"""admin_tools MCP 聚合工具在文件层（file 唯一数据层）下运行（pg 下线 A2-2b'）。
 
 路径可证:种子只进文件层 store → MCP 工具经 _tool_manager._tools[].fn 调用 →
 断言聚合出现即证读文件层(无 pg/session)。覆盖:
@@ -71,7 +71,6 @@ def _make_profile(uid, username, fetched_at):
 
 @pytest.fixture
 def file_mode(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     # 旁路 admin 鉴权(纯数据层接线测试)
     monkeypatch.setattr("src.mcp.tools.admin_tools.require_admin", lambda: None)

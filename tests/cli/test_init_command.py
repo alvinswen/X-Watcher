@@ -77,7 +77,6 @@ class TestInitCommand:
         monkeypatch.chdir(tmp_path)
         monkeypatch.setenv("TWITTER_API_KEY", "test-key")
         monkeypatch.setenv("TWITTER_BEARER_TOKEN", "test-token")
-        monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
         monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
 
         from src.config import clear_settings_cache

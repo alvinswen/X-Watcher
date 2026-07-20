@@ -9,7 +9,6 @@ from src.user.services.user_service import UserService
 
 @pytest.fixture(autouse=True)
 def file_user_store(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
 
 

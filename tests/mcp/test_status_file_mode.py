@@ -1,4 +1,4 @@
-"""status 3 段统计(tweet/follow/summary)在 XWATCHER_DATA_LAYER=file 下走文件层。
+"""status 3 段统计(tweet/follow/summary)在文件层（file 唯一数据层）下运行。
 
 路径可证:种子只进文件层 → 断言 stats(total/latest/today_count/active/inactive/pending 反连接)。
 跨模式对账:同数据 file vs sqlalchemy(SQLite,建 Base + 种 ORM)产同 3 stats。
@@ -79,7 +79,6 @@ async def _seed_follows(root, follows):
 
 @pytest.mark.asyncio
 async def test_get_tweet_stats_file_mode(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     now = datetime.now(UTC)
     today0 = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -108,7 +107,6 @@ async def test_get_tweet_stats_file_mode(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_get_tweet_stats_empty_file_mode(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     from src.data_layer.provider import get_status_repo
 
@@ -119,7 +117,6 @@ async def test_get_tweet_stats_empty_file_mode(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_get_follow_stats_file_mode(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     await _seed_follows(
         tmp_path,
@@ -142,7 +139,6 @@ async def test_get_follow_stats_file_mode(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_get_summary_stats_file_mode(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     now = datetime.now(UTC)
     # 4 tweet,2 有 summary → pending(反连接)=2
@@ -176,7 +172,6 @@ async def test_get_summary_stats_file_mode(monkeypatch, tmp_path):
 async def test_mcp_get_system_status_file_mode(monkeypatch, tmp_path):
     import json
 
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     now = datetime.now(UTC)
     today0 = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -215,7 +210,6 @@ async def test_mcp_status_seam_rename_breaks(monkeypatch):
     """故障注入:把 provider 接缝改名应使 MCP get_system_status 翻红(证真走门面)。"""
     import json
 
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     from mcp.server.fastmcp import FastMCP
 
     import src.data_layer.provider as provider
@@ -237,7 +231,6 @@ async def test_mcp_status_seam_rename_breaks(monkeypatch):
 async def test_mcp_status_resource_file_mode(monkeypatch, tmp_path):
     import json
 
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     now = datetime.now(UTC)
     await _seed_tweets(

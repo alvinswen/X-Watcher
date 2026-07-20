@@ -20,7 +20,6 @@ from src.user.domain.models import UserDomain
 
 @pytest.fixture(autouse=True)
 def file_data_layer(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     clear_settings_cache()
     yield

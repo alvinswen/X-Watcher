@@ -28,15 +28,6 @@ def client(test_settings):  # noqa: ARG001 - 参数确保设置已加载
         yield TestClient(app)
 
 
-@pytest.fixture
-def clean_registry():
-    """清理任务注册表。"""
-    registry = TaskRegistry.get_instance()
-    registry.clear_all()
-    yield
-    registry.clear_all()
-
-
 class TestScrapeRequest:
     """测试 ScrapeRequest 模型。"""
 

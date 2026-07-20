@@ -151,7 +151,6 @@ def tool_funcs():
 @pytest.fixture
 async def seed_file_tweets(monkeypatch, tmp_path):
     """准备文件层推文和摘要测试数据。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     base_time = datetime(2026, 2, 20, 10, 0, 0, tzinfo=UTC)
 
@@ -236,7 +235,6 @@ async def seed_file_tweets(monkeypatch, tmp_path):
 @pytest.fixture
 async def seed_file_follows(monkeypatch, tmp_path):
     """准备文件层关注列表数据。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     store = FileFollowStore(tmp_path)
     alice = await store.create_scraper_follow("alice", "KOL", "test")
@@ -730,7 +728,6 @@ class TestFollowAccountsInfoIntegration:
         self, tool_funcs, monkeypatch, tmp_path
     ):
         """测试 profiles 类型返回档案字段（bio 映射 description、tweet_count 映射 statuses_count）。"""
-        monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
         monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
         await FileProfileStore(tmp_path).seed(
             [

@@ -1,5 +1,5 @@
 """scraper_config 账号聚合两段(#8 时间范围 / #9 周期分析)在
-XWATCHER_DATA_LAYER=file 下走文件层。
+文件层（file 唯一数据层）下运行。
 
 - #8 tweet_time_range / #9 period_analysis:无 round 陷阱,SQLite 是有效 oracle,既做 file
   路径可证又做跨模式(file vs sqlalchemy SQLite)对账。
@@ -36,7 +36,6 @@ def _norm_instant(dt):
 
 @pytest.mark.asyncio
 async def test_tweet_time_range_file_mode(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     base = datetime(2024, 3, 1, 12, 0, 0, tzinfo=UTC)
     earliest = base
@@ -72,7 +71,6 @@ async def test_tweet_time_range_file_mode(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_period_analysis_file_mode(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     now = datetime.now(UTC)
     # periods=3:窗口(正序前)= [now-3i.., now-2i..)依次。造定位明确的推文:
@@ -111,7 +109,6 @@ async def test_endpoints_file_mode_smoke(monkeypatch, tmp_path):
     直调 endpoint 函数(注入 file 模式 follows + tweets),验证 max_count/time_range/period 段
     走文件层无 ORM 依赖。注:effective_limit 段走 get_fetch_stats_repo(file)已在子项目 3 接线。
     """
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
 
     # 种 follows(file)+ tweets(file)
