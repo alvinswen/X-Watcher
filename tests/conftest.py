@@ -125,17 +125,6 @@ def test_settings():
 
 
 @pytest.fixture(scope="function")
-def clean_registry():
-    """清理任务注册表 Fixture。"""
-    from src.scraper import TaskRegistry
-
-    registry = TaskRegistry.get_instance()
-    registry.clear_all()
-    yield
-    registry.clear_all()
-
-
-@pytest.fixture(scope="function")
 async def async_client():
     """异步 HTTP 客户端 Fixture（带管理员认证）。
 
