@@ -5,7 +5,6 @@
 
 
 async def test_follows_create_get_roundtrip(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     from src.data_layer.provider import get_follows_repo
 
@@ -22,7 +21,6 @@ async def test_follows_create_get_roundtrip(monkeypatch, tmp_path):
 
 
 async def test_profile_upsert_get_roundtrip(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     from src.data_layer.provider import get_profile_repo
     from src.preference.domain.models import XUserProfile

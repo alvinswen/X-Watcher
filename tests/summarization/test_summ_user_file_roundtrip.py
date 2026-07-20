@@ -4,7 +4,6 @@ from datetime import UTC, datetime
 
 
 async def test_user_create_then_password_hash_roundtrip(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     from src.data_layer.provider import get_user_repo
 
@@ -25,7 +24,6 @@ async def test_user_create_then_password_hash_roundtrip(monkeypatch, tmp_path):
 
 
 async def test_summary_save_get_roundtrip(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     from src.data_layer.provider import get_summary_repo
     from src.summarization.domain.models import SummaryRecord

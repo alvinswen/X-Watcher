@@ -28,7 +28,6 @@ def override_auth():
 def setup_test_env(monkeypatch, tmp_path):
     """设置测试环境变量。"""
     monkeypatch.setenv("SCRAPER_ENABLED", "false")
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     clear_settings_cache()
 

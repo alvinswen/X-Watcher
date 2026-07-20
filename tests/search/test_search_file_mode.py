@@ -1,4 +1,4 @@
-"""search search_tweets 在 XWATCHER_DATA_LAYER=file 下走文件层。
+"""search search_tweets 在文件层（file 唯一数据层）下运行。
 路径可证:种子只进文件层;跨模式对账:同数据 file vs sqlalchemy 同 (items 除 db_created_at, total)
 (search 无聚合 div/cast→SQLite 对 ASCII keyword 有效;distinct created_at 避 tie-break;created_at
 按 instant 比 + 钉 file aware;db_created_at file None 单独断言)。"""
@@ -33,7 +33,6 @@ async def _seed_file(tmp_path, tweets, summaries=()):
 
 @pytest.mark.asyncio
 async def test_search_file_mode_multi_keyword_and(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     now = datetime.now(UTC)
     base = now - timedelta(days=1)
@@ -56,7 +55,6 @@ async def test_search_file_mode_multi_keyword_and(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_search_file_mode_referenced_text_and_summary(monkeypatch, tmp_path):
     """keyword 命中 referenced_tweet_text(feed 没有的字段)/ summary;include_summary=False 不搜 summary。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     now = datetime.now(UTC)
     base = now - timedelta(days=1)
@@ -77,7 +75,6 @@ async def test_search_file_mode_referenced_text_and_summary(monkeypatch, tmp_pat
 
 @pytest.mark.asyncio
 async def test_search_file_mode_14_field_shape(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     now = datetime.now(UTC)
     base = now - timedelta(days=1)
@@ -98,7 +95,6 @@ async def test_search_file_mode_14_field_shape(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_search_file_mode_window_fastpath_and_pagination(monkeypatch, tmp_path):
     """since 提供→窗口快路径;offset 分页(page=2)。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     now = datetime.now(UTC)
     base = now - timedelta(days=1)
@@ -115,7 +111,6 @@ async def test_search_file_mode_window_fastpath_and_pagination(monkeypatch, tmp_
 @pytest.mark.asyncio
 async def test_search_file_mode_author_and_until_only(monkeypatch, tmp_path):
     """author 过滤 + until-only(since 无)全扫兜底路径。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     now = datetime.now(UTC)
     base = now - timedelta(days=1)
@@ -133,7 +128,6 @@ async def test_search_file_mode_author_and_until_only(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_search_file_mode_media_shape(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     import json
 
@@ -169,7 +163,6 @@ async def test_search_tweet_item_accepts_none_db_created_at():
 @pytest.mark.asyncio
 async def test_mcp_search_tweets_file_mode(monkeypatch, tmp_path):
     import json
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     now = datetime.now(UTC)
     base = now - timedelta(days=1)

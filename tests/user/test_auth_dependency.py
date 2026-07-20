@@ -24,12 +24,10 @@ def setup_env(tmp_path):
     originals = {
         "JWT_SECRET_KEY": os.environ.get("JWT_SECRET_KEY"),
         "ADMIN_API_KEY": os.environ.get("ADMIN_API_KEY"),
-        "XWATCHER_DATA_LAYER": os.environ.get("XWATCHER_DATA_LAYER"),
         "XWATCHER_DATA_ROOT": os.environ.get("XWATCHER_DATA_ROOT"),
     }
     os.environ["JWT_SECRET_KEY"] = JWT_SECRET
     os.environ["ADMIN_API_KEY"] = ADMIN_API_KEY_VALUE
-    os.environ["XWATCHER_DATA_LAYER"] = "file"
     os.environ["XWATCHER_DATA_ROOT"] = str(tmp_path)
     clear_settings_cache()
     yield

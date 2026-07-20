@@ -12,7 +12,6 @@ def test_export_then_import_follow_roundtrip(monkeypatch, tmp_path):
     src_root.mkdir()
     dst_root.mkdir()
 
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(src_root))
     import asyncio
 
@@ -33,7 +32,6 @@ def test_export_then_import_follow_roundtrip(monkeypatch, tmp_path):
 
 def test_dry_run_does_not_touch_real_data(monkeypatch, tmp_path):
     """dry_run import 后真 data_root 字节不变。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     import asyncio
 

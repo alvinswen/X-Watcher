@@ -19,11 +19,9 @@ def setup_env(tmp_path):
     """设置测试环境变量。"""
     originals = {
         "JWT_SECRET_KEY": os.environ.get("JWT_SECRET_KEY"),
-        "XWATCHER_DATA_LAYER": os.environ.get("XWATCHER_DATA_LAYER"),
         "XWATCHER_DATA_ROOT": os.environ.get("XWATCHER_DATA_ROOT"),
     }
     os.environ["JWT_SECRET_KEY"] = JWT_SECRET
-    os.environ["XWATCHER_DATA_LAYER"] = "file"
     os.environ["XWATCHER_DATA_ROOT"] = str(tmp_path)
     clear_settings_cache()
     yield

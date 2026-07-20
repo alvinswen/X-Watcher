@@ -32,7 +32,6 @@ def _make_package(data: dict, categories: list[str] | None = None) -> ExportPack
 
 
 def _pin_file_root(monkeypatch, root) -> None:
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(root))
 
 
@@ -336,7 +335,6 @@ class TestFullRoundtrip:
 
         # 导出源已固定文件层。
         src_root = tmp_path / "source"
-        monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
         monkeypatch.setenv("XWATCHER_DATA_ROOT", str(src_root))
         _seed_file_roundtrip_data(src_root)
         pkg = ExportService().export(instance_id="source")

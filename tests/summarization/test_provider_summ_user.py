@@ -2,7 +2,6 @@
 
 
 def test_get_summary_repo_file_mode(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     from src.data_layer.provider import get_summary_repo
     from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
@@ -12,7 +11,6 @@ def test_get_summary_repo_file_mode(monkeypatch, tmp_path):
 
 
 def test_get_user_repo_file_mode(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     from src.data_layer.provider import get_user_repo
     from src.user.infrastructure.file_user_repository import FileUserStore

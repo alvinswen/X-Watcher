@@ -1,4 +1,4 @@
-"""feed get_feed 在 XWATCHER_DATA_LAYER=file 下走文件层。
+"""feed get_feed 在文件层（file 唯一数据层）下运行。
 路径可证:种子只进文件层;跨模式对账:同数据 file vs sqlalchemy 同 (items 除 db_created_at,
 count,total,has_more)(feed 无聚合 div/cast→SQLite 对 ASCII keyword 是有效 oracle;seed distinct
 created_at 避 tie-break;created_at 按 instant 比 + 单独钉 file aware;db_created_at file None 单独断言)。"""
@@ -33,7 +33,6 @@ async def _seed_file(tmp_path, tweets, summaries=()):
 
 @pytest.mark.asyncio
 async def test_get_feed_file_mode_window_join_shape(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     now = datetime.now(UTC)
     base = now - timedelta(days=1)
@@ -64,7 +63,6 @@ async def test_get_feed_file_mode_window_join_shape(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_get_feed_file_mode_limit_cursor(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     now = datetime.now(UTC)
     base = now - timedelta(days=1)
@@ -79,7 +77,6 @@ async def test_get_feed_file_mode_limit_cursor(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_get_feed_file_mode_author_filter(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     now = datetime.now(UTC)
     base = now - timedelta(days=1)
@@ -105,7 +102,6 @@ async def test_get_feed_file_mode_author_filter(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_get_feed_file_mode_keyword(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     now = datetime.now(UTC)
     base = now - timedelta(days=1)
@@ -134,7 +130,6 @@ async def test_get_feed_file_mode_keyword(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_get_feed_file_mode_keyword_like_wildcard(monkeypatch, tmp_path):
     """keyword 内 `_` 复刻 SQL LIKE 通配(任意单字符),非 naive substring。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     now = datetime.now(UTC)
     base = now - timedelta(days=1)
@@ -158,7 +153,6 @@ async def test_get_feed_file_mode_keyword_like_wildcard(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_get_feed_file_mode_media_shape(monkeypatch, tmp_path):
     """media 存在时 file 模式产 list[dict] exclude_none(json 可序列化,MCP 路径必需)。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     import json
 
@@ -194,7 +188,6 @@ async def test_feed_tweet_item_accepts_none_db_created_at():
 @pytest.mark.asyncio
 async def test_get_feed_file_mode_reference_type(monkeypatch, tmp_path):
     """reference_type enum→.value(str)+ referenced_tweet_id 透传(非 None 路径,锁 _item enum 分支)。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     from src.scraper.domain.models import ReferenceType, Tweet
     now = datetime.now(UTC)
@@ -215,7 +208,6 @@ async def test_get_feed_file_mode_reference_type(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_mcp_get_feed_file_mode(monkeypatch, tmp_path):
     import json
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     now = datetime.now(UTC)
     base = now - timedelta(days=1)

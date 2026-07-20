@@ -230,7 +230,6 @@ class TestGetSystemStatus:
     @pytest.mark.asyncio
     async def test_success(self, tool_funcs, monkeypatch, tmp_path):
         """测试正常获取系统状态。"""
-        monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
         monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
         result = await tool_funcs["get_system_status"]()
 

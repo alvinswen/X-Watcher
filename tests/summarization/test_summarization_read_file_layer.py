@@ -42,7 +42,6 @@ def _summary(sid, tid):
 @pytest.mark.asyncio
 async def test_unsummarized_file_controlled(monkeypatch, tmp_path):
     """File facade returns unsummarized tweets with filters, DESC order, and limit clamp."""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path / "filestore"))
     from src.data_layer.provider import get_summarization_read_repo
 
@@ -91,7 +90,6 @@ async def test_unsummarized_file_controlled(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_origins_six_fields_file_controlled(monkeypatch, tmp_path):
     """File facade returns the six CR-023 origin fields, with missing ids omitted."""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path / "filestore"))
     from src.data_layer.provider import get_summarization_read_repo
 
@@ -134,7 +132,6 @@ async def test_origins_six_fields_file_controlled(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_list_unsummarized_ids_file_path(monkeypatch, tmp_path):
     """File path list_unsummarized_ids excludes summarized tweets and respects half-open windows."""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path / "filestore"))
     from src.data_layer.provider import get_summarization_read_repo
 
@@ -167,7 +164,6 @@ async def test_list_unsummarized_ids_file_path(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_list_tweet_ids_in_window_file_path(monkeypatch, tmp_path):
     """File path list_tweet_ids_in_window is half-open and includes summarized tweets."""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path / "filestore"))
     from src.data_layer.provider import get_summarization_read_repo
 

@@ -1,4 +1,4 @@
-"""tweets list/detail 读门面在 XWATCHER_DATA_LAYER=file 下走文件层(pg 下线 D-2)。
+"""tweets list/detail 读门面在文件层（file 唯一数据层）下运行（pg 下线 D-2）。
 
 复刻 `src/api/routes/tweets.py` 两 HTTP 端点裸查 ORM 的那段:
 - list_tweets:select(TweetOrm 字段) LEFT JOIN SummaryOrm(CASE has_summary)+
@@ -66,7 +66,6 @@ async def _seed_summaries(root, summaries):
 @pytest.mark.asyncio
 async def test_list_tweets_basic_desc_total(monkeypatch, tmp_path):
     """分页 total + DESC 排序 + 默认全量。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     base = datetime(2026, 2, 18, 0, 0, 0, tzinfo=UTC)
     await _seed_tweets(tmp_path, [
@@ -85,7 +84,6 @@ async def test_list_tweets_basic_desc_total(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_list_tweets_pagination(monkeypatch, tmp_path):
     """分页 offset/limit:page2 取不同子集。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     base = datetime(2026, 2, 18, 0, 0, 0, tzinfo=UTC)
     await _seed_tweets(tmp_path, [
@@ -104,7 +102,6 @@ async def test_list_tweets_pagination(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_list_tweets_author_case_insensitive(monkeypatch, tmp_path):
     """author 过滤大小写不敏感(func.lower == author.lower())。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     base = datetime(2026, 2, 18, 0, 0, 0, tzinfo=UTC)
     await _seed_tweets(tmp_path, [
@@ -127,7 +124,6 @@ async def test_list_tweets_author_case_insensitive(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_list_tweets_created_window_half_open(monkeypatch, tmp_path):
     """created 窗 [after, before):after 含、before 不含。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     after = datetime(2026, 2, 18, 0, 0, 0, tzinfo=UTC)
     before = datetime(2026, 2, 19, 0, 0, 0, tzinfo=UTC)
@@ -149,7 +145,6 @@ async def test_list_tweets_created_window_half_open(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_list_tweets_has_summary(monkeypatch, tmp_path):
     """has_summary:有 summary 的 tweet→True,无→False。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     base = datetime(2026, 2, 18, 0, 0, 0, tzinfo=UTC)
     await _seed_tweets(tmp_path, [
@@ -168,7 +163,6 @@ async def test_list_tweets_has_summary(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_list_tweets_media_count_and_reference_type(monkeypatch, tmp_path):
     """media_count 来自 media 列表长度;reference_type enum→str。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     from src.scraper.domain.models import Media, ReferenceType
     base = datetime(2026, 2, 18, 0, 0, 0, tzinfo=UTC)
@@ -192,7 +186,6 @@ async def test_list_tweets_media_count_and_reference_type(monkeypatch, tmp_path)
 @pytest.mark.asyncio
 async def test_get_tweet_detail_found_and_missing(monkeypatch, tmp_path):
     """detail:命中返 dict、未命中返 None;has_summary 默认 False(由 handler summary 部分另算)。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     from src.scraper.domain.models import Media
     base = datetime(2026, 2, 18, 0, 0, 0, tzinfo=UTC)
@@ -216,7 +209,6 @@ async def test_get_tweet_detail_found_and_missing(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_db_created_at_degradation_file_equals_created_at(monkeypatch, tmp_path):
     """file 模式:list + detail 的 db_created_at == 该推文 created_at(降级)。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     base = datetime(2026, 2, 18, 3, 30, 0, tzinfo=UTC)
     await _seed_tweets(tmp_path, [_tweet("t1", "alice", base)])
@@ -235,7 +227,6 @@ async def test_db_created_at_degradation_file_equals_created_at(monkeypatch, tmp
 @pytest.mark.asyncio
 async def test_endpoints_file_mode_via_handler(monkeypatch, tmp_path):
     """直调 handler:file 模式两端点不崩、404 正常、分页正确、created_at JSON 序列化带 +00:00。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     base = datetime(2026, 2, 18, 0, 0, 0, tzinfo=UTC)
     await _seed_tweets(tmp_path, [
@@ -280,7 +271,6 @@ async def test_endpoints_file_mode_via_handler(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_faultinj_created_window_closed_vs_half_open(monkeypatch, tmp_path):
     """故意把 created_before 写成闭区间(<=)→ before 边界推文混入 → 断言翻红还原。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     after = datetime(2026, 2, 18, 0, 0, 0, tzinfo=UTC)
     before = datetime(2026, 2, 19, 0, 0, 0, tzinfo=UTC)
@@ -327,7 +317,6 @@ async def test_faultinj_created_window_closed_vs_half_open(monkeypatch, tmp_path
 @pytest.mark.asyncio
 async def test_faultinj_has_summary_always_false(monkeypatch, tmp_path):
     """故意让 has_summary 恒 False(漏 JOIN)→ 与真有 summary 不符 → 断言能抓到。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     base = datetime(2026, 2, 18, 0, 0, 0, tzinfo=UTC)
     await _seed_tweets(tmp_path, [_tweet("t1", "alice", base)])
@@ -351,7 +340,6 @@ async def test_faultinj_has_summary_always_false(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_faultinj_db_created_at_not_degraded(monkeypatch, tmp_path):
     """故意让 file 门面 db_created_at 不降级(返 None)→ 响应模型必填字段校验崩 → 证降级载体被测。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     base = datetime(2026, 2, 18, 0, 0, 0, tzinfo=UTC)
     await _seed_tweets(tmp_path, [_tweet("t1", "alice", base)])

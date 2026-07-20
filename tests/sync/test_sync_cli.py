@@ -37,7 +37,6 @@ class TestExportCommand:
         assert "--pretty" in result.output
 
     def test_export_creates_file(self, monkeypatch, tmp_path):
-        monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
         monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
         _seed_file_data(
             tmp_path,
@@ -80,7 +79,6 @@ class TestExportCommand:
         assert len(data["data"]["config"]["scraper_follows"]) == 1
 
     def test_export_pretty(self, monkeypatch, tmp_path):
-        monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
         monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
         output_path = str(tmp_path / "pretty.json")
 
@@ -101,7 +99,6 @@ class TestExportCommand:
         assert "\n  " in content
 
     def test_export_with_since_filter(self, monkeypatch, tmp_path):
-        monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
         monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
         _seed_file_data(
             tmp_path,
@@ -153,7 +150,6 @@ class TestImportDataCommand:
         assert "--force" in result.output
 
     def test_import_data_from_file(self, monkeypatch, tmp_path):
-        monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
         monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
 
         # 创建导出文件
@@ -204,7 +200,6 @@ class TestImportDataCommand:
         assert follows[0].username == "alice"
 
     def test_import_dry_run(self, monkeypatch, tmp_path):
-        monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
         monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
 
         export_data = {
@@ -269,7 +264,6 @@ class TestEndToEnd:
     def test_export_then_import(self, monkeypatch, tmp_path):
         # 导出源已固定文件层。
         source_root = tmp_path / "source-data"
-        monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
         monkeypatch.setenv("XWATCHER_DATA_ROOT", str(source_root))
         _seed_file_data(
             source_root,
@@ -317,7 +311,6 @@ class TestEndToEnd:
 
         # Import to new file data root
         dest_root = tmp_path / "dest-data"
-        monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
         monkeypatch.setenv("XWATCHER_DATA_ROOT", str(dest_root))
         result = runner.invoke(cli, ["import-data", export_path])
         assert result.exit_code == 0, f"Import failed: {result.output}"

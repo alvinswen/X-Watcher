@@ -2,7 +2,6 @@
 
 
 def test_get_follows_repo_file_mode(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     from src.data_layer.provider import get_follows_repo
     from src.preference.infrastructure.file_follow_repository import FileFollowStore
@@ -12,7 +11,6 @@ def test_get_follows_repo_file_mode(monkeypatch, tmp_path):
 
 
 def test_get_profile_repo_file_mode(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     from src.data_layer.provider import get_profile_repo
     from src.preference.infrastructure.file_profile_repository import FileProfileStore

@@ -1,4 +1,4 @@
-"""article 反连接读门面(get_unarticled_tweets)在 XWATCHER_DATA_LAYER=file 下走文件层。
+"""article 反连接读门面(get_unarticled_tweets)在文件层（file 唯一数据层）下运行。
 
 复刻 backfill_articles_for_user 内联的「找无 article 记录的作者推文」反连接查询:
 - 路径可证:种子只进文件层 → 断言返回正确 tweet_ids(排除已有 article 的、过滤作者、DESC、limit)。
@@ -42,7 +42,6 @@ async def _seed_articles(root, articles):
 
 @pytest.mark.asyncio
 async def test_unarticled_excludes_articled_filters_author_desc(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     base = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
     # alice: t1(最新)/t2/t3;t2 已有 article → 排除。bob: t4(他人作者)→ 排除。
@@ -63,7 +62,6 @@ async def test_unarticled_excludes_articled_filters_author_desc(monkeypatch, tmp
 
 @pytest.mark.asyncio
 async def test_unarticled_limit_truncation(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     base = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
     await _seed_tweets(tmp_path, [
@@ -81,7 +79,6 @@ async def test_unarticled_limit_truncation(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_unarticled_case_sensitive_author(monkeypatch, tmp_path):
     """作者名精确匹配(大小写敏感),复刻 ORM `==`。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     base = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
     await _seed_tweets(tmp_path, [
@@ -96,7 +93,6 @@ async def test_unarticled_case_sensitive_author(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_unarticled_empty(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     from src.data_layer.provider import get_article_read_repo
 
@@ -106,7 +102,6 @@ async def test_unarticled_empty(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_unarticled_all_articled(monkeypatch, tmp_path):
     """该作者全部推文都有 article → 返回空。"""
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     base = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
     await _seed_tweets(tmp_path, [
@@ -129,7 +124,6 @@ async def test_faultinj_missing_antijoin_filter(monkeypatch, tmp_path):
     用 monkeypatch 把 get_all_articles 返回空,模拟"漏掉反连接过滤"的实现 bug:
     此时 t2(有 article)会错误地出现在结果里,正确行为应排除它。
     """
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     base = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
     await _seed_tweets(tmp_path, [

@@ -1,4 +1,4 @@
-"""mcp follows 资源在 XWATCHER_DATA_LAYER=file 下走文件层。
+"""mcp follows 资源在文件层（file 唯一数据层）下运行。
 路径可证:种子只进文件层,资源返回即证读文件层(非空 DB session)。"""
 
 import json
@@ -9,7 +9,6 @@ from mcp.server.fastmcp import FastMCP
 
 @pytest.mark.asyncio
 async def test_follows_resource_reads_file_layer(monkeypatch, tmp_path):
-    monkeypatch.setenv("XWATCHER_DATA_LAYER", "file")
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     from src.preference.infrastructure.file_follow_repository import FileFollowStore
 
