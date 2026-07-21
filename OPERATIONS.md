@@ -1,6 +1,18 @@
 # X-Watcher 运维约定
 
-本文记录文件存储模式下必须人工遵守的运行约束。命令默认从仓库根目录执行；使用进程管理器部署时，将 `pkill`/启动命令替换为对应的 stop/start 命令，但停手判据不变。
+本文记录文件存储模式下必须人工遵守的运行约束。使用进程管理器部署时，将 `pkill`/启动命令替换为对应的 stop/start 命令，但停手判据不变。
+
+## 路径与解释器约定
+
+本文**不假设仓库位于任何固定路径**（历史版本在多处写死 `cd code/X-Watcher`，在其它部署位置一律失败）。执行前先设好两个变量：
+
+```bash
+export XWATCHER_DATA_ROOT=/path/to/data_migrated   # 数据根，必设
+export REPO_ROOT=/path/to/X-Watcher                # 仓库根，仅 import 项目代码的命令用得到
+```
+
+- **需要 import 项目代码**的命令（迁移脚本、`FileSummaryStore` 冒烟）必须用仓库虚拟环境：`"${REPO_ROOT}/.venv/bin/python"`，并从 `${REPO_ROOT}` 执行。
+- **纯标准库**的自查脚本（末节「同一推文多条摘要自查 runbook」）只依赖 `${XWATCHER_DATA_ROOT}`，用 `python3` 即可，**可在任意工作目录执行**。该段落会被 `tests/summarization/test_chg042_monthly_shards.py` 逐字提取运行，且测试的工作目录并非仓库根——因此其中**禁止**出现 `cd`、相对路径解释器或任何 cwd 假设。
 
 ## 抓取与 MCP 翻译不得并发
 
@@ -15,9 +27,10 @@
 提前通知网页和 Agent 调用方。确认数据根和日志位置，并检查旧摘要文件存在：
 
 ```bash
-cd code/X-Watcher
 DATA_ROOT="${XWATCHER_DATA_ROOT:?请先设置 XWATCHER_DATA_ROOT}"
-LOG_PATH="${LOG_FILE:-logs/x-watcher.log}"
+REPO_ROOT="${REPO_ROOT:?请先设置 REPO_ROOT（仓库根）}"
+cd "${REPO_ROOT}"
+LOG_PATH="${LOG_FILE:-${REPO_ROOT}/logs/x-watcher.log}"
 LEGACY="${DATA_ROOT}/summaries/summaries.json"
 test -f "${LEGACY}"
 ```
@@ -28,18 +41,56 @@ test -f "${LEGACY}"
 rg '/api/admin/sync/import/execute' "${LOG_PATH}"* | tail -20
 ```
 
-### 2. 三个停手动作与确认已停
+### 2. 停手动作与三重证据确认已停
 
-依次关停 MCP、关停 REST，再用第三条命令确认两个进程都已退出。仅口头通知不算停手完成。
+依次关停 MCP、关停 REST，再用三重证据确认两个进程都已退出。仅口头通知不算停手完成。
+
+⚠️ **匹配模式必须对准真实命令行**：MCP 由 `.mcp.json` 以 `python -m src.cli.main mcp --transport stdio` 拉起，命令行中**不含** `x-watcher mcp` 子串。历史版本写的 `pkill -f '[x]-watcher mcp'` 既杀不掉进程，其后同模式的 `pgrep` 复查也匹配不到，于是打印「已停止」——**假阴性绿灯**，而进程还活着、还在写数据根，这正是迁移期间最危险的状态。若你的部署确实以 `x-watcher` 入口点启动，把下面两个 `*_PAT` 换成实际命令行即可，判据不变。
+
+⚠️ **不要用 `pgrep -a`**：macOS 上 `-a` 意为 include process ancestors，并非 Linux 的 list full command line，输出只有 PID、不含命令行，与判读意图不符。需要看命令行时用 `ps -eo pid,ppid,stat,command | grep -E ...`。
 
 ```bash
-pkill -TERM -f '[x]-watcher mcp' || true
-pkill -TERM -f '[x]-watcher serve' || true
-if pgrep -af '[x]-watcher (mcp|serve)'; then
-  echo 'NG: MCP 或 REST 进程仍在运行' >&2
+MCP_PAT='src\.cli\.main mcp'
+SRV_PAT='src\.cli\.main serve'
+
+BEFORE="$(pgrep -f "${MCP_PAT}" || true; pgrep -f "${SRV_PAT}" || true)"
+echo "停手前目标 PID: ${BEFORE:-（无）}"
+
+pkill -TERM -f "${MCP_PAT}" || true
+pkill -TERM -f "${SRV_PAT}" || true
+
+# 证据一：原 PID 逐个消失（SIGTERM 后存在短暂退出竞态，最多等 10 秒）
+for pid in ${BEFORE}; do
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    ps -p "${pid}" >/dev/null 2>&1 || break
+    sleep 1
+  done
+  if ps -p "${pid}" >/dev/null 2>&1; then
+    echo "NG: PID ${pid} 仍未退出" >&2
+    exit 1
+  fi
+done
+
+# 证据二：按真实命令行模式复查无残留（含窗口内被误重启拉起的新进程）
+if pgrep -f "${MCP_PAT}" >/dev/null 2>&1 || pgrep -f "${SRV_PAT}" >/dev/null 2>&1; then
+  echo 'NG: 仍有 MCP/REST 进程在运行：' >&2
+  ps -eo pid,ppid,stat,command | grep -E 'src\.cli\.main (mcp|serve)' | grep -v grep >&2
   exit 1
 fi
-echo 'OK: MCP 与 REST 已停止'
+
+# 证据三：数据根文件无进程持有句柄（真正的活写判据）
+if command -v lsof >/dev/null 2>&1; then
+  for f in "${LEGACY}" "${DATA_ROOT}"/summaries/*.jsonl; do
+    [ -e "${f}" ] || continue
+    if lsof -- "${f}" >/dev/null 2>&1; then
+      echo "NG: ${f} 仍被进程持有句柄" >&2
+      lsof -- "${f}" >&2
+      exit 1
+    fi
+  done
+fi
+
+echo 'OK: MCP 与 REST 已停止（原 PID 消失 · 无同名进程 · 数据文件无句柄占用）'
 ```
 
 从这一刻开始禁止服务重启。用下面命令连续观察两次旧文件的修改时间、大小和记录数；两次间隔两分钟且数值一致才算活写停止。第二次读数是本次迁移核对基准（N11），不是进窗口前的旧快照。
@@ -151,10 +202,11 @@ rg 'AUDIT .*tool=save_summaries|/api/admin/sync/import/execute|跳过重复摘�
 
 **它查什么**：扫全部月分片，报出**任何出现 >1 次的 `tweet_id`** —— 这正是 § 2.1 残余竞态会制造、且 `get_summary_by_tweet:83` 会 `raise` 的那个状态。
 
+**在哪跑**：纯标准库脚本，只认 `${XWATCHER_DATA_ROOT}`，**任意工作目录均可执行**，不需要仓库虚拟环境（须换解释器时设 `${XWATCHER_PYTHON}`）。本段代码块会被 `tests/summarization/test_chg042_monthly_shards.py` 逐字提取运行，且测试的工作目录并非仓库根——改动时不得引入 `cd`、相对路径解释器或其它 cwd 假设。
+
 ```bash
-cd code/X-Watcher
 DATA_ROOT="${XWATCHER_DATA_ROOT:?请先设置 XWATCHER_DATA_ROOT}"
-PYTHONPYCACHEPREFIX=$(mktemp -d) .venv/bin/python - "${DATA_ROOT}" <<'PY'
+PYTHONPYCACHEPREFIX=$(mktemp -d) "${XWATCHER_PYTHON:-python3}" - "${DATA_ROOT}" <<'PY'
 import sys, json, pathlib, collections
 root = pathlib.Path(sys.argv[1])
 shards = sorted((root / "summaries").glob("*.jsonl"))
