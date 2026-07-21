@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 import threading
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any
 
@@ -111,7 +111,7 @@ class TaskRegistry:
             "task_id": task_id,
             "task_name": task_name,
             "status": TaskStatus.PENDING,
-            "created_at": datetime.now(),
+            "created_at": datetime.now(UTC),
             "started_at": None,
             "completed_at": None,
             "progress": {
@@ -175,7 +175,7 @@ class TaskRegistry:
 
             task["status"] = status
 
-            now = datetime.now()
+            now = datetime.now(UTC)
 
             if status == TaskStatus.RUNNING and old_status == TaskStatus.PENDING:
                 task["started_at"] = now
@@ -290,7 +290,7 @@ class TaskRegistry:
         Returns:
             int: 恢复的僵尸任务数量
         """
-        now = datetime.now()
+        now = datetime.now(UTC)
         recovered = 0
 
         # 检查内存中的 RUNNING 任务
@@ -326,7 +326,7 @@ class TaskRegistry:
         Returns:
             int: 清理的任务数量
         """
-        now = datetime.now()
+        now = datetime.now(UTC)
         expired_ids = []
 
         with self._task_lock:

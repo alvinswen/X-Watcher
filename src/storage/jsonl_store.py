@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
 from src.storage.atomic import atomic_replace
+
+logger = logging.getLogger(__name__)
 
 
 def read_shard(path: Path) -> list[dict[str, Any]]:
@@ -14,6 +17,7 @@ def read_shard(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     records: list[dict[str, Any]] = []
+    malformed_count = 0
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line:
@@ -22,7 +26,10 @@ def read_shard(path: Path) -> list[dict[str, Any]]:
             records.append(json.loads(line))
         except json.JSONDecodeError:
             # 坏行跳过(可由 rebuild 修),不让整片读崩
+            malformed_count += 1
             continue
+    if malformed_count:
+        logger.warning("分片 %s 含 %d 条坏行，已跳过", path, malformed_count)
     return records
 
 

@@ -6,7 +6,7 @@
        "_seq": {"users": N, "api_keys": M}}
 - _seq.users / _seq.api_keys 各自 +1 单调;无 delete → 永不回收(deactivate 软态不删行)
 - shard_lock 下 load→mutate→atomic_write_doc(写路径);读路径无锁(同前十一片)
-- 参数式接口:create_user/create_api_key/update_user 收散列参数,手工建 rec(含 password_hash/key_hash + naive now)
+- 参数式接口:create_user/create_api_key/update_user 收散列参数,手工建 rec(含 password_hash/key_hash + UTC now)
 - password_hash/key_hash 存盘但 Domain(**rec) extra-ignore 丢弃(存而不投)
 - email 唯一性文件层手动拦 → DuplicateError(进 parity,两侧同类型)
 - key_hash 唯一性文件层手动拦 → DuplicateError(changed:旧抛裸 IntegrityError;出 parity 入 invariant)
@@ -26,8 +26,8 @@ from src.user.domain.models import ApiKeyInfo, UserDomain
 from src.user.infrastructure.user_store import DuplicateError, NotFoundError
 
 
-def _now_naive() -> str:
-    return datetime.now(UTC).replace(tzinfo=None).isoformat()
+def _now_utc() -> str:
+    return datetime.now(UTC).isoformat()
 
 
 class FileUserStore:
@@ -65,7 +65,7 @@ class FileUserStore:
             doc["_seq"]["users"] = int(doc["_seq"]["users"]) + 1
             uid = doc["_seq"]["users"]
             rec = {"id": uid, "name": name, "email": email, "password_hash": password_hash,
-                   "is_admin": False, "created_at": _now_naive()}
+                   "is_admin": False, "created_at": _now_utc()}
             doc["users"][str(uid)] = rec
             atomic_write_doc(self._path, doc)
             return self._to_user(rec)
@@ -139,7 +139,7 @@ class FileUserStore:
             doc["_seq"]["api_keys"] = int(doc["_seq"]["api_keys"]) + 1
             kid = doc["_seq"]["api_keys"]
             rec = {"id": kid, "user_id": user_id, "key_hash": key_hash, "key_prefix": key_prefix,
-                   "name": name, "is_active": True, "created_at": _now_naive(), "last_used_at": None}
+                   "name": name, "is_active": True, "created_at": _now_utc(), "last_used_at": None}
             doc["api_keys"][str(kid)] = rec
             atomic_write_doc(self._path, doc)
             return self._to_apikey(rec)
@@ -170,6 +170,6 @@ class FileUserStore:
             rec = doc["api_keys"].get(str(key_id))
             if rec is None:
                 return
-            rec["last_used_at"] = _now_naive()
+            rec["last_used_at"] = _now_utc()
             doc["api_keys"][str(key_id)] = rec
             atomic_write_doc(self._path, doc)

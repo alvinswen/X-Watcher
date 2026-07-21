@@ -1,7 +1,7 @@
 """Admin 抓取入口的过期任务清理接线回归测试。"""
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 from src.api.routes import admin
@@ -23,7 +23,7 @@ def test_start_scraping_cleans_only_expired_terminal_tasks(monkeypatch) -> None:
     registry.update_task_status(old_running, TaskStatus.RUNNING)
     registry.update_task_status(terminal_without_time, TaskStatus.COMPLETED)
 
-    old_time = datetime.now() - timedelta(hours=25)
+    old_time = datetime.now(UTC) - timedelta(hours=25)
     registry._tasks[expired_completed]["completed_at"] = old_time
     registry._tasks[expired_failed]["completed_at"] = old_time
     registry._tasks[old_running]["completed_at"] = old_time

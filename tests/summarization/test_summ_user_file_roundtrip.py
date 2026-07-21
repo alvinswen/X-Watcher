@@ -26,6 +26,7 @@ async def test_user_create_then_password_hash_roundtrip(monkeypatch, tmp_path):
 async def test_summary_save_get_roundtrip(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     from src.data_layer.provider import get_summary_repo
+    from src.storage.paths import summary_shard
     from src.summarization.domain.models import SummaryRecord
 
     repo = get_summary_repo()
@@ -52,4 +53,4 @@ async def test_summary_save_get_roundtrip(monkeypatch, tmp_path):
     got = await repo.get_summary_by_tweet("t-1")
     assert got is not None and got.summary_id == rec.summary_id
     assert got.tweet_id == "t-1" and got.content_hash == "h-1"
-    assert (tmp_path / "summaries" / "summaries.json").exists()
+    assert summary_shard(tmp_path, now).exists()

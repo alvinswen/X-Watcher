@@ -196,12 +196,12 @@ class FileSubjectStore:
             doc_path = self._subject_path(subject_id)
             if doc_path.exists():
                 doc_path.unlink()
-            shutil.rmtree(self._root / "subjects" / subject_id, ignore_errors=True)
+            shutil.rmtree(paths.subject_dir(self._root, subject_id), ignore_errors=True)
             save_subject_ids(self._root, ids)
         return True
 
     def _match_shards(self, subject_id: str) -> list[Path]:
-        base = self._root / "subjects" / subject_id / "matches"
+        base = paths.subject_dir(self._root, subject_id) / "matches"
         if not base.exists():
             return []
         return sorted(base.glob("*.jsonl"))
@@ -209,17 +209,21 @@ class FileSubjectStore:
     async def upsert_matches(self, matches: Iterable[SubjectMatch]) -> list[SubjectMatch]:
         grouped: dict[Path, list[dict[str, Any]]] = {}
         saved: list[SubjectMatch] = []
+        latest_by_subject: dict[str, datetime] = {}
         for match in matches:
             if not match.relevant:
                 continue
             shard = paths.subject_match_shard(self._root, match.subject_id, match.matched_at)
             grouped.setdefault(shard, []).append(match.model_dump(mode="json"))
             saved.append(match)
+            previous = latest_by_subject.get(match.subject_id)
+            if previous is None or match.matched_at > previous:
+                latest_by_subject[match.subject_id] = match.matched_at
         for shard, records in grouped.items():
             async with shard_lock(shard):
                 upsert(shard, records, key="tweet_id")
-        for match in saved:
-            await self.touch_subject(match.subject_id, match.matched_at)
+        for subject_id, matched_at in latest_by_subject.items():
+            await self.touch_subject(subject_id, matched_at)
         return saved
 
     async def list_matches(
@@ -271,13 +275,13 @@ class FileSubjectStore:
         return eval_record
 
     def _feedback_paths(self, subject_id: str) -> list[Path]:
-        base = self._root / "subjects" / subject_id / "feedback"
+        base = paths.subject_dir(self._root, subject_id) / "feedback"
         if not base.exists():
             return []
         return sorted(base.glob("*.jsonl"))
 
     def _eval_paths(self, subject_id: str) -> list[Path]:
-        base = self._root / "subjects" / subject_id / "eval"
+        base = paths.subject_dir(self._root, subject_id) / "eval"
         if not base.exists():
             return []
         return sorted(base.glob("*.jsonl"))
@@ -302,7 +306,7 @@ class FileSubjectStore:
         return evals
 
     def _digest_paths(self, subject_id: str) -> list[Path]:
-        base = self._root / "subjects" / subject_id / "digests"
+        base = paths.subject_dir(self._root, subject_id) / "digests"
         if not base.exists():
             return []
         return sorted(base.glob("*.jsonl"), reverse=True)
@@ -378,7 +382,7 @@ class FileSubjectStore:
         return SubjectReview(**doc) if doc else None
 
     async def list_review_history(self, subject_id: str) -> list[SubjectReview]:
-        base = self._root / "subjects" / subject_id / "review" / "history"
+        base = paths.subject_dir(self._root, subject_id) / "review" / "history"
         if not base.exists():
             return []
         reviews: list[SubjectReview] = []

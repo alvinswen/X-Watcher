@@ -37,15 +37,21 @@ def _parse(record: dict[str, Any]) -> datetime:
 class FileTweetStore:
     def __init__(self, data_root: Path, index: TweetIdIndex | None = None) -> None:
         self._root = Path(data_root)
-        self._index = index if index is not None else TweetIdIndex.build(self._root)
+        self._index: TweetIdIndex | None = index
+
+    @property
+    def _idx(self) -> TweetIdIndex:
+        if self._index is None:
+            self._index = TweetIdIndex.build(self._root)
+        return self._index
 
     async def batch_check_exists(self, tweet_ids: list[str]) -> set[str]:
         if not tweet_ids:
             return set()
-        return self._index.filter_existing(tweet_ids)
+        return self._idx.filter_existing(tweet_ids)
 
     async def tweet_exists(self, tweet_id: str) -> bool:
-        return self._index.contains(tweet_id)
+        return self._idx.contains(tweet_id)
 
     async def save_tweets(self, tweets: list[Tweet], early_stop_threshold: int = 5) -> SaveResult:
         if not tweets:
@@ -88,7 +94,7 @@ class FileTweetStore:
             await views.by_day_upsert(self._root, written)
 
         for tid in saved_ids:
-            self._index.add(tid)
+            self._idx.add(tid)
 
         return SaveResult(
             success_count=success, skipped_count=skipped,
@@ -173,4 +179,4 @@ class FileTweetStore:
                 upsert(shard, recs, key="tweet_id")
         await views.by_day_upsert(self._root, records)
         for rec in records:
-            self._index.add(rec["tweet_id"])
+            self._idx.add(rec["tweet_id"])

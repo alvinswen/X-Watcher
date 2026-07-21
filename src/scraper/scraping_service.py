@@ -624,7 +624,7 @@ class ScrapingService:
             # 标记回溯完成
             await self._update_backfill_status(
                 username, "completed",
-                completed_at=datetime.now(UTC).replace(tzinfo=None),
+                completed_at=datetime.now(UTC),
             )
             result["success"] = True
 

@@ -8,27 +8,34 @@ from src.scraper.domain.models import Tweet
 from src.storage import paths
 from src.summarization.domain.models import SummaryRecord
 
-_SummarySignature = tuple[int, int]
+_SummarySignature = tuple[tuple[str, int, int], ...]
 _TweetSignature = tuple[tuple[str, int, int], ...]
 _summary_cache: dict[str, tuple[_SummarySignature, dict[str, SummaryRecord]]] = {}
 _tweet_cache: dict[str, tuple[_TweetSignature, dict[str, Tweet]]] = {}
 
 
-def _summary_signature(path: Path) -> _SummarySignature:
-    try:
-        stat = path.stat()
-    except FileNotFoundError:
-        return (-1, -1)
-    return (stat.st_mtime_ns, stat.st_size)
+def _summary_signature(data_root: Path) -> _SummarySignature:
+    entries: list[tuple[str, int, int]] = []
+    for shard in paths.iter_summary_shards(data_root):
+        try:
+            stat = shard.stat()
+        except FileNotFoundError:
+            continue
+        entries.append((str(shard.relative_to(data_root)), stat.st_mtime_ns, stat.st_size))
+    return tuple(sorted(entries))
 
 
 async def load_summary_map(data_root: Path) -> dict[str, SummaryRecord]:
-    """按 summaries.json 的 mtime_ns+size 读取摘要映射。"""
-    from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
+    """按全部摘要分片的相对路径、mtime_ns、size 读取摘要映射。"""
+    from src.summarization.infrastructure.file_summary_repository import (
+        FileSummaryStore,
+        _ready_summary_shards,
+    )
 
     root = Path(data_root)
     cache_key = str(root)
-    signature = _summary_signature(root / "summaries" / "summaries.json")
+    _ready_summary_shards(root)
+    signature = _summary_signature(root)
     cached = _summary_cache.get(cache_key)
     if cached is not None and cached[0] == signature:
         return cached[1]

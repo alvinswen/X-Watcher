@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,8 @@ from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
 from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
 from src.sync.domain.models import ConflictStrategy, ImportStats
 from src.sync.infrastructure.file_export_repository import FileExportStore
+
+logger = logging.getLogger(__name__)
 
 
 def _to_naive(s: Any) -> datetime | None:
@@ -131,7 +134,32 @@ class FileImportStore:
         stats = ImportStats()
         for item in items:
             item = _naive_item(item, "summaries")
-            if not await self._summaries.summary_exists(item["summary_id"]):
+            try:
+                summary_exists = await self._summaries.summary_exists(item["summary_id"])
+                existing_summary_id = (
+                    None
+                    if summary_exists
+                    else await self._summaries.summary_id_of_tweet(item["tweet_id"])
+                )
+            except Exception as exc:  # noqa: BLE001
+                stats.errors += 1
+                logger.warning(
+                    "导入摘要查重失败: tweet_id=%s external_summary_id=%s error=%s",
+                    item.get("tweet_id"),
+                    item.get("summary_id"),
+                    exc,
+                )
+                continue
+
+            if not summary_exists and existing_summary_id is not None:
+                stats.skipped += 1
+                logger.info(
+                    "跳过重复摘要导入: tweet_id=%s external_summary_id=%s existing_summary_id=%s",
+                    item["tweet_id"],
+                    item["summary_id"],
+                    existing_summary_id,
+                )
+            elif not summary_exists:
                 await self._summaries.upsert_summary(item)
                 stats.inserted += 1
             elif strategy == ConflictStrategy.skip or strategy == ConflictStrategy.merge:
