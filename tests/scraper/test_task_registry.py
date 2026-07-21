@@ -3,8 +3,11 @@
 测试异步任务状态管理功能。
 """
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
+import pytest
+
+from src.scraper.scraping_service import ScrapingService
 from src.scraper.task_registry import TaskRegistry, TaskStatus
 
 
@@ -198,7 +201,7 @@ class TestTaskRegistry:
         registry.update_task_status(task_id, TaskStatus.COMPLETED)
 
         # 手动修改完成时间为 25 小时前
-        old_time = datetime.now() - timedelta(hours=25)
+        old_time = datetime.now(UTC) - timedelta(hours=25)
         registry._tasks[task_id]["completed_at"] = old_time
 
         # 创建一个新任务
@@ -219,7 +222,7 @@ class TestTaskRegistry:
         registry.update_task_status(task_id, TaskStatus.RUNNING)
 
         # 手动修改开始时间为 25 小时前
-        old_time = datetime.now() - timedelta(hours=25)
+        old_time = datetime.now(UTC) - timedelta(hours=25)
         registry._tasks[task_id]["started_at"] = old_time
 
         # 清理过期任务
@@ -235,6 +238,48 @@ class TestTaskRegistry:
         assert TaskStatus.RUNNING.value == "running"
         assert TaskStatus.COMPLETED.value == "completed"
         assert TaskStatus.FAILED.value == "failed"
+
+    def test_task_times_are_utc_aware_and_support_age_checks(self):
+        """任务生命周期四处取时统一为 UTC-aware，超时比较不混用。"""
+        registry = TaskRegistry.get_instance()
+        task_id = registry.create_task("aware-task")
+        created = registry.get_task_status(task_id)
+        assert created["created_at"].tzinfo is UTC
+
+        registry.update_task_status(task_id, TaskStatus.RUNNING)
+        running = registry.get_task_status(task_id)
+        assert running["started_at"].tzinfo is UTC
+        registry._tasks[task_id]["started_at"] = datetime.now(UTC) - timedelta(hours=1)
+        assert registry.recover_stale_tasks(max_running_seconds=1) == 1
+
+        failed = registry.get_task_status(task_id)
+        assert failed["completed_at"].tzinfo is UTC
+        registry._tasks[task_id]["completed_at"] = datetime.now(UTC) - timedelta(hours=25)
+        assert registry.cleanup_expired_tasks(ttl_hours=24) == 1
+
+    @pytest.mark.asyncio
+    async def test_backfill_completion_time_is_utc_aware(self):
+        """空页回溯仍走完成分支，并把 UTC-aware 时间交给关注仓。"""
+
+        class EmptyClient:
+            async def fetch_user_tweets_paginated(self, username, *, max_pages):  # noqa: ANN001, ARG002
+                if False:
+                    yield {}
+
+        service = object.__new__(ScrapingService)
+        service._client = EmptyClient()
+        updates = []
+
+        async def capture_status(username, status, completed_at=None):  # noqa: ANN001
+            updates.append((username, status, completed_at))
+
+        service._update_backfill_status = capture_status
+        result = await service.backfill_user("utc-user")
+
+        assert result["success"] is True
+        assert updates[0] == ("utc-user", "running", None)
+        assert updates[1][0:2] == ("utc-user", "completed")
+        assert updates[1][2].tzinfo is UTC
 
     def test_concurrent_task_creation(self):
         """测试并发创建任务（线程安全）。"""

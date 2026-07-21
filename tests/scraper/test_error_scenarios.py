@@ -3,7 +3,7 @@
 测试各种错误情况下系统的行为和恢复能力。
 """
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -60,7 +60,7 @@ class TestTaskCleanup:
 
         # 手动设置完成时间为过去
         task = registry._tasks[task_id]
-        task["completed_at"] = datetime.now() - timedelta(hours=25)
+        task["completed_at"] = datetime.now(UTC) - timedelta(hours=25)
 
         # 清理过期任务
         cleaned = registry.cleanup_expired_tasks(ttl_hours=24)
@@ -78,7 +78,7 @@ class TestTaskCleanup:
 
         # 手动设置创建时间为过去
         task = registry._tasks[task_id]
-        task["created_at"] = datetime.now() - timedelta(hours=25)
+        task["created_at"] = datetime.now(UTC) - timedelta(hours=25)
 
         # 清理过期任务
         cleaned = registry.cleanup_expired_tasks(ttl_hours=24)

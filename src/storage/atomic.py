@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import uuid
 import weakref
 from pathlib import Path
 
@@ -32,7 +33,7 @@ def shard_lock(path: Path) -> asyncio.Lock:
 def atomic_replace(path: Path, data: bytes) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp = path.with_suffix(path.suffix + f".{os.getpid()}.{uuid.uuid4().hex}.tmp")
     with open(tmp, "wb") as fh:
         fh.write(data)
         fh.flush()

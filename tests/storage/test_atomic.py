@@ -1,6 +1,9 @@
 """Atomic storage primitive tests."""
 
 import asyncio
+import re
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 
 import pytest
 
@@ -46,6 +49,50 @@ def test_atomic_replace_interruption_preserves_old_target(tmp_path, monkeypatch)
         atomic_replace(path, b"new")
 
     assert path.read_bytes() == b"old"
+
+
+def test_atomic_replace_uses_process_unique_tmp_suffix_before_replace(tmp_path, monkeypatch):
+    path = tmp_path / "data.bin"
+    observed_tmp = None
+
+    def capture_replace(source, destination):
+        nonlocal observed_tmp
+        observed_tmp = source
+        assert destination == path
+        assert source.read_bytes() == b"payload"
+
+    monkeypatch.setattr(atomic_module.os, "replace", capture_replace)
+
+    atomic_replace(path, b"payload")
+
+    assert observed_tmp is not None
+    assert re.fullmatch(r"data\.bin\.\d+\.[0-9a-f]{32}\.tmp", observed_tmp.name)
+
+
+def test_atomic_replace_concurrent_writers_use_distinct_tmp_files(tmp_path, monkeypatch):
+    path = tmp_path / "data.bin"
+    barrier = Barrier(2)
+    original_replace = atomic_module.os.replace
+    observed_sources = []
+
+    def synchronized_replace(source, destination):
+        observed_sources.append(source)
+        barrier.wait()
+        original_replace(source, destination)
+
+    monkeypatch.setattr(atomic_module.os, "replace", synchronized_replace)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(atomic_replace, path, payload)
+            for payload in (b"writer-a", b"writer-b")
+        ]
+        for future in futures:
+            future.result()
+
+    assert len(set(observed_sources)) == 2
+    assert path.read_bytes() in {b"writer-a", b"writer-b"}
+    assert list(tmp_path.glob("*.tmp")) == []
 
 
 def test_shard_lock_returns_same_lock_for_same_path(tmp_path):

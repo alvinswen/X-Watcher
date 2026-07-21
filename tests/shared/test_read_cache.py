@@ -14,6 +14,7 @@ from src.scraper.domain.models import Tweet
 from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
 from src.search.infrastructure.file_search_read_repository import FileSearchReadStore
 from src.shared.read_cache import load_all_tweets_map, load_summary_map
+from src.storage.paths import summary_shard
 from src.summarization.domain.models import SummaryRecord
 from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
 
@@ -90,7 +91,7 @@ async def test_same_mtime_and_size_is_documented_signature_blind_spot(tmp_path: 
     store = FileSummaryStore(tmp_path)
     await store.seed([_summary("t1", "alpha")])
     cached = await load_summary_map(tmp_path)
-    summary_path = tmp_path / "summaries" / "summaries.json"
+    summary_path = summary_shard(tmp_path, datetime(2026, 1, 1, tzinfo=UTC))
     original_stat = summary_path.stat()
     changed_bytes = summary_path.read_bytes().replace(b"alpha", b"bravo")
     assert len(changed_bytes) == original_stat.st_size

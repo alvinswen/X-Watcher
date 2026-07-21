@@ -11,8 +11,10 @@ from src.storage.paths import (
     canonical_shard,
     iter_by_day_shards,
     iter_canonical_shards,
+    iter_summary_shards,
     local_day_to_utc_window,
     subject_digest_shard,
+    subject_dir,
     subject_doc,
     subject_eval_shard,
     subject_feedback_shard,
@@ -21,8 +23,31 @@ from src.storage.paths import (
     subject_provenance_doc,
     subject_review_doc,
     subject_review_history_doc,
+    summary_legacy_doc,
+    summary_shard,
     utc_dates_in_window,
 )
+
+
+@pytest.mark.parametrize(
+    ("created_at", "expected_month"),
+    [
+        (datetime.fromisoformat("2026-01-31T23:59:59+00:00"), "2026-01"),
+        (datetime.fromisoformat("2026-02-01T00:00:00+00:00"), "2026-02"),
+        (datetime.fromisoformat("2026-03-15T12:00:00"), "2026-03"),
+        (datetime.fromisoformat("2026-03-15T20:00:00+08:00"), "2026-03"),
+        (datetime.fromisoformat("2026-04-30T20:00:00-05:00"), "2026-05"),
+        (datetime.fromisoformat("2026-05-01T02:00:00+09:00"), "2026-04"),
+        (datetime.fromisoformat("2025-12-31T23:59:59+00:00"), "2025-12"),
+        (datetime.fromisoformat("2026-01-01T00:00:00+00:00"), "2026-01"),
+        (datetime.fromisoformat("2025-12-31T20:00:00-05:00"), "2026-01"),
+    ],
+    ids=[f"group-{number}" for number in range(1, 10)],
+)
+def test_summary_shard_uses_utc_month(tmp_path, created_at, expected_month):
+    assert summary_shard(tmp_path, created_at) == (
+        tmp_path / "summaries" / f"{expected_month}.jsonl"
+    )
 
 
 def test_as_utc_normalizes_naive_and_aware_datetimes():
@@ -154,3 +179,36 @@ def test_subject_paths_match_current_layout(tmp_path):
     assert subject_provenance_doc(tmp_path, subject_id, "matches", "item-1") == (
         tmp_path / "subjects" / subject_id / "provenance" / "matches" / "item-1.json"
     )
+    assert subject_dir(tmp_path, subject_id) == tmp_path / "subjects" / subject_id
+
+
+def test_summary_paths_match_monthly_layout(tmp_path):
+    first = tmp_path / "summaries" / "2026-02.jsonl"
+    second = tmp_path / "summaries" / "2026-07.jsonl"
+    first.parent.mkdir(parents=True)
+    second.touch()
+    first.touch()
+
+    assert iter_summary_shards(tmp_path) == [first, second]
+    assert summary_legacy_doc(tmp_path) == tmp_path / "summaries" / "summaries.json"
+
+
+def test_path_guard_rejects_lexical_escape(tmp_path):
+    outside = tmp_path.parent / "outside"
+
+    with pytest.raises(ValueError, match="路径越界: 目标不在数据根目录内"):
+        canonical_shard(tmp_path, "../../outside", datetime(2026, 7, 1, tzinfo=UTC))
+
+    assert not outside.exists()
+
+
+def test_subject_dir_guard_rejects_lexical_escape(tmp_path):
+    with pytest.raises(ValueError, match="路径越界: 目标不在数据根目录内"):
+        subject_dir(tmp_path, "../../outside")
+
+
+def test_path_guard_returns_original_target_without_normalizing(tmp_path):
+    data_root = tmp_path / "nested" / ".."
+    expected = data_root / "tweets" / "alice" / "2026-07.jsonl"
+
+    assert canonical_shard(data_root, "Alice", datetime(2026, 7, 1, tzinfo=UTC)) == expected

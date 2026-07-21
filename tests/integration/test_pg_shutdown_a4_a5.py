@@ -27,7 +27,7 @@ def test_persist_scaffold_removed():
 # ---------------------------------------------------------------------------
 def test_recover_stale_tasks_memory_segment():
     """recover_stale_tasks 内存超时段工作(DB 残留段已随 CHG-028 删除)。"""
-    from datetime import datetime, timedelta
+    from datetime import UTC, datetime, timedelta
 
     from src.scraper.task_registry import TaskRegistry, TaskStatus
 
@@ -39,8 +39,8 @@ def test_recover_stale_tasks_memory_segment():
             "task_id": "stale-mem",
             "task_name": "x",
             "status": TaskStatus.RUNNING,
-            "created_at": datetime.now() - timedelta(seconds=9999),
-            "started_at": datetime.now() - timedelta(seconds=9999),
+            "created_at": datetime.now(UTC) - timedelta(seconds=9999),
+            "started_at": datetime.now(UTC) - timedelta(seconds=9999),
             "completed_at": None,
             "progress": {"current": 0, "total": 0, "percentage": 0.0},
             "result": None,
