@@ -730,7 +730,7 @@ class ScrapingService:
 
             repo = get_tweet_repo()
             result = await repo.save_tweets(tweets, early_stop_threshold=early_stop)
-            return cast(SaveResult, result)
+            return result
         else:
             # 如果已经有 repository，由调用者管理事务
             return cast(

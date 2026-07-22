@@ -63,9 +63,9 @@ async def get_current_user(
     if bearer:
         try:
             payload = _auth_service.decode_jwt_token(bearer.credentials)
-            user_id = payload.get("sub")
-            if user_id is not None:
-                user = await repo.get_user_by_id(int(user_id))
+            subject = payload.get("sub")
+            if subject is not None:
+                user = await repo.get_user_by_id(int(subject))
                 if user:
                     logger.debug(f"JWT 认证成功: user_id={user.id}")
                     return user

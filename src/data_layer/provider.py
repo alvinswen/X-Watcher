@@ -9,7 +9,27 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from src.data_layer.repositories import (
+        ArticleReadStore,
+        ArticleStore,
+        BrowseReadStore,
+        FeedReadStore,
+        FetchStatsStore,
+        ScraperStatsReadStore,
+        SearchReadStore,
+        StatusReadStore,
+        SummarizationReadStore,
+        SummaryStore,
+        TweetReadStore,
+        TweetStore,
+    )
+    from src.preference.infrastructure.follow_store import FollowStore
+    from src.preference.infrastructure.profile_store import ProfileStore
+    from src.subjects.protocol import SubjectRepoProtocol
+    from src.user.infrastructure.user_store import UserStore
 
 
 def _data_root() -> Path:
@@ -24,8 +44,8 @@ def data_root() -> Path:
 logger = logging.getLogger(__name__)
 
 
-def get_follows_repo() -> Any:
-    """返回 FollowStore 形态 repo(12 契约方法)。
+def get_follows_repo() -> FollowStore:
+    """返回 FollowStore 形态 repo(11 契约方法)。
 
     固定返回 FileFollowStore(data_root)。
     """
@@ -34,7 +54,7 @@ def get_follows_repo() -> Any:
     return FileFollowStore(_data_root())
 
 
-def get_profile_repo() -> Any:
+def get_profile_repo() -> ProfileStore:
     """返回 ProfileStore 形态 repo(6 契约方法)。
 
     固定返回 FileProfileStore(data_root)。
@@ -44,7 +64,7 @@ def get_profile_repo() -> Any:
     return FileProfileStore(_data_root())
 
 
-def get_tweet_repo() -> Any:
+def get_tweet_repo() -> TweetStore:
     """返回 TweetStore 形态 repo。
 
     固定返回 FileTweetStore(_data_root())。
@@ -54,7 +74,7 @@ def get_tweet_repo() -> Any:
     return FileTweetStore(_data_root())
 
 
-def get_tweet_read_repo() -> Any:
+def get_tweet_read_repo() -> TweetReadStore:
     """返回 tweet 读门面(list_tweets / get_tweet_detail,供 /api/tweets 两端点)。
 
     固定返回 FileTweetReadStore(_data_root())。
@@ -64,7 +84,7 @@ def get_tweet_read_repo() -> Any:
     return FileTweetReadStore(_data_root())
 
 
-def get_article_repo() -> Any:
+def get_article_repo() -> ArticleStore:
     """返回 ArticleStore 形态 repo。
 
     固定返回 FileArticleStore(_data_root())。
@@ -74,7 +94,7 @@ def get_article_repo() -> Any:
     return FileArticleStore(_data_root())
 
 
-def get_article_read_repo() -> Any:
+def get_article_read_repo() -> ArticleReadStore:
     """返回 article 反连接读门面(get_unarticled_tweets:找无 article 记录的作者推文)。
 
     固定返回 FileArticleReadStore(_data_root())(组合 FileTweetStore+FileArticleStore 集合差)。
@@ -84,21 +104,21 @@ def get_article_read_repo() -> Any:
     return FileArticleReadStore(_data_root())
 
 
-def get_fetch_stats_repo() -> Any:
+def get_fetch_stats_repo() -> FetchStatsStore:
     """返回 FetchStatsStore 形态 repo,固定 FileFetchStatsStore(data_root)。"""
     from src.scraper.infrastructure.file_fetch_stats_repository import FileFetchStatsStore
 
     return FileFetchStatsStore(_data_root())
 
 
-def get_summary_repo() -> Any:
+def get_summary_repo() -> SummaryStore:
     """返回 SummaryStore 形态 repo,固定 FileSummaryStore(data_root)。"""
     from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
 
     return FileSummaryStore(_data_root())
 
 
-def get_subject_repo() -> Any:
+def get_subject_repo() -> SubjectRepoProtocol:
     """返回 SubjectStore 形态 repo。
 
     固定返回 FileSubjectStore(_data_root())。
@@ -108,7 +128,7 @@ def get_subject_repo() -> Any:
     return FileSubjectStore(_data_root())
 
 
-def get_summarization_read_repo() -> Any:
+def get_summarization_read_repo() -> SummarizationReadStore:
     """返回 summarization 读门面(get_unsummarized_tweets 反连接 + get_tweet_origins 原文回查)。
 
     固定返回 FileSummarizationReadStore(组合 FileTweetStore+FileSummaryStore)。
@@ -120,7 +140,7 @@ def get_summarization_read_repo() -> Any:
     return FileSummarizationReadStore(_data_root())
 
 
-def get_user_repo() -> Any:
+def get_user_repo() -> UserStore:
     """返回 UserStore 形态 repo(14 契约方法,含 get_password_hash_by_*)。
 
     固定返回 FileUserStore(data_root)。
@@ -161,7 +181,7 @@ class _FileExportSyncAdapter:
         return asyncio.run(self._store.export_articles(tweet_ids=tweet_ids))
 
 
-def get_export_repo() -> Any:
+def get_export_repo() -> _FileExportSyncAdapter:
     """返回 export 文件同步门面 _FileExportSyncAdapter。"""
     from src.sync.infrastructure.file_export_repository import FileExportStore
 
@@ -228,7 +248,7 @@ class _FileImportSyncAdapter:
             self._tmp = None
 
 
-def get_import_repo(dry_run: bool = False) -> Any:
+def get_import_repo(dry_run: bool = False) -> _FileImportSyncAdapter:
     """返回 import 门面(import_*→ImportStats)。
 
     固定返回 _FileImportSyncAdapter(asyncio.run 桥;dry_run=True copytree 隔离写,真数据未动)。
@@ -236,7 +256,7 @@ def get_import_repo(dry_run: bool = False) -> Any:
     return _FileImportSyncAdapter(_data_root(), dry_run=dry_run)
 
 
-def get_browse_repo() -> Any:
+def get_browse_repo() -> BrowseReadStore:
     """返回 browse 读门面(get_tweets / get_author_timeline 列表面 + get_daily_stats / get_authors 聚合两法)。
 
     固定返回 FileBrowseReadStore(_data_root())。
@@ -246,7 +266,7 @@ def get_browse_repo() -> Any:
     return FileBrowseReadStore(_data_root())
 
 
-def get_feed_repo() -> Any:
+def get_feed_repo() -> FeedReadStore:
     """返回 feed 读门面(get_feed 时间窗增量 + author/keyword + summary JOIN)。
 
     固定返回 FileFeedReadStore(_data_root())。
@@ -256,7 +276,7 @@ def get_feed_repo() -> Any:
     return FileFeedReadStore(_data_root())
 
 
-def get_search_repo() -> Any:
+def get_search_repo() -> SearchReadStore:
     """返回 search 读门面(search_tweets 多词 AND 全文 + 时间窗/author + summary JOIN)。
 
     固定返回 FileSearchReadStore(_data_root())。
@@ -266,7 +286,7 @@ def get_search_repo() -> Any:
     return FileSearchReadStore(_data_root())
 
 
-def get_scraper_stats_repo() -> Any:
+def get_scraper_stats_repo() -> ScraperStatsReadStore:
     """返回 scraper_config 账号聚合读门面(tweet_time_range / period_analysis)。
 
     固定返回 FileScraperStatsReadStore(_data_root())。
@@ -278,7 +298,7 @@ def get_scraper_stats_repo() -> Any:
     return FileScraperStatsReadStore(_data_root())
 
 
-def get_status_repo() -> Any:
+def get_status_repo() -> StatusReadStore:
     """返回 status 统计读门面(get_tweet_stats / get_follow_stats / get_summary_stats)。
 
     固定返回 FileStatusReadStore(_data_root())。
