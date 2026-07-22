@@ -38,6 +38,8 @@ test -f "${LEGACY}"
 先等所有已经进入 REST 的长耗时 `POST /api/admin/sync/import/execute` 请求结束；等待期间不要重新开始计时，也不要接受新导入。可在服务日志和调用方响应中确认最后一个请求已完成：
 
 ```bash
+REPO_ROOT="${REPO_ROOT:?请先设置 REPO_ROOT（仓库根）}"
+LOG_PATH="${LOG_FILE:-${REPO_ROOT}/logs/x-watcher.log}"
 rg '/api/admin/sync/import/execute' "${LOG_PATH}"* | tail -20
 ```
 
@@ -47,9 +49,13 @@ rg '/api/admin/sync/import/execute' "${LOG_PATH}"* | tail -20
 
 ⚠️ **匹配模式必须对准真实命令行**：MCP 由 `.mcp.json` 以 `python -m src.cli.main mcp --transport stdio` 拉起，命令行中**不含** `x-watcher mcp` 子串。历史版本写的 `pkill -f '[x]-watcher mcp'` 既杀不掉进程，其后同模式的 `pgrep` 复查也匹配不到，于是打印「已停止」——**假阴性绿灯**，而进程还活着、还在写数据根，这正是迁移期间最危险的状态。若你的部署确实以 `x-watcher` 入口点启动，把下面两个 `*_PAT` 换成实际命令行即可，判据不变。
 
+⚠️ **本节代码块请存盘后以 `bash <文件>` 执行，勿整段粘贴进终端**：块内 NG 分支以 `exit 1` 返回失败码，直接粘贴会关闭当前终端窗口，停手窗口内丢失终端的代价远高于平时。（循环已按 zsh/bash 通用写法处理，两种 shell 下判据一致。）
+
 ⚠️ **不要用 `pgrep -a`**：macOS 上 `-a` 意为 include process ancestors，并非 Linux 的 list full command line，输出只有 PID、不含命令行，与判读意图不符。需要看命令行时用 `ps -eo pid,ppid,stat,command | grep -E ...`。
 
 ```bash
+DATA_ROOT="${XWATCHER_DATA_ROOT:?请先设置 XWATCHER_DATA_ROOT}"
+LEGACY="${DATA_ROOT}/summaries/summaries.json"
 MCP_PAT='src\.cli\.main mcp'
 SRV_PAT='src\.cli\.main serve'
 
@@ -60,7 +66,11 @@ pkill -TERM -f "${MCP_PAT}" || true
 pkill -TERM -f "${SRV_PAT}" || true
 
 # 证据一：原 PID 逐个消失（SIGTERM 后存在短暂退出竞态，最多等 10 秒）
-for pid in ${BEFORE}; do
+# 必须用 while-read 而非 `for pid in ${BEFORE}`：zsh（macOS 默认登录 shell）不对
+# 未加引号的参数展开做分词，for 写法会把多个 PID 当作一个词，ps 报错后被 `|| break`
+# 误判为「已退出」——同时停 MCP + REST 恰是两个 PID，正是本节的常规路径。
+while IFS= read -r pid; do
+  [ -n "${pid}" ] || continue
   for _ in 1 2 3 4 5 6 7 8 9 10; do
     ps -p "${pid}" >/dev/null 2>&1 || break
     sleep 1
@@ -69,7 +79,7 @@ for pid in ${BEFORE}; do
     echo "NG: PID ${pid} 仍未退出" >&2
     exit 1
   fi
-done
+done <<< "${BEFORE}"
 
 # 证据二：按真实命令行模式复查无残留（含窗口内被误重启拉起的新进程）
 if pgrep -f "${MCP_PAT}" >/dev/null 2>&1 || pgrep -f "${SRV_PAT}" >/dev/null 2>&1; then
@@ -78,9 +88,12 @@ if pgrep -f "${MCP_PAT}" >/dev/null 2>&1 || pgrep -f "${SRV_PAT}" >/dev/null 2>&
   exit 1
 fi
 
-# 证据三：数据根文件无进程持有句柄（真正的活写判据）
+# 证据三：数据文件无进程持有句柄。
+# 定位：证据一、二的**补充**，不能单独作为「已停写」的判据。它抓的是长期持有句柄的
+# 读者；本项目写路径走 atomic_replace（临时文件 + fsync + os.replace，见
+# src/storage/atomic.py:33），最终文件在写入期间并不被持有句柄，实测对活写检出率为 0。
 if command -v lsof >/dev/null 2>&1; then
-  for f in "${LEGACY}" "${DATA_ROOT}"/summaries/*.jsonl; do
+  for f in "${LEGACY}" "${DATA_ROOT}"/summaries/*.jsonl "${DATA_ROOT}"/summaries/*.tmp; do
     [ -e "${f}" ] || continue
     if lsof -- "${f}" >/dev/null 2>&1; then
       echo "NG: ${f} 仍被进程持有句柄" >&2
@@ -88,9 +101,11 @@ if command -v lsof >/dev/null 2>&1; then
       exit 1
     fi
   done
+  echo 'OK: MCP 与 REST 已停止（三重证据：原 PID 消失 · 无同名进程 · 数据文件无句柄占用）'
+else
+  echo '⚠️ lsof 不可用，证据三未执行 —— 停手判据降级为二重' >&2
+  echo 'OK(降级): MCP 与 REST 已停止（二重证据：原 PID 消失 · 无同名进程；未验句柄占用）'
 fi
-
-echo 'OK: MCP 与 REST 已停止（原 PID 消失 · 无同名进程 · 数据文件无句柄占用）'
 ```
 
 ⚠️ **停手后至窗口解除前，禁止调用任何 x-watcher MCP 工具**。Claude Code 等客户端的 stdio MCP 是**懒启动**：子进程被 `kill` 后不会自动重启（实测一个 15 分钟窗口内零自动拉起），但**任何一次工具调用都会即时按需拉起新进程**，加载调用那一刻磁盘上的代码。窗口内误调一次只读工具（哪怕只是 `get_system_status`），就等于凭空重启了 MCP —— 这正是下一段「禁止自动或人工重启 REST/MCP」要防的后果，而这条路径不经过任何显式的启动动作，极易被忽略。窗口内的一切核对与冒烟都必须走**独立解释器进程**（本文 §2～§3 及末节脚本均已满足），不得借道 MCP 工具。
@@ -100,7 +115,10 @@ echo 'OK: MCP 与 REST 已停止（原 PID 消失 · 无同名进程 · 数据�
 从这一刻开始禁止服务重启。用下面命令连续观察两次旧文件的修改时间、大小和记录数；两次间隔两分钟且数值一致才算活写停止。第二次读数是本次迁移核对基准（N11），不是进窗口前的旧快照。
 
 ```bash
-PYTHONPYCACHEPREFIX=$(mktemp -d) .venv/bin/python - "${LEGACY}" <<'PY'
+DATA_ROOT="${XWATCHER_DATA_ROOT:?请先设置 XWATCHER_DATA_ROOT}"
+LEGACY="${DATA_ROOT}/summaries/summaries.json"
+REPO_ROOT="${REPO_ROOT:?请先设置 REPO_ROOT（仓库根）}"
+PYTHONPYCACHEPREFIX=$(mktemp -d) "${REPO_ROOT}/.venv/bin/python" - "${LEGACY}" <<'PY'
 import json, pathlib, sys, time
 
 path = pathlib.Path(sys.argv[1])
@@ -118,13 +136,16 @@ PY
 记录窗口内确认已停后的基准，先做逐字节备份，再运行默认 dry-run。禁止使用起包快照的 `52,567` 作为现场基准。
 
 ```bash
+DATA_ROOT="${XWATCHER_DATA_ROOT:?请先设置 XWATCHER_DATA_ROOT}"
+LEGACY="${DATA_ROOT}/summaries/summaries.json"
+REPO_ROOT="${REPO_ROOT:?请先设置 REPO_ROOT（仓库根）}"
 BACKUP="${LEGACY}.pre-migration"
 cp -p "${LEGACY}" "${BACKUP}"
 cmp "${LEGACY}" "${BACKUP}"
-PYTHONPYCACHEPREFIX=$(mktemp -d) .venv/bin/python \
-  scripts/migrate_summaries_to_monthly_shards.py --data-root "${DATA_ROOT}" --dry-run
-PYTHONPYCACHEPREFIX=$(mktemp -d) .venv/bin/python \
-  scripts/migrate_summaries_to_monthly_shards.py --data-root "${DATA_ROOT}" --execute
+PYTHONPYCACHEPREFIX=$(mktemp -d) "${REPO_ROOT}/.venv/bin/python" \
+  "${REPO_ROOT}/scripts/migrate_summaries_to_monthly_shards.py" --data-root "${DATA_ROOT}" --dry-run
+PYTHONPYCACHEPREFIX=$(mktemp -d) "${REPO_ROOT}/.venv/bin/python" \
+  "${REPO_ROOT}/scripts/migrate_summaries_to_monthly_shards.py" --data-root "${DATA_ROOT}" --execute
 ```
 
 脚本只有在 A～C 结构核对和 D 段真实运行时读路径全部通过后，才把原文件改名为 `summaries.json.migrated-<时间戳>`；它不会修改原文件内容。已有月分片时默认拒绝，确认是在清理半成品后重跑才可加 `--force`。
@@ -132,7 +153,10 @@ PYTHONPYCACHEPREFIX=$(mktemp -d) .venv/bin/python \
 查看所有分片的修改时间、大小和非空记录数：
 
 ```bash
-PYTHONPYCACHEPREFIX=$(mktemp -d) .venv/bin/python - "${DATA_ROOT}" <<'PY'
+DATA_ROOT="${XWATCHER_DATA_ROOT:?请先设置 XWATCHER_DATA_ROOT}"
+LEGACY="${DATA_ROOT}/summaries/summaries.json"
+REPO_ROOT="${REPO_ROOT:?请先设置 REPO_ROOT（仓库根）}"
+PYTHONPYCACHEPREFIX=$(mktemp -d) "${REPO_ROOT}/.venv/bin/python" - "${DATA_ROOT}" <<'PY'
 import pathlib, sys
 
 root = pathlib.Path(sys.argv[1])
@@ -151,6 +175,9 @@ PY
 迁移、A～D 核对或第一栏冒烟任一失败：不要解除窗口，不要启动服务。删除全部半成品月分片，将脚本生成的归档文件改回原名，然后核对它与迁移前备份逐字节一致。回滚只允许在停手窗口内执行；解除窗口后再回滚会丢掉恢复服务后的新写入。
 
 ```bash
+DATA_ROOT="${XWATCHER_DATA_ROOT:?请先设置 XWATCHER_DATA_ROOT}"
+LEGACY="${DATA_ROOT}/summaries/summaries.json"
+BACKUP="${LEGACY}.pre-migration"
 ARCHIVE=$(ls -1t "${DATA_ROOT}"/summaries/summaries.json.migrated-* | head -1)
 rm -f "${DATA_ROOT}"/summaries/*.jsonl
 mv "${ARCHIVE}" "${LEGACY}"
@@ -164,6 +191,8 @@ cmp "${LEGACY}" "${BACKUP}"
 MCP 回存的审计记录由 `xwatcher.audit` 写入 `LOG_FILE`（默认 `logs/x-watcher.log`）；REST 导入执行可在同一服务日志的 Uvicorn access 记录中按路径查找。重复摘要导入的跳过原因也写在该日志中，包含 `tweet_id`、外来 `summary_id` 和已有 `summary_id`。
 
 ```bash
+REPO_ROOT="${REPO_ROOT:?请先设置 REPO_ROOT（仓库根）}"
+LOG_PATH="${LOG_FILE:-${REPO_ROOT}/logs/x-watcher.log}"
 rg 'AUDIT .*tool=save_summaries|/api/admin/sync/import/execute|跳过重复摘要导入' \
   "${LOG_PATH}"*
 ```
