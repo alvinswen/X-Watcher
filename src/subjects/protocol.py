@@ -9,7 +9,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from src.subjects.models import (
     Provenance,
@@ -174,13 +174,16 @@ class SubjectRepoProtocol(Protocol):
 def default_subject_repo() -> SubjectRepoProtocol:
     """议题仓储获取单点(全域 34 处获取点统一入口)。
 
-    内部包裹 provider.get_subject_repo() —— 黑名单① 硬约束:
-    不绕过 provider 直构 FileSubjectStore, provider 签名/实现零改动。
+    历史过渡状态(CHG-043 起): provider.get_subject_repo() 自身已带类型契约
+    (-> SubjectRepoProtocol), 本函数退化为薄透传。议题域沿用本入口不动;
+    其余域直接用 provider 带类型入口即可。二者归一另行安排。
+    CHG-034 当年建本函数的理由是「provider 签名/实现零改动」硬约束,
+    该约束已由 CHG-043 Gate 1 Q1=A 正式解除。
     import 延迟到函数内, 与 provider 自身惰性风格一致(env 变更逐调用生效)。
     """
     from src.data_layer.provider import get_subject_repo
 
-    return cast(SubjectRepoProtocol, get_subject_repo())
+    return get_subject_repo()
 
 
 if TYPE_CHECKING:
