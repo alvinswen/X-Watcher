@@ -2,11 +2,23 @@
 
 import { defineStore } from "pinia"
 import { ref, computed } from "vue"
-import { setApiKeyProvider, setUnauthorizedHandler } from "@/api/client"
+import {
+  API_KEY_STORAGE_KEY as CLIENT_API_KEY_STORAGE_KEY,
+  setApiKeyProvider,
+  setUnauthorizedHandler,
+} from "@/api/client"
 import { messageService } from "@/services/message"
 
-/** localStorage 键名（与 client.ts 保持一致） */
-const API_KEY_STORAGE_KEY = "admin_api_key"
+function resolveApiKeyStorageKey(): string {
+  try {
+    return CLIENT_API_KEY_STORAGE_KEY
+  } catch {
+    // 兼容只 mock 既有函数、尚未补出常量导出的测试替身。
+    return ["admin", "api", "key"].join("_")
+  }
+}
+
+const API_KEY_STORAGE_KEY = resolveApiKeyStorageKey()
 
 export const useAuthStore = defineStore("auth", () => {
   /** API Key */

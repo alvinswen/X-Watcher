@@ -38,7 +38,11 @@ defineProps<{
       <span class="digest-count">{{ digest.tweet_count }} 条</span>
     </div>
     <p class="digest-text">{{ digest.digest_text }}</p>
-    <el-collapse v-if="digest.highlights.length" class="highlight-collapse">
+    <el-collapse
+      v-if="digest.highlights.length"
+      class="highlight-collapse"
+      data-highlight-collapse
+    >
       <el-collapse-item
         v-for="(highlight, highlightIndex) in digest.highlights"
         :key="`${digest.interval_start}-${digest.interval_end}-${highlightIndex}`"
@@ -56,3 +60,106 @@ defineProps<{
     </el-collapse>
   </article>
 </template>
+
+<style scoped>
+.digest-count {
+  font-family: var(--font-mono);
+  font-size: var(--xs-font-size);
+  color: var(--text-tertiary);
+}
+
+.empty-state {
+  padding: 40px 16px;
+}
+
+.tab-loading {
+  display: grid;
+  gap: 12px;
+}
+
+.digest-card {
+  padding: 14px 24px;
+  margin-bottom: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--card-radius);
+  box-shadow: var(--shadow-card);
+  transition: box-shadow var(--transition-base), border-color var(--transition-base);
+}
+
+.digest-card:hover {
+  border-color: var(--border-medium);
+  box-shadow: var(--shadow-card-hover);
+}
+
+.digest-text {
+  margin: 0;
+  color: var(--text-secondary);
+  font-family: var(--font-reading);
+  font-size: var(--reading-font-size);
+  line-height: var(--reading-line-height);
+  letter-spacing: var(--reading-letter-spacing);
+  overflow-wrap: anywhere;
+}
+
+.digest-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.interval-pill {
+  padding: 2px 8px;
+  border-radius: var(--el-border-radius-small);
+  background: var(--bg-inset);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--xs-font-size);
+}
+
+.highlight-collapse {
+  padding-top: 12px;
+  margin-top: 14px;
+  border-top: 1px dashed var(--border-light);
+  border-bottom: 0;
+}
+
+.highlight-collapse :deep(.el-collapse-item) {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.highlight-collapse :deep(.el-collapse-item__header) {
+  padding: 0;
+  border-bottom: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--small-font-size);
+}
+
+.highlight-collapse :deep(.el-collapse-item__content) {
+  padding: 12px 0 0;
+}
+
+.highlight-item {
+  padding: 8px 12px;
+  border-left: 3px solid var(--color-primary-light);
+  border-radius: var(--el-border-radius-small);
+  background: var(--bg-inset);
+}
+
+.highlight-item p {
+  margin: 0 0 6px;
+  color: var(--text-secondary);
+  line-height: 1.8;
+}
+
+.highlight-item code {
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--xs-font-size);
+}
+</style>

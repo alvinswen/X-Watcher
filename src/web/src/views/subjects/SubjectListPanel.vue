@@ -55,9 +55,9 @@ defineEmits<{
         data-testid="subjects-status-filter"
         @update:model-value="$emit('update:statusFilter', $event)"
       >
-        <el-radio-button label="all">全部</el-radio-button>
-        <el-radio-button label="active">活跃</el-radio-button>
-        <el-radio-button label="paused">暂停</el-radio-button>
+        <el-radio-button label="all" data-status-filter-option="all">全部</el-radio-button>
+        <el-radio-button label="active" data-status-filter-option="active">活跃</el-radio-button>
+        <el-radio-button label="paused" data-status-filter-option="paused">暂停</el-radio-button>
       </el-radio-group>
     </div>
 
@@ -143,3 +143,156 @@ defineEmits<{
     </div>
   </aside>
 </template>
+
+<style scoped>
+.subjects-master {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card);
+  border-right: 1px solid var(--border-light);
+}
+
+.master-head {
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.head-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.head-row h2 {
+  flex: 1;
+  margin: 0;
+  font-size: var(--summary-font-size);
+  font-weight: 600;
+}
+
+.count-badge,
+.item-meta {
+  font-family: var(--font-mono);
+  font-size: var(--xs-font-size);
+  color: var(--text-tertiary);
+}
+
+.status-filter {
+  width: 100%;
+}
+
+.status-filter :deep(.el-radio-button) {
+  flex: 1;
+}
+
+.status-filter :deep(.el-radio-button__inner) {
+  width: 100%;
+}
+
+.master-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.limit-alert {
+  margin-bottom: 8px;
+}
+
+.subject-skeleton {
+  padding: 10px 12px;
+}
+
+.sk-name {
+  width: 70%;
+}
+
+.sk-meta {
+  width: 40%;
+  margin-top: 6px;
+}
+
+.subject-item {
+  position: relative;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px 10px 14px;
+  margin-bottom: 2px;
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  color: var(--text-primary);
+  border: 0;
+  border-left: 3px solid transparent;
+  border-radius: var(--el-border-radius-base);
+  font-family: var(--font-ui);
+  transition: background var(--transition-base);
+}
+
+.subject-item:hover,
+.subject-item.selected {
+  background: var(--bg-inset);
+}
+
+.subject-item.selected {
+  border-left-color: var(--color-primary);
+}
+
+.item-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.subject-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--body-font-size);
+  font-weight: 500;
+}
+
+.subject-item.selected .subject-name {
+  color: var(--color-primary);
+}
+
+.paused-tag {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border: 1px solid var(--color-info);
+  border-radius: var(--el-border-radius-small);
+  color: var(--color-info);
+  background: var(--bg-inset);
+  font-size: var(--label-font-size);
+  line-height: 16px;
+}
+
+.row-actions {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%);
+  background: var(--bg-inset);
+  transition: opacity var(--transition-base);
+}
+
+.subject-item:hover .row-actions,
+.subject-item:focus-within .row-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.empty-state {
+  padding: 40px 16px;
+}
+</style>

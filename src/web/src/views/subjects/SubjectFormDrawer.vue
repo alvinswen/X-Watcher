@@ -97,3 +97,16 @@ const visibleModel = computed({
     </template>
   </el-drawer>
 </template>
+
+<style scoped>
+.keyword-editor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+}
+
+.keyword-input {
+  width: 160px;
+}
+</style>

@@ -109,6 +109,10 @@
         </div>
 
         <el-skeleton v-if="activeTweetsLoading" :rows="8" animated />
+        <LoadErrorState
+          v-else-if="activeTweetsLoadError"
+          :retry="retryActiveTweets"
+        />
         <el-empty v-else-if="activeTweets.length === 0" :description="mode === 'timeline' ? '该时间段暂无推文' : '该日期暂无推文'" />
         <div v-else class="tweet-list">
           <TweetCard
@@ -125,7 +129,7 @@
         </div>
 
         <!-- 分页 -->
-        <div v-if="activeTotal > 0" class="pagination-bar">
+        <div v-if="!activeTweetsLoadError && activeTotal > 0" class="pagination-bar">
           <el-pagination
             v-model:current-page="activePage"
             :page-size="pageSize"
@@ -148,6 +152,7 @@ import { User, CloseBold, FullScreen } from "@element-plus/icons-vue"
 import { ElMessage } from "element-plus"
 import { browseApi, followsApi } from "@/api"
 import ApiKeyGuideEmpty from "@/components/ApiKeyGuideEmpty.vue"
+import LoadErrorState from "@/components/LoadErrorState.vue"
 import TweetCard from "@/components/TweetCard.vue"
 import AuthorPanel from "@/views/browse/AuthorPanel.vue"
 import CalendarPanel from "@/views/browse/CalendarPanel.vue"
@@ -222,6 +227,7 @@ const pageSize = 20
 /** 加载状态 */
 const authorsLoading = ref(false)
 const tweetsLoading = ref(false)
+const tweetsLoadError = ref(false)
 
 /** ===== 时间线模式状态 ===== */
 type BrowseMode = "date" | "timeline"
@@ -237,6 +243,7 @@ const timelineTweets = ref<BrowseTweetItem[]>([])
 const timelineTotal = ref(0)
 const timelinePage = ref(1)
 const timelineLoading = ref(false)
+const timelineLoadError = ref(false)
 
 const timelinePresets: { label: string; days: number | null }[] = [
   { label: "1周", days: 7 },
@@ -252,6 +259,9 @@ const activeTimelinePreset = computed(
 const activeTweets = computed(() => mode.value === "timeline" ? timelineTweets.value : tweets.value)
 const activeTotal = computed(() => mode.value === "timeline" ? timelineTotal.value : total.value)
 const activeTweetsLoading = computed(() => mode.value === "timeline" ? timelineLoading.value : tweetsLoading.value)
+const activeTweetsLoadError = computed(() => (
+  mode.value === "timeline" ? timelineLoadError.value : tweetsLoadError.value
+))
 const activePage = computed({
   get: () => mode.value === "timeline" ? timelinePage.value : page.value,
   set: (val: number) => {
@@ -403,8 +413,11 @@ async function loadAuthors() {
 }
 
 /** 加载推文列表 */
-async function loadTweets() {
-  tweetsLoading.value = true
+async function loadTweets(preserveError = false) {
+  tweetsLoading.value = !preserveError
+  if (!preserveError) {
+    tweetsLoadError.value = false
+  }
   try {
     const resp = await browseApi.getTweets({
       date: selectedDateStr.value,
@@ -415,10 +428,12 @@ async function loadTweets() {
     })
     tweets.value = resp.items
     total.value = resp.total
+    tweetsLoadError.value = false
   } catch (error) {
     console.error("加载推文列表失败:", error)
     tweets.value = []
     total.value = 0
+    tweetsLoadError.value = true
   } finally {
     tweetsLoading.value = false
   }
@@ -479,9 +494,12 @@ function exitTimelineMode() {
 }
 
 /** 加载时间线推文 */
-async function loadTimelineTweets() {
+async function loadTimelineTweets(preserveError = false) {
   if (!timelineAuthor.value || !timelineDateRange.value) return
-  timelineLoading.value = true
+  timelineLoading.value = !preserveError
+  if (!preserveError) {
+    timelineLoadError.value = false
+  }
   try {
     const [since, until] = timelineDateRange.value
     const resp = await browseApi.getAuthorTimeline({
@@ -494,6 +512,7 @@ async function loadTimelineTweets() {
     })
     timelineTweets.value = resp.items
     timelineTotal.value = resp.total
+    timelineLoadError.value = false
     if (!timelineAuthorInfo.value) {
       timelineAuthorInfo.value = {
         author_username: resp.author_username,
@@ -505,9 +524,16 @@ async function loadTimelineTweets() {
     console.error("加载时间线推文失败:", error)
     timelineTweets.value = []
     timelineTotal.value = 0
+    timelineLoadError.value = true
   } finally {
     timelineLoading.value = false
   }
+}
+
+function retryActiveTweets() {
+  return mode.value === "timeline"
+    ? loadTimelineTweets(true)
+    : loadTweets(true)
 }
 
 /** 应用预设时间范围 */
