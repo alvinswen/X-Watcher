@@ -16,9 +16,13 @@ export const statusApi = {
   },
 
   /** 获取 TwitterAPI.io 账户余额（默认走后端 10 分钟缓存，force=true 强制刷新） */
-  async getTwitterBalance(force = false): Promise<TwitterBalanceResponse> {
+  async getTwitterBalance(
+    force = false,
+    opts: { suppressErrorToast?: boolean } = {},
+  ): Promise<TwitterBalanceResponse> {
     const response = await client.get<TwitterBalanceResponse>("/status/twitter-balance", {
       params: { force },
+      suppressErrorToast: opts.suppressErrorToast,
     })
     return response.data
   },

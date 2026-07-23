@@ -11,10 +11,12 @@ const balance = ref<TwitterBalanceResponse | null>(null)
 const loading = ref(false)
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
-async function fetchBalance(force = false) {
+async function fetchBalance(force = false, silent = true) {
   loading.value = true
   try {
-    balance.value = await statusApi.getTwitterBalance(force)
+    balance.value = await statusApi.getTwitterBalance(force, {
+      suppressErrorToast: silent,
+    })
   } catch (e: unknown) {
     // 网络/权限错误不要打扰用户，只静默标记错误
     balance.value = {
@@ -31,7 +33,7 @@ async function fetchBalance(force = false) {
 }
 
 async function manualRefresh() {
-  await fetchBalance(true)
+  await fetchBalance(true, false)
   if (balance.value && balance.value.source === "live") {
     ElMessage.success("余额已刷新")
   } else if (balance.value?.error) {

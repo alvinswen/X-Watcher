@@ -74,3 +74,130 @@ defineProps<{
     </article>
   </template>
 </template>
+
+<style scoped>
+.feed-meta {
+  font-family: var(--font-mono);
+  font-size: var(--xs-font-size);
+  color: var(--text-tertiary);
+}
+
+.empty-state {
+  padding: 40px 16px;
+}
+
+.classify-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 14px;
+  margin: 0 0 12px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--el-border-radius-base);
+  background: var(--bg-inset);
+  color: var(--text-secondary);
+  font-size: var(--small-font-size);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.classify-hint .el-icon {
+  flex-shrink: 0;
+  color: var(--color-info);
+  font-size: var(--body-font-size);
+}
+
+.classify-hint.stale .el-icon {
+  color: var(--color-warning);
+}
+
+.classify-hint.never {
+  background: var(--color-warning-light);
+}
+
+.classify-hint.never .el-icon {
+  color: var(--color-warning);
+}
+
+.classify-hint-skeleton {
+  display: block;
+}
+
+.hint-skel-line {
+  width: 260px;
+  max-width: 100%;
+}
+
+.classify-hint-copy {
+  min-width: 0;
+}
+
+.classify-hint-time {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--xs-font-size);
+  font-weight: 600;
+}
+
+.classify-hint.stale .classify-hint-time {
+  color: var(--color-warning);
+}
+
+.tab-loading {
+  display: grid;
+  gap: 12px;
+}
+
+.feed-row {
+  padding: 14px 24px;
+  margin-bottom: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--card-radius);
+  box-shadow: var(--shadow-card);
+  transition: box-shadow var(--transition-base), border-color var(--transition-base);
+}
+
+.feed-row:hover {
+  border-color: var(--border-medium);
+  box-shadow: var(--shadow-card-hover);
+}
+
+.feed-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.tweet-text {
+  margin: 0;
+  color: var(--text-secondary);
+  font-family: var(--font-reading);
+  font-size: var(--reading-font-size);
+  line-height: var(--reading-line-height);
+  letter-spacing: var(--reading-letter-spacing);
+  overflow-wrap: anywhere;
+}
+
+.summary-box {
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-left: 3px solid var(--color-primary-light);
+  border-radius: var(--el-border-radius-small);
+  background: var(--bg-inset);
+}
+
+.summary-box span {
+  font-size: var(--label-font-size);
+  color: var(--color-primary);
+}
+
+.summary-box p {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+</style>

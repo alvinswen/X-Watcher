@@ -93,12 +93,21 @@
 
     </div>
 
-    <!-- 错误状态 -->
-    <el-result v-else icon="error" title="加载失败" sub-title="推文不存在或已被删除">
+    <!-- 内容不存在 -->
+    <el-result
+      v-else-if="notFound"
+      icon="info"
+      title="内容不存在"
+      sub-title="推文不存在或已被删除"
+      data-empty-state="not-found"
+    >
       <template #extra>
         <el-button type="primary" @click="handleGoBack">返回列表</el-button>
       </template>
     </el-result>
+
+    <!-- 加载失败 -->
+    <LoadErrorState v-else-if="loadError" :retry="retryLoadTweetDetail" />
   </div>
 </template>
 
@@ -107,7 +116,9 @@ import { ref } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import { ArrowLeft } from "@element-plus/icons-vue"
 import { tweetsApi } from "@/api"
+import { ApiRequestError } from "@/api/client"
 import ApiKeyGuideEmpty from "@/components/ApiKeyGuideEmpty.vue"
+import LoadErrorState from "@/components/LoadErrorState.vue"
 import { useApiKeyGuard } from "@/composables/useApiKeyGuard"
 import { formatFullDateTime } from "@/utils/format"
 import type { TweetDetail } from "@/types"
@@ -121,22 +132,36 @@ const tweet = ref<TweetDetail | null>(null)
 
 /** 加载状态 */
 const loading = ref(false)
+const loadError = ref(false)
+const notFound = ref(false)
 
 /** 加载推文详情 */
-async function loadTweetDetail() {
+async function loadTweetDetail(preserveError = false) {
   const tweetId = route.params.id as string
   if (!tweetId) return
 
-  loading.value = true
+  loading.value = !preserveError
+  if (!preserveError) {
+    loadError.value = false
+    notFound.value = false
+  }
   try {
     tweet.value = await tweetsApi.getDetail(tweetId)
+    loadError.value = false
+    notFound.value = false
   } catch (error) {
     // 错误已被 API 拦截器处理
     console.error("加载推文详情失败:", error)
     tweet.value = null
+    notFound.value = error instanceof ApiRequestError && error.status === 404
+    loadError.value = !notFound.value
   } finally {
     loading.value = false
   }
+}
+
+function retryLoadTweetDetail() {
+  return loadTweetDetail(true)
 }
 
 /** 返回上一页 */

@@ -37,8 +37,10 @@
     <!-- 加载状态 -->
     <el-skeleton v-if="loading && tweets.length === 0" :rows="5" animated />
 
+    <LoadErrorState v-else-if="loadError" :retry="retryLoadTweets" />
+
     <!-- 空状态 -->
-    <el-empty v-else-if="!loading && tweets.length === 0" description="暂无推文数据" />
+    <el-empty v-else-if="tweets.length === 0" description="暂无推文数据" />
 
     <!-- 推文列表 -->
     <div v-else class="tweet-list">
@@ -74,7 +76,7 @@
     </div>
 
     <!-- 分页 -->
-    <div v-if="totalPages > 1" class="pagination">
+    <div v-if="!loadError && totalPages > 1" class="pagination">
       <el-pagination
         v-model:current-page="currentPage"
         v-model:page-size="pageSize"
@@ -96,6 +98,7 @@ import { useRouter } from "vue-router"
 import { Refresh, Search } from "@element-plus/icons-vue"
 import { tweetsApi } from "@/api"
 import ApiKeyGuideEmpty from "@/components/ApiKeyGuideEmpty.vue"
+import LoadErrorState from "@/components/LoadErrorState.vue"
 import { useApiKeyGuard } from "@/composables/useApiKeyGuard"
 import { formatRelativeTime } from "@/utils/format"
 import type { TweetListItem } from "@/types"
@@ -120,13 +123,17 @@ const totalPages = ref(0)
 
 /** 加载状态 */
 const loading = ref(false)
+const loadError = ref(false)
 
 /** 作者筛选 */
 const filterAuthor = ref("")
 
 /** 加载推文列表 */
-async function loadTweets() {
-  loading.value = true
+async function loadTweets(preserveError = false) {
+  loading.value = !preserveError
+  if (!preserveError) {
+    loadError.value = false
+  }
   try {
     const response = await tweetsApi.getList({
       page: currentPage.value,
@@ -136,12 +143,18 @@ async function loadTweets() {
     tweets.value = response.items
     total.value = response.total
     totalPages.value = response.total_pages
+    loadError.value = false
   } catch (error) {
     // 错误已被 API 拦截器处理
     console.error("加载推文列表失败:", error)
+    loadError.value = true
   } finally {
     loading.value = false
   }
+}
+
+function retryLoadTweets() {
+  return loadTweets(true)
 }
 
 /** 刷新列表 */

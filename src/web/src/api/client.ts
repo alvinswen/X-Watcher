@@ -14,7 +14,7 @@ declare module "axios" {
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api"
 
 /** API Key 存储键名 */
-const API_KEY_STORAGE_KEY = "admin_api_key"
+export const API_KEY_STORAGE_KEY = "admin_api_key"
 
 /** API Key provider（由 Auth Store 注入） */
 let apiKeyProvider: (() => string | null) | null = null
@@ -78,56 +78,59 @@ client.interceptors.request.use(
   },
 )
 
+/** 将 Axios 失败归一化为前端请求错误，并按请求配置决定是否提示。 */
+export function handleApiError(error: AxiosError<ApiError>): Promise<never> {
+  const isTimeout = error.code === "ECONNABORTED" || error.message.includes("timeout")
+  const status = error.response?.status ?? null
+  const detail = error.response?.data?.detail ?? null
+  const suppressErrorToast = error.config?.suppressErrorToast === true
+  let message: string
+
+  if (isTimeout) {
+    message = "请求超时，请检查网络连接"
+  } else if (status !== null) {
+    switch (status) {
+      case 401: {
+        const hasKey = Boolean(error.config?.headers?.["X-API-Key"])
+        unauthorizedHandler?.(hasKey)
+        message = detail || "API Key 无效，请重新配置"
+        break
+      }
+      case 403:
+        message = "需要管理员权限"
+        break
+      case 404:
+        message = detail || "资源不存在"
+        break
+      case 500:
+        message = detail || "服务器错误，请稍后重试"
+        break
+      default:
+        message = detail || `请求失败 (${status})`
+    }
+  } else {
+    message = "网络连接失败，请稍后重试"
+  }
+
+  console.error("API 错误:", message, error)
+
+  if (!suppressErrorToast && status !== 401) {
+    messageService.error(message)
+  }
+
+  return Promise.reject(new ApiRequestError(message, {
+    status,
+    detail,
+    isTimeout,
+  }))
+}
+
 /** 响应拦截器 */
 client.interceptors.response.use(
   (response: AxiosResponse) => {
     return response
   },
-  (error: AxiosError<ApiError>) => {
-    const isTimeout = error.code === "ECONNABORTED" || error.message.includes("timeout")
-    const status = error.response?.status ?? null
-    const detail = error.response?.data?.detail ?? null
-    const suppressErrorToast = error.config?.suppressErrorToast === true
-    let message: string
-
-    if (isTimeout) {
-      message = "请求超时，请检查网络连接"
-    } else if (status !== null) {
-      switch (status) {
-        case 401: {
-          const hasKey = Boolean(error.config?.headers?.["X-API-Key"])
-          unauthorizedHandler?.(hasKey)
-          message = detail || "API Key 无效，请重新配置"
-          break
-        }
-        case 403:
-          message = "需要管理员权限"
-          break
-        case 404:
-          message = detail || "资源不存在"
-          break
-        case 500:
-          message = detail || "服务器错误，请稍后重试"
-          break
-        default:
-          message = detail || `请求失败 (${status})`
-      }
-    } else {
-      message = "网络连接失败，请稍后重试"
-    }
-
-    console.error("API 错误:", message, error)
-
-    if (!suppressErrorToast && status !== 401) {
-      messageService.error(message)
-    }
-
-    return Promise.reject(new ApiRequestError(message, {
-      status,
-      detail,
-      isTimeout,
-    }))
-  },
+  handleApiError,
 )
 
 export { client }

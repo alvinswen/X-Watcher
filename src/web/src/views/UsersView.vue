@@ -14,6 +14,8 @@
     <!-- 用户列表 -->
     <el-card data-testid="users-table-card">
       <el-skeleton v-if="loading" :rows="4" animated />
+      <LoadErrorState v-else-if="loadError" :retry="retryLoadUsers" />
+      <el-empty v-else-if="users.length === 0" description="暂无用户" />
       <el-table v-else :data="users" stripe row-key="id">
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column prop="name" label="名称" min-width="120" />
@@ -168,6 +170,7 @@ import type { FormInstance, FormRules } from "element-plus"
 import { usersApi } from "@/api"
 import { ApiRequestError } from "@/api/client"
 import ApiKeyGuideEmpty from "@/components/ApiKeyGuideEmpty.vue"
+import LoadErrorState from "@/components/LoadErrorState.vue"
 import { useApiKeyGuard } from "@/composables/useApiKeyGuard"
 import { formatLocalizedDateTime } from "@/utils/format"
 import type { UserInfo } from "@/types"
@@ -176,16 +179,26 @@ import type { UserInfo } from "@/types"
 
 const users = ref<UserInfo[]>([])
 const loading = ref(true)
+const loadError = ref(false)
 
-async function loadUsers() {
-  loading.value = true
+async function loadUsers(preserveError = false) {
+  loading.value = !preserveError
+  if (!preserveError) {
+    loadError.value = false
+  }
   try {
     users.value = await usersApi.list()
+    loadError.value = false
   } catch (error) {
     console.error("加载用户列表失败:", error)
+    loadError.value = true
   } finally {
     loading.value = false
   }
+}
+
+function retryLoadUsers() {
+  return loadUsers(true)
 }
 
 const { needsApiKey } = useApiKeyGuard(loadUsers)

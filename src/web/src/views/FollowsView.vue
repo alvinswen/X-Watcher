@@ -37,6 +37,8 @@
     <!-- 加载状态 -->
     <el-skeleton v-if="loading" :rows="5" animated />
 
+    <LoadErrorState v-else-if="loadError" :retry="retryLoadFollows" />
+
     <!-- 账号列表 -->
     <el-table v-else :data="follows" stripe border style="width: 100%">
       <el-table-column label="用户名" width="200">
@@ -274,6 +276,7 @@ import { Plus, Refresh, VideoPlay } from "@element-plus/icons-vue"
 import { ElMessageBox, ElMessage, type FormInstance, type FormRules } from "element-plus"
 import { followsApi, tasksApi } from "@/api"
 import ApiKeyGuideEmpty from "@/components/ApiKeyGuideEmpty.vue"
+import LoadErrorState from "@/components/LoadErrorState.vue"
 import { useApiKeyGuard } from "@/composables/useApiKeyGuard"
 import { useAuthStore } from "@/stores/auth"
 import { formatCompactNumber, formatLocalizedDateTime } from "@/utils/format"
@@ -289,6 +292,7 @@ const profiles = ref<XUserProfile[]>([])
 
 /** 加载状态 */
 const loading = ref(false)
+const loadError = ref(false)
 
 /** 提交状态 */
 const submitting = ref(false)
@@ -355,8 +359,11 @@ const formRules: FormRules = {
 }
 
 /** 加载抓取账号列表 */
-async function loadFollows() {
-  loading.value = true
+async function loadFollows(preserveError = false) {
+  loading.value = !preserveError
+  if (!preserveError) {
+    loadError.value = false
+  }
   try {
     const [followsData, profilesData] = await Promise.all([
       followsApi.list(),
@@ -364,11 +371,17 @@ async function loadFollows() {
     ])
     follows.value = followsData
     profiles.value = profilesData
+    loadError.value = false
   } catch (error) {
     console.error("加载抓取账号列表失败:", error)
+    loadError.value = true
   } finally {
     loading.value = false
   }
+}
+
+function retryLoadFollows() {
+  return loadFollows(true)
 }
 
 /** 打开添加对话框 */

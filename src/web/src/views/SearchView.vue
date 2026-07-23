@@ -51,12 +51,14 @@
     </el-form>
 
     <!-- 结果统计 -->
-    <div v-if="hasSearched && !loading" class="result-summary">
+    <div v-if="hasSearched && !loading && !loadError" class="result-summary">
       共 {{ total }} 条结果
     </div>
 
     <!-- 加载状态 -->
     <el-skeleton v-if="loading" :rows="8" animated />
+
+    <LoadErrorState v-else-if="loadError" :retry="retrySearch" />
 
     <!-- 空状态 -->
     <el-empty
@@ -81,7 +83,7 @@
 
     <!-- 分页 -->
     <div
-      v-if="total > 0"
+      v-if="!loadError && total > 0"
       class="pagination-bar"
       data-testid="search-pagination"
     >
@@ -102,6 +104,7 @@ import { useRoute, useRouter } from "vue-router"
 import { Search } from "@element-plus/icons-vue"
 import { searchApi } from "@/api"
 import ApiKeyGuideEmpty from "@/components/ApiKeyGuideEmpty.vue"
+import LoadErrorState from "@/components/LoadErrorState.vue"
 import TweetCard from "@/components/TweetCard.vue"
 import { useApiKeyGuard } from "@/composables/useApiKeyGuard"
 import type { SearchTweetItem } from "@/types/search"
@@ -114,6 +117,7 @@ const authorFilter = ref("")
 const dateRange = ref<[string, string] | null>(null)
 const loading = ref(false)
 const hasSearched = ref(false)
+const loadError = ref(false)
 
 const items = ref<SearchTweetItem[]>([])
 const total = ref(0)
@@ -150,11 +154,14 @@ function syncToQuery() {
   router.replace({ query })
 }
 
-async function doSearch() {
+async function doSearch(preserveError = false) {
   if (!searchQuery.value.trim()) return
 
-  loading.value = true
+  loading.value = !preserveError
   hasSearched.value = true
+  if (!preserveError) {
+    loadError.value = false
+  }
   try {
     const result = await searchApi.searchTweets({
       q: searchQuery.value.trim(),
@@ -166,13 +173,19 @@ async function doSearch() {
     })
     items.value = result.items
     total.value = result.total
+    loadError.value = false
   } catch (error) {
     console.error("搜索失败:", error)
     items.value = []
     total.value = 0
+    loadError.value = true
   } finally {
     loading.value = false
   }
+}
+
+function retrySearch() {
+  return doSearch(true)
 }
 
 function handleSearch() {
