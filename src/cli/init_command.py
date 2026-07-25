@@ -198,7 +198,7 @@ def _create_admin(email: str, password: str) -> str | None:
 def _create_admin_file(email: Any, password: Any, hash_password: Any, auth_service_cls: Any) -> str | None:
     """file 模式创建管理员:经 FileUserStore 文件层(async,asyncio.run 桥接)。
 
-    映射 sqlalchemy 分支:存在 → echo + 设 is_admin(经 update_user)返 None;
+    用户已存在 → echo + 设 is_admin(经 update_user)返 None;
     不存在 → create_user(password_hash) + update_user(is_admin=True) + 生成默认 API Key 返 raw_key。
     FileUserStore.create_user 仅收 name/email/password_hash(is_admin 硬置 False),
     故 admin 标志经 update_user(is_admin=True) 落盘(UserDomain/盘面均有 is_admin 字段)。

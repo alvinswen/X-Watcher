@@ -1,9 +1,12 @@
 """FastAPI 应用入口。"""
 
 import logging
+import subprocess
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from importlib.metadata import version as _pkg_version
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,6 +27,25 @@ setup_logging(
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_commit() -> str:
+    """解析当前部署的 Git 短提交号，无法获取时返回 unknown。"""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=1,
+            cwd=Path(__file__).resolve().parents[1],
+        )
+        return result.stdout.strip() or "unknown"
+    except Exception:
+        return "unknown"
+
+
+_APP_VERSION: str = _pkg_version("x-watcher")
+_APP_COMMIT: str = _resolve_commit()
 
 # 服务启动时间
 _server_start_time: datetime | None = None
@@ -139,7 +161,12 @@ async def health_check():  # type: ignore[no-untyped-def]
     if any(c["status"] == "unhealthy" for c in components.values()):
         overall = "degraded"
 
-    return {"status": overall, "components": components}
+    return {
+        "status": overall,
+        "components": components,
+        "version": _APP_VERSION,
+        "commit": _APP_COMMIT,
+    }
 
 
 # 导入并注册 API 路由

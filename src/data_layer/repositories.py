@@ -33,10 +33,10 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from src.api.status_schemas import FollowStats, SummaryStats, TweetStats
-    from src.feed.api.schemas import FeedResult
+    from src.feed.domain.models import FeedResult
     from src.scraper.domain.fetch_stats import FetchStats
     from src.scraper.domain.models import Article, SaveResult, Tweet
-    from src.search.api.schemas import SearchResult
+    from src.search.domain.models import SearchResult
     from src.summarization.domain.models import SummaryRecord
 
 

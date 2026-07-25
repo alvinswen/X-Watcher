@@ -1,6 +1,5 @@
 """搜索 API 数据模型。"""
 
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
@@ -42,11 +41,3 @@ class SearchResponse(BaseModel):
     page_size: int = Field(..., description="每页条数")
     total_pages: int = Field(..., description="总页数")
     q: str = Field(..., description="搜索关键词")
-
-
-@dataclass
-class SearchResult:
-    """Service 层内部结果数据类。"""
-
-    items: list[dict[str, Any]]
-    total: int

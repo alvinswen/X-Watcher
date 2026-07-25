@@ -4,7 +4,7 @@
 FileSummaryStore.get_all_summaries(全量摘要建 map 左连接)。复刻旧 SearchService.search_tweets
 形态(14 字段 item,DESC + offset 分页)。
 - keyword:复用 src.shared.like_match.ilike_contains 复刻 PG ILIKE(LIKE 通配 + 非 ASCII case-fold 对齐 PG)。
-- db_created_at:文件层无 DB 入库时间 → None(同 feed;sqlalchemy 模式仍真值)。
+- db_created_at:文件层无 DB 入库时间 → None(同 feed)。
 - created_at aware(+00:00)/ media exclude_none(承 browse/feed)。
 - perf:无 since → get_all_tweets 全扫(~1.6s deferred);有 since → by-day 窗口快路径。
 """
@@ -14,7 +14,7 @@ from datetime import UTC
 from pathlib import Path
 from typing import Any
 
-from src.search.api.schemas import SearchResult
+from src.search.domain.models import SearchResult
 from src.shared.like_match import ilike_contains
 
 _NO_LIMIT = 10**12  # FileTweetStore.get_feed 无 unlimited 参;大 limit 取窗口内全部

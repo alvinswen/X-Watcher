@@ -192,7 +192,7 @@ class _FileImportSyncAdapter:
     """file 模式 import 同步门面:asyncio.run 桥 async FileImportStore.import_*。
 
     dry_run=True 时 copytree data_root→temp、FileImportStore 指向 temp 跑、close() 清理 temp
-    → 真数据未动(per-category 独立副本匹配 sqlalchemy per-category rollback 隔离)。
+    → 真数据未动,各 category 使用独立副本隔离。
     调用上下文无 running loop(路由 to_thread / CLI 同步)→ asyncio.run 安全。
     """
 

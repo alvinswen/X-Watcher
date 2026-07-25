@@ -3,7 +3,6 @@
 定义 Feed API 的请求参数和响应数据模型。
 """
 
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
@@ -37,13 +36,3 @@ class FeedResponse(UTCDatetimeModel):
     since: datetime = Field(..., description="推文发布时间区间起始（含）")
     until: datetime = Field(..., description="推文发布时间区间截止（不含）")
     has_more: bool = Field(..., description="是否还有更多推文")
-
-
-@dataclass
-class FeedResult:
-    """Service 层内部结果数据类。"""
-
-    items: list[dict[str, Any]]
-    count: int
-    total: int
-    has_more: bool

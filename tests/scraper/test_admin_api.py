@@ -12,6 +12,12 @@ from src.user.api.auth import get_current_admin_user
 from src.user.domain.models import BOOTSTRAP_ADMIN
 
 
+def _close_background_coro(coro, *, name=None):  # noqa: ANN001, ARG001
+    """关闭被 mock 的后台协程，避免测试泄漏未等待协程。"""
+    coro.close()
+    return Mock(name=name)
+
+
 @pytest.fixture(autouse=True)
 def override_auth():
     """覆盖管理员认证依赖，避免 401。"""
@@ -24,7 +30,10 @@ def override_auth():
 def client(test_settings):  # noqa: ARG001 - 参数确保设置已加载
     """创建测试客户端。"""
     # Mock asyncio.create_task 以防止实际执行后台抓取任务
-    with patch("src.api.routes.admin.asyncio.create_task"):
+    with patch(
+        "src.api.routes.admin.asyncio.create_task",
+        side_effect=_close_background_coro,
+    ):
         yield TestClient(app)
 
 
@@ -583,7 +592,10 @@ class TestBackfillArticlesEndpoint:
 
     async def test_backfill_all_accounts_returns_202(self, async_client, mock_service):
         """测试批量模式立即返回 202 + task_id（后台执行）。"""
-        with patch("src.api.routes.admin.asyncio.create_task"):
+        with patch(
+            "src.api.routes.admin.asyncio.create_task",
+            side_effect=_close_background_coro,
+        ):
             response = await async_client.post(
                 "/api/admin/articles/backfill",
                 json={"all": True, "max_tweets": 100},
@@ -598,7 +610,10 @@ class TestBackfillArticlesEndpoint:
         self, async_client, mock_service
     ):
         """测试无活跃关注时也返回 202（后台任务会处理空列表）。"""
-        with patch("src.api.routes.admin.asyncio.create_task"):
+        with patch(
+            "src.api.routes.admin.asyncio.create_task",
+            side_effect=_close_background_coro,
+        ):
             response = await async_client.post(
                 "/api/admin/articles/backfill",
                 json={"all": True},
@@ -710,14 +725,13 @@ class TestCHG032RestLifecycle:
         registry = Mock()
         registry.create_task.return_value = "task-425"
 
-        def close_background_coro(coro, *, name):
-            coro.close()
-            return Mock(name=name)
-
         with (
             patch("src.api.routes.admin.get_article_fetch_service") as factory,
             patch("src.api.routes.admin.get_task_registry", return_value=registry),
-            patch("src.api.routes.admin.asyncio.create_task", side_effect=close_background_coro),
+            patch(
+                "src.api.routes.admin.asyncio.create_task",
+                side_effect=_close_background_coro,
+            ),
             patch("src.api.routes.admin.audit_log"),
         ):
             response = await backfill_articles(

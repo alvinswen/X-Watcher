@@ -1,8 +1,7 @@
 """scraper_config 账号聚合读门面:tweet 聚合两段(时间范围 / 周期分析)。
 
-复刻 src/preference/api/scraper_config_router.py 三个管理端点对 TweetOrm 的聚合直查,
-file 模式下不依赖 ORM,改组合既有 FileTweetStore 在 Python 槽内聚合;sqlalchemy 模式下
-薄 wrapper 转调与原端点等价的内联 SQL(SQL 行为零变化)。两侧返回同形态数据,端点据此组装
+为 src/preference/api/scraper_config_router.py 三个管理端点提供统计聚合，
+组合既有 FileTweetStore 在 Python 槽内完成。仓储返回统一形态数据,端点据此组装
 TweetTimeRangeResponse / FetchAnalysisResponse。
 
 #8 tweet_time_range(per-author min/max/count)+ #9 period_analysis(显式窗口逐周期 count)

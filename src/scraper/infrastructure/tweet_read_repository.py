@@ -5,30 +5,26 @@
   + 单独 count(同 filter,无 join) + order_by created_at DESC + offset/limit。
 - get_tweet_detail:GET /api/tweets/{id}。原 SQL = select(TweetOrm 字段...) where tweet_id==。
 
-file 模式不依赖 ORM,组合既有 file store(FileTweetStore + FileSummaryStore)在 Python 槽内
-过滤/JOIN/排序/分页;sqlalchemy 模式逐字复刻原 SQL,保证默认模式响应字节零变化。
+组合既有 file store(FileTweetStore + FileSummaryStore),在 Python 槽内完成
+过滤/JOIN/排序/分页并保持响应结构稳定。
 
 ⚠️ db_created_at 降级(owner 已定 emit created_at):文件层 Tweet domain **无 db_created_at**
   (DB 管理列未持久化)。file 模式 db_created_at **返回该推文的 created_at**(降级,同 2b'
-  profiles updated_at→fetched_at)。sqlalchemy 模式返真实 TweetOrm.db_created_at(零行为变化)。
+  profiles updated_at→fetched_at)。
 
-⚠️ created_at 不在门面归一:响应模型 TweetListItem(UTCDatetimeModel)序列化时把 naive(pg)和
-  aware-UTC(file)都归一为 "...+00:00",两模式 JSON 一致。门面按 domain/ORM 原样返回(file
-  aware / sqlalchemy naive),不 strip tzinfo。
+⚠️ created_at 不在门面归一:响应模型 TweetListItem(UTCDatetimeModel)序列化为
+  "...+00:00"。门面按 file domain 的 aware-UTC 原样返回,不 strip tzinfo。
 
-⚠️ reference_type:列表项是字符串。file domain 是 enum → 返 .value;sqlalchemy 返裸 ORM 字符串列。
+⚠️ reference_type:列表项是字符串。file domain 是 enum → 返 .value。
 
 parity 要点:
-- total 一致:file count 与 sqlalchemy count 对同 filter 必须相等(均按 tweet 计数,不受 summary
-  fan-out 影响)。
+- total 按 tweet 计数,不受 summary 数据影响。
 - has_summary:有 summary 的 tweet → True。
 - 分页 tie-order:同 created_at 在 page 边界,file(确定性 tie-break:created_at DESC 后按
   tweet_id DESC)vs PG(引擎任意)可能取不同子集。跨模式对账测试用互异 created_at 规避(同
   browse-agg tie-order 限制)。
-- ⚠️ list 的 outerjoin fan-out(两模式此处**不一致**,诚实标注):schema 上 summaries.tweet_id
-  无 unique 约束,理论上一个 tweet 可有多条 summary。**sqlalchemy 模式**逐字复刻原 outerjoin SQL,
-  对多 summary 的 tweet fan-out(每条 summary 一行 item、total 单独 count 只计一次);**file 模式**
-  用 set 化 has_summary 判定,**对每个 tweet 只产 1 行(去重,不复刻 fan-out)**。
+- schema 上 summaries.tweet_id 无 unique 约束,理论上一个 tweet 可有多条 summary。
+  文件仓储用 set 化 has_summary 判定,对每个 tweet 只产 1 行。
   **真实数据零影响**:PG 实测 summaries 数 == distinct tweet 数(完美 1:1),且"1 tweet 多 summary"
   已是 get_summary_by_tweet(scalar_one_or_none)在两模式都会 MultipleResultsFound 的不支持态。
   跨模式对账测试用 1:≤1 summary(故不覆盖此分歧——分歧仅存在于 real data 永不触及的多 summary 态)。
