@@ -120,7 +120,7 @@ async def list_tweets(
         )
 
     try:
-        # 经数据层 provider 取 tweet 读门面(file/sqlalchemy 切换;pg 下线后 file-safe)
+        # 经数据层 provider 取文件版 tweet 读门面
         from src.data_layer.provider import get_tweet_read_repo
 
         rows, total = await get_tweet_read_repo().list_tweets(
@@ -195,7 +195,7 @@ async def get_tweet_detail(
         HTTPException: 404 推文不存在
     """
     try:
-        # 经数据层 provider 取 tweet 读门面(file/sqlalchemy 切换;pg 下线后 file-safe)
+        # 经数据层 provider 取文件版 tweet 读门面
         from src.data_layer.provider import get_tweet_read_repo
 
         tweet_dict = await get_tweet_read_repo().get_tweet_detail(tweet_id)

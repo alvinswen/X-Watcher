@@ -30,6 +30,10 @@ def test_health_endpoint(client):
     assert "components" in data
     assert "database" in data["components"]
     assert "scheduler" not in data["components"]
+    assert set(data) == {"status", "components", "version", "commit"}
+    assert data["version"] == "0.1.0"
+    assert isinstance(data["commit"], str)
+    assert data["commit"]
 
 
 def test_cors_middleware_configured():

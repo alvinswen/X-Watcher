@@ -2,7 +2,7 @@
 
 组合 FileTweetStore.get_feed(窗口取数,复用 A1-2 范式)+ FileSummaryStore.get_all_summaries
 (全量摘要建 map 左连接)。复刻旧 FeedService.get_feed 形态(11 字段 item dict,DESC + limit 游标)。
-- db_created_at:文件层无 DB 入库时间 → None(spec §3.1;sqlalchemy 模式仍填真值不变)。
+- db_created_at:文件层无 DB 入库时间 → None(spec §3.1)。
 - created_at:保 aware(+00:00)匹配生产 pg,不归一 naive(承 A1-2,SQLite naive 是测试工件)。
 - media:exclude_none 匹配生产 pg from_domain(承 A1-2)。
 - keyword:复刻 PG ILIKE(`ilike("%kw%")`)——大小写不敏感 + kw 内 %/_ 作 LIKE 通配(对齐生产 pg,
@@ -13,7 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from src.feed.api.schemas import FeedResult
+from src.feed.domain.models import FeedResult
 from src.shared.like_match import ilike_contains
 
 _NO_LIMIT = 10**12  # FileTweetStore.get_feed 无 unlimited 参;大 limit 取窗口内全部

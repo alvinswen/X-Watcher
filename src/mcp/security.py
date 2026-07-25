@@ -1,18 +1,19 @@
-"""MCP 安全模块：审计日志 + Action Guard。
+"""MCP 安全模块：审计日志会话适配 + Action Guard。
 
-审计日志：记录所有写操作的调用信息，用于事后追溯。
+审计日志：本模块的 wrapper 在缺省时解析 MCP 会话用户名，再委派给
+``src.shared.audit_log`` 纯写入层；已知用户名的非 MCP 调用方应直接使用 shared 层。
 Action Guard：通过环境变量控制每个工具允许的 action 列表，用于事前拦截。
 """
 
 import logging
 import os
-from datetime import UTC, datetime
 from typing import Any
 
 from src.mcp.auth import get_user_name
 from src.mcp.helpers import error_response
+from src.shared.audit_log import audit_log as _write_audit
+from src.shared.audit_log import audit_logger as audit_logger
 
-audit_logger = logging.getLogger("xwatcher.audit")
 security_logger = logging.getLogger("xwatcher.security")
 
 # 工具名 → 环境变量名映射
@@ -90,7 +91,7 @@ def audit_log(
     source: str = "mcp",
     user: str | None = None,
 ) -> None:
-    """记录审计日志。
+    """记录 MCP 审计日志，并在需要时解析当前会话用户名。
 
     Args:
         tool: 工具/端点名称
@@ -103,22 +104,15 @@ def audit_log(
     """
     if user is None:
         user = get_user_name()
-    now = datetime.now(UTC)
-    params_str = str(params) if params else ""
-
-    msg = (
-        f"AUDIT | tool={tool} | action={action} | user={user} "
-        f"| result={result} | time={now.isoformat()}"
+    _write_audit(
+        tool,
+        action,
+        params=params,
+        result=result,
+        error=error,
+        source=source,
+        user=user,
     )
-    if params_str:
-        msg += f" | params=({params_str})"
-    if error:
-        msg += f" | error={error}"
-
-    if result == "success":
-        audit_logger.info(msg)
-    else:
-        audit_logger.warning(msg)
 
 
 def log_action_guard_config() -> None:

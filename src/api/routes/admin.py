@@ -18,8 +18,8 @@ from pydantic import (
     model_validator,
 )
 
-from src.mcp.security import audit_log
 from src.scraper import ArticleFetchService, ScrapingService, TaskRegistry, TaskStatus
+from src.shared.audit_log import audit_log
 from src.shared.error_messages import ARTICLE_BACKFILL_FAILED
 from src.shared.username import (
     validate_username_format as _validate_username_format,
@@ -30,6 +30,8 @@ from src.user.domain.models import UserDomain
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+_background_tasks: set[asyncio.Task[Any]] = set()
 
 
 def get_scraping_service() -> ScrapingService:
@@ -419,7 +421,7 @@ async def start_scraping(
     )
 
     # 在主事件循环中创建异步任务（避免跨循环问题）
-    asyncio.create_task(
+    background_task = asyncio.create_task(
         _run_scraping_task_async(
             task_id,
             request.parsed_usernames,
@@ -427,6 +429,8 @@ async def start_scraping(
         ),
         name=f"scrape-{task_id}",
     )
+    _background_tasks.add(background_task)
+    background_task.add_done_callback(_background_tasks.discard)
 
     logger.info(f"创建抓取任务: {task_id} - {request.parsed_usernames}")
 
@@ -610,10 +614,12 @@ async def backfill_articles(
             metadata={"mode": "backfill_all", "max_tweets": request.max_tweets},
         )
 
-        asyncio.create_task(
+        background_task = asyncio.create_task(
             _run_backfill_all_async(task_id, request.max_tweets),
             name=f"backfill-all-{task_id}",
         )
+        _background_tasks.add(background_task)
+        background_task.add_done_callback(_background_tasks.discard)
 
         logger.info(f"创建 Article 批量回溯任务: {task_id}")
 

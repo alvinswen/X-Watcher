@@ -480,8 +480,8 @@ async def get_follow_analysis(
     from src.data_layer.provider import get_scraper_stats_repo
 
     try:
-        # 显式窗口逐周期 count 走 provider(sqlalchemy 转调原 per-period count SQL;
-        # file 组合 FileTweetStore Python 计数)。已正序(最早在前),无 round 陷阱。
+        # 显式窗口逐周期 count 走 provider 的文件仓储 Python 计数。
+        # 结果已正序(最早在前),无 round 陷阱。
         windows = await get_scraper_stats_repo().period_analysis(username, interval_hours, periods)
 
         period_stats = [
