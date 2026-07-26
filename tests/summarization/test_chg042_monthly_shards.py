@@ -488,6 +488,19 @@ async def test_mcp_save_summaries_uses_real_monthly_store_and_reuses_locator(
         text="before",
     )
     await FileSummaryStore(tmp_path).seed([existing])
+    # CHG-046: save_summaries 存在性 fail-closed——两条 tweet_id 需先在推文库
+    await FileTweetStore(tmp_path).save_tweets(
+        [
+            Tweet(
+                tweet_id=tid,
+                text="测试推文",
+                author_username="alice",
+                created_at=datetime(2026, 2, 1, tzinfo=UTC),
+            )
+            for tid in ("existing-tweet", "new-tweet")
+        ],
+        early_stop_threshold=0,
+    )
 
     build_calls = 0
     original_build = summary_module._build_locator

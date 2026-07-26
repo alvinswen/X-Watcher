@@ -132,6 +132,14 @@ class TestSaveSummaries:
         """测试保存单条摘要(原生 list 形态——推荐入参)。"""
         save_summaries = tool_funcs["save_summaries"]
 
+        await _seed_tweets([
+            Tweet(
+                tweet_id="t1",
+                text="测试推文",
+                author_username="alice",
+                created_at=datetime(2026, 4, 1, 10, 0, tzinfo=UTC),
+            )
+        ])
         mock_record = MagicMock()
         with (
             patch("src.mcp.tools.summarization_tools.require_admin", return_value=None),
@@ -170,6 +178,15 @@ class TestSaveSummaries:
         """测试批量保存摘要。"""
         save_summaries = tool_funcs["save_summaries"]
 
+        await _seed_tweets([
+            Tweet(
+                tweet_id=tweet_id,
+                text="测试推文",
+                author_username="alice",
+                created_at=datetime(2026, 4, 1, 10, 0, tzinfo=UTC),
+            )
+            for tweet_id in ("t1", "t2", "t3")
+        ])
         mock_record = MagicMock()
         with (
             patch("src.mcp.tools.summarization_tools.require_admin", return_value=None),
@@ -198,6 +215,14 @@ class TestSaveSummaries:
         """测试 JSON 字符串形态仍兼容(为旧调用方保留的退路)。"""
         save_summaries = tool_funcs["save_summaries"]
 
+        await _seed_tweets([
+            Tweet(
+                tweet_id="t1",
+                text="测试推文",
+                author_username="alice",
+                created_at=datetime(2026, 4, 1, 10, 0, tzinfo=UTC),
+            )
+        ])
         mock_record = MagicMock()
         with (
             patch("src.mcp.tools.summarization_tools.require_admin", return_value=None),
@@ -232,6 +257,14 @@ class TestSaveSummaries:
         """测试缺少必填字段时记录失败但不中断批处理。"""
         save_summaries = tool_funcs["save_summaries"]
 
+        await _seed_tweets([
+            Tweet(
+                tweet_id="t1",
+                text="测试推文",
+                author_username="alice",
+                created_at=datetime(2026, 4, 1, 10, 0, tzinfo=UTC),
+            )
+        ])
         mock_record = MagicMock()
         with (
             patch("src.mcp.tools.summarization_tools.require_admin", return_value=None),

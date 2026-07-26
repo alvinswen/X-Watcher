@@ -32,11 +32,15 @@ DAILY_SUMMARY_RECIPE = """\
 
 ### Step 3：获取摘要缺口
 调用 `get_unsummarized_tweets(limit=25, since=<start>, until=<end>)`
+- 记录每条推文的 tweet_id：回写时必须从返回**原样复制**（字符串），勿手工拼装、凭记忆重构或改类型
 - 如果返回 0 条 → 直接进入浏览验证
 - 如果有待处理推文 → 在 Claude Code 上下文中生成中文摘要和翻译
 
 ### Step 4：保存结果
-调用 `save_summaries(summaries=[...])` 回写生成结果。保存前检查摘要、翻译是否完整；验证门会返回未通过条目的明细。
+调用 `save_summaries(summaries=[...])` 回写生成结果。保存前检查摘要、翻译是否完整。
+- tweet_id 必须从 `get_unsummarized_tweets` 返回原样复制（字符串），勿手工拼装、凭记忆重构或改类型
+- `save_summaries` 对库内不存在的 tweet_id fail-closed，被拒条目在 `rejected` 数组完整返回
+- 按 `rejected[].category` 分流：`transcription_error`=重抄 ID 后重提 / `not_found`=丢弃勿再构造 / `verification_failed`=重译后回灌
 
 ### Step 5：浏览验证
 调用 `browse_tweets(date=<today>)` 或 `get_feed(since=<start>)`，确认最新推文和摘要可读。
@@ -55,7 +59,7 @@ DAILY_SUMMARY_RECIPE = """\
 | 触发抓取 | trigger_scrape | - |
 | 监控抓取进度 | get_task_status | task_id |
 | 获取摘要缺口 | get_unsummarized_tweets | limit, since, until |
-| 保存摘要 | save_summaries | summaries |
+| 保存摘要 | save_summaries | summaries (tweet_id 原样复制;被拒看 rejected[].category) |
 | 浏览验证 | browse_tweets / get_feed | date / since |
 """
 
@@ -79,6 +83,7 @@ CLAUDE_CODE_SUMMARIZE_RECIPE = """\
 调用 `get_unsummarized_tweets(limit=25)`
 - 可选参数：since/until 时间过滤，author 作者过滤
 - 返回推文原文、作者、引用类型等完整上下文
+- tweet_id 后续回写必须从返回**原样复制**（字符串），勿手工拼装、凭记忆重构或改类型
 - 如果输出被持久化到文件，用 Read 工具读取完整数据；严禁用脚本截断推文文本
 
 ### Step 4：生成摘要和翻译
@@ -97,6 +102,9 @@ CLAUDE_CODE_SUMMARIZE_RECIPE = """\
   （推荐原生数组形态；为兼容旧调用方也接受 JSON 字符串，但不推荐——
   手工拼装 JSON 字符串容易出现引号转义错位类错误）
 - 支持批量保存，单条失败不影响其他条目
+- tweet_id 必须从 `get_unsummarized_tweets` 返回原样复制（字符串），勿手工拼装、凭记忆重构或改类型
+- `save_summaries` 对库内不存在的 tweet_id fail-closed，被拒条目在 `rejected` 数组完整返回
+- 按 `rejected[].category` 分流：`transcription_error`=重抄 ID 后重提 / `not_found`=丢弃勿再构造 / `verification_failed`=重译后回灌
 - 结果以 model_provider="claude_code" 存储
 
 ### Step 6：验证
@@ -113,7 +121,7 @@ CLAUDE_CODE_SUMMARIZE_RECIPE = """\
 | 抓取 | trigger_scrape | usernames, limit |
 | 等待 | get_task_status | task_id |
 | 获取待翻译 | get_unsummarized_tweets | limit, since, until |
-| 保存结果 | save_summaries | summaries (原生数组,亦兼容 JSON 字符串) |
+| 保存结果 | save_summaries | summaries (原生数组,亦兼容 JSON 字符串;tweet_id 原样复制) |
 | 验证 | browse_tweets | date |
 """
 
