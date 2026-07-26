@@ -76,8 +76,11 @@ def verify_translation(
     Returns:
         None 表示通过；非空字符串为失败原因（写入 errors）。
 
-    降级策略：原文整体缺失（DB 查不到该 tweet）时无法做原文相关校验，
-    返回 None（放行），不阻断入库。
+    降级策略：原文基准为空时无法做原文相关校验，返回 None（放行），
+    不阻断入库。
+    注（CHG-046）：save_summaries 已前置"库内存在性"闸——"库内查无此推文"
+    的条目在进入本函数前即被结构化拒绝，本放行分支在生产路径仅由
+    "推文存在但正文与被引用文均为空"（纯媒体推文）触达。
     """
     basis = original_basis(tweet_text, referenced_text, reference_type)
     if not basis.strip():
