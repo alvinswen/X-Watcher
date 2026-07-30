@@ -1,0 +1,107 @@
+# CI 自动门禁（CHG-047 · 工程护栏）
+# 语义：把仓内既有三门禁（check-lint.sh / check-types.sh / pytest）+ 前端 build/vitest
+#       原样搬上干净环境自动跑。门禁脚本本体 0 改动。
+# 版本钉死（四处 · 全部实证取值 · 禁浮动版本 · runner 补钉 = ANSWER-1 2026-07-30）：
+#   uv 0.11.13（PM 本机同版全链实测）/ Python 3.12.13（.venv 实况版 · uv 托管可下载）
+#   / Node 22.23.1（22 LTS 线最新 patch @ 2026-07-29 · 满足 vite 7 引擎要求 >=22.12.0）
+# 依赖安装 fail-closed：uv sync --locked（锁与声明不一致 → exit 1 拒装 · 实测铁证）
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_VERSION: "0.11.13"
+  PYTHON_VERSION: "3.12.13"
+  NODE_VERSION: "22.23.1"
+
+jobs:
+  backend-lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - name: Install pinned Python
+        run: uv python install "${PYTHON_VERSION}"
+      - name: Install deps (fail-closed)
+        run: uv sync --locked --extra dev --python "${PYTHON_VERSION}"
+      - name: Gate lint
+        run: bash scripts/check-lint.sh
+
+  backend-types:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - name: Install pinned Python
+        run: uv python install "${PYTHON_VERSION}"
+      - name: Install deps (fail-closed)
+        run: uv sync --locked --extra dev --python "${PYTHON_VERSION}"
+      - name: Gate types
+        run: bash scripts/check-types.sh
+
+  backend-pytest:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - name: Install pinned Python
+        run: uv python install "${PYTHON_VERSION}"
+      - name: Install deps (fail-closed)
+        run: uv sync --locked --extra dev --python "${PYTHON_VERSION}"
+      - name: Freeze snapshot (判据 1/8 对账源)
+        run: |
+          echo "=== CI-FREEZE-BEGIN ==="
+          uv pip freeze --python .venv
+          echo "=== CI-FREEZE-END ==="
+      - name: Gate pytest
+        run: .venv/bin/python -m pytest -q
+
+  web-build:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: src/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: src/web/package-lock.json
+      - name: Install deps (fail-closed)
+        run: npm ci --no-audit --no-fund
+      - name: Gate build
+        run: npm run build
+
+  web-vitest:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: src/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: src/web/package-lock.json
+      - name: Install deps (fail-closed)
+        run: npm ci --no-audit --no-fund
+      - name: Gate vitest (one-shot)
+        run: npx vitest run
