@@ -40,3 +40,7 @@ class ErrorResponse(BaseModel):
     """错误响应声明模型。"""
 
     detail: str = Field(..., description="错误详情")
+
+
+def _chg047_drill_probe() -> int:
+    return "deliberately-red"  # mypy 必红 · 演习用后即删
