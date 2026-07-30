@@ -278,3 +278,70 @@ PY
 ## 后续运维约定预留
 
 后续新增约定时按“适用范围、风险、执行前置、具体命令、成功判据、失败/回滚、日志位置、责任人”结构追加；不得覆盖或弱化上面的停手窗口与跨进程互斥约束。
+
+## CI 与依赖锁定
+
+### 锁文件维护
+
+日常安装只允许使用锁定模式；锁与依赖声明不一致时必须失败，不得绕过：
+
+```bash
+uv sync --locked --extra dev --python 3.12.13
+```
+
+确需修改后端依赖时，在同一个专用 PR 中完成以下动作：
+
+1. 修改 `pyproject.toml` 中的依赖声明。
+2. 使用仓库当前钉定的 uv 与 Python 重新解析锁文件：
+
+   ```bash
+   uv lock --python 3.12.13
+   uv sync --locked --extra dev --python 3.12.13
+   ```
+
+3. 用 `uv pip freeze --python .venv` 复核安装集；若出现跨平台差异，只能按下方白名单处理，任何未解释的版本漂移都必须停止提交并调查。
+4. 运行后端三门禁与前端两项门禁。
+5. 将依赖声明与更新后的 `uv.lock` 放在同一个 PR；禁止只提交其中一个文件。
+
+只想确认锁仍与声明一致时，运行 `uv lock --check`，不要重生成或升级依赖。
+
+### freeze 跨平台白名单
+
+以下白名单恰含两项；两者都是 PM 既有虚拟环境中的历史孤儿，仓库 `src/` 与 `tests/` 均为 0 import，因此不进入 `uv.lock`：
+
+- `numpy`：PM 虚拟环境历史孤儿；仓库 `src/` 与 `tests/` 0 import。
+- `scipy`：PM 虚拟环境历史孤儿；仓库 `src/` 与 `tests/` 0 import。
+
+`colorama` 与 `pywin32` 是锁文件中的 Windows 条件 marker 包，Linux 与 macOS 均不安装；它们不是上述 freeze 白名单项。白名单外差异一律不得静默接受。
+
+### CI 门禁与重跑
+
+CI 把本地既有门禁原样搬到干净环境，5 个 required-check 名称固定为：
+
+- `backend-lint`
+- `backend-types`
+- `backend-pytest`
+- `web-build`
+- `web-vitest`
+
+本地复现命令为：
+
+```bash
+uv sync --locked --extra dev --python 3.12.13
+bash scripts/check-lint.sh
+bash scripts/check-types.sh
+.venv/bin/python -m pytest -q
+(cd src/web && npm ci --no-audit --no-fund && npm run build && npx vitest run)
+```
+
+依赖源或网络瞬时失败时，可在 GitHub Actions 页面 re-run 失败的 job；连续失败时先核对日志并等待依赖源恢复。代码、锁文件、声明或门禁失败时必须在同一 PR 修正后重推，禁止用 re-run 掩盖确定性失败。
+
+### 固定版本升级路径
+
+版本升级必须单独开 PR，记录旧值与新值，并让 5 个 job 全绿：
+
+1. **Python**：更新 CI 的 `PYTHON_VERSION`，使用新版本重新执行 `uv lock --python <新版本>` 与 `uv sync --locked --extra dev --python <新版本>`，提交由此产生的 `uv.lock`，再跑全部本地门禁。
+2. **uv**：先安装候选 uv，更新 CI 的 `UV_VERSION`，用候选版本重生成并校验 `uv.lock`，再跑锁定安装与全部本地门禁；锁格式变化必须与版本钉同 PR。
+3. **Node**：更新 CI 的 `NODE_VERSION`，在无 `node_modules` 状态下运行 `npm ci --no-audit --no-fund`、`npm run build` 与 `npx vitest run`；除非前端依赖声明也有意变化，否则不得改 `package-lock.json`。
+
+runner 也固定为 `ubuntu-24.04`。镜像退役或必须升级时，须在同一 PR 中同步修改 5 个 job 的 `runs-on`，复跑 workflow schema 校验并等待 5 个 job 全绿，禁止只改部分 job。
