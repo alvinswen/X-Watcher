@@ -69,8 +69,8 @@ jobs:
           echo "=== CI-FREEZE-BEGIN ==="
           uv pip freeze --python .venv
           echo "=== CI-FREEZE-END ==="
-      - name: Gate pytest
-        run: .venv/bin/python -m pytest -q
+      - name: Gate pytest (含覆盖率底线 fail_under=85 · CHG-048)
+        run: .venv/bin/python -m pytest -q --cov
 
   web-build:
     runs-on: ubuntu-24.04
@@ -105,3 +105,20 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Gate vitest (one-shot)
         run: npx vitest run
+
+  web-lint:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: src/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: src/web/package-lock.json
+      - name: Install deps (fail-closed)
+        run: npm ci --no-audit --no-fund
+      - name: Gate lint (correctness tier / CHG-048)
+        run: npm run lint

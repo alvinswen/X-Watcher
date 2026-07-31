@@ -25,6 +25,9 @@ const emit = defineEmits<{
   "update:visible": [value: boolean]
   "update:formRef": [value: FormInstance | undefined]
   "update:keywordInput": [value: string]
+  "update:name": [value: string]
+  "update:nlDescription": [value: string]
+  "update:status": [value: SubjectStatus]
   addKeyword: []
   removeKeyword: [keyword: string]
   submit: []
@@ -52,10 +55,20 @@ const visibleModel = computed({
       label-position="top"
     >
       <el-form-item label="议题名" prop="name">
-        <el-input v-model="form.name" maxlength="120" show-word-limit />
+        <el-input
+          :model-value="form.name"
+          maxlength="120"
+          show-word-limit
+          @update:model-value="$emit('update:name', $event)"
+        />
       </el-form-item>
       <el-form-item label="语义描述" prop="nl_description">
-        <el-input v-model="form.nl_description" type="textarea" :rows="6" />
+        <el-input
+          :model-value="form.nl_description"
+          type="textarea"
+          :rows="6"
+          @update:model-value="$emit('update:nlDescription', $event)"
+        />
       </el-form-item>
       <el-form-item label="关键词">
         <div class="keyword-editor">
@@ -79,7 +92,10 @@ const visibleModel = computed({
         </div>
       </el-form-item>
       <el-form-item label="状态">
-        <el-radio-group v-model="form.status">
+        <el-radio-group
+          :model-value="form.status"
+          @update:model-value="$emit('update:status', $event as SubjectStatus)"
+        >
           <el-radio-button label="active">活跃</el-radio-button>
           <el-radio-button label="paused">暂停</el-radio-button>
         </el-radio-group>

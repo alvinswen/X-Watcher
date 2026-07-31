@@ -31,6 +31,22 @@ const router = createRouter({
   ],
 })
 
+/**
+ * TweetsView <script setup> 内部成员的测试视图类型（CHG-048 存量修复）：
+ * 只收敛本测试真实触达的 7 个成员，替代逐处显式 any 断言。
+ */
+interface TweetsViewVm {
+  handlePageChange: (page: number) => Promise<void>
+  handleSizeChange: (size: number) => Promise<void>
+  handleFilterChange: () => Promise<void>
+  handleRefresh: () => Promise<void>
+  handleTweetClick: (tweetId: string) => Promise<void>
+  filterAuthor: string
+  currentPage: number
+}
+
+const vmOf = (w: VueWrapper) => w.vm as unknown as TweetsViewVm
+
 const mockTweets: TweetListItem[] = [
   {
     tweet_id: "tweet1",
@@ -233,7 +249,7 @@ describe("TweetsView.vue", () => {
       vi.mocked(tweetsApi.getList).mockResolvedValue(mockResponse)
 
       // 调用 handlePageChange 方法
-      await (wrapper.vm as any).handlePageChange(2)
+      await vmOf(wrapper).handlePageChange(2)
       await flushPromises()
 
       expect(tweetsApi.getList).toHaveBeenCalledWith({
@@ -250,7 +266,7 @@ describe("TweetsView.vue", () => {
       vi.mocked(tweetsApi.getList).mockClear()
       vi.mocked(tweetsApi.getList).mockResolvedValue(mockResponse)
 
-      await (wrapper.vm as any).handleSizeChange(50)
+      await vmOf(wrapper).handleSizeChange(50)
       await flushPromises()
 
       expect(tweetsApi.getList).toHaveBeenCalledWith({
@@ -267,12 +283,12 @@ describe("TweetsView.vue", () => {
       const { tweetsApi } = await import("@/api")
 
       // 通过 vm 设置 filterAuthor（script setup 中的 ref）
-      ;(wrapper.vm as any).filterAuthor = "user1"
+      vmOf(wrapper).filterAuthor = "user1"
 
       vi.mocked(tweetsApi.getList).mockClear()
       vi.mocked(tweetsApi.getList).mockResolvedValue(mockResponse)
 
-      await (wrapper.vm as any).handleFilterChange()
+      await vmOf(wrapper).handleFilterChange()
       await flushPromises()
 
       expect(tweetsApi.getList).toHaveBeenCalledWith({
@@ -286,12 +302,12 @@ describe("TweetsView.vue", () => {
       wrapper = await mountAndWait()
 
       // 模拟用户在第 2 页
-      ;(wrapper.vm as any).currentPage = 2
+      vmOf(wrapper).currentPage = 2
 
-      await (wrapper.vm as any).handleFilterChange()
+      await vmOf(wrapper).handleFilterChange()
       await flushPromises()
 
-      expect((wrapper.vm as any).currentPage).toBe(1)
+      expect(vmOf(wrapper).currentPage).toBe(1)
     })
   })
 
@@ -303,11 +319,11 @@ describe("TweetsView.vue", () => {
       vi.mocked(tweetsApi.getList).mockClear()
       vi.mocked(tweetsApi.getList).mockResolvedValue(mockResponse)
 
-      await (wrapper.vm as any).handleRefresh()
+      await vmOf(wrapper).handleRefresh()
       await flushPromises()
 
       expect(tweetsApi.getList).toHaveBeenCalled()
-      expect((wrapper.vm as any).currentPage).toBe(1)
+      expect(vmOf(wrapper).currentPage).toBe(1)
     })
   })
 
@@ -316,7 +332,7 @@ describe("TweetsView.vue", () => {
       wrapper = await mountAndWait()
       const pushSpy = vi.spyOn(router, "push")
 
-      await (wrapper.vm as any).handleTweetClick("tweet1")
+      await vmOf(wrapper).handleTweetClick("tweet1")
 
       expect(pushSpy).toHaveBeenCalledWith("/tweets/tweet1")
     })
