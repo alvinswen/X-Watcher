@@ -345,3 +345,37 @@ bash scripts/check-types.sh
 3. **Node**：更新 CI 的 `NODE_VERSION`，在无 `node_modules` 状态下运行 `npm ci --no-audit --no-fund`、`npm run build` 与 `npx vitest run`；除非前端依赖声明也有意变化，否则不得改 `package-lock.json`。
 
 runner 也固定为 `ubuntu-24.04`。镜像退役或必须升级时，须在同一 PR 中同步修改 5 个 job 的 `runs-on`，复跑 workflow schema 校验并等待 5 个 job 全绿，禁止只改部分 job。
+
+## Web lint、覆盖率、warning 与依赖审计（CHG-048）
+
+### Web lint 正确性档
+
+Web 门禁运行 `cd src/web && npm run lint`，只拦类型正确性与 Vue 契约正确性。本次基线 467 条诊断中清除 13 条正确性错误（`TweetsView.test.ts` 的 10 条 `no-explicit-any`、`SubjectFormDrawer.vue` 的 3 条 `no-mutating-props`）；其余 454 条风格项留给独立的 prettier 专项，不在正确性档搭车处理。终态基线为 **N=0 error**，新增任何正确性错误都必须让 CI 变红。
+
+豁免必须收窄到确属生成物的路径，写明原因、责任人和退出条件，并由 PM 审批；禁止用行内 `eslint-disable`、扩大 `ignores` 或关闭规则洗绿。当前仅忽略 `dist/**`、`node_modules/**`、`coverage/**` 三类生成目录，业务源码无豁免。
+
+工具精确固定为 `eslint 9.39.5`、`eslint-plugin-vue 10.10.0`、`typescript-eslint 8.65.0`。升级必须单独开 PR，在干净的 `node_modules` 状态运行 `npm ci`，先用升级前配置重数并记录 **13 error / 467 total** 基线，再用候选版本重数、解释规则差异，最后让 lint、vitest、build 和锁守卫全部通过；不得把升级与业务改动混在同一 PR。
+
+### Python 覆盖率门槛
+
+`pyproject.toml` 中 `fail_under = 85` 与 `precision = 2` 是承重门禁，禁止删除、降级或用低精度掩盖临界值。本地复现命令为 `uv run pytest -q --cov`；PM 是唯一可批准阈值调整的人，调整必须有独立变更、前后覆盖率证据和明确回退方案。
+
+### Python warning 闸
+
+pytest 默认把未知 warning 当作错误。当前仅精确忽略一条迁移期告警：
+
+```text
+ignore:Using `httpx` with `starlette.testclient` is deprecated:starlette.exceptions.StarletteDeprecationWarning
+```
+
+新增 warning 必须先定位并修复，禁止扩大为模块级或类别级忽略；过滤串与真实消息不匹配时会在 collection 阶段退出 4，应按规则漂移处理。项目完成 `httpx2` 迁移后必须删除这条精确忽略并复跑全量测试。
+
+### 依赖漏洞审计与通知
+
+`security-audit.yml` 的两类生产红灯口径不同：后端生产依赖发现任意已知漏洞即 `AUDIT-FOUND-VULNS`；Web 生产依赖的 high 与 critical 合计大于 0 即 `AUDIT-FOUND-VULNS`。JSON 缺失或不可解析属于 `AUDIT-INFRA-FAILURE`，表示漏洞库或网络故障，只需重跑，不得误报为安全事故。
+
+真实漏洞先由 PM 定级：高危进入 hotfix；非高危只有在确认可接受后，才允许使用 `--ignore-vuln <漏洞 ID>` 精确豁免，并在本节登记漏洞 ID、受影响包与版本、风险说明、PM 批准记录、到期日和移除条件。当前精确豁免登记为 **无**。开发/测试工具链只报告不拦截；基线已知的 6 个 high 来自 `brace-expansion` 测试链，数量或依赖链变化时必须复核，但不得直接改变生产门禁口径。
+
+审计在 PR、每周一和手动触发下运行；`workflow_dispatch` 的 `drill=true` 用于验证失败通知会创建并指派给 `alvinswen` 的 issue。演练 issue 在 PM 确认收到通知后必须立即关闭，否则真实周失败可能被错误追评到演练单。定时工作流只存在于默认分支；公开仓库连续 60 天无活动时平台可能自动停用 schedule，恢复活动后须确认其已重新启用。
+
+已验证 drill 分支与真实通知共用同一步骤体；`schedule && failure` 这一布尔触发分支在首次真实周失败前仍是留册残差。首次周跑须同时确认 backend-audit、web-audit 结果以及无失败时 notify-on-failure 为 skipped；首次真实失败时还须确认通知分支被正确触发。

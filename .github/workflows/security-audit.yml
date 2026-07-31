@@ -1,0 +1,142 @@
+# 依赖漏洞审计（CHG-048 · 工程护栏二期）
+# 语义（Q5/Q6/Q7 决议）：
+#   - 生产依赖有漏洞即红（后端任意档 · 前端 high+critical）：job 红但【不进必过清单 · 不拦 merge】
+#     红后 PM 先定级：高危 -> hotfix；非高危 -> --ignore-vuln 精确豁免 + OPERATIONS.md 登记（A5 加固 #3）
+#   - 测试/开发工具链漏洞：只报告不拦（前端现存 6 high = brace-expansion 测试链传入 · 已知存量）
+#   - 触发：PR 上跑 + 每周一定时跑 + 手动（含通知链路演练 drill）
+#   - 审计工具 CI 独立安装（uvx 隔离环境 / npm 内建 audit），不进项目依赖声明、不碰后端依赖锁
+# 两类红区分（01 § 4.4）：判定一律基于 JSON 产物解析，不依赖工具退出码——
+#   产物可解析 + 有漏洞 = AUDIT-FOUND-VULNS（真发现 · 走 hotfix）
+#   产物缺失/不可解析     = AUDIT-INFRA-FAILURE（漏洞库/网络故障 · 重跑即可 · 非安全事故）
+# 失败通知路由（A2 注意事项 ①）：定时跑失败 → notify-on-failure 开 issue 并指派 PM（alvinswen），
+#   不依赖平台「通知工作流文件最后修改人」的默认路由；链路可用 workflow_dispatch drill=true 实证演练。
+name: security-audit
+
+on:
+  pull_request:
+  schedule:
+    - cron: "20 2 * * 1" # 每周一 02:20 UTC（北京时间周一 10:20）
+  workflow_dispatch:
+    inputs:
+      drill:
+        description: "通知链路演练：强制走失败通知路径（非真实漏洞）"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  UV_VERSION: "0.11.13"
+  PYTHON_VERSION: "3.12.13"
+  NODE_VERSION: "22.23.1"
+  PIP_AUDIT_VERSION: "2.9.0"
+
+jobs:
+  backend-audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: Export locked dependency sets (0 lock mutation)
+        run: |
+          set -euo pipefail
+          uv export --locked --no-dev --no-emit-project --no-hashes -o /tmp/prod-reqs.txt
+          uv export --locked --extra dev --no-emit-project --no-hashes -o /tmp/dev-reqs.txt
+          git diff --exit-code uv.lock pyproject.toml
+      - name: Audit production deps (red = vulns found, not merge-blocking)
+        run: |
+          set -euo pipefail
+          uvx --python "${PYTHON_VERSION}" "pip-audit==${PIP_AUDIT_VERSION}" \
+            -r /tmp/prod-reqs.txt --disable-pip --no-deps \
+            -f json -o /tmp/audit-prod.json || true
+          if ! python3 -c "import json; json.load(open('/tmp/audit-prod.json'))" 2>/dev/null; then
+            echo "::error::AUDIT-INFRA-FAILURE backend: vulnerability DB or network failure - rerun, NOT a security incident"
+            exit 1
+          fi
+          VULNS=$(python3 -c "import json; d=json.load(open('/tmp/audit-prod.json')); print(sum(len(x.get('vulns',[])) for x in d['dependencies']))")
+          echo "backend production vulns: ${VULNS}"
+          if [ "${VULNS}" -gt 0 ]; then
+            python3 -c "import json; d=json.load(open('/tmp/audit-prod.json')); [print(x['name'], x['version'], v['id'], v.get('fix_versions')) for x in d['dependencies'] for v in x.get('vulns',[])]"
+            echo "::error::AUDIT-FOUND-VULNS backend production deps have known vulns - PM triage first: high severity -> hotfix; non-high -> record --ignore-vuln exemption (see OPERATIONS.md)"
+            exit 1
+          fi
+      - name: Report dev toolchain (report-only, never gates)
+        run: |
+          set -euo pipefail
+          uvx --python "${PYTHON_VERSION}" "pip-audit==${PIP_AUDIT_VERSION}" \
+            -r /tmp/dev-reqs.txt --disable-pip --no-deps \
+            -f json -o /tmp/audit-dev.json || true
+          if ! python3 -c "import json; json.load(open('/tmp/audit-dev.json'))" 2>/dev/null; then
+            echo "::warning::AUDIT-INFRA-FAILURE backend dev-toolchain report unavailable this run"
+            exit 0
+          fi
+          python3 -c "import json; d=json.load(open('/tmp/audit-dev.json')); vs=[(x['name'],x['version'],v['id']) for x in d['dependencies'] for v in x.get('vulns',[])]; print('backend dev-toolchain vulns:', len(vs)); [print(*v) for v in vs]"
+
+  web-audit:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: src/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Audit production deps (high+ = red, not merge-blocking)
+        run: |
+          set -euo pipefail
+          npm audit --omit=dev --json > /tmp/npm-audit-prod.json || true
+          if ! python3 -c "import json; json.load(open('/tmp/npm-audit-prod.json'))" 2>/dev/null; then
+            echo "::error::AUDIT-INFRA-FAILURE web: registry or network failure - rerun, NOT a security incident"
+            exit 1
+          fi
+          HIGHS=$(python3 -c "import json; m=json.load(open('/tmp/npm-audit-prod.json'))['metadata']['vulnerabilities']; print(m['high']+m['critical'])")
+          echo "web production high+critical vulns: ${HIGHS}"
+          if [ "${HIGHS}" -gt 0 ]; then
+            npm audit --omit=dev || true
+            echo "::error::AUDIT-FOUND-VULNS web production deps have high/critical vulns - start hotfix flow"
+            exit 1
+          fi
+      - name: Report full toolchain incl. dev (report-only, never gates)
+        run: |
+          set -euo pipefail
+          npm audit --json > /tmp/npm-audit-all.json || true
+          if ! python3 -c "import json; json.load(open('/tmp/npm-audit-all.json'))" 2>/dev/null; then
+            echo "::warning::AUDIT-INFRA-FAILURE web full-toolchain report unavailable this run"
+            exit 0
+          fi
+          python3 -c "import json; m=json.load(open('/tmp/npm-audit-all.json'))['metadata']['vulnerabilities']; print('web full-scope vulns:', m)"
+          npm audit || true
+
+  notify-on-failure:
+    needs: [backend-audit, web-audit]
+    if: always() && ((github.event_name == 'schedule' && contains(needs.*.result, 'failure')) || (github.event_name == 'workflow_dispatch' && inputs.drill))
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Open issue assigned to PM (routing does NOT rely on default notifications)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          IS_DRILL: ${{ github.event_name == 'workflow_dispatch' && inputs.drill }}
+        run: |
+          set -euo pipefail
+          if [ "${IS_DRILL}" = "true" ]; then
+            TITLE="[security-audit][drill] notification-path drill $(date -u +%F)"
+            BODY="This is a notification-path DRILL (no real vulnerability). If PM received this issue notification, the weekly-audit failure routing is verified. Close after confirming. Run: ${RUN_URL}"
+          else
+            TITLE="[security-audit] weekly audit FAILED $(date -u +%F)"
+            BODY="Weekly security audit failed. First read the run log to distinguish: AUDIT-FOUND-VULNS (real vulns - PM triage first: high severity -> hotfix; non-high -> record --ignore-vuln exemption per OPERATIONS.md) vs AUDIT-INFRA-FAILURE (network/DB outage - just rerun, NOT a security incident). Run: ${RUN_URL}"
+          fi
+          EXISTING=$(gh issue list --repo "${REPO}" --state open --search "in:title [security-audit]" --json number --jq '.[0].number // empty')
+          if [ -n "${EXISTING}" ] && [ "${IS_DRILL}" != "true" ]; then
+            gh issue comment "${EXISTING}" --repo "${REPO}" --body "${BODY}"
+          else
+            gh issue create --repo "${REPO}" --title "${TITLE}" --body "${BODY}" --assignee alvinswen
+          fi
