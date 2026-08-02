@@ -7,6 +7,7 @@ import type {
   SubjectDigestResponse,
   SubjectFeedResponse,
   SubjectReview,
+  SubjectReviewHistoryResponse,
   SubjectReviewRefreshResponse,
   SubjectStatus,
   SubjectUpdateRequest,
@@ -74,6 +75,22 @@ export const subjectsApi = {
   async review(subjectId: string): Promise<SubjectReview> {
     const response = await client.get<SubjectReview>(
       `${SUBJECTS_PREFIX}/${subjectId}/review`,
+      { suppressErrorToast: true },
+    )
+    return response.data
+  },
+
+  async reviewHistory(subjectId: string): Promise<SubjectReviewHistoryResponse> {
+    const response = await client.get<SubjectReviewHistoryResponse>(
+      `${SUBJECTS_PREFIX}/${subjectId}/review/history`,
+      { suppressErrorToast: true },
+    )
+    return response.data
+  },
+
+  async reviewVersion(subjectId: string, version: number): Promise<SubjectReview> {
+    const response = await client.get<SubjectReview>(
+      `${SUBJECTS_PREFIX}/${subjectId}/review/history/${version}`,
       { suppressErrorToast: true },
     )
     return response.data

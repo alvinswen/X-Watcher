@@ -11,6 +11,7 @@ from src.subjects.api.schemas import (
     SubjectCreateRequest,
     SubjectCreateResponse,
     SubjectResponse,
+    SubjectReviewHistoryResponse,
     SubjectReviewRefreshResponse,
     SubjectReviewResponse,
     SubjectUpdateRequest,
@@ -19,6 +20,7 @@ from src.subjects.constants import (
     MAX_ACTIVE_SUBJECTS,
     REVIEW_MIGRATED_MESSAGE,
     REVIEW_PENDING_MESSAGE,
+    REVIEW_VERSION_NOT_FOUND,
     SUBJECT_NOT_FOUND,
 )
 from src.subjects.models import Subject, SubjectDigest, SubjectStatus
@@ -204,6 +206,54 @@ async def get_subject_review(
     cards, missing = await default_subject_repo().get_tweet_cards_by_ids(section_ids)
     payload = {**payload, "cited_tweets": cards, "missing_tweet_ids": missing}
     return payload
+
+
+@router.get("/{subject_id}/review/history", response_model=SubjectReviewHistoryResponse)
+async def list_subject_review_history(
+    subject_id: str,
+    _user: UserDomain = Depends(get_current_admin_user),
+) -> dict[str, Any]:
+    repo = default_subject_repo()
+    if await repo.get_subject(subject_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=SUBJECT_NOT_FOUND)
+    current = await repo.get_review(subject_id)
+    history = await repo.list_review_history(subject_id)
+    return {
+        "subject_id": subject_id,
+        "current_version": current.version if current else 0,
+        "items": [
+            {
+                "version": review.version,
+                "generated_at": review.generated_at,
+                "generated_by": review.generated_by,
+            }
+            for review in reversed(history)
+        ],
+    }
+
+
+@router.get("/{subject_id}/review/history/{version}", response_model=SubjectReviewResponse)
+async def get_subject_review_version(
+    subject_id: str,
+    version: int,
+    _user: UserDomain = Depends(get_current_admin_user),
+) -> dict[str, Any]:
+    repo = default_subject_repo()
+    if await repo.get_subject(subject_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=SUBJECT_NOT_FOUND)
+    review = await repo.get_review_version(subject_id, version)
+    if review is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=REVIEW_VERSION_NOT_FOUND
+        )
+    payload: dict[str, Any] = review.model_dump(mode="json")
+    section_ids = [
+        tweet_id
+        for section in payload.get("sections", [])
+        for tweet_id in section.get("cited_tweet_ids", [])
+    ]
+    cards, missing = await repo.get_tweet_cards_by_ids(section_ids)
+    return {**payload, "cited_tweets": cards, "missing_tweet_ids": missing}
 
 
 @router.post(

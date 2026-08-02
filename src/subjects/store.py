@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import logging
 import shutil
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
@@ -35,6 +36,8 @@ from src.subjects.models import (
     SubjectReview,
     SubjectStatus,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class PublishWindowMatches(list[SubjectMatch]):
@@ -386,11 +389,43 @@ class FileSubjectStore:
         if not base.exists():
             return []
         reviews: list[SubjectReview] = []
-        for path in sorted(base.glob("*.json"), key=lambda item: int(item.stem)):
-            doc = read_doc(path)
-            if doc:
+        candidates = [path for path in base.glob("*.json") if path.stem.isdigit()]
+        for path in sorted(candidates, key=lambda item: int(item.stem)):
+            try:
+                doc = read_doc(path)
+            except (ValueError, OSError):
+                logger.warning(
+                    "review history 版本文件读取失败已跳过 subject_id=%s file=%s",
+                    subject_id,
+                    path.name,
+                )
+                continue
+            if not doc:
+                continue
+            try:
                 reviews.append(SubjectReview(**doc))
+            except ValueError:
+                logger.warning(
+                    "review history 版本文件解析失败已跳过 subject_id=%s file=%s",
+                    subject_id,
+                    path.name,
+                )
+                continue
         return reviews
+
+    async def get_review_version(self, subject_id: str, version: int) -> SubjectReview | None:
+        if version < 1:
+            return None
+        try:
+            doc = read_doc(paths.subject_review_history_doc(self._root, subject_id, version))
+            return SubjectReview(**doc) if doc else None
+        except (ValueError, OSError):
+            logger.warning(
+                "review history 单版读取失败 subject_id=%s version=%s",
+                subject_id,
+                version,
+            )
+            return None
 
     async def get_tweets_by_ids(self, tweet_ids: list[str]) -> tuple[list[dict[str, Any]], list[str]]:
         from src.shared.read_cache import load_all_tweets_map, load_summary_map
