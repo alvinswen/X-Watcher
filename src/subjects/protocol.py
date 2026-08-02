@@ -143,6 +143,10 @@ class SubjectRepoProtocol(Protocol):
         self, tweet_ids: list[str]
     ) -> tuple[list[dict[str, Any]], list[str]]: ...
 
+    async def get_tweet_cards_by_ids(
+        self, tweet_ids: list[str]
+    ) -> tuple[list[dict[str, Any]], list[str]]: ...
+
     async def get_tweet_author_ids(
         self,
         tweet_ids: list[str],

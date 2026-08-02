@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed } from "vue"
-import { Document, Refresh, WarningFilled } from "@element-plus/icons-vue"
-import type { SubjectReview, SubjectReviewSection } from "@/types"
+import { useRouter } from "vue-router"
+import { Document, Refresh } from "@element-plus/icons-vue"
+import LoadErrorState from "@/components/LoadErrorState.vue"
+import TweetCard from "@/components/TweetCard.vue"
+import type { SubjectReview, SubjectReviewSection, TweetCardData } from "@/types"
 
 const props = defineProps<{
   loading: boolean
@@ -16,6 +19,7 @@ const props = defineProps<{
   updatedText: string
   openSections: string[]
   openCites: string[]
+  retryReview: () => Promise<unknown>
 }>()
 
 const emit = defineEmits<{
@@ -32,6 +36,12 @@ const openCitesModel = computed({
   get: () => props.openCites,
   set: (value: string[]) => emit("update:openCites", value),
 })
+const router = useRouter()
+const citedTweetMap = computed(
+  () => new Map<string, TweetCardData>(
+    (props.review?.cited_tweets ?? []).map((tweet) => [tweet.tweet_id, tweet]),
+  ),
+)
 
 function reviewSectionName(index: number): string {
   return String(index)
@@ -40,25 +50,26 @@ function reviewSectionName(index: number): string {
 function reviewCiteName(index: number): string {
   return `cite-${index}`
 }
+
+function goToDetail(id: string): void {
+  router.push(`/tweets/${id}`)
+}
 </script>
 
 <template>
   <div v-if="loading && !review" class="review-pane">
     <el-skeleton v-for="index in 2" :key="index" animated class="review-skeleton">
       <template #template>
-        <el-skeleton-item variant="text" class="review-skel-title" />
+        <el-skeleton-item variant="text" class="review-skel-time" />
         <el-skeleton-item variant="text" />
         <el-skeleton-item variant="text" />
+        <el-skeleton-item variant="rect" class="review-skel-media" />
       </template>
     </el-skeleton>
   </div>
 
   <div v-else class="review-pane" :data-review-version="version">
-    <div v-if="error" class="review-error" data-review-error>
-      <el-icon><WarningFilled /></el-icon>
-      <p>{{ error }}</p>
-      <el-button plain :icon="Refresh" @click="$emit('request')">重试</el-button>
-    </div>
+    <LoadErrorState v-if="error" :retry="retryReview" />
 
     <template v-else>
       <div class="review-infobar">
@@ -181,15 +192,24 @@ function reviewCiteName(index: number): string {
                 :title="`引用 ${section.cited_tweet_ids.length} 条`"
               >
                 <div
-                  class="review-cite-item"
+                  class="review-cite-panel"
                   :data-cited-tweet-ids="section.cited_tweet_ids.join(',')"
                 >
-                  <p>{{ section.body }}</p>
-                  <div class="review-cite-ids">
-                    <code v-for="tweetId in section.cited_tweet_ids" :key="tweetId">
-                      {{ tweetId }}
-                    </code>
-                  </div>
+                  <template v-for="tweetId in section.cited_tweet_ids" :key="tweetId">
+                    <TweetCard
+                      v-if="citedTweetMap.has(tweetId)"
+                      :tweet="citedTweetMap.get(tweetId)!"
+                      clickable
+                      collapsible-original
+                      media-hover-zoom
+                      :data-cite-tweet-id="tweetId"
+                      @click="goToDetail"
+                    />
+                    <div v-else class="cite-missing-row" :data-cite-missing-id="tweetId">
+                      <span class="cite-missing-text">原推文暂不可查</span>
+                      <code class="cite-missing-id">{{ tweetId }}</code>
+                    </div>
+                  </template>
                 </div>
               </el-collapse-item>
             </el-collapse>
@@ -276,18 +296,20 @@ function reviewCiteName(index: number): string {
 .review-skeleton {
   display: grid;
   gap: 12px;
-}
-
-.review-skeleton {
-  padding: 20px;
   margin-bottom: 20px;
   border: 1px solid var(--border-light);
   border-radius: var(--card-radius);
   background: var(--bg-card);
+  padding: var(--card-padding);
 }
 
-.review-skel-title {
-  width: 40%;
+.review-skel-time {
+  width: 28%;
+}
+
+.review-skel-media {
+  width: 100%;
+  height: 180px;
 }
 
 .review-empty {
@@ -300,29 +322,6 @@ function reviewCiteName(index: number): string {
   color: var(--text-tertiary);
   font-size: 64px;
   opacity: 0.7;
-}
-
-.review-error {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 14px;
-  padding: 48px 20px;
-  color: var(--color-danger);
-  text-align: center;
-}
-
-.review-error > .el-icon {
-  font-size: 56px;
-  opacity: 0.85;
-}
-
-.review-error p {
-  margin: 0;
-  color: var(--color-danger);
-  font-family: var(--font-reading);
-  font-size: var(--body-font-size);
 }
 
 .review-trend {
@@ -506,37 +505,36 @@ function reviewCiteName(index: number): string {
   padding: 12px 0 0;
 }
 
-.review-cite-item {
+.review-cite-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border-radius: var(--el-border-radius-base);
+  background: var(--bg-inset);
+}
+
+.cite-missing-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 10px 14px;
-  border-left: 3px solid var(--color-primary-light);
-  border-radius: 0 var(--el-border-radius-base) var(--el-border-radius-base) 0;
+  border-radius: var(--el-border-radius-base);
   background: var(--bg-inset);
   cursor: default;
 }
 
-.review-cite-item p {
-  margin: 0 0 6px;
-  color: var(--text-primary);
-  font-family: var(--font-reading);
+.cite-missing-text {
+  color: var(--text-secondary);
   font-size: var(--small-font-size);
-  line-height: 1.8;
 }
 
-.review-cite-ids {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.review-cite-ids code {
+.cite-missing-id {
   padding: 1px 7px;
-  border: 1px solid var(--border-light);
   border-radius: var(--el-border-radius-small);
   background: var(--bg-card);
   color: var(--text-tertiary);
   font-family: var(--font-mono);
   font-size: var(--label-font-size);
-  text-decoration: none;
-  cursor: default;
 }
 </style>

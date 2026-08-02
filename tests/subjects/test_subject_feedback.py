@@ -95,7 +95,7 @@ async def test_put_feedback_appends_and_returns_generated_fields(tmp_path):
     assert feedback.target_id == target_id
     assert feedback.corrected_value == {"relevance": 0.2}
 
-    shard = tmp_path / "subjects" / subject_id / "feedback" / "2026-07.jsonl"
+    shard = tmp_path / "subjects" / subject_id / "feedback" / f"{feedback.when:%Y-%m}.jsonl"
     rows = [json.loads(line) for line in shard.read_text(encoding="utf-8").splitlines()]
     assert rows == [feedback.model_dump(mode="json")]
 

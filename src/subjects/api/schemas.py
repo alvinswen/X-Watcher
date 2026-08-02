@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -68,6 +68,22 @@ class SubjectReviewTrendResponse(BaseModel):
     fading: list[str] = Field(default_factory=list)
 
 
+class SubjectReviewCitedTweetResponse(BaseModel):
+    tweet_id: str
+    text: str
+    created_at: datetime
+    author_username: str
+    author_display_name: str | None = None
+    summary_text: str | None = None
+    translation_text: str | None = None
+    media: list[dict[str, Any]] | None = None
+    reference_type: str | None = None
+    referenced_tweet_id: str | None = None
+    referenced_tweet_text: str | None = None
+    referenced_tweet_author_username: str | None = None
+    referenced_tweet_media: list[dict[str, Any]] | None = None
+
+
 class SubjectReviewResponse(BaseModel):
     subject_id: str
     version: int
@@ -79,6 +95,8 @@ class SubjectReviewResponse(BaseModel):
     generated_by: Literal["llm", "fallback", "skill"] | None = None
     updated_at: datetime | None = None
     covered_until: datetime | None = None
+    cited_tweets: list[SubjectReviewCitedTweetResponse] = Field(default_factory=list)
+    missing_tweet_ids: list[str] = Field(default_factory=list)
 
 
 class SubjectReviewRefreshResponse(BaseModel):

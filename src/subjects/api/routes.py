@@ -196,6 +196,13 @@ async def get_subject_review(
     payload = await _review_service().get_review_payload(subject_id)
     if payload is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=SUBJECT_NOT_FOUND)
+    section_ids = [
+        tweet_id
+        for section in payload.get("sections", [])
+        for tweet_id in section.get("cited_tweet_ids", [])
+    ]
+    cards, missing = await default_subject_repo().get_tweet_cards_by_ids(section_ids)
+    payload = {**payload, "cited_tweets": cards, "missing_tweet_ids": missing}
     return payload
 
 
