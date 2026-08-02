@@ -68,6 +68,18 @@ class SubjectReviewTrendResponse(BaseModel):
     fading: list[str] = Field(default_factory=list)
 
 
+class SubjectReviewHistoryItemResponse(BaseModel):
+    version: int
+    generated_at: datetime | None = None
+    generated_by: Literal["llm", "fallback", "skill"] | None = None
+
+
+class SubjectReviewHistoryResponse(BaseModel):
+    subject_id: str
+    current_version: int
+    items: list[SubjectReviewHistoryItemResponse] = Field(default_factory=list)
+
+
 class SubjectReviewCitedTweetResponse(BaseModel):
     tweet_id: str
     text: str

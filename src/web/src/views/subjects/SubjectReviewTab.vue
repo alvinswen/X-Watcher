@@ -1,15 +1,28 @@
 <script setup lang="ts">
 import { computed } from "vue"
 import { useRouter } from "vue-router"
-import { Document, Refresh } from "@element-plus/icons-vue"
+import { ArrowDown, CircleClose, Document, Refresh } from "@element-plus/icons-vue"
 import LoadErrorState from "@/components/LoadErrorState.vue"
 import TweetCard from "@/components/TweetCard.vue"
-import type { SubjectReview, SubjectReviewSection, TweetCardData } from "@/types"
+import { formatRelativeTime } from "@/utils/format"
+import { formatAbsoluteDateTime } from "@/views/subjects/subjectFormat"
+import type {
+  SubjectReview,
+  SubjectReviewHistoryItem,
+  SubjectReviewSection,
+  TweetCardData,
+} from "@/types"
 
 const props = defineProps<{
   loading: boolean
   review: SubjectReview | null
   version: number
+  latestVersion: number
+  viewingVersion: number | null
+  viewLoading: boolean
+  historyItems: SubjectReviewHistoryItem[]
+  historyLoading: boolean
+  historyError: string
   sections: SubjectReviewSection[]
   hasTrend: boolean
   error: string
@@ -24,6 +37,10 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   request: []
+  "open-history": []
+  "select-version": [version: number]
+  "back-latest": []
+  "retry-history": []
   "update:openSections": [value: string[]]
   "update:openCites": [value: string[]]
 }>()
@@ -57,26 +74,125 @@ function goToDetail(id: string): void {
 </script>
 
 <template>
-  <div v-if="loading && !review" class="review-pane">
-    <el-skeleton v-for="index in 2" :key="index" animated class="review-skeleton">
-      <template #template>
-        <el-skeleton-item variant="text" class="review-skel-time" />
-        <el-skeleton-item variant="text" />
-        <el-skeleton-item variant="text" />
-        <el-skeleton-item variant="rect" class="review-skel-media" />
-      </template>
-    </el-skeleton>
-  </div>
+  <div class="review-pane" :data-review-version="version">
+    <div
+      v-if="viewingVersion !== null"
+      class="review-viewing-banner"
+      :data-review-viewing="viewingVersion"
+    >
+      <span class="banner-text">
+        正在查看历史版 <span class="banner-version">v{{ viewingVersion }}</span>
+      </span>
+      <button
+        type="button"
+        class="banner-back"
+        data-review-back-latest
+        @click="$emit('back-latest')"
+      >
+        回到最新
+      </button>
+    </div>
 
-  <div v-else class="review-pane" :data-review-version="version">
-    <LoadErrorState v-if="error" :retry="retryReview" />
+    <div v-if="(loading && !review) || viewLoading">
+      <el-skeleton v-for="index in 2" :key="index" animated class="review-skeleton">
+        <template #template>
+          <el-skeleton-item variant="text" class="review-skel-time" />
+          <el-skeleton-item variant="text" />
+          <el-skeleton-item variant="text" />
+          <el-skeleton-item variant="rect" class="review-skel-media" />
+        </template>
+      </el-skeleton>
+    </div>
+
+    <LoadErrorState v-else-if="error" :retry="retryReview" />
 
     <template v-else>
       <div class="review-infobar">
         <div class="review-info-left">
+          <el-dropdown
+            v-if="version >= 1"
+            trigger="click"
+            :teleported="false"
+            @visible-change="(visible: boolean) => visible && $emit('open-history')"
+            @command="(value: number) => value === latestVersion
+              ? $emit('back-latest')
+              : $emit('select-version', value)"
+          >
+            <button
+              type="button"
+              class="review-version-badge badge-trigger"
+              :class="{ viewing: viewingVersion !== null }"
+              :data-review-version-badge="version"
+              data-review-history-trigger
+            >
+              v{{ version }}
+              <el-icon class="badge-arrow"><ArrowDown /></el-icon>
+            </button>
+            <template #dropdown>
+              <el-dropdown-menu class="review-history-panel" data-review-history-panel>
+                <div
+                  v-if="historyLoading"
+                  class="history-row"
+                  data-review-history-loading
+                >
+                  加载版本清单…
+                </div>
+                <div
+                  v-else-if="historyError"
+                  class="history-row history-error"
+                  data-review-history-error
+                >
+                  <el-icon><CircleClose /></el-icon>
+                  版本清单加载失败
+                  <button
+                    type="button"
+                    class="history-retry"
+                    data-review-history-retry
+                    @click.stop="$emit('retry-history')"
+                  >
+                    重试
+                  </button>
+                </div>
+                <template v-else>
+                  <el-dropdown-item
+                    v-for="item in historyItems"
+                    :key="item.version"
+                    :command="item.version"
+                    :class="{ selected: item.version === version }"
+                    :data-review-history-item="item.version"
+                  >
+                    <span class="history-version">v{{ item.version }}</span>
+                    <span
+                      v-if="item.version === latestVersion"
+                      class="history-current"
+                      data-review-history-current
+                    >
+                      当前
+                    </span>
+                    <el-tag
+                      v-if="item.generated_by === 'fallback'"
+                      type="warning"
+                      size="small"
+                      effect="plain"
+                    >
+                      降级生成
+                    </el-tag>
+                    <span
+                      class="history-time"
+                      :title="item.generated_at
+                        ? formatAbsoluteDateTime(item.generated_at)
+                        : undefined"
+                    >
+                      {{ formatRelativeTime(item.generated_at ?? null, "未知") }}
+                    </span>
+                  </el-dropdown-item>
+                </template>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
           <span
-            class="review-version-badge"
-            :class="{ empty: version === 0 }"
+            v-else
+            class="review-version-badge empty"
             :data-review-version-badge="version"
           >
             v{{ version }}
@@ -251,7 +367,9 @@ function goToDetail(id: string): void {
 .review-version-badge {
   display: inline-flex;
   align-items: center;
+  gap: 4px;
   padding: 2px 9px;
+  border: 0;
   border-radius: var(--el-border-radius-base);
   color: var(--el-color-white);
   background: var(--color-primary);
@@ -260,10 +378,157 @@ function goToDetail(id: string): void {
   font-weight: 600;
   line-height: 1.6;
   white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--transition-base), color var(--transition-base), border-color var(--transition-base);
+}
+
+.badge-trigger:hover {
+  background: var(--color-primary-dark);
+}
+
+.badge-arrow {
+  display: inline-flex;
 }
 
 .review-version-badge.empty {
   background: var(--text-tertiary);
+  cursor: default;
+}
+
+.review-version-badge.viewing {
+  padding: 1px 8px;
+  border: 1px solid var(--color-primary);
+  background: var(--bg-inset);
+  color: var(--color-primary);
+}
+
+.review-version-badge.viewing:hover {
+  border-color: var(--color-primary-dark);
+  background: var(--bg-inset);
+  color: var(--color-primary-dark);
+}
+
+.badge-trigger:focus-visible,
+.history-retry:focus-visible,
+.banner-back:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.review-history-panel {
+  min-width: 240px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px 0;
+  border: 1px solid var(--border-light);
+  border-radius: var(--el-border-radius-base);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-card-hover);
+}
+
+.review-history-panel :deep(.el-dropdown-menu__item) {
+  gap: 8px;
+  padding: 8px;
+  color: var(--text-primary);
+  font-size: var(--small-font-size);
+  line-height: 1.6;
+  transition: background var(--transition-base), color var(--transition-base);
+}
+
+.review-history-panel :deep(.el-dropdown-menu__item:hover) {
+  background: var(--bg-inset);
+}
+
+.review-history-panel :deep(.el-dropdown-menu__item:active) {
+  background: var(--border-light);
+}
+
+.review-history-panel :deep(.el-dropdown-menu__item.selected) {
+  box-shadow: inset 3px 0 0 var(--color-primary);
+  color: var(--color-primary);
+}
+
+.history-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  color: var(--text-tertiary);
+  font-size: var(--small-font-size);
+}
+
+.history-error :deep(.el-icon) {
+  flex-shrink: 0;
+  color: var(--color-danger);
+}
+
+.history-retry,
+.banner-back {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-primary);
+  font-family: var(--font-ui);
+  font-size: inherit;
+  line-height: inherit;
+  cursor: pointer;
+  text-decoration: none;
+  transition: color var(--transition-base);
+}
+
+.history-retry {
+  margin-left: auto;
+}
+
+.history-retry:hover,
+.banner-back:hover {
+  color: var(--color-primary-dark);
+  text-decoration: underline;
+}
+
+.history-version,
+.banner-version {
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.history-current {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border: 1px solid var(--color-primary);
+  border-radius: var(--el-border-radius-small);
+  color: var(--color-primary);
+  font-size: var(--label-font-size);
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.history-time {
+  margin-left: auto;
+  color: var(--text-tertiary);
+  font-size: var(--small-font-size);
+  white-space: nowrap;
+  cursor: help;
+}
+
+.review-history-panel :deep(.el-dropdown-menu__item.selected) .history-time {
+  color: var(--color-primary);
+}
+
+.review-viewing-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 12px 16px;
+  margin-bottom: var(--section-gap);
+  border-left: 3px solid var(--color-primary);
+  border-radius: 0 var(--card-radius) var(--card-radius) 0;
+  background: var(--color-primary-lighter);
+  color: var(--text-primary);
+  font-size: var(--small-font-size);
+  line-height: 1.6;
 }
 
 .review-updated {

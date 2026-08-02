@@ -95,6 +95,18 @@ export interface SubjectReview {
   missing_tweet_ids: string[]
 }
 
+export interface SubjectReviewHistoryItem {
+  version: number
+  generated_at: string | null
+  generated_by: "llm" | "fallback" | "skill" | null
+}
+
+export interface SubjectReviewHistoryResponse {
+  subject_id: string
+  current_version: number
+  items: SubjectReviewHistoryItem[]
+}
+
 export interface SubjectReviewRefreshResponse {
   task_id: string | null
   pending?: boolean

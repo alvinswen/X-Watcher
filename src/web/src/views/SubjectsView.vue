@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, reactive, ref } from "vue"
+import { computed, nextTick, reactive, ref, watch } from "vue"
 import type { FormInstance, FormRules } from "element-plus"
 import { ElMessage, ElMessageBox } from "element-plus"
 import {
@@ -22,12 +22,14 @@ import {
   markReviewPending,
   readReviewPending,
 } from "@/views/subjects/reviewPending"
+import { reviewHasTrendOf } from "@/views/subjects/reviewViewing"
 import { formatAbsoluteDateTime } from "@/views/subjects/subjectFormat"
 import type {
   Subject,
   SubjectDigest,
   SubjectFeedItem,
   SubjectReview,
+  SubjectReviewHistoryItem,
   SubjectStatus,
 } from "@/types"
 
@@ -57,6 +59,12 @@ const reviewPending = ref(false)
 const reviewError = ref("")
 const reviewOpenSections = ref<string[]>([])
 const reviewOpenCites = ref<string[]>([])
+const historyItems = ref<SubjectReviewHistoryItem[]>([])
+const historyLoading = ref(false)
+const historyError = ref("")
+const viewingVersion = ref<number | null>(null)
+const viewingReview = ref<SubjectReview | null>(null)
+const viewLoading = ref(false)
 const sessionPendingReviews = ref<Record<string, number>>({})
 const pageError = ref("")
 const createError = ref("")
@@ -68,6 +76,8 @@ const keywordInput = ref("")
 const formRef = ref<FormInstance>()
 const detailScroll = ref<HTMLElement>()
 let selectedDataRequestSequence = 0
+let historyRequestSequence = 0
+let reviewViewRequestSequence = 0
 
 const form = reactive<SubjectForm>({
   name: "",
@@ -92,11 +102,10 @@ const filteredSubjects = computed(() => {
 const selectedSubject = computed(() => subjects.value.find((item) => item.subject_id === selectedId.value) || null)
 const drawerTitle = computed(() => (drawerMode.value === "create" ? "新建议题" : "编辑议题"))
 const reviewVersion = computed(() => review.value?.version ?? 0)
-const reviewSections = computed(() => review.value?.sections ?? [])
-const reviewHasTrend = computed(() => {
-  const trend = review.value?.trend
-  return reviewVersion.value >= 2 && Boolean(trend?.emerging.length || trend?.fading.length)
-})
+const displayedReview = computed(() => viewingReview.value ?? review.value)
+const displayedVersion = computed(() => viewingVersion.value ?? reviewVersion.value)
+const displayedSections = computed(() => displayedReview.value?.sections ?? [])
+const reviewHasTrend = computed(() => reviewHasTrendOf(displayedReview.value))
 const classifyHintState = computed<ClassifyHintState>(() => {
   if (!selectedSubject.value) {
     return "empty"
@@ -200,6 +209,7 @@ async function loadSelectedData() {
 async function selectSubject(subject: Subject) {
   selectedId.value = subject.subject_id
   activeTab.value = "feed"
+  resetReviewViewing()
   reviewError.value = ""
   reviewRefreshing.value = false
   reviewPending.value = false
@@ -237,6 +247,77 @@ async function reloadReview(): Promise<void> {
     }
   }
 }
+
+function resetReviewViewing() {
+  viewingVersion.value = null
+  viewingReview.value = null
+  viewLoading.value = false
+  historyItems.value = []
+  historyError.value = ""
+  historyLoading.value = false
+  historyRequestSequence += 1
+  reviewViewRequestSequence += 1
+}
+
+async function openReviewHistory() {
+  const subjectId = selectedId.value
+  if (!subjectId) return
+  const requestSequence = ++historyRequestSequence
+  historyLoading.value = true
+  historyError.value = ""
+  try {
+    const response = await subjectsApi.reviewHistory(subjectId)
+    if (requestSequence === historyRequestSequence) historyItems.value = response.items
+  } catch {
+    if (requestSequence === historyRequestSequence) historyError.value = "版本清单加载失败"
+  } finally {
+    if (requestSequence === historyRequestSequence) historyLoading.value = false
+  }
+}
+
+async function selectReviewVersion(version: number) {
+  const subjectId = selectedId.value
+  if (!subjectId) return
+  if (version === reviewVersion.value) {
+    backToLatest()
+    return
+  }
+  const requestSequence = ++reviewViewRequestSequence
+  viewingVersion.value = version
+  viewLoading.value = true
+  reviewError.value = ""
+  try {
+    const response = await subjectsApi.reviewVersion(subjectId, version)
+    if (requestSequence === reviewViewRequestSequence) {
+      viewingReview.value = response
+      reviewOpenSections.value = response.sections.length ? ["0"] : []
+      reviewOpenCites.value = []
+    }
+  } catch {
+    if (requestSequence === reviewViewRequestSequence) reviewError.value = "综述加载失败"
+  } finally {
+    if (requestSequence === reviewViewRequestSequence) viewLoading.value = false
+  }
+}
+
+function backToLatest() {
+  viewingVersion.value = null
+  viewingReview.value = null
+  viewLoading.value = false
+  reviewViewRequestSequence += 1
+  reviewError.value = ""
+  void reloadReview()
+}
+
+async function retryReviewContext(): Promise<void> {
+  if (viewingVersion.value !== null) {
+    await selectReviewVersion(viewingVersion.value)
+    return
+  }
+  await reloadReview()
+}
+
+watch(activeTab, () => resetReviewViewing())
 
 async function requestReviewUpdate() {
   if (!selectedId.value || reviewRefreshing.value || reviewPending.value) {
@@ -276,10 +357,10 @@ function syncReviewPending(currentVersion: number) {
 }
 
 function reviewUpdatedText(): string {
-  if (!review.value?.updated_at) {
+  if (!displayedReview.value?.updated_at) {
     return "尚未生成"
   }
-  return `更新于 ${formatRelativeTime(review.value.updated_at, "尚无更新")}`
+  return `更新于 ${formatRelativeTime(displayedReview.value.updated_at, "尚无更新")}`
 }
 
 function resetForm() {
@@ -484,17 +565,27 @@ async function confirmDelete(subject: Subject) {
                 v-model:open-sections="reviewOpenSections"
                 v-model:open-cites="reviewOpenCites"
                 :loading="loadingDetail"
-                :review="review"
-                :version="reviewVersion"
-                :sections="reviewSections"
+                :review="displayedReview"
+                :version="displayedVersion"
+                :sections="displayedSections"
                 :has-trend="reviewHasTrend"
+                :latest-version="reviewVersion"
+                :viewing-version="viewingVersion"
+                :view-loading="viewLoading"
+                :history-items="historyItems"
+                :history-loading="historyLoading"
+                :history-error="historyError"
                 :error="reviewError"
                 :pending="reviewPending"
                 :refreshing="reviewRefreshing"
                 :request-button-text="reviewRequestButtonText"
                 :updated-text="reviewUpdatedText()"
-                :retry-review="reloadReview"
+                :retry-review="retryReviewContext"
                 @request="requestReviewUpdate"
+                @open-history="openReviewHistory"
+                @select-version="selectReviewVersion"
+                @back-latest="backToLatest"
+                @retry-history="openReviewHistory"
               />
 
             </el-tab-pane>
