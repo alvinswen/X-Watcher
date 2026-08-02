@@ -1,5 +1,7 @@
 /** Subject 议题类型。 */
 
+import type { TweetCardData } from "./tweet"
+
 export type SubjectStatus = "active" | "paused"
 
 export interface Subject {
@@ -89,6 +91,8 @@ export interface SubjectReview {
   generated_by?: "llm" | "fallback" | "skill" | null
   covered_until?: string | null
   updated_at?: string | null
+  cited_tweets: TweetCardData[]
+  missing_tweet_ids: string[]
 }
 
 export interface SubjectReviewRefreshResponse {

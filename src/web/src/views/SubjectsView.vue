@@ -177,7 +177,14 @@ async function loadSelectedData() {
     feedItems.value = feed.items
     lastClassifiedAt.value = feed.last_classified_at ?? null
     digests.value = digestResponse.items
-    await loadReviewOnly(subjectId, requestSequence)
+    reviewError.value = ""
+    try {
+      await loadReviewOnly(subjectId, requestSequence)
+    } catch {
+      if (requestSequence === selectedDataRequestSequence) {
+        reviewError.value = "综述加载失败"
+      }
+    }
   } catch (error) {
     if (requestSequence !== selectedDataRequestSequence) {
       return
@@ -212,6 +219,22 @@ async function loadReviewOnly(subjectId: string, requestSequence: number) {
   const nextReview = await subjectsApi.review(subjectId)
   if (requestSequence === selectedDataRequestSequence) {
     applyReview(nextReview)
+  }
+}
+
+async function reloadReview(): Promise<void> {
+  const subjectId = selectedId.value
+  if (!subjectId) {
+    return
+  }
+  const requestSequence = selectedDataRequestSequence
+  reviewError.value = ""
+  try {
+    await loadReviewOnly(subjectId, requestSequence)
+  } catch {
+    if (requestSequence === selectedDataRequestSequence) {
+      reviewError.value = "综述加载失败"
+    }
   }
 }
 
@@ -470,6 +493,7 @@ async function confirmDelete(subject: Subject) {
                 :refreshing="reviewRefreshing"
                 :request-button-text="reviewRequestButtonText"
                 :updated-text="reviewUpdatedText()"
+                :retry-review="reloadReview"
                 @request="requestReviewUpdate"
               />
 

@@ -421,6 +421,50 @@ class FileSubjectStore:
             )
         return items, missing
 
+    async def get_tweet_cards_by_ids(
+        self, tweet_ids: list[str]
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        """节级引用 id → 推文卡 13 字段(对齐 web TweetCardData);缺失 id 进 missing。CHG-049。"""
+        from src.shared.read_cache import load_all_tweets_map, load_summary_map
+
+        wanted = list(dict.fromkeys([tid for tid in tweet_ids if tid]))
+        tweet_map = await load_all_tweets_map(self._root)
+        summary_map = await load_summary_map(self._root)
+        items: list[dict[str, Any]] = []
+        missing: list[str] = []
+        for tweet_id in wanted:
+            tweet = tweet_map.get(tweet_id)
+            if tweet is None:
+                missing.append(tweet_id)
+                continue
+            summary = summary_map.get(tweet_id)
+            items.append(
+                {
+                    "tweet_id": tweet.tweet_id,
+                    "text": tweet.text,
+                    "created_at": tweet.created_at,
+                    "author_username": tweet.author_username,
+                    "author_display_name": tweet.author_display_name,
+                    "summary_text": summary.summary_text if summary else None,
+                    "translation_text": summary.translation_text if summary else None,
+                    "media": (
+                        [item.model_dump(mode="json") for item in tweet.media]
+                        if tweet.media
+                        else None
+                    ),
+                    "reference_type": tweet.reference_type.value if tweet.reference_type else None,
+                    "referenced_tweet_id": tweet.referenced_tweet_id,
+                    "referenced_tweet_text": tweet.referenced_tweet_text,
+                    "referenced_tweet_author_username": tweet.referenced_tweet_author_username,
+                    "referenced_tweet_media": (
+                        [item.model_dump(mode="json") for item in tweet.referenced_tweet_media]
+                        if tweet.referenced_tweet_media
+                        else None
+                    ),
+                }
+            )
+        return items, missing
+
     async def get_tweet_author_ids(
         self,
         tweet_ids: list[str],
