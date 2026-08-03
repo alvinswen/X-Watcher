@@ -14,6 +14,7 @@ import {
   Moon,
   Sunny,
   Collection,
+  Stamp,
 } from "@element-plus/icons-vue"
 import { useAuthStore } from "@/stores/auth"
 import { useLayoutStore } from "@/stores/layout"
@@ -41,6 +42,7 @@ const menuItems = [
   // —— 管理功能 ——
   { index: "/tweets", title: "推文管理", icon: Document, testId: "menu-item-tweets" },
   { index: "/follows", title: "关注管理", icon: User, testId: "menu-item-follows" },
+  { index: "/candidates", title: "信源评审", icon: Stamp, testId: "crq-nav-menu-item" },
   { index: "/subjects", title: "议题管理", icon: Collection, testId: "menu-item-subjects" },
   { index: "/users", title: "用户管理", icon: UserFilled, testId: "menu-item-users" },
   { index: "/sync", title: "数据同步", icon: Refresh, testId: "menu-item-sync" },
