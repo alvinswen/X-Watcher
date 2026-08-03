@@ -43,5 +43,5 @@ def test_mcp_tool_schemas_match_golden() -> None:
         )
 
     expected = json.loads(_GOLDEN_PATH.read_text(encoding="utf-8"))
-    assert len(actual) == 32
+    assert len(actual) == 37
     assert actual == expected

@@ -147,3 +147,20 @@ def summary_legacy_doc(data_root: Path) -> Path:
 def subject_dir(data_root: Path, subject_id: str) -> Path:
     target = Path(data_root) / "subjects" / subject_id
     return _guard(data_root, target)
+
+
+def source_candidate_doc(data_root: Path, candidate_id: str) -> Path:
+    target = Path(data_root) / "source_candidates" / f"{candidate_id}.json"
+    return _guard(data_root, target)
+
+
+def source_candidate_index(data_root: Path) -> Path:
+    target = Path(data_root) / "source_candidates" / "index.json"
+    return _guard(data_root, target)
+
+
+def iter_source_candidate_docs(data_root: Path) -> list[Path]:
+    base = _guard(data_root, Path(data_root) / "source_candidates")
+    if not base.exists():
+        return []
+    return sorted(path for path in base.glob("*.json") if path.name != "index.json")

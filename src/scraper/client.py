@@ -672,6 +672,44 @@ class TwitterClient:
             log_label="batch_info_by_ids",
         )
 
+    async def fetch_user_info_by_username(
+        self,
+        username: str,
+    ) -> Result[dict[str, Any], TwitterClientError]:
+        """按用户名获取单个 X 账号档案。"""
+        if not username or not username.strip():
+            return Failure(TwitterClientError("用户名不能为空"))
+
+        self._ensure_client()
+        assert self._client is not None
+        http_client = self._client
+
+        def on_success(
+            response: httpx.Response,
+        ) -> Result[dict[str, Any], TwitterClientError]:
+            response_data = response.json()
+            if not isinstance(response_data, dict):
+                return Failure(
+                    TwitterClientError(
+                        f"响应格式错误: 期望 dict，实际 {type(response_data)}"
+                    )
+                )
+            if response_data.get("status") != "success":
+                return Failure(
+                    TwitterClientError(str(response_data.get("msg") or "用户档案查询失败"))
+                )
+            data = response_data.get("data")
+            if not isinstance(data, dict):
+                return Failure(TwitterClientError("响应格式错误: data 不是 dict"))
+            return Success(data)
+
+        return await self._request_with_retry(
+            lambda: http_client.get("/user/info", params={"userName": username}),
+            on_success,
+            max_retries=self._max_retries,
+            log_label="fetch_user_info_by_username",
+        )
+
     async def fetch_account_info(
         self,
     ) -> Result[dict[str, Any], TwitterClientError]:

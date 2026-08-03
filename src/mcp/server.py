@@ -96,10 +96,11 @@ def create_mcp_server(
     subject_tools.register(mcp)
 
     # 注册 Phase 3 工具（Admin 级：关注管理、抓取、摘要）
-    from src.mcp.tools import admin_tools, summarization_tools
+    from src.mcp.tools import admin_tools, source_candidate_tools, summarization_tools
 
     admin_tools.register(mcp)
     summarization_tools.register(mcp)
+    source_candidate_tools.register(mcp)
 
     # 注册资源
     from src.mcp.resources import providers, recipes

@@ -21,6 +21,7 @@ _GUARD_ENV_MAP: dict[str, str] = {
     "manage_follows": "MCP_FOLLOWS_ALLOWED_ACTIONS",
     "trigger_scrape": "MCP_TRIGGER_SCRAPE_ALLOWED_ACTIONS",
     "trigger_backfill": "MCP_TRIGGER_BACKFILL_ALLOWED_ACTIONS",
+    "fetch_candidate_sample": "MCP_CANDIDATE_SAMPLE_ALLOWED_ACTIONS",
 }
 
 # 进程级缓存：工具名 → 允许的 action 集合（None 表示全部允许）

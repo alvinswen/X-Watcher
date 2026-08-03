@@ -11,8 +11,11 @@ from src.storage.paths import (
     canonical_shard,
     iter_by_day_shards,
     iter_canonical_shards,
+    iter_source_candidate_docs,
     iter_summary_shards,
     local_day_to_utc_window,
+    source_candidate_doc,
+    source_candidate_index,
     subject_digest_shard,
     subject_dir,
     subject_doc,
@@ -212,3 +215,22 @@ def test_path_guard_returns_original_target_without_normalizing(tmp_path):
     expected = data_root / "tweets" / "alice" / "2026-07.jsonl"
 
     assert canonical_shard(data_root, "Alice", datetime(2026, 7, 1, tzinfo=UTC)) == expected
+
+
+def test_source_candidate_paths_match_current_layout(tmp_path):
+    first = tmp_path / "source_candidates" / "alice.json"
+    second = tmp_path / "source_candidates" / "bob.json"
+    index = tmp_path / "source_candidates" / "index.json"
+    first.parent.mkdir(parents=True)
+    second.touch()
+    first.touch()
+    index.touch()
+
+    assert source_candidate_doc(tmp_path, "alice") == first
+    assert source_candidate_index(tmp_path) == index
+    assert iter_source_candidate_docs(tmp_path) == [first, second]
+
+
+def test_source_candidate_paths_guard_lexical_escape(tmp_path):
+    with pytest.raises(ValueError, match="路径越界: 目标不在数据根目录内"):
+        source_candidate_doc(tmp_path, "../../outside")

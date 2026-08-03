@@ -631,7 +631,7 @@ class TestAdminToolsIntegration:
     def test_tc_build_393_tool_registry_still_contains_exactly_32_tools(self):
         """TC-BUILD-393: 本包不增删 MCP 工具。"""
         funcs = _get_tool_funcs()
-        assert len(funcs) == 32
+        assert len(funcs) == 37
         assert "trigger_scrape" in funcs
 
     @pytest.mark.asyncio
@@ -709,7 +709,7 @@ class TestAdminToolsIntegration:
 
         mcp = create_mcp_server()
         tool = mcp._tool_manager._tools["trigger_scrape"]
-        assert len(mcp._tool_manager._tools) == 32
+        assert len(mcp._tool_manager._tools) == 37
         assert set(tool.parameters["properties"]) == {"usernames", "limit"}
         assert str(inspect.signature(tool.fn)) == "(usernames: str | None = None, limit: int = 100) -> str"
 
@@ -831,6 +831,12 @@ class TestToolRegistration:
             # Subject Review（CHG-006 · L2 活综述）
             "get_subject_review",
             "refresh_subject_review",
+            # Source candidates（CHG-051）
+            "mine_source_candidates",
+            "fetch_candidate_sample",
+            "submit_candidate_assessment",
+            "review_candidate",
+            "list_source_candidates",
         }
         assert (
             expected == tool_names
