@@ -15,6 +15,7 @@ from src.source_candidates.infrastructure.file_source_candidate_repository impor
 )
 from src.source_candidates.models import (
     CandidateSample,
+    CandidateStatus,
     CitationSignal,
     MiningSignal,
     SourceCandidate,
@@ -166,3 +167,114 @@ async def test_approve_retry_converges_after_candidate_and_compensation_failure(
     stored = await store.get_candidate("candidatea")
     assert stored is not None and stored.decision is not None
     assert stored.decision.follow_id == legacy.id
+
+
+def _fixed_candidate(
+    candidate_id: str,
+    *,
+    status: CandidateStatus = CandidateStatus.DISCOVERED,
+) -> SourceCandidate:
+    first_discovered_at = datetime(2026, 8, 1, 9, 30, tzinfo=UTC)
+    last_mined_at = datetime(2026, 8, 2, 10, 45, tzinfo=UTC)
+    return SourceCandidate(
+        candidate_id=candidate_id,
+        username=candidate_id,
+        platform_user_id="platform-42",
+        status=status,
+        mining=MiningSignal(
+            citations={
+                "source_a": CitationSignal(count=2, citing_tweet_ids=["tweet-1"]),
+            },
+            citation_total=2,
+            source_diversity=1,
+            sample_citation_tweet_ids=["tweet-1"],
+            subject_tags=["量化交易"],
+            first_discovered_at=first_discovered_at,
+            last_mined_at=last_mined_at,
+        ),
+        profile_snapshot={
+            "display_name": "固定档案",
+            "verified_type": "blue",
+            "is_automated": False,
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_list_candidates_preserves_frozen_summary_by_default(tmp_path):
+    store = FileSourceCandidateStore(tmp_path)
+    follow_store = FileFollowStore(tmp_path)
+    candidate = _fixed_candidate("candidatea")
+    await store.upsert_candidate(candidate)
+
+    result = await _service(store, follow_store).list_candidates()
+
+    assert result["candidates"][0] == {
+        "candidate_id": "candidatea",
+        "username": "candidatea",
+        "platform_user_id": "platform-42",
+        "status": "discovered",
+        "citation_total": 2,
+        "source_diversity": 1,
+        "subject_tags": ["量化交易"],
+        "first_discovered_at": "2026-08-01T09:30:00+00:00",
+        "last_mined_at": "2026-08-02T10:45:00+00:00",
+        "sample_fetched_at": None,
+        "assessed_at": None,
+        "decided_at": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_list_candidates_projects_exactly_three_profile_fields(tmp_path):
+    store = FileSourceCandidateStore(tmp_path)
+    follow_store = FileFollowStore(tmp_path)
+    candidate = _fixed_candidate("candidatea")
+    await store.upsert_candidate(candidate)
+    service = _service(store, follow_store)
+
+    default_summary = (await service.list_candidates())["candidates"][0]
+    projected_summary = (
+        await service.list_candidates(include_profile_fields=True)
+    )["candidates"][0]
+
+    assert set(projected_summary) - set(default_summary) == {
+        "display_name",
+        "verified_type",
+        "is_automated",
+    }
+    assert projected_summary == {
+        **default_summary,
+        "display_name": "固定档案",
+        "verified_type": "blue",
+        "is_automated": False,
+    }
+
+
+@pytest.mark.asyncio
+async def test_list_candidates_supports_status_union_and_rejects_mixed_filters(tmp_path):
+    store = FileSourceCandidateStore(tmp_path)
+    follow_store = FileFollowStore(tmp_path)
+    await store.upsert_candidate(_fixed_candidate("candidatea"))
+    await store.upsert_candidate(
+        _fixed_candidate("candidateb", status=CandidateStatus.ASSESSED)
+    )
+    await store.upsert_candidate(
+        _fixed_candidate("candidatec", status=CandidateStatus.APPROVED)
+    )
+    service = _service(store, follow_store)
+
+    result = await service.list_candidates(
+        statuses=[CandidateStatus.DISCOVERED, CandidateStatus.ASSESSED],
+        page=1,
+        page_size=1,
+    )
+
+    assert result["total"] == 2
+    assert result["count"] == 1
+    assert result["candidates"][0]["status"] in {"discovered", "assessed"}
+    with pytest.raises(CandidateValidationError, match="不能同时给定"):
+        await service.list_candidates(
+            status=CandidateStatus.DISCOVERED,
+            statuses=[CandidateStatus.ASSESSED],
+        )

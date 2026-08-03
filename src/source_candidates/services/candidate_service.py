@@ -280,7 +280,11 @@ class CandidateService:
         candidate_id: str | None = None,
         page: int = 1,
         page_size: int = 20,
+        statuses: list[CandidateStatus] | None = None,
+        include_profile_fields: bool = False,
     ) -> dict[str, Any]:
+        if statuses is not None and status is not None:
+            raise CandidateValidationError("status 与 statuses 不能同时给定")
         if page < 1:
             raise CandidateValidationError("page 必须大于等于 1")
         if not 1 <= page_size <= 100:
@@ -288,11 +292,24 @@ class CandidateService:
         if candidate_id is not None:
             candidate = await self._require_candidate(candidate_id)
             return {"candidate": candidate.model_dump(mode="json")}
-        candidates = await self._store.list_candidates(status=status, subject_id=subject_id)
+        if statuses is not None:
+            allowed = set(statuses)
+            candidates = [
+                candidate
+                for candidate in await self._store.list_candidates(subject_id=subject_id)
+                if candidate.status in allowed
+            ]
+        else:
+            candidates = await self._store.list_candidates(
+                status=status, subject_id=subject_id
+            )
         total = len(candidates)
         start = (page - 1) * page_size
         page_items = candidates[start : start + page_size]
-        summaries = [self._summary(candidate) for candidate in page_items]
+        summaries = [
+            self._summary(candidate, include_profile_fields=include_profile_fields)
+            for candidate in page_items
+        ]
         return {
             "candidates": summaries,
             "count": len(summaries),
@@ -302,8 +319,10 @@ class CandidateService:
         }
 
     @staticmethod
-    def _summary(candidate: SourceCandidate) -> dict[str, Any]:
-        return {
+    def _summary(
+        candidate: SourceCandidate, *, include_profile_fields: bool = False
+    ) -> dict[str, Any]:
+        data: dict[str, Any] = {
             "candidate_id": candidate.candidate_id,
             "username": candidate.username,
             "platform_user_id": candidate.platform_user_id,
@@ -325,3 +344,9 @@ class CandidateService:
                 candidate.decision.decided_at.isoformat() if candidate.decision else None
             ),
         }
+        if include_profile_fields:
+            snapshot = candidate.profile_snapshot or {}
+            data["display_name"] = snapshot.get("display_name")
+            data["verified_type"] = snapshot.get("verified_type")
+            data["is_automated"] = snapshot.get("is_automated")
+        return data
