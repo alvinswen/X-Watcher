@@ -19,6 +19,7 @@ const emit = defineEmits<{
 
 const briefIntro = ref("")
 const rejectReason = ref("")
+const sourceReviewVersionStamp = /^\[xw-source-review@[^\]]+\]\s*/
 
 const isApprove = computed(() => props.decision === "approve")
 const statusText = computed(() => {
@@ -40,7 +41,9 @@ watch(
   ([visible]) => {
     if (!visible) return
     briefIntro.value = isApprove.value
-      ? props.candidate?.assessment?.recommendation.slice(0, 10) ?? ""
+      ? props.candidate?.assessment?.recommendation
+        .replace(sourceReviewVersionStamp, "")
+        .slice(0, 10) ?? ""
       : ""
     rejectReason.value = ""
   },

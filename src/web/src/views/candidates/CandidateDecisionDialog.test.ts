@@ -26,7 +26,7 @@ function dossier(withAssessment = true): CandidateDossier {
     sample: null,
     assessment: withAssessment ? {
       scores: { originality: 8, difference: 7, expertise: 9 },
-      recommendation: "，建议批准这个候选账号并持续观察",
+      recommendation: "[xw-source-review@1.0.0#hash12] ，建议批准这个候选账号并持续观察",
       evidence_tweet_ids: ["sample-1"],
       assessed_at: fixedTime,
       assessed_by: "agent",
@@ -119,13 +119,27 @@ describe("CandidateDecisionDialog", () => {
     vi.useRealTimers()
   })
 
-  it("prefills the first ten characters without changing the assessment text", () => {
+  it("strips the leading version stamp before prefilling ten characters", () => {
     const candidate = dossier()
     const wrapper = mountDialog({ candidate })
 
     expect(wrapper.get("[data-testid='crq-brief-intro-input']").attributes("value"))
-      .toBe(candidate.assessment?.recommendation.slice(0, 10))
-    expect(candidate.assessment?.recommendation).toBe("，建议批准这个候选账号并持续观察")
+      .toBe("，建议批准这个候选账")
+    expect(candidate.assessment?.recommendation)
+      .toBe("[xw-source-review@1.0.0#hash12] ，建议批准这个候选账号并持续观察")
+
+    wrapper.unmount()
+  })
+
+  it("leaves the prefill empty when only the version stamp remains", () => {
+    const candidate = dossier()
+    if (candidate.assessment) {
+      candidate.assessment.recommendation = "[xw-source-review@1.0.0#hash12] \n\t"
+    }
+    const wrapper = mountDialog({ candidate })
+
+    expect(wrapper.get("[data-testid='crq-brief-intro-input']").attributes("value"))
+      .toBe("")
 
     wrapper.unmount()
   })
@@ -173,6 +187,7 @@ describe("CandidateDecisionDialog", () => {
       candidate: dossier(false),
       error: "批准失败：抓取名单存在同名冲突",
     })
+    expect(wrapper.get("input").attributes("value")).toBe("")
     await wrapper.get("input").setValue("量化研究")
     await wrapper.setProps({ error: "批准失败：仍有冲突" })
 
