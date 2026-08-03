@@ -20,6 +20,7 @@ if TYPE_CHECKING:
         FetchStatsStore,
         ScraperStatsReadStore,
         SearchReadStore,
+        SourceCandidateStore,
         StatusReadStore,
         SummarizationReadStore,
         SummaryStore,
@@ -306,3 +307,12 @@ def get_status_repo() -> StatusReadStore:
     from src.api.status_read_repository import FileStatusReadStore
 
     return FileStatusReadStore(_data_root())
+
+
+def get_source_candidate_repo() -> SourceCandidateStore:
+    """返回信源候选域仓储门面。"""
+    from src.source_candidates.infrastructure.file_source_candidate_repository import (
+        FileSourceCandidateStore,
+    )
+
+    return FileSourceCandidateStore(_data_root())

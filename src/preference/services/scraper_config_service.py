@@ -33,6 +33,8 @@ class ScraperConfigService:
         username: str,
         reason: str,
         added_by: str,
+        platform_user_id: str | None = None,
+        brief_intro: str | None = None,
     ) -> ScraperFollow:
         """添加抓取账号。
 
@@ -40,6 +42,8 @@ class ScraperConfigService:
             username: Twitter 用户名
             reason: 添加理由
             added_by: 添加人标识
+            platform_user_id: X 平台永久用户 ID（可选）
+            brief_intro: 极简介绍（可选）
 
         Returns:
             ScraperFollow: 创建的抓取账号
@@ -52,6 +56,8 @@ class ScraperConfigService:
             username=username,
             reason=reason,
             added_by=added_by,
+            platform_user_id=platform_user_id,
+            brief_intro=brief_intro,
         )
 
     async def get_all_follows(

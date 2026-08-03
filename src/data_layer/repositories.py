@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from src.scraper.domain.fetch_stats import FetchStats
     from src.scraper.domain.models import Article, SaveResult, Tweet
     from src.search.domain.models import SearchResult
+    from src.source_candidates.models import CandidateStatus, MiningSignal, SourceCandidate
     from src.summarization.domain.models import SummaryRecord
 
 
@@ -191,8 +192,44 @@ class StatusReadStore(Protocol):
     async def get_summary_stats(self) -> SummaryStats: ...
 
 
+class SourceCandidateStore(Protocol):
+    """get_source_candidate_repo() 的返回契约（实现：FileSourceCandidateStore）。"""
+
+    async def get_candidate(self, candidate_id: str) -> SourceCandidate | None: ...
+
+    async def list_candidates(
+        self,
+        status: CandidateStatus | None = None,
+        subject_id: str | None = None,
+    ) -> list[SourceCandidate]: ...
+
+    async def upsert_candidate(self, candidate: SourceCandidate) -> None: ...
+
+    async def get_candidate_by_platform_user_id(
+        self, platform_user_id: str
+    ) -> SourceCandidate | None: ...
+
+    async def all_index_entries(self) -> dict[str, dict[str, Any]]: ...
+
+    async def scan_citation_signals(
+        self,
+        tweet_id_filter: set[str] | None,
+        since: datetime | None,
+        until: datetime | None,
+    ) -> dict[str, Any]: ...
+
+    async def rebuild_index(self) -> None: ...
+
+    async def merge_mining_signal(
+        self,
+        candidate_id: str,
+        signal: MiningSignal,
+        subject_id: str | None,
+    ) -> SourceCandidate: ...
+
+
 if TYPE_CHECKING:
-    # === Q6 防漂移闸 · 15 道静态实现断言 ===
+    # === Q6 防漂移闸 · 16 道静态实现断言 ===
     # 机制：把实现类喂给「以契约为形参类型」的函数。实现少方法 / 签名对不上 → mypy 当场红。
     # 只在类型检查期存在，运行时零开销（本块不进字节码）。
     # 新增契约时：在此追加一道同形断言，编号顺延。
@@ -212,6 +249,9 @@ if TYPE_CHECKING:
     from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
     from src.scraper.infrastructure.tweet_read_repository import FileTweetReadStore
     from src.search.infrastructure.file_search_read_repository import FileSearchReadStore
+    from src.source_candidates.infrastructure.file_source_candidate_repository import (
+        FileSourceCandidateStore,
+    )
     from src.summarization.infrastructure.file_summarization_read_repository import (
         FileSummarizationReadStore,
     )
@@ -237,3 +277,4 @@ if TYPE_CHECKING:
     def _assert_12(s: FileFollowStore) -> FollowStore: return s
     def _assert_13(s: FileProfileStore) -> ProfileStore: return s
     def _assert_14(s: FileUserStore) -> UserStore: return s
+    def _assert_15(s: FileSourceCandidateStore) -> SourceCandidateStore: return s

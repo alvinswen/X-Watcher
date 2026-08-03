@@ -54,7 +54,14 @@ class FileFollowStore:
             atomic_write_doc(self._path, {"seq": seq, "follows": recs})
 
     # —— 核心 CRUD ——
-    async def create_scraper_follow(self, username: str, reason: str, added_by: str) -> ScraperFollow:
+    async def create_scraper_follow(
+        self,
+        username: str,
+        reason: str,
+        added_by: str,
+        platform_user_id: str | None = None,
+        brief_intro: str | None = None,
+    ) -> ScraperFollow:
         async with shard_lock(self._path):
             doc = self._load()
             follows = doc["follows"]
@@ -64,6 +71,8 @@ class FileFollowStore:
                     existing["is_active"] = True
                     existing["reason"] = reason
                     existing["added_by"] = added_by
+                    existing["platform_user_id"] = platform_user_id
+                    existing["brief_intro"] = brief_intro
                     existing["added_at"] = _now_naive()
                     atomic_write_doc(self._path, doc)
                     return self._to_domain(existing)
@@ -72,7 +81,8 @@ class FileFollowStore:
             rec = {
                 "id": doc["seq"], "username": username, "added_at": _now_naive(),
                 "reason": reason, "added_by": added_by, "is_active": True,
-                "manual_limit": None, "platform_user_id": None, "brief_intro": None,
+                "manual_limit": None, "platform_user_id": platform_user_id,
+                "brief_intro": brief_intro,
                 "backfill_status": "pending", "backfill_completed_at": None,
             }
             follows[username] = rec
