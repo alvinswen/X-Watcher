@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from src.feed.domain.models import FeedResult
     from src.scraper.domain.fetch_stats import FetchStats
     from src.scraper.domain.models import Article, SaveResult, Tweet
+    from src.scraper.domain.scrape_group_state import ScrapeGroupState
     from src.search.domain.models import SearchResult
     from src.source_candidates.models import CandidateStatus, MiningSignal, SourceCandidate
     from src.summarization.domain.models import SummaryRecord
@@ -228,8 +229,18 @@ class SourceCandidateStore(Protocol):
     ) -> SourceCandidate: ...
 
 
+class ScrapeGroupStateStore(Protocol):
+    """get_scrape_group_state_repo() 的返回契约。"""
+
+    async def load_all(self) -> list[ScrapeGroupState]: ...
+
+    async def upsert_group(self, state: ScrapeGroupState) -> None: ...
+
+    async def replace_all(self, states: list[ScrapeGroupState]) -> None: ...
+
+
 if TYPE_CHECKING:
-    # === Q6 防漂移闸 · 16 道静态实现断言 ===
+    # === Q6 防漂移闸 · 17 道静态实现断言 ===
     # 机制：把实现类喂给「以契约为形参类型」的函数。实现少方法 / 签名对不上 → mypy 当场红。
     # 只在类型检查期存在，运行时零开销（本块不进字节码）。
     # 新增契约时：在此追加一道同形断言，编号顺延。
@@ -246,6 +257,9 @@ if TYPE_CHECKING:
     from src.scraper.infrastructure.article_read_repository import FileArticleReadStore
     from src.scraper.infrastructure.file_article_repository import FileArticleStore
     from src.scraper.infrastructure.file_fetch_stats_repository import FileFetchStatsStore
+    from src.scraper.infrastructure.file_scrape_group_state_repository import (
+        FileScrapeGroupStateStore,
+    )
     from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
     from src.scraper.infrastructure.tweet_read_repository import FileTweetReadStore
     from src.search.infrastructure.file_search_read_repository import FileSearchReadStore
@@ -259,7 +273,7 @@ if TYPE_CHECKING:
     from src.user.infrastructure.file_user_repository import FileUserStore
     from src.user.infrastructure.user_store import UserStore
 
-    # 12 张本文件新写契约
+    # 14 张本文件新写契约
     def _assert_0(s: FileTweetStore) -> TweetStore: return s
     def _assert_1(s: FileTweetReadStore) -> TweetReadStore: return s
     def _assert_2(s: FileArticleStore) -> ArticleStore: return s
@@ -278,3 +292,4 @@ if TYPE_CHECKING:
     def _assert_13(s: FileProfileStore) -> ProfileStore: return s
     def _assert_14(s: FileUserStore) -> UserStore: return s
     def _assert_15(s: FileSourceCandidateStore) -> SourceCandidateStore: return s
+    def _assert_16(s: FileScrapeGroupStateStore) -> ScrapeGroupStateStore: return s

@@ -22,6 +22,7 @@ def register(mcp: FastMCP) -> None:
         """获取系统全局状态概览。
 
         返回推文数、关注列表、摘要统计、系统信息等关键指标。
+        同时返回按组增量抓取的水位、轮次、对账与告警状态。
         """
         try:
             from src.data_layer.provider import get_status_repo
@@ -70,6 +71,77 @@ def register(mcp: FastMCP) -> None:
             except Exception:
                 external_deps["twitter_api"] = {"state": "unknown"}
 
+            from src.config import get_settings
+
+            settings = get_settings()
+            cutover_groups = {
+                item.strip()
+                for item in settings.scraper_incremental_cutover_groups.split(",")
+                if item.strip()
+            }
+            incremental_scrape: dict[str, Any] = {
+                "enabled": settings.scraper_incremental_enabled,
+                "overlap_minutes": settings.scraper_incremental_overlap_minutes,
+                "groups": [],
+                "alerts": [],
+            }
+            try:
+                from src.data_layer.provider import get_scrape_group_state_repo
+
+                states = await get_scrape_group_state_repo().load_all()
+                incremental_scrape["groups"] = [
+                    {
+                        "group_id": state.group_id,
+                        "accounts": len(state.usernames),
+                        "path": (
+                            "legacy"
+                            if not settings.scraper_incremental_enabled
+                            else (
+                                "cutover"
+                                if state.group_id in cutover_groups
+                                else "dual"
+                            )
+                        ),
+                        "since_id": state.since_id,
+                        "resuming": state.resume_cursor is not None,
+                        "resume_rounds": state.resume_rounds,
+                        "clean_rounds": (
+                            f"{state.consecutive_clean_rounds}/"
+                            f"{settings.scraper_incremental_clean_rounds_required}"
+                        ),
+                        "stalled_rounds": state.consecutive_stalled_rounds,
+                        "last_round_at": state.last_round_at,
+                        "last_round": (
+                            state.last_round.model_dump(mode="json")
+                            if state.last_round is not None
+                            else None
+                        ),
+                        "last_reconcile": (
+                            state.last_reconcile.model_dump(mode="json")
+                            if state.last_reconcile is not None
+                            else None
+                        ),
+                    }
+                    for state in states
+                ]
+                incremental_scrape["alerts"] = [
+                    alert.model_dump(mode="json")
+                    for state in states
+                    for alert in state.alerts
+                ]
+            except Exception as state_error:
+                incremental_scrape = {
+                    "enabled": settings.scraper_incremental_enabled,
+                    "groups": [],
+                    "alerts": [
+                        {
+                            "kind": "state_unreadable",
+                            "detail": {"error": str(state_error)},
+                            "advice": "增量进度档不可读，请检查文件权限与 JSON 完整性。",
+                        }
+                    ],
+                }
+
             return success_response(
                 {
                     "tweets": tweets,
@@ -80,6 +152,7 @@ def register(mcp: FastMCP) -> None:
                         "database_size_mb": database_size_mb,
                         "mcp_mode": True,
                     },
+                    "incremental_scrape": incremental_scrape,
                 }
             )
         except Exception as e:

@@ -234,3 +234,16 @@ def test_source_candidate_paths_match_current_layout(tmp_path):
 def test_source_candidate_paths_guard_lexical_escape(tmp_path):
     with pytest.raises(ValueError, match="路径越界: 目标不在数据根目录内"):
         source_candidate_doc(tmp_path, "../../outside")
+
+
+def test_scrape_group_state_doc_matches_guarded_layout(tmp_path):
+    from src.storage.paths import scrape_group_state_doc
+
+    assert scrape_group_state_doc(tmp_path) == tmp_path / "scrape_state" / "groups.json"
+
+
+def test_scrape_group_state_doc_preserves_original_guarded_root(tmp_path):
+    from src.storage.paths import scrape_group_state_doc
+
+    data_root = tmp_path / "nested" / ".."
+    assert scrape_group_state_doc(data_root) == data_root / "scrape_state" / "groups.json"

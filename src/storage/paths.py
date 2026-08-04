@@ -164,3 +164,8 @@ def iter_source_candidate_docs(data_root: Path) -> list[Path]:
     if not base.exists():
         return []
     return sorted(path for path in base.glob("*.json") if path.name != "index.json")
+
+
+def scrape_group_state_doc(data_root: Path) -> Path:
+    target = Path(data_root) / "scrape_state" / "groups.json"
+    return _guard(data_root, target)
