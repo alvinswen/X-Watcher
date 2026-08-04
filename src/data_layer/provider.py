@@ -18,6 +18,7 @@ if TYPE_CHECKING:
         BrowseReadStore,
         FeedReadStore,
         FetchStatsStore,
+        ScrapeGroupStateStore,
         ScraperStatsReadStore,
         SearchReadStore,
         SourceCandidateStore,
@@ -316,3 +317,12 @@ def get_source_candidate_repo() -> SourceCandidateStore:
     )
 
     return FileSourceCandidateStore(_data_root())
+
+
+def get_scrape_group_state_repo() -> ScrapeGroupStateStore:
+    """返回增量抓取组进度档仓储。"""
+    from src.scraper.infrastructure.file_scrape_group_state_repository import (
+        FileScrapeGroupStateStore,
+    )
+
+    return FileScrapeGroupStateStore(_data_root())

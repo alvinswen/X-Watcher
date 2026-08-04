@@ -217,6 +217,8 @@ def register(mcp: FastMCP) -> None:
         """手动触发抓取任务。需要管理员权限。
 
         若账号配置了手动抓取上限（manual_limit），该配置优先于 limit 参数生效。
+        服务端启用增量搜索抓取时，本工具改走按组增量查询路径（由服务端配置决定，
+        调用方式不变），此时 manual_limit 不再参与判停。
 
         Args:
             usernames: 要抓取的 X 用户名，逗号分隔。留空则抓取所有活跃账号

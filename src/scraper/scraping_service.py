@@ -115,6 +115,34 @@ class ScrapingService:
         # 更新任务状态为运行中
         self._registry.update_task_status(task_id, TaskStatus.RUNNING)
 
+        if get_settings().scraper_incremental_enabled:
+            from src.scraper.services.incremental_scrape_service import (
+                IncrementalScrapeService,
+            )
+
+            try:
+                incremental_service = IncrementalScrapeService(
+                    client=self._client,
+                    parser=self._parser,
+                    validator=self._validator,
+                    tweet_repo=self._repository,
+                )
+                report = await incremental_service.run_round(usernames)
+                await self._profile_service.sync_user_profiles(usernames)
+                self._registry.update_task_status(
+                    task_id,
+                    TaskStatus.COMPLETED,
+                    result=report,
+                )
+            except Exception as e:
+                logger.exception("增量抓取任务失败: %s", e)
+                self._registry.update_task_status(
+                    task_id,
+                    TaskStatus.FAILED,
+                    error=str(e),
+                )
+            return task_id
+
         # manual_limits 未显式传入(None)时,服务层单点自动解析活跃账号的手动限额
         # 配置,使 REST(_run_scraping_task_async)与 MCP(trigger_scrape)两条触发
         # 路径自动生效、无需各自维护一份(CHG-031 目标 1)。非 None(含调用方显式

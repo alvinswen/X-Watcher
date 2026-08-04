@@ -98,6 +98,48 @@ class Settings(BaseSettings):
         description="常规增量抓取单次单账号最大翻页数硬上限（每页至多 20 条，默认 10 页 ≈ 200 条/次）",
     )
 
+    # 按组增量搜索抓取配置
+    scraper_incremental_enabled: bool = Field(default=False, description="是否启用按组增量搜索抓取")
+    scraper_incremental_cutover_groups: str = Field(
+        default="", description="已切换到纯增量路径的组号，逗号分隔"
+    )
+    scraper_incremental_overlap_minutes: int = Field(
+        default=30, ge=0, le=1440, description="增量水位安全回看窗口（分钟）"
+    )
+    scraper_incremental_max_accounts_per_group: int = Field(
+        default=20, ge=1, le=20, description="单个增量查询组的最大账号数"
+    )
+    scraper_incremental_max_query_chars: int = Field(
+        default=450, ge=100, le=450, description="增量查询串安全字符上限（不含上限值）"
+    )
+    scraper_incremental_clean_rounds_required: int = Field(
+        default=7, ge=1, description="逐组切换前要求的连续零漏失轮数"
+    )
+    scraper_incremental_stalled_rounds_alert: int = Field(
+        default=3, ge=1, description="连续失败未推进轮数告警阈值"
+    )
+    scraper_incremental_sentinels: str = Field(
+        default="GaryMarcus,levelsio,elonmusk", description="静默失败判别哨兵账号，逗号分隔"
+    )
+    scraper_incremental_bridge_tweets: int = Field(
+        default=100, ge=0, le=1000, description="初次上线搭桥时每账号抓取条数"
+    )
+    scraper_incremental_new_account_backfill_tweets: int = Field(
+        default=200, ge=0, le=1000, description="新账号首次纳入时每账号补历史条数"
+    )
+    scraper_incremental_max_pages_per_round: int = Field(
+        default=25,
+        ge=1,
+        le=100,
+        description=(
+            "增量抓取【每组每轮】最大翻页数硬上限（每页至多 20 条，默认 25 页 ≈ 500 条/组/轮）。"
+            "⚠️ 单位是「每组」，与 scraper_max_pages_per_scrape（每账号）语义不同，禁止互相复用"
+        ),
+    )
+    scraper_incremental_resume_rounds_alert: int = Field(
+        default=10, ge=1, description="续翻轮数过多时的积压消化缓慢告警阈值"
+    )
+
     # 任务超时配置
     task_max_running_seconds: int = Field(
         default=1800,
@@ -111,12 +153,12 @@ class Settings(BaseSettings):
         default=200, ge=1, le=1000, description="Feed API 单次最大返回推文数量"
     )
 
-    # TwitterAPI.io 余额告警阈值（按 recharge_credits 数值，默认每次抓取约 100 credits）
+    # TwitterAPI.io 余额告警阈值（按 recharge_credits 数值，返回推文按 15 credits/条计费）
     twitter_balance_warning_threshold: int = Field(
-        default=50000, ge=0, description="余额低于此值时前端显示黄色告警（默认约 2 天用量）"
+        default=50000, ge=0, description="余额低于此值时前端显示黄色告警（默认约 12 天用量）"
     )
     twitter_balance_danger_threshold: int = Field(
-        default=10000, ge=0, description="余额低于此值时前端显示红色告警（默认约半天用量）"
+        default=10000, ge=0, description="余额低于此值时前端显示红色告警（默认约 2.5 天用量）"
     )
 
     model_config = SettingsConfigDict(

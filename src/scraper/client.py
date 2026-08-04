@@ -586,6 +586,36 @@ class TwitterClient:
             "用户 %s 达到最大页数限制 %d，停止分页", username, max_pages,
         )
 
+    async def search_tweets_incremental(
+        self,
+        query: str,
+        *,
+        cursor: str | None = None,
+    ) -> Result[dict[str, Any], TwitterClientError]:
+        """按查询串增量搜索推文（advanced_search 端点）。
+
+        Args:
+            query: 已由 GroupPlanner 构造并通过白名单断言的查询串
+            cursor: 分页游标（首页传 None）
+
+        Returns:
+            Result[dict, TwitterClientError]:
+                Success: 经标准化后的响应（含 data / includes / next_cursor）
+                Failure: TwitterClientError
+        """
+        if not query or not query.strip():
+            return Failure(TwitterClientError("查询串不能为空"))
+
+        params: dict[str, Any] = {"query": query, "queryType": "Latest"}
+        if cursor:
+            params["cursor"] = cursor
+
+        self._ensure_client()
+        return await self._fetch_with_retry(
+            "/tweet/advanced_search",
+            params=params,
+        )
+
     async def fetch_article(
         self,
         tweet_id: str,

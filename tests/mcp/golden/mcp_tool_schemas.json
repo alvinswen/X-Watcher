@@ -659,8 +659,8 @@
   "signature": "(since_cursor: 'str | None' = None, limit: 'int' = 200) -> 'str'"
  },
  "get_system_status": {
-  "description": "获取系统全局状态概览。\n\n        返回推文数、关注列表、摘要统计、系统信息等关键指标。\n        ",
-  "docstring": "获取系统全局状态概览。\n\n返回推文数、关注列表、摘要统计、系统信息等关键指标。",
+  "description": "获取系统全局状态概览。\n\n        返回推文数、关注列表、摘要统计、系统信息等关键指标。\n        同时返回按组增量抓取的水位、轮次、对账与告警状态。\n        ",
+  "docstring": "获取系统全局状态概览。\n\n返回推文数、关注列表、摘要统计、系统信息等关键指标。\n同时返回按组增量抓取的水位、轮次、对账与告警状态。",
   "parameters": {
    "properties": {},
    "title": "get_system_statusArguments",
@@ -1973,8 +1973,8 @@
   "signature": "(usernames: str | None = None, max_pages: int = 20, min_pages: int = 0) -> str"
  },
  "trigger_scrape": {
-  "description": "手动触发抓取任务。需要管理员权限。\n\n        若账号配置了手动抓取上限（manual_limit），该配置优先于 limit 参数生效。\n\n        Args:\n            usernames: 要抓取的 X 用户名，逗号分隔。留空则抓取所有活跃账号\n            limit: 每个用户的抓取推文数量限制，默认 100\n        ",
-  "docstring": "手动触发抓取任务。需要管理员权限。\n\n若账号配置了手动抓取上限（manual_limit），该配置优先于 limit 参数生效。\n\nArgs:\n    usernames: 要抓取的 X 用户名，逗号分隔。留空则抓取所有活跃账号\n    limit: 每个用户的抓取推文数量限制，默认 100",
+  "description": "手动触发抓取任务。需要管理员权限。\n\n        若账号配置了手动抓取上限（manual_limit），该配置优先于 limit 参数生效。\n        服务端启用增量搜索抓取时，本工具改走按组增量查询路径（由服务端配置决定，\n        调用方式不变），此时 manual_limit 不再参与判停。\n\n        Args:\n            usernames: 要抓取的 X 用户名，逗号分隔。留空则抓取所有活跃账号\n            limit: 每个用户的抓取推文数量限制，默认 100\n        ",
+  "docstring": "手动触发抓取任务。需要管理员权限。\n\n若账号配置了手动抓取上限（manual_limit），该配置优先于 limit 参数生效。\n服务端启用增量搜索抓取时，本工具改走按组增量查询路径（由服务端配置决定，\n调用方式不变），此时 manual_limit 不再参与判停。\n\nArgs:\n    usernames: 要抓取的 X 用户名，逗号分隔。留空则抓取所有活跃账号\n    limit: 每个用户的抓取推文数量限制，默认 100",
   "parameters": {
    "properties": {
     "limit": {
