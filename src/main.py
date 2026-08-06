@@ -93,7 +93,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001 - app �
 app = FastAPI(
     title="X-watcher",
     description="面向 Agent 的 X 平台智能信息监控服务",
-    version="0.1.0",
+    version=_APP_VERSION,
     lifespan=lifespan,
 )
 
