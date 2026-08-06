@@ -1521,7 +1521,7 @@ wheels = [
 
 [[package]]
 name = "x-watcher"
-version = "1.51.2"
+version = "1.52.0"
 source = { editable = "." }
 dependencies = [
     { name = "bcrypt" },
