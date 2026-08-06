@@ -1,6 +1,7 @@
 """测试 FastAPI 应用。"""
 
 import os
+from importlib.metadata import version as _pkg_version
 
 import pytest
 from fastapi.testclient import TestClient
@@ -31,7 +32,7 @@ def test_health_endpoint(client):
     assert "database" in data["components"]
     assert "scheduler" not in data["components"]
     assert set(data) == {"status", "components", "version", "commit"}
-    assert data["version"] == "0.1.0"
+    assert data["version"] == _pkg_version("x-watcher")
     assert isinstance(data["commit"], str)
     assert data["commit"]
 

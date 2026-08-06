@@ -3,6 +3,8 @@
 提供 init / validate / serve / export / import-data 子命令。
 """
 
+from importlib.metadata import version as _pkg_version
+
 import click
 
 from src.cli.init_command import init
@@ -11,7 +13,7 @@ from src.cli.validate_command import validate
 
 
 @click.group()
-@click.version_option(version="0.1.0", prog_name="x-watcher")
+@click.version_option(version=_pkg_version("x-watcher"), prog_name="x-watcher")
 def cli() -> None:
     """X-watcher — 面向 Agent 的 X 平台智能信息监控服务。"""
     pass
