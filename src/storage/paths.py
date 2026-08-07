@@ -39,16 +39,25 @@ def iter_canonical_shards(data_root: Path) -> list[Path]:
     return sorted(base.glob("*/*.jsonl"))
 
 
+def by_day_dir(data_root: Path) -> Path:
+    return _guard(data_root, Path(data_root) / "_views" / "by-day")
+
+
 def by_day_shard(data_root: Path, utc_date: date) -> Path:
-    target = Path(data_root) / "_views" / "by-day" / f"{utc_date.isoformat()}.jsonl"
-    return _guard(data_root, target)
+    return _guard(data_root, by_day_dir(data_root) / f"{utc_date.isoformat()}.jsonl")
 
 
 def iter_by_day_shards(data_root: Path) -> list[Path]:
-    base = _guard(data_root, Path(data_root) / "_views" / "by-day")
+    base = by_day_dir(data_root)
     if not base.exists():
         return []
     return sorted(base.glob("*.jsonl"))
+
+
+def by_day_state_doc(data_root: Path) -> Path:
+    """by-day 重建现场记录(非 .jsonl,故不被 iter_by_day_shards 枚举、不被重建清理)。"""
+    target = Path(data_root) / "_views" / "by-day.state.json"
+    return _guard(data_root, target)
 
 
 def local_day_to_utc_window(local_date: date, tz_offset_min: int) -> tuple[datetime, datetime]:

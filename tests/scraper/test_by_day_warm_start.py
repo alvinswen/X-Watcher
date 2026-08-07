@@ -6,6 +6,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Event
 from unittest.mock import MagicMock
 
 import pytest
@@ -110,19 +111,39 @@ async def test_failed_warm_start_degrades_browse_and_feed_to_empty(monkeypatch, 
     assert (feed.items, feed.total) == ([], 0)
 
 
-def test_dual_cold_starts_tolerate_non_atomic_rebuild_failure(monkeypatch, tmp_path: Path) -> None:
-    calls = 0
+@pytest.mark.asyncio
+async def test_dual_cold_starts_end_with_complete_view(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    store = FileTweetStore(tmp_path)
+    await store.save_tweets(
+        [_tweet("t1", 1), _tweet("t2", 2), _tweet("t3", 3)],
+        early_stop_threshold=0,
+    )
+    views.rebuild_by_day(tmp_path)
+    paths.by_day_state_doc(tmp_path).unlink()
 
-    def racing_rebuild(data_root: Path) -> None:  # noqa: ARG001
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            raise FileNotFoundError("another cold start removed this shard")
+    first_write_started = Event()
+    release_writes = Event()
+    original_write = views.write_shard
 
-    monkeypatch.setattr(views, "rebuild_by_day", racing_rebuild)
+    def delayed_write(path: Path, records: list[dict[str, object]]) -> None:
+        first_write_started.set()
+        release_writes.wait(timeout=5)
+        original_write(path, records)
 
+    monkeypatch.setattr(views, "write_shard", delayed_write)
     with ThreadPoolExecutor(max_workers=2) as pool:
-        list(pool.map(views.warm_start_by_day, [tmp_path, tmp_path]))
+        futures = [pool.submit(views.warm_start_by_day, tmp_path) for _ in range(2)]
+        assert first_write_started.wait(timeout=5)
+        visible_while_rebuilding = paths.iter_by_day_shards(tmp_path)
+        release_writes.set()
+        for future in futures:
+            future.result()
 
-    assert calls == 2
-    # 非原子 unlink/rewrite 的冷启竞态只保证服务续行，不断言视图立即完整。
+    ok, detail = views.reconcile_by_day(tmp_path)
+    assert visible_while_rebuilding
+    assert ok is True
+    assert detail["only_canonical"] == []
+    assert detail["only_view"] == []
+    # 双冷启结束后副本必须与正本完全一致（B-4 = A）。

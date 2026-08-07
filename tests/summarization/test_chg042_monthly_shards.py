@@ -474,7 +474,7 @@ async def test_nonempty_legacy_file_is_allowed_when_shards_exist(tmp_path: Path)
 
 
 @pytest.mark.asyncio
-async def test_mcp_save_summaries_uses_real_monthly_store_and_reuses_locator(
+async def test_mcp_save_summaries_uses_real_monthly_store_and_rebuilds_locator_per_record(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -531,7 +531,8 @@ async def test_mcp_save_summaries_uses_real_monthly_store_and_reuses_locator(
 
     assert result["success"] is True
     assert result["data"]["saved"] == 2
-    assert build_calls <= 1
+    # Agent 回写若将来改成批量化，本断言会再次变红：那是预期语义变化，不是回归。
+    assert build_calls == 2
     existing_records = _records_for_tweet(tmp_path, "existing-tweet")
     new_records = _records_for_tweet(tmp_path, "new-tweet")
     assert len(existing_records) == 1
