@@ -149,6 +149,9 @@ def register(mcp: FastMCP) -> None:
             from src.summarization.domain.summary_verification import (
                 verify_translation,
             )
+            from src.summarization.infrastructure.file_summary_repository import (
+                summary_write_progress,
+            )
 
             model_name = get_settings().claude_code_model_name
             saved = 0
@@ -174,7 +177,7 @@ def register(mcp: FastMCP) -> None:
             reader = get_summarization_read_repo()
             origin_map = await reader.get_tweet_origins(tweet_ids)
 
-            for item in items:
+            for index, item in enumerate(items, start=1):
                 if not isinstance(item, dict):
                     failed += 1
                     errors.append(f"条目不是对象: {type(item).__name__}")
@@ -263,7 +266,8 @@ def register(mcp: FastMCP) -> None:
                         updated_at=now,
                     )
 
-                    await repo.save_summary_record(record)
+                    with summary_write_progress(index, len(items)):
+                        await repo.save_summary_record(record)
                     saved += 1
 
                 except Exception as e:

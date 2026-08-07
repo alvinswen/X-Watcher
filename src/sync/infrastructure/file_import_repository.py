@@ -132,41 +132,50 @@ class FileImportStore:
 
     async def import_summaries(self, items: Any, strategy: Any) -> ImportStats:
         stats = ImportStats()
-        for item in items:
-            item = _naive_item(item, "summaries")
-            try:
-                summary_exists = await self._summaries.summary_exists(item["summary_id"])
-                existing_summary_id = (
-                    None
-                    if summary_exists
-                    else await self._summaries.summary_id_of_tweet(item["tweet_id"])
-                )
-            except Exception as exc:  # noqa: BLE001
-                stats.errors += 1
-                logger.warning(
-                    "导入摘要查重失败: tweet_id=%s external_summary_id=%s error=%s",
-                    item.get("tweet_id"),
-                    item.get("summary_id"),
-                    exc,
-                )
-                continue
+        processed = 0
+        async with self._summaries.batch_session() as session:
+            for item in items:
+                processed += 1
+                item = _naive_item(item, "summaries")
+                try:
+                    summary_exists = await self._summaries.summary_exists(item["summary_id"])
+                    existing_summary_id = (
+                        None
+                        if summary_exists
+                        else await self._summaries.summary_id_of_tweet(item["tweet_id"])
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    stats.errors += 1
+                    logger.warning(
+                        "导入摘要查重失败: tweet_id=%s external_summary_id=%s error=%s",
+                        item.get("tweet_id"),
+                        item.get("summary_id"),
+                        exc,
+                    )
+                    continue
 
-            if not summary_exists and existing_summary_id is not None:
-                stats.skipped += 1
-                logger.info(
-                    "跳过重复摘要导入: tweet_id=%s external_summary_id=%s existing_summary_id=%s",
-                    item["tweet_id"],
-                    item["summary_id"],
-                    existing_summary_id,
-                )
-            elif not summary_exists:
-                await self._summaries.upsert_summary(item)
-                stats.inserted += 1
-            elif strategy == ConflictStrategy.skip or strategy == ConflictStrategy.merge:
-                stats.skipped += 1
-            elif strategy == ConflictStrategy.overwrite:
-                await self._summaries.upsert_summary(item)
-                stats.updated += 1
+                if not summary_exists and existing_summary_id is not None:
+                    stats.skipped += 1
+                    logger.info(
+                        "跳过重复摘要导入: tweet_id=%s external_summary_id=%s existing_summary_id=%s",
+                        item["tweet_id"],
+                        item["summary_id"],
+                        existing_summary_id,
+                    )
+                elif not summary_exists:
+                    await self._summaries.upsert_summary(item)
+                    stats.inserted += 1
+                elif strategy == ConflictStrategy.skip or strategy == ConflictStrategy.merge:
+                    stats.skipped += 1
+                elif strategy == ConflictStrategy.overwrite:
+                    await self._summaries.upsert_summary(item)
+                    stats.updated += 1
+        logger.info(
+            "导入摘要批量语义: 段长=%d 刷新次数=%d 条数=%d",
+            session.segment_size,
+            session.refreshes,
+            processed,
+        )
         return stats
 
     async def import_articles(self, items: Any, strategy: Any) -> ImportStats:

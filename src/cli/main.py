@@ -10,6 +10,7 @@ import click
 from src.cli.init_command import init
 from src.cli.sync_command import export, import_data
 from src.cli.validate_command import validate
+from src.cli.views_command import views
 
 
 @click.group()
@@ -23,6 +24,7 @@ cli.add_command(init)
 cli.add_command(validate)
 cli.add_command(export)
 cli.add_command(import_data)
+cli.add_command(views)
 
 
 @cli.command()

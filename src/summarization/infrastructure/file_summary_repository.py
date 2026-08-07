@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import contextvars
 import logging
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -32,6 +35,12 @@ _Locator = tuple[
     dict[str, _SummaryLocation],
 ]
 _locator_cache: dict[str, tuple[_ShardSignature, _Locator]] = {}
+
+SUMMARY_BATCH_REFRESH_SIZE = 500
+
+_batch_progress: contextvars.ContextVar[tuple[int, int] | None] = contextvars.ContextVar(
+    "summary_batch_progress", default=None
+)
 
 
 def _now_utc_iso() -> str:
@@ -115,9 +124,32 @@ def _locator(data_root: Path) -> _Locator:
     return locator
 
 
-def _store_locator(data_root: Path, locator: _Locator) -> None:
-    root = Path(data_root)
-    _locator_cache[str(root)] = (_shard_signature(root), locator)
+@contextmanager
+def summary_write_progress(index: int, total: int) -> Iterator[None]:
+    """标注本轮进度(第 N 条 / 共 M 条),供撞车运行记录取用;不改任何写入语义。"""
+    token = _batch_progress.set((index, total))
+    try:
+        yield
+    finally:
+        _batch_progress.reset(token)
+
+
+def _discard_locator(data_root: Path) -> None:
+    _locator_cache.pop(str(Path(data_root)), None)
+
+
+def _take_locator(data_root: Path) -> _Locator:
+    locator = _locator(data_root)
+    _discard_locator(data_root)
+    return locator
+
+
+class _BatchSession:
+    __slots__ = ("segment_size", "refreshes")
+
+    def __init__(self, segment_size: int) -> None:
+        self.segment_size = segment_size
+        self.refreshes = 0
 
 
 def _created_at_datetime(value: Any) -> datetime:
@@ -143,10 +175,55 @@ class FileSummaryStore:
 
     def __init__(self, data_root: Path) -> None:
         self._root = Path(data_root)
+        self._batch: _Locator | None = None
+        self._session: _BatchSession | None = None
+        self._writes_in_segment = 0
+
+    def _current_locator(self) -> _Locator:
+        if self._batch is not None:
+            return self._batch
+        return _locator(self._root)
+
+    def _after_write(self) -> None:
+        if self._batch is None or self._session is None:
+            _discard_locator(self._root)
+            return
+        self._writes_in_segment += 1
+        if self._writes_in_segment >= self._session.segment_size:
+            self._writes_in_segment = 0
+            self._session.refreshes += 1
+            self._batch = _take_locator(self._root)
+
+    @asynccontextmanager
+    async def batch_session(
+        self, segment_size: int = SUMMARY_BATCH_REFRESH_SIZE
+    ) -> AsyncIterator[_BatchSession]:
+        session = _BatchSession(segment_size)
+        self._session = session
+        self._batch = _take_locator(self._root)
+        self._writes_in_segment = 0
+        try:
+            yield session
+        finally:
+            self._batch = None
+            self._session = None
+            self._writes_in_segment = 0
+            _discard_locator(self._root)
 
     @staticmethod
     def _to_domain(record: dict[str, Any]) -> SummaryRecord:
         return SummaryRecord(**record)
+
+    @staticmethod
+    def _log_collision(target: Path, tweet_id: str) -> None:
+        progress = _batch_progress.get()
+        logger.warning(
+            "摘要撞车拦截: at=%s month=%s progress=%s tweet_id=%s 处置=已用本次内容覆盖既有那条",
+            _now_utc_iso(),
+            target.stem,
+            f"{progress[0]}/{progress[1]}" if progress is not None else "-",
+            tweet_id,
+        )
 
     async def seed(self, records: list[SummaryRecord]) -> None:
         for shard in paths.iter_summary_shards(self._root):
@@ -160,11 +237,11 @@ class FileSummaryStore:
         for shard, shard_records in grouped.items():
             async with shard_lock(shard):
                 write_shard(shard, shard_records)
-        _locator_cache.pop(str(self._root), None)
+        _discard_locator(self._root)
 
     async def save_summary_record(self, record: SummaryRecord) -> SummaryRecord:
         try:
-            locator = _locator(self._root)
+            locator = self._current_locator()
             by_tweet, by_summary = locator
             candidates = [
                 location
@@ -197,7 +274,7 @@ class FileSummaryStore:
 
                 _remove_location(locator, existing_location)
                 _append_location(locator, existing_location.shard, existing)
-                _store_locator(self._root, locator)
+                self._after_write()
                 return record.model_copy(update={"summary_id": existing["summary_id"]})
 
             raw = record.model_dump(mode="json")
@@ -218,19 +295,39 @@ class FileSummaryStore:
                     for item in read_shard(target)
                     if item["summary_id"] != record.summary_id
                 ]
+                collision = next(
+                    (
+                        item
+                        for item in target_records
+                        if str(item.get("tweet_id")) == record.tweet_id
+                        and str(item.get("content_hash")) == record.content_hash
+                    ),
+                    None,
+                )
+                if collision is not None:
+                    for field in self._MUT_FIELDS:
+                        collision[field] = raw[field]
+                    collision["updated_at"] = _now_utc_iso()
+                    write_shard(target, target_records)
+                    _append_location(locator, target, collision)
+                    self._log_collision(target, record.tweet_id)
+                    self._after_write()
+                    return record.model_copy(
+                        update={"summary_id": str(collision["summary_id"])}
+                    )
                 target_records.append(raw)
                 write_shard(target, target_records)
 
             if same_id_location is not None:
                 _remove_location(locator, same_id_location)
             _append_location(locator, target, raw)
-            _store_locator(self._root, locator)
+            self._after_write()
             return record
         except Exception as exc:  # noqa: BLE001
             raise RepositoryError(f"保存摘要记录失败: {exc}") from exc
 
     async def get_summary_by_tweet(self, tweet_id: str) -> SummaryRecord | None:
-        locations = _locator(self._root)[0].get(tweet_id, [])
+        locations = self._current_locator()[0].get(tweet_id, [])
         if len(locations) > 1:
             raise RepositoryError(f"查询推文摘要失败: 多条记录匹配 tweet_id={tweet_id}")
         if not locations:
@@ -254,17 +351,17 @@ class FileSummaryStore:
         return records
 
     async def summary_exists(self, summary_id: str) -> bool:
-        return summary_id in _locator(self._root)[1]
+        return summary_id in self._current_locator()[1]
 
     async def summary_id_of_tweet(self, tweet_id: str) -> str | None:
-        locations = _locator(self._root)[0].get(tweet_id, [])
+        locations = self._current_locator()[0].get(tweet_id, [])
         if not locations:
             return None
         return max(locations, key=lambda location: location.created_at).summary_id
 
     async def upsert_summary(self, fields: dict[str, Any]) -> None:
         """按 summary_id 插入或全字段覆盖，跨月时先删旧片再写新片。"""
-        locator = _locator(self._root)
+        locator = self._current_locator()
         by_summary = locator[1]
         summary_id = str(fields["summary_id"])
         old_location = by_summary.get(summary_id)
@@ -293,4 +390,4 @@ class FileSummaryStore:
         if old_location is not None:
             _remove_location(locator, old_location)
         _append_location(locator, target, raw)
-        _store_locator(self._root, locator)
+        self._after_write()
