@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "x-watcher"
-version = "1.53.0"
+version = "1.53.1"
 description = "面向 Agent 的 X 平台智能信息监控服务"
 readme = "README.md"
 requires-python = ">=3.12"
