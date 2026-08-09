@@ -63,6 +63,11 @@
   --card-gap: 20px;
   --section-gap: 16px;
   --card-radius: 8px;
+  --media-tile-w: 210px;
+  --media-tile-h: 160px;
+  --media-tile-ref-w: 160px;
+  --media-tile-ref-h: 120px;
+  --lightbox-mask: rgba(20, 18, 14, 0.88);
 
   /* 阴影 */
   --shadow-card: 0 1px 3px rgba(44, 36, 23, 0.04);
@@ -151,6 +156,7 @@ html.dark {
 
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.2);
   --shadow-card-hover: 0 4px 12px rgba(0, 0, 0, 0.3);
+  --lightbox-mask: rgba(10, 9, 7, 0.92);
 
   --el-color-primary-light-7: rgba(212, 120, 92, 0.25);
   --el-color-primary-light-8: rgba(212, 120, 92, 0.15);

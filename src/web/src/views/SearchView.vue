@@ -76,6 +76,8 @@
         v-for="tweet in items"
         :key="tweet.tweet_id"
         :tweet="tweet"
+        reading-mode
+        :highlight-terms="activeTerms"
         clickable
         @click="goToDetail"
       />
@@ -107,6 +109,7 @@ import ApiKeyGuideEmpty from "@/components/ApiKeyGuideEmpty.vue"
 import LoadErrorState from "@/components/LoadErrorState.vue"
 import TweetCard from "@/components/TweetCard.vue"
 import { useApiKeyGuard } from "@/composables/useApiKeyGuard"
+import { splitSearchTerms } from "@/utils/tweetReading"
 import type { SearchTweetItem } from "@/types/search"
 
 const route = useRoute()
@@ -118,6 +121,7 @@ const dateRange = ref<[string, string] | null>(null)
 const loading = ref(false)
 const hasSearched = ref(false)
 const loadError = ref(false)
+const activeTerms = ref<string[]>([])
 
 const items = ref<SearchTweetItem[]>([])
 const total = ref(0)
@@ -157,6 +161,7 @@ function syncToQuery() {
 async function doSearch(preserveError = false) {
   if (!searchQuery.value.trim()) return
 
+  activeTerms.value = splitSearchTerms(searchQuery.value)
   loading.value = !preserveError
   hasSearched.value = true
   if (!preserveError) {
