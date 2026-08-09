@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from "vue"
 import { CopyDocument } from "@element-plus/icons-vue"
+import TweetLightbox from "@/components/TweetLightbox.vue"
 import { formatFullDateTime } from "@/utils/format"
 import type { TweetCardData } from "@/types/tweet"
 
@@ -27,6 +28,7 @@ const emit = defineEmits<{
 }>()
 
 const originalExpanded = ref(false)
+const lightboxSrc = ref<string | null>(null)
 
 function getReferenceLabel(type: string | null): string {
   switch (type) {
@@ -47,6 +49,12 @@ function toggleOriginal() {
   if (props.collapsibleOriginal) {
     originalExpanded.value = !originalExpanded.value
   }
+}
+
+function openLightbox(src: string | null | undefined, event: Event) {
+  if (!src) return
+  if (event.currentTarget instanceof HTMLElement) event.currentTarget.focus()
+  lightboxSrc.value = src
 }
 </script>
 
@@ -118,6 +126,12 @@ function toggleOriginal() {
         :src="media.url || media.preview_image_url || undefined"
         :alt="`媒体 ${index + 1}`"
         class="media-image"
+        tabindex="0"
+        role="button"
+        :aria-label="`放大图片 ${index + 1}`"
+        @click.stop="openLightbox(media.url || media.preview_image_url, $event)"
+        @keydown.enter.stop.prevent="openLightbox(media.url || media.preview_image_url, $event)"
+        @keydown.space.stop.prevent="openLightbox(media.url || media.preview_image_url, $event)"
       />
     </div>
 
@@ -137,9 +151,21 @@ function toggleOriginal() {
           :src="media.url || media.preview_image_url || undefined"
           :alt="`引用媒体 ${index + 1}`"
           class="media-image"
+          tabindex="0"
+          role="button"
+          :aria-label="`放大图片 ${index + 1}`"
+          @click.stop="openLightbox(media.url || media.preview_image_url, $event)"
+          @keydown.enter.stop.prevent="openLightbox(media.url || media.preview_image_url, $event)"
+          @keydown.space.stop.prevent="openLightbox(media.url || media.preview_image_url, $event)"
         />
       </div>
     </div>
+
+    <TweetLightbox
+      v-if="lightboxSrc"
+      :src="lightboxSrc"
+      @close="lightboxSrc = null"
+    />
   </article>
 </template>
 
@@ -281,6 +307,12 @@ function toggleOriginal() {
   max-height: 200px;
   border-radius: 6px;
   object-fit: cover;
+  cursor: zoom-in;
+}
+
+.media-image:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
 }
 
 .media-hover-zoom .media-image {
