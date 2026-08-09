@@ -258,4 +258,94 @@ describe("TweetCard reading mode", () => {
     expect(wrapper.get(".original-section").text()).toContain("An original tweet")
     expect(wrapper.find('[data-testid="tweet-card-layer-btn"]').exists()).toBe(false)
   })
+
+  it("auto-expands a matching hidden layer and renders safe highlight segments", () => {
+    const wrapper = trackedMount(TweetCard, {
+      props: {
+        tweet: { ...baseTweet, media: [], translation_text: "Agent 的中文全文" } as TweetCardData,
+        readingMode: true,
+        highlightTerms: ["agent"],
+      },
+      global: { stubs: { ElButton: true, ElIcon: true } },
+    })
+    expect(wrapper.get('[data-layer="trans"]').text()).toBe("▾ 收起全文")
+    expect(wrapper.get('[data-testid="tweet-card-layer-trans"]').text()).toBe("Agent 的中文全文")
+    expect(wrapper.get('[data-testid="tweet-card-hit"]').text()).toBe("Agent")
+  })
+
+  it("keeps hidden layers collapsed when the match is visible in the summary", () => {
+    const wrapper = trackedMount(TweetCard, {
+      props: {
+        tweet: { ...baseTweet, media: [], summary_text: "Visible agent summary" } as TweetCardData,
+        readingMode: true,
+        highlightTerms: ["agent"],
+      },
+      global: { stubs: { ElButton: true, ElIcon: true } },
+    })
+    expect(wrapper.get('[data-testid="tweet-card-hit"]').text()).toBe("agent")
+    expect(wrapper.find('[data-testid="tweet-card-layer-trans"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="tweet-card-layer-orig"]').exists()).toBe(false)
+  })
+
+  it("recomputes expansion when search terms or the tweet change", async () => {
+    const wrapper = trackedMount(TweetCard, {
+      props: {
+        tweet: { ...baseTweet, media: [], text: "Original needle" } as TweetCardData,
+        readingMode: true,
+        highlightTerms: ["needle"],
+      },
+      global: { stubs: { ElButton: true, ElIcon: true } },
+    })
+    expect(wrapper.find('[data-testid="tweet-card-layer-orig"]').exists()).toBe(true)
+
+    await wrapper.setProps({ highlightTerms: ["一条摘要"] })
+    expect(wrapper.find('[data-testid="tweet-card-layer-orig"]').exists()).toBe(false)
+
+    await wrapper.setProps({
+      tweet: { ...baseTweet, tweet_id: "tweet-2", media: [], translation_text: "second hit" } as TweetCardData,
+      highlightTerms: ["second"],
+    })
+    expect(wrapper.find('[data-testid="tweet-card-layer-trans"]').exists()).toBe(true)
+  })
+
+  it("keeps the unstripped summary when its prefix contains the visible search hit", () => {
+    const wrapper = trackedMount(TweetCard, {
+      props: {
+        tweet: {
+          ...baseTweet,
+          media: [],
+          author_username: "a",
+          summary_text: "@a 引用 @b：找 keyword 的话",
+        } as TweetCardData,
+        readingMode: true,
+        highlightTerms: ["@b"],
+      },
+      global: { stubs: { ElButton: true, ElIcon: true } },
+    })
+    expect(wrapper.get('[data-testid="tweet-card-summary-line"]').text()).toBe("@a 引用 @b：找 keyword 的话")
+  })
+
+  it("renders script-like content as text and never as executable markup", () => {
+    const wrapper = trackedMount(TweetCard, {
+      props: {
+        tweet: { ...baseTweet, media: [], summary_text: "<script>alert(1)</script>" } as TweetCardData,
+        readingMode: true,
+        highlightTerms: ["script"],
+      },
+      global: { stubs: { ElButton: true, ElIcon: true } },
+    })
+    expect(wrapper.get('[data-testid="tweet-card-summary-line"]').text()).toBe("<script>alert(1)</script>")
+    expect(wrapper.find("script").exists()).toBe(false)
+  })
+
+  it("blocks card clicks from layer buttons while retaining the blank-card action", async () => {
+    const wrapper = trackedMount(TweetCard, {
+      props: { tweet: { ...baseTweet, media: [] } as TweetCardData, readingMode: true, clickable: true },
+      global: { stubs: { ElButton: true, ElIcon: true } },
+    })
+    await wrapper.get('[data-layer="trans"]').trigger("click")
+    expect(wrapper.emitted("click")).toBeUndefined()
+    await wrapper.get('[data-testid="tweet-card"]').trigger("click")
+    expect(wrapper.emitted("click")).toEqual([["tweet-1"]])
+  })
 })

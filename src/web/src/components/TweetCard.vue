@@ -4,7 +4,12 @@ import { CopyDocument } from "@element-plus/icons-vue"
 import TweetLightbox from "@/components/TweetLightbox.vue"
 import TweetMediaTiles from "@/components/TweetMediaTiles.vue"
 import { formatFullDateTime } from "@/utils/format"
-import { displaySummary, isCjkDominant } from "@/utils/tweetReading"
+import {
+  displaySummary,
+  isCjkDominant,
+  segmentHighlight,
+  termHits,
+} from "@/utils/tweetReading"
 import type { TweetCardData } from "@/types/tweet"
 
 const props = withDefaults(defineProps<{
@@ -17,6 +22,7 @@ const props = withDefaults(defineProps<{
   mediaHoverZoom?: boolean
   showRefMedia?: boolean
   readingMode?: boolean
+  highlightTerms?: string[]
 }>(), {
   showAuthor: true,
   clickable: false,
@@ -26,6 +32,7 @@ const props = withDefaults(defineProps<{
   mediaHoverZoom: false,
   showRefMedia: false,
   readingMode: false,
+  highlightTerms: () => [],
 })
 
 const emit = defineEmits<{
@@ -44,8 +51,9 @@ const hasTransLayer = computed(() => !!props.tweet.translation_text && !zhNative
 const origLayerHasText = computed(() => !!props.tweet.text && !!props.tweet.summary_text)
 const hasOrigLayer = computed(() => origLayerHasText.value || hasQuote.value)
 const isCardEmpty = computed(() => !props.tweet.summary_text && !props.tweet.text)
+const effTerms = computed(() => props.readingMode ? props.highlightTerms : [])
 const l1Text = computed(() => props.tweet.summary_text
-  ? displaySummary(props.tweet.summary_text, props.tweet.author_username, [])
+  ? displaySummary(props.tweet.summary_text, props.tweet.author_username, effTerms.value)
   : (props.tweet.text || ""))
 const relTagVisible = computed(() => props.readingMode
   && (props.tweet.reference_type != null || hasQuote.value))
@@ -55,10 +63,20 @@ const relTagText = computed(() => {
   return author ? `${label} @${author}` : label
 })
 
-watch(() => props.tweet, () => {
-  transExpanded.value = false
-  origExpanded.value = false
-}, { immediate: true })
+function initLayers() {
+  const terms = effTerms.value
+  transExpanded.value = !!terms.length && hasTransLayer.value
+    && terms.some((term) => termHits(props.tweet.translation_text, term))
+  origExpanded.value = !!terms.length && hasOrigLayer.value
+    && terms.some((term) => (origLayerHasText.value && termHits(props.tweet.text, term))
+      || (hasQuote.value && termHits(props.tweet.referenced_tweet_text, term)))
+}
+
+function highlighted(text: string | null | undefined) {
+  return segmentHighlight(text || "", effTerms.value)
+}
+
+watch([() => props.tweet, () => props.highlightTerms], initLayers, { immediate: true })
 
 function getReferenceLabel(type: string | null): string {
   switch (type) {
@@ -128,7 +146,12 @@ function toggleOriginal() {
         class="empty-placeholder"
         data-testid="tweet-card-empty"
       >该推文无正文内容</p>
-      <p v-else class="summary-line" data-testid="tweet-card-summary-line">{{ l1Text }}</p>
+      <p v-else class="summary-line" data-testid="tweet-card-summary-line">
+        <template v-for="(segment, index) in highlighted(l1Text)" :key="index">
+          <mark v-if="segment.hit" data-testid="tweet-card-hit">{{ segment.text }}</mark>
+          <template v-else>{{ segment.text }}</template>
+        </template>
+      </p>
 
       <TweetMediaTiles
         v-if="tweet.media?.length"
@@ -164,14 +187,24 @@ function toggleOriginal() {
         v-if="transExpanded"
         class="layer layer--trans"
         data-testid="tweet-card-layer-trans"
-      >{{ tweet.translation_text }}</div>
+      >
+        <template v-for="(segment, index) in highlighted(tweet.translation_text)" :key="index">
+          <mark v-if="segment.hit" data-testid="tweet-card-hit">{{ segment.text }}</mark>
+          <template v-else>{{ segment.text }}</template>
+        </template>
+      </div>
 
       <div
         v-if="origExpanded"
         class="layer layer--orig"
         data-testid="tweet-card-layer-orig"
       >
-        <p v-if="origLayerHasText" class="layer-text">{{ tweet.text }}</p>
+        <p v-if="origLayerHasText" class="layer-text">
+          <template v-for="(segment, index) in highlighted(tweet.text)" :key="index">
+            <mark v-if="segment.hit" data-testid="tweet-card-hit">{{ segment.text }}</mark>
+            <template v-else>{{ segment.text }}</template>
+          </template>
+        </p>
         <div
           v-if="hasQuote"
           class="quote-block"
@@ -181,7 +214,12 @@ function toggleOriginal() {
           <span class="quote-attr">
             {{ tweet.referenced_tweet_author_username ? `↩ @${tweet.referenced_tweet_author_username} 原文` : "↩ 原文" }}
           </span>
-          <p v-if="tweet.referenced_tweet_text" class="quote-text">{{ tweet.referenced_tweet_text }}</p>
+          <p v-if="tweet.referenced_tweet_text" class="quote-text">
+            <template v-for="(segment, index) in highlighted(tweet.referenced_tweet_text)" :key="index">
+              <mark v-if="segment.hit" data-testid="tweet-card-hit">{{ segment.text }}</mark>
+              <template v-else>{{ segment.text }}</template>
+            </template>
+          </p>
           <TweetMediaTiles
             v-if="tweet.referenced_tweet_media?.length"
             :items="tweet.referenced_tweet_media"
@@ -474,6 +512,14 @@ function toggleOriginal() {
   color: var(--text-tertiary);
   font-family: var(--font-mono);
   font-size: var(--label-font-size);
+}
+
+mark {
+  padding: 0 1px;
+  border-radius: 2px;
+  background: var(--el-color-primary-light-7);
+  color: inherit;
+  font-weight: 600;
 }
 
 .tweet-section {
