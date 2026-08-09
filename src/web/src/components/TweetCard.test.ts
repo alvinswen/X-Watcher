@@ -134,3 +134,128 @@ describe("TweetCard lightbox integration", () => {
     expect(wrapper.find('[data-testid="tweet-card-ref-media-item"]').exists()).toBe(true)
   })
 })
+
+describe("TweetCard reading mode", () => {
+  it("independently expands and collapses the translation and original layers", async () => {
+    const wrapper = trackedMount(TweetCard, {
+      props: { tweet: { ...baseTweet, media: [] } as TweetCardData, readingMode: true },
+      global: { stubs: { ElButton: true, ElIcon: true } },
+    })
+    const buttons = wrapper.findAll('[data-testid="tweet-card-layer-btn"]')
+    expect(buttons.map((button) => button.text())).toEqual(["▸ 全文", "▸ 原文"])
+
+    await buttons[0]!.trigger("click")
+    expect(buttons[0]!.text()).toBe("▾ 收起全文")
+    expect(buttons[0]!.attributes("aria-expanded")).toBe("true")
+    expect(wrapper.get('[data-testid="tweet-card-layer-trans"]').text()).toBe("一条翻译")
+    expect(wrapper.find('[data-testid="tweet-card-layer-orig"]').exists()).toBe(false)
+
+    await buttons[1]!.trigger("click")
+    expect(buttons[1]!.text()).toBe("▾ 收起原文")
+    expect(wrapper.get('[data-testid="tweet-card-layer-orig"]').text()).toContain("An original tweet")
+
+    await buttons[0]!.trigger("click")
+    expect(wrapper.find('[data-testid="tweet-card-layer-trans"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="tweet-card-layer-orig"]').exists()).toBe(true)
+  })
+
+  it("omits the translation button when translation is absent or the original is Chinese", () => {
+    const withoutTranslation = trackedMount(TweetCard, {
+      props: {
+        tweet: { ...baseTweet, media: [], translation_text: null } as TweetCardData,
+        readingMode: true,
+      },
+      global: { stubs: { ElButton: true, ElIcon: true } },
+    })
+    expect(withoutTranslation.find('[data-layer="trans"]').exists()).toBe(false)
+
+    const chineseOriginal = trackedMount(TweetCard, {
+      props: {
+        tweet: { ...baseTweet, media: [], text: "汉汉汉xxxxxxxxxxxxxxxxx" } as TweetCardData,
+        readingMode: true,
+      },
+      global: { stubs: { ElButton: true, ElIcon: true } },
+    })
+    expect(chineseOriginal.find('[data-layer="trans"]').exists()).toBe(false)
+    expect(chineseOriginal.get('[data-layer="orig"]').text()).toBe("▸ 原文")
+  })
+
+  it("uses the original as L1 when the summary is absent without duplicating it", async () => {
+    const wrapper = trackedMount(TweetCard, {
+      props: {
+        tweet: { ...baseTweet, media: [], summary_text: null } as TweetCardData,
+        readingMode: true,
+      },
+      global: { stubs: { ElButton: true, ElIcon: true } },
+    })
+    expect(wrapper.get('[data-testid="tweet-card-summary-line"]').text()).toBe("An original tweet")
+    expect(wrapper.find('[data-layer="orig"]').exists()).toBe(false)
+
+    await wrapper.setProps({
+      tweet: {
+        ...baseTweet,
+        media: [],
+        summary_text: null,
+        referenced_tweet_id: "quoted-1",
+        referenced_tweet_text: "Quoted only",
+      } as TweetCardData,
+    })
+    expect(wrapper.find('[data-layer="orig"]').exists()).toBe(true)
+  })
+
+  it("distinguishes a fully empty card from an empty card with a quote", async () => {
+    const wrapper = trackedMount(TweetCard, {
+      props: {
+        tweet: { ...baseTweet, media: [], summary_text: null, text: "", translation_text: null } as TweetCardData,
+        readingMode: true,
+      },
+      global: { stubs: { ElButton: true, ElIcon: true } },
+    })
+    expect(wrapper.get('[data-testid="tweet-card-empty"]').text()).toBe("该推文无正文内容")
+    expect(wrapper.findAll('[data-testid="tweet-card-layer-btn"]')).toHaveLength(0)
+
+    await wrapper.setProps({
+      tweet: {
+        ...baseTweet,
+        media: [],
+        summary_text: null,
+        text: "",
+        translation_text: null,
+        referenced_tweet_id: "quoted-1",
+        referenced_tweet_text: "Quoted only",
+      } as TweetCardData,
+    })
+    expect(wrapper.get('[data-testid="tweet-card-empty"]').exists()).toBe(true)
+    await wrapper.get('[data-layer="orig"]').trigger("click")
+    expect(wrapper.get('[data-testid="tweet-card-ref-quote"]').text()).toContain("Quoted only")
+    expect(wrapper.find(".layer-text").exists()).toBe(false)
+  })
+
+  it("renders a relation without a bare at-sign when the quoted author is missing", () => {
+    const wrapper = trackedMount(TweetCard, {
+      props: {
+        tweet: {
+          ...baseTweet,
+          media: [],
+          reference_type: "replied_to",
+          referenced_tweet_id: "quoted-1",
+          referenced_tweet_author_username: null,
+        } as TweetCardData,
+        readingMode: true,
+      },
+      global: { stubs: { ElButton: true, ElIcon: true } },
+    })
+    expect(wrapper.get('[data-testid="tweet-card-rel-tag"]').text()).toBe("回复")
+  })
+
+  it("preserves the legacy review markup when reading mode is off", () => {
+    const wrapper = trackedMount(TweetCard, {
+      props: { tweet: { ...baseTweet, media: [] } as TweetCardData },
+      global: { stubs: { ElButton: true, ElIcon: true } },
+    })
+    expect(wrapper.get('[data-testid="tweet-card-summary-label"]').text()).toBe("摘要")
+    expect(wrapper.get('[data-testid="tweet-card-translation"]').text()).toBe("一条翻译")
+    expect(wrapper.get(".original-section").text()).toContain("An original tweet")
+    expect(wrapper.find('[data-testid="tweet-card-layer-btn"]').exists()).toBe(false)
+  })
+})

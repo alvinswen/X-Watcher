@@ -76,6 +76,7 @@
         v-for="tweet in items"
         :key="tweet.tweet_id"
         :tweet="tweet"
+        reading-mode
         clickable
         @click="goToDetail"
       />

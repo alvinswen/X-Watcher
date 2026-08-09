@@ -109,6 +109,8 @@ function openMedia(media: MediaItem, event: Event) {
   max-height: var(--media-tile-ref-h);
 }
 
+.media-tiles--ref { margin-top: 10px; }
+
 .media-hover-zoom .media-image {
   transition: transform var(--transition-base);
 }

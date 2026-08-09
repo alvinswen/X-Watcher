@@ -120,7 +120,7 @@
             :key="tweet.tweet_id"
             :tweet="tweet"
             :show-author="mode === 'date' && !selectedAuthor"
-            collapsible-original
+            reading-mode
             show-share
             :animation-index="tweetIndex"
             media-hover-zoom
