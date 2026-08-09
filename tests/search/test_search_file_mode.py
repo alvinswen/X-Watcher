@@ -127,6 +127,41 @@ async def test_search_file_mode_author_and_until_only(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_search_file_mode_reuses_tweet_cache_until_signature_changes(monkeypatch, tmp_path):
+    """同签名复用全量推文缓存；canonical 内容变化后重建。"""
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    base = datetime(2024, 1, 1, tzinfo=UTC)
+    await _seed_file(tmp_path, [_tweet("c1", "alice", base, text="cache needle")])
+
+    from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
+    from src.search.infrastructure.file_search_read_repository import FileSearchReadStore
+    from src.storage import paths
+
+    original_get_all_tweets = FileTweetStore.get_all_tweets
+    load_count = 0
+
+    async def counted_get_all_tweets(store):
+        nonlocal load_count
+        load_count += 1
+        return await original_get_all_tweets(store)
+
+    monkeypatch.setattr(FileTweetStore, "get_all_tweets", counted_get_all_tweets)
+    search = FileSearchReadStore(tmp_path)
+
+    first = await search.search_tweets(q="needle", include_summary=False)
+    second = await search.search_tweets(q="needle", include_summary=False)
+    assert first.total == second.total == 1
+    assert load_count == 1
+
+    shard = paths.canonical_shard(tmp_path, "alice", base)
+    shard.write_bytes(shard.read_bytes() + b"\n")
+
+    rebuilt = await search.search_tweets(q="needle", include_summary=False)
+    assert rebuilt.total == 1
+    assert load_count == 2
+
+
+@pytest.mark.asyncio
 async def test_search_file_mode_media_shape(monkeypatch, tmp_path):
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     import json

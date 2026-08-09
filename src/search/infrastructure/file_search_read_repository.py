@@ -35,7 +35,8 @@ class FileSearchReadStore:
             # 窗口快路径:by-day 视图取 [since, until)(until=None → [since, ∞))
             return (await store.get_feed(since, until, limit=_NO_LIMIT)).items
         # since 无:全扫兜底 + until 过滤(created_at < until)
-        tweets = await store.get_all_tweets()
+        from src.shared.read_cache import load_all_tweets_map
+        tweets = list((await load_all_tweets_map(self._root)).values())
         if until is not None:
             until_cmp = until if until.tzinfo is not None else until.replace(tzinfo=UTC)
             tweets = [t for t in tweets if t.created_at < until_cmp]
