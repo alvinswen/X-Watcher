@@ -2,6 +2,7 @@
 import { ref } from "vue"
 import { CopyDocument } from "@element-plus/icons-vue"
 import TweetLightbox from "@/components/TweetLightbox.vue"
+import TweetMediaTiles from "@/components/TweetMediaTiles.vue"
 import { formatFullDateTime } from "@/utils/format"
 import type { TweetCardData } from "@/types/tweet"
 
@@ -51,11 +52,6 @@ function toggleOriginal() {
   }
 }
 
-function openLightbox(src: string | null | undefined, event: Event) {
-  if (!src) return
-  if (event.currentTarget instanceof HTMLElement) event.currentTarget.focus()
-  lightboxSrc.value = src
-}
 </script>
 
 <template>
@@ -119,21 +115,12 @@ function openLightbox(src: string | null | undefined, event: Event) {
       />
     </div>
 
-    <div v-if="tweet.media?.length" class="tweet-media">
-      <img
-        v-for="(media, index) in tweet.media"
-        :key="index"
-        :src="media.url || media.preview_image_url || undefined"
-        :alt="`媒体 ${index + 1}`"
-        class="media-image"
-        tabindex="0"
-        role="button"
-        :aria-label="`放大图片 ${index + 1}`"
-        @click.stop="openLightbox(media.url || media.preview_image_url, $event)"
-        @keydown.enter.stop.prevent="openLightbox(media.url || media.preview_image_url, $event)"
-        @keydown.space.stop.prevent="openLightbox(media.url || media.preview_image_url, $event)"
-      />
-    </div>
+    <TweetMediaTiles
+      v-if="tweet.media?.length"
+      :items="tweet.media"
+      :hover-zoom="mediaHoverZoom"
+      @zoom="lightboxSrc = $event"
+    />
 
     <div v-if="tweet.referenced_tweet_id" class="referenced-tweet">
       <div class="ref-label">{{ getReferenceLabel(tweet.reference_type) }}</div>
@@ -141,24 +128,13 @@ function openLightbox(src: string | null | undefined, event: Event) {
         <span class="ref-author">@{{ tweet.referenced_tweet_author_username }}</span>
         <span class="ref-text">{{ tweet.referenced_tweet_text }}</span>
       </div>
-      <div
+      <TweetMediaTiles
         v-if="collapsibleOriginal && tweet.referenced_tweet_media?.length"
-        class="tweet-media ref-media"
-      >
-        <img
-          v-for="(media, index) in tweet.referenced_tweet_media"
-          :key="index"
-          :src="media.url || media.preview_image_url || undefined"
-          :alt="`引用媒体 ${index + 1}`"
-          class="media-image"
-          tabindex="0"
-          role="button"
-          :aria-label="`放大图片 ${index + 1}`"
-          @click.stop="openLightbox(media.url || media.preview_image_url, $event)"
-          @keydown.enter.stop.prevent="openLightbox(media.url || media.preview_image_url, $event)"
-          @keydown.space.stop.prevent="openLightbox(media.url || media.preview_image_url, $event)"
-        />
-      </div>
+        :items="tweet.referenced_tweet_media"
+        variant="ref"
+        :hover-zoom="mediaHoverZoom"
+        @zoom="lightboxSrc = $event"
+      />
     </div>
 
     <TweetLightbox
@@ -295,34 +271,6 @@ function openLightbox(src: string | null | undefined, event: Event) {
   pointer-events: none;
 }
 
-.tweet-media {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 8px;
-  margin-top: 12px;
-}
-
-.media-image {
-  width: 100%;
-  max-height: 200px;
-  border-radius: 6px;
-  object-fit: cover;
-  cursor: zoom-in;
-}
-
-.media-image:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 2px;
-}
-
-.media-hover-zoom .media-image {
-  transition: transform var(--transition-base);
-}
-
-.media-hover-zoom .media-image:hover {
-  transform: scale(1.02);
-}
-
 .referenced-tweet {
   margin-top: 12px;
   padding: 12px 16px;
@@ -354,10 +302,6 @@ function openLightbox(src: string | null | undefined, event: Event) {
 .ref-text {
   white-space: pre-wrap;
   word-break: break-word;
-}
-
-.ref-media {
-  margin-top: 6px;
 }
 
 .share-btn {

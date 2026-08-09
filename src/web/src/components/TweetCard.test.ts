@@ -82,12 +82,35 @@ describe("TweetCard lightbox integration", () => {
       global: { stubs: { ElButton: true, ElIcon: true } },
     })
 
-    await wrapper.get(".media-image").trigger("click")
+    const media = wrapper.get('[data-testid="tweet-card-media-item"] img')
+    expect(media.attributes("width")).toBe("1200")
+    expect(media.attributes("height")).toBe("675")
+    await media.trigger("click")
     expect(wrapper.emitted("click")).toBeUndefined()
     expect(document.body.querySelector('[data-testid="tweet-lightbox"]')).not.toBeNull()
 
     document.body.querySelector<HTMLElement>('[data-testid="tweet-lightbox"]')?.click()
     await nextTick()
     expect(document.body.querySelector('[data-testid="tweet-lightbox"]')).toBeNull()
+  })
+
+  it("renders the video badge and replaces only a failed tile", async () => {
+    const wrapper = trackedMount(TweetCard, {
+      props: {
+        tweet: {
+          ...baseTweet,
+          media: [
+            { type: "video", url: "https://example.test/video.jpg", width: 800, height: 1000 },
+            { type: "photo", url: "https://example.test/ok.jpg", width: 1200, height: 675 },
+          ],
+        } as TweetCardData,
+      },
+      global: { stubs: { ElButton: true, ElIcon: true } },
+    })
+
+    expect(wrapper.get('[data-testid="tweet-card-media-video-badge"]').text()).toBe("▶ 视频封面")
+    await wrapper.findAll('[data-testid="tweet-card-media-item"] img')[0]!.trigger("error")
+    expect(wrapper.findAll('[data-testid="tweet-card-media-broken"]')).toHaveLength(1)
+    expect(wrapper.findAll('[data-testid="tweet-card-media-item"] img')).toHaveLength(1)
   })
 })
