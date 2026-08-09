@@ -318,6 +318,7 @@ function goToDetail(id: string): void {
                       clickable
                       collapsible-original
                       media-hover-zoom
+                      show-ref-media
                       :data-cite-tweet-id="tweetId"
                       @click="goToDetail"
                     />

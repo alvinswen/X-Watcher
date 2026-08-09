@@ -14,6 +14,7 @@ const props = withDefaults(defineProps<{
   showShare?: boolean
   animationIndex?: number
   mediaHoverZoom?: boolean
+  showRefMedia?: boolean
 }>(), {
   showAuthor: true,
   clickable: false,
@@ -21,6 +22,7 @@ const props = withDefaults(defineProps<{
   showShare: false,
   animationIndex: undefined,
   mediaHoverZoom: false,
+  showRefMedia: false,
 })
 
 const emit = defineEmits<{
@@ -129,7 +131,7 @@ function toggleOriginal() {
         <span class="ref-text">{{ tweet.referenced_tweet_text }}</span>
       </div>
       <TweetMediaTiles
-        v-if="collapsibleOriginal && tweet.referenced_tweet_media?.length"
+        v-if="showRefMedia && tweet.referenced_tweet_media?.length"
         :items="tweet.referenced_tweet_media"
         variant="ref"
         :hover-zoom="mediaHoverZoom"

@@ -113,4 +113,24 @@ describe("TweetCard lightbox integration", () => {
     expect(wrapper.findAll('[data-testid="tweet-card-media-broken"]')).toHaveLength(1)
     expect(wrapper.findAll('[data-testid="tweet-card-media-item"] img')).toHaveLength(1)
   })
+
+  it("keeps referenced media hidden by default and exposes it through its own prop", async () => {
+    const tweet = {
+      ...baseTweet,
+      referenced_tweet_id: "quoted-1",
+      referenced_tweet_text: "Quoted text",
+      referenced_tweet_author_username: "quoted_author",
+      referenced_tweet_media: [
+        { type: "photo", url: "https://example.test/quoted.jpg", width: 600, height: 400 },
+      ],
+    } as TweetCardData
+    const wrapper = trackedMount(TweetCard, {
+      props: { tweet, collapsibleOriginal: true },
+      global: { stubs: { ElButton: true, ElIcon: true } },
+    })
+
+    expect(wrapper.find('[data-testid="tweet-card-ref-media-item"]').exists()).toBe(false)
+    await wrapper.setProps({ showRefMedia: true })
+    expect(wrapper.find('[data-testid="tweet-card-ref-media-item"]').exists()).toBe(true)
+  })
 })
