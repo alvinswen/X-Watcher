@@ -5,8 +5,7 @@
 - db_created_at:文件层无 DB 入库时间 → None(spec §3.1)。
 - created_at:保 aware(+00:00)匹配生产 pg,不归一 naive(承 A1-2,SQLite naive 是测试工件)。
 - media:exclude_none 匹配生产 pg from_domain(承 A1-2)。
-- keyword:复刻 PG ILIKE(`ilike("%kw%")`)——大小写不敏感 + kw 内 %/_ 作 LIKE 通配(对齐生产 pg,
-  非 SQLite;非 ASCII 大小写折叠按 PG,SQLite 不折叠是已知 oracle 陷阱,见 spec §4.1)。
+- keyword:默认字面匹配，wildcard 显式开启 PG ILIKE 通配语义。
 """
 from __future__ import annotations
 
@@ -44,7 +43,8 @@ class FileFeedReadStore:
         }
 
     async def get_feed(self, since: Any, until: Any, limit: Any, include_summary: Any = True,
-                       author: Any = None, authors: Any = None, keyword: Any = None) -> FeedResult:
+                       author: Any = None, authors: Any = None, keyword: Any = None,
+                       wildcard: Any = False) -> FeedResult:
         from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
         # 1. 窗口候选(by-day 视图,已 DESC),复用底座公共方法;大 limit 取窗口内全部
         window = await FileTweetStore(self._root).get_feed(since, until, limit=_NO_LIMIT)
@@ -61,12 +61,12 @@ class FileFeedReadStore:
         # 4. keyword 过滤(复刻 ilike %kw%;include_summary 时 OR 搜 summary/translation)
         if keyword:
             def _match(t: Any) -> bool:
-                if ilike_contains(t.text, keyword):
+                if ilike_contains(t.text, keyword, wildcard=wildcard):
                     return True
                 if include_summary:
                     rec = smap.get(t.tweet_id)
-                    if rec and (ilike_contains(rec.summary_text, keyword)
-                                or ilike_contains(rec.translation_text, keyword)):
+                    if rec and (ilike_contains(rec.summary_text, keyword, wildcard=wildcard)
+                                or ilike_contains(rec.translation_text, keyword, wildcard=wildcard)):
                         return True
                 return False
             tweets = [t for t in tweets if _match(t)]

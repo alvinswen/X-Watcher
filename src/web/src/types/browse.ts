@@ -62,6 +62,7 @@ export interface BrowseTweetListParams {
   page?: number
   page_size?: number
   min_text_length?: number
+  reading_layer?: boolean
 }
 
 /** 作者时间线请求参数 */
@@ -72,6 +73,7 @@ export interface AuthorTimelineParams {
   page?: number
   page_size?: number
   min_text_length?: number
+  reading_layer?: boolean
 }
 
 /** 作者时间线响应 */

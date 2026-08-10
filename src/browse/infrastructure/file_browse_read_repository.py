@@ -18,6 +18,12 @@ from typing import Any
 _NO_LIMIT = 10**12  # FileTweetStore.get_feed 无 unlimited 参;大 limit 取窗口内全部(复用 feed 范式)
 
 
+def _in_reading_layer(tw: Any) -> bool:
+    """精读层：保留 原创(reference_type 空) + 引用(quoted)；隐藏 replied_to / retweeted。"""
+    from src.scraper.domain.models import ReferenceType
+    return tw.reference_type is None or tw.reference_type == ReferenceType.quoted
+
+
 class FileBrowseReadStore:
     def __init__(self, data_root: Path) -> None:
         self._root = Path(data_root)
@@ -47,12 +53,15 @@ class FileBrowseReadStore:
             ),
         }
 
-    async def get_tweets(self, date: Any, author: Any, page: Any, page_size: Any, tz_offset: Any = 0, min_text_length: Any = None) -> tuple[list[dict[str, Any]], int]:
+    async def get_tweets(self, date: Any, author: Any, page: Any, page_size: Any, tz_offset: Any = 0,
+                         min_text_length: Any = None, reading_layer: Any = False) -> tuple[list[dict[str, Any]], int]:
         from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
         local_date = datetime.strptime(date, "%Y-%m-%d").date()
         tweets = await FileTweetStore(self._root).get_by_day(
             local_date, tz_offset, min_text_length=min_text_length or 0, limit=None
         )
+        if reading_layer:
+            tweets = [t for t in tweets if _in_reading_layer(t)]
         if author:
             wanted = author.lower()
             tweets = [t for t in tweets if t.author_username.lower() == wanted]
@@ -63,23 +72,37 @@ class FileBrowseReadStore:
         items = [self._item(t, smap.get(t.tweet_id)) for t in page_tweets]
         return items, total
 
-    async def get_author_timeline(self, author: Any, since_utc: Any, until_utc: Any, page: Any, page_size: Any, min_text_length: Any = None) -> tuple[dict[str, Any], list[dict[str, Any]], int]:
+    async def get_author_timeline(self, author: Any, since_utc: Any, until_utc: Any, page: Any,
+                                  page_size: Any, min_text_length: Any = None,
+                                  reading_layer: Any = False) -> tuple[dict[str, Any], list[dict[str, Any]], int]:
         from src.data_layer.provider import get_follows_repo
         from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
-        page_obj = await FileTweetStore(self._root).get_by_author_range(
-            author, since_utc, until_utc, min_text_length=min_text_length or 0,
-            page=page, page_size=page_size,
-        )
+        if reading_layer:
+            page_obj = await FileTweetStore(self._root).get_by_author_range(
+                author, since_utc, until_utc, min_text_length=min_text_length or 0,
+                page=1, page_size=_NO_LIMIT,
+            )
+            kept = [t for t in page_obj.items if _in_reading_layer(t)]
+            total = len(kept)
+            offset = (page - 1) * page_size
+            page_items = kept[offset:offset + page_size]
+        else:
+            page_obj = await FileTweetStore(self._root).get_by_author_range(
+                author, since_utc, until_utc, min_text_length=min_text_length or 0,
+                page=page, page_size=page_size,
+            )
+            page_items, total = page_obj.items, page_obj.total
         smap = await self._build_summary_map()
-        items = [self._item(t, smap.get(t.tweet_id)) for t in page_obj.items]
+        items = [self._item(t, smap.get(t.tweet_id)) for t in page_items]
         display_name = items[0]["author_display_name"] if items else None
         wanted = author.lower()
         reason = next((f.reason for f in await get_follows_repo().get_active_follows()
                        if f.username.lower() == wanted), None)
         author_meta = {"author_username": author, "author_display_name": display_name, "reason": reason}
-        return author_meta, items, page_obj.total
+        return author_meta, items, total
 
-    async def get_daily_stats(self, year: Any, month: Any, tz_offset: Any = 0, min_text_length: Any = None) -> list[dict[str, Any]]:
+    async def get_daily_stats(self, year: Any, month: Any, tz_offset: Any = 0,
+                              min_text_length: Any = None, reading_layer: Any = False) -> list[dict[str, Any]]:
         """按用户本地时区分组的每日推文数量。复刻 BrowseService.get_daily_stats:
         月窗 UTC 算术 + get_feed 窗口读 + 按本地日分组计数(date cast=截断,无 round 陷阱)。"""
         from collections import Counter
@@ -98,13 +121,16 @@ class FileBrowseReadStore:
         for tw in feed.items:
             if len(tw.text or "") < min_len:
                 continue
+            if reading_layer and not _in_reading_layer(tw):
+                continue
             created = tw.created_at if tw.created_at.tzinfo else tw.created_at.replace(tzinfo=UTC)
             # 复刻 sql_date_with_offset(col, -tz_offset)::DATE:local=UTC+(-tz_offset)分,取日(截断)
             local_date = (created + timedelta(minutes=-tz_offset)).date()
             counter[local_date.isoformat()] += 1
         return [{"date": d, "count": counter[d]} for d in sorted(counter)]
 
-    async def get_authors(self, date: Any, tz_offset: Any = 0, min_text_length: Any = None) -> list[dict[str, Any]]:
+    async def get_authors(self, date: Any, tz_offset: Any = 0, min_text_length: Any = None,
+                          reading_layer: Any = False) -> list[dict[str, Any]]:
         """指定本地日有推文的作者列表(count+max+display_name+reason),按 max DESC。
         复刻 BrowseService.get_authors:精确 author_username 分组 + 大小写不敏感最新 display_name
         + 精确 username reason 匹配(active follow)。COUNT/MAX 无除法,无 round 陷阱。"""
@@ -117,6 +143,8 @@ class FileBrowseReadStore:
         tweets = await FileTweetStore(self._root).get_by_day(
             local_date, tz_offset, min_text_length=min_text_length or 0, limit=None
         )
+        if reading_layer:
+            tweets = [t for t in tweets if _in_reading_layer(t)]
         groups: dict[str, Any] = {}             # 精确 username -> {"count", "max"}
         latest_by_lower: dict[str, Any] = {}    # lower(username) -> (max_created, display_name)
         for tw in tweets:

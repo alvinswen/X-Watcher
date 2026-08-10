@@ -10,6 +10,7 @@ export interface SearchParams {
   page?: number
   page_size?: number
   include_summary?: boolean
+  wildcard?: boolean
 }
 
 /** 搜索结果推文条目 */

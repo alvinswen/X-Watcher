@@ -38,7 +38,7 @@ def _parse_time_param(name: str, raw: str) -> datetime:
     description="按关键词搜索推文，支持多关键词 AND 逻辑、作者筛选和时间范围过滤。",
 )
 async def search_tweets(
-    q: str = Query(..., min_length=1, description="搜索关键词（空格分隔多词为 AND 逻辑）"),
+    q: str = Query(..., min_length=1, description="搜索关键词（空格分隔多词为 AND 逻辑；默认字面匹配，%/_ 为普通字符）"),
     author: str | None = Query(None, description="按作者用户名筛选（大小写不敏感）"),
     authors: str | None = Query(None, description="按多个作者筛选（逗号分隔，大小写不敏感）"),
     since: str | None = Query(None, description="起始时间（含），ISO 8601 格式"),
@@ -46,6 +46,7 @@ async def search_tweets(
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=100, description="每页条数"),
     include_summary: bool = Query(True, description="是否包含摘要和翻译"),
+    wildcard: bool = Query(False, description="将关键词中的 %/_ 解释为 SQL LIKE 通配符（%=任意串、_=任意单字符）；默认关闭=字面匹配"),
     current_user: UserDomain = Depends(get_current_user),
 ) -> SearchResponse:
     """搜索推文。"""
@@ -86,6 +87,7 @@ async def search_tweets(
             authors=authors_list,
             since=parsed_since,
             until=parsed_until,
+            wildcard=wildcard,
         )
 
         items = [SearchTweetItem(**item) for item in result.items]

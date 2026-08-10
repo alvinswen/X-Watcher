@@ -11,21 +11,18 @@ import {
   Expand,
   Search,
   Refresh,
-  Moon,
-  Sunny,
   Collection,
   Stamp,
 } from "@element-plus/icons-vue"
 import { useAuthStore } from "@/stores/auth"
 import { useLayoutStore } from "@/stores/layout"
-import { useThemeStore } from "@/stores/theme"
 import { ElMessage } from "element-plus"
+import ThemeToggle from "@/components/ThemeToggle.vue"
 import TwitterBalanceIndicator from "@/components/TwitterBalanceIndicator.vue"
 
 const route = useRoute()
 const authStore = useAuthStore()
 const layoutStore = useLayoutStore()
-const themeStore = useThemeStore()
 
 /** 侧边栏是否折叠 */
 const isCollapsed = ref(false)
@@ -132,17 +129,6 @@ function clearApiKey() {
         </div>
 
         <div class="aside-footer-actions">
-          <!-- 主题切换按钮 -->
-          <el-icon
-            class="theme-toggle-btn"
-            data-testid="theme-toggle"
-            :title="themeStore.mode === 'light' ? '亮色模式' : themeStore.mode === 'dark' ? '暗色模式' : '跟随系统'"
-            @click="themeStore.toggle()"
-          >
-            <Moon v-if="themeStore.isDark()" />
-            <Sunny v-else />
-          </el-icon>
-
           <!-- 折叠/展开按钮 -->
           <el-icon
             class="collapse-btn"
@@ -161,6 +147,7 @@ function clearApiKey() {
       <el-header v-show="!layoutStore.isFullscreen" class="admin-header" height="50px">
         <span class="header-title">{{ route.meta.title }}</span>
         <span class="header-spacer"></span>
+        <ThemeToggle class="header-theme" />
         <TwitterBalanceIndicator
           class="header-balance"
           data-testid="header-balance"
@@ -320,8 +307,8 @@ function clearApiKey() {
   white-space: nowrap;
 }
 
-.theme-toggle-btn,
 .collapse-btn {
+  box-sizing: content-box;
   color: var(--text-on-dark-secondary);
   cursor: pointer;
   padding: 6px 8px;
@@ -330,7 +317,6 @@ function clearApiKey() {
   transition: color var(--transition-base), background-color var(--transition-base);
 }
 
-.theme-toggle-btn:hover,
 .collapse-btn:hover {
   color: var(--text-on-dark);
   background-color: var(--bg-sidebar-hover);
@@ -356,6 +342,10 @@ function clearApiKey() {
 }
 
 .header-balance {
+  margin-right: 12px;
+}
+
+.header-theme {
   margin-right: 12px;
 }
 

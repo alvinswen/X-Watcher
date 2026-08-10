@@ -53,6 +53,25 @@ async def test_search_file_mode_multi_keyword_and(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_search_file_mode_literal_default_and_explicit_wildcard(monkeypatch, tmp_path):
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    base = datetime.now(UTC) - timedelta(days=1)
+    await _seed_file(tmp_path, [
+        _tweet("literal", "alice", base + timedelta(minutes=1), text="account a_c update"),
+        _tweet("expanded", "alice", base + timedelta(minutes=2), text="account abc update"),
+    ])
+    from src.data_layer.provider import get_search_repo
+
+    literal = await get_search_repo().search_tweets(q="a_c", include_summary=False)
+    assert {item["tweet_id"] for item in literal.items} == {"literal"}
+
+    wildcard = await get_search_repo().search_tweets(
+        q="a_c", include_summary=False, wildcard=True
+    )
+    assert {item["tweet_id"] for item in wildcard.items} == {"literal", "expanded"}
+
+
+@pytest.mark.asyncio
 async def test_search_file_mode_referenced_text_and_summary(monkeypatch, tmp_path):
     """keyword 命中 referenced_tweet_text(feed 没有的字段)/ summary;include_summary=False 不搜 summary。"""
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))

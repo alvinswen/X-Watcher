@@ -2,14 +2,15 @@
 import { ArrowLeft } from "@element-plus/icons-vue"
 import type { AuthorInfo } from "@/types"
 
-defineProps<{
+withDefaults(defineProps<{
   author: string | null
   authorInfo: Pick<AuthorInfo, "author_username" | "author_display_name" | "reason"> | null
   presets: Array<{ label: string; days: number | null }>
   activePreset: number | null | undefined
   dateRange: [Date, Date]
   total: number
-}>()
+  readingLayer?: boolean
+}>(), { readingLayer: false })
 
 defineEmits<{
   back: []
@@ -60,7 +61,17 @@ defineEmits<{
       />
     </div>
 
-    <div class="timeline-stats">共 {{ total }} 条推文</div>
+    <div class="timeline-stats">
+      <span>共 {{ total }} 条推文</span>
+      <el-tag
+        v-if="readingLayer"
+        size="small"
+        class="reading-tag"
+        data-testid="browse-reading-tag-timeline"
+      >
+        精读
+      </el-tag>
+    </div>
   </div>
 </template>
 
@@ -119,8 +130,18 @@ defineEmits<{
 }
 
 .timeline-stats {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   color: var(--text-tertiary);
   font-size: var(--small-font-size);
   font-family: var(--font-mono);
+}
+
+.reading-tag {
+  color: var(--color-primary);
+  background: var(--color-primary-lighter);
+  border-color: var(--el-color-primary-light-7);
+  border-radius: var(--el-border-radius-small);
 }
 </style>

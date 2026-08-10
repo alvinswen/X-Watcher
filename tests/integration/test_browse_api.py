@@ -16,7 +16,7 @@ from src.config import clear_settings_cache
 from src.main import app
 from src.preference.domain.models import ScraperFollow
 from src.preference.infrastructure.file_follow_repository import FileFollowStore
-from src.scraper.domain.models import Media, Tweet
+from src.scraper.domain.models import Media, ReferenceType, Tweet
 from src.scraper.infrastructure.file_tweet_repository import FileTweetStore
 from src.summarization.domain.models import SummaryRecord
 from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
@@ -402,6 +402,34 @@ class TestBrowseTweets:
             "/api/browse/tweets", params={"date": "20260215"}
         )
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+    async def test_tweets_reading_layer_filters_replies(
+        self, async_client: AsyncClient
+    ):
+        day = datetime(2026, 3, 2, 10, 0, tzinfo=UTC)
+        tweets = [
+            Tweet(tweet_id="reading_original", text="original", created_at=day,
+                  author_username="reader"),
+            Tweet(tweet_id="reading_quote", text="quote", created_at=day + timedelta(minutes=1),
+                  author_username="reader", reference_type=ReferenceType.quoted),
+            Tweet(tweet_id="reading_reply", text="reply", created_at=day + timedelta(minutes=2),
+                  author_username="reader", reference_type=ReferenceType.replied_to),
+        ]
+        await FileTweetStore(Path(os.environ["XWATCHER_DATA_ROOT"])).save_tweets(
+            tweets, early_stop_threshold=0
+        )
+
+        response = await async_client.get(
+            "/api/browse/tweets",
+            params={"date": "2026-03-02", "reading_layer": "true"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["total"] == 2
+        assert {item["tweet_id"] for item in data["items"]} == {
+            "reading_original", "reading_quote"
+        }
 
 
 @pytest.mark.asyncio

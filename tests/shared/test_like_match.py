@@ -1,4 +1,4 @@
-"""src.shared.like_match 复刻 SQL col.ilike("%kw%")(对齐 PG)。"""
+"""src.shared.like_match 默认字面匹配，显式 wildcard 复刻 PG ILIKE。"""
 
 import re
 
@@ -19,16 +19,18 @@ def test_none_haystack():
 
 
 def test_wildcard_underscore():
-    # _ = 任意单字符(SQL LIKE)
-    assert ilike_contains("abc", "a_c") is True
-    assert ilike_contains("axc", "a_c") is True
-    assert ilike_contains("ac", "a_c") is False
+    assert ilike_contains("abc", "a_c") is False
+    assert ilike_contains("xa_cy", "a_c") is True
+    assert ilike_contains("abc", "a_c", wildcard=True) is True
+    assert ilike_contains("axc", "a_c", wildcard=True) is True
+    assert ilike_contains("ac", "a_c", wildcard=True) is False
 
 
 def test_wildcard_percent():
-    # % = 任意串(可空)
-    assert ilike_contains("axxxc", "a%c") is True
-    assert ilike_contains("ac", "a%c") is True
+    assert ilike_contains("axxxc", "a%c") is False
+    assert ilike_contains("xa%cy", "a%c") is True
+    assert ilike_contains("axxxc", "a%c", wildcard=True) is True
+    assert ilike_contains("ac", "a%c", wildcard=True) is True
 
 
 def test_regex_specials_literal():
@@ -62,10 +64,13 @@ def test_plain_keyword_fast_path_matches_regex_oracle():
 def test_wildcard_keywords_keep_regex_semantics_and_reuse_compilation():
     _compile_contains_pattern.cache_clear()
 
-    assert ilike_contains("harness", "h_rness") is True
-    assert ilike_contains("hrness", "h_rness") is False
-    assert ilike_contains("harness", "har%ss") is True
-    assert ilike_contains("haess", "har%ss") is False
+    assert ilike_contains("harness", "h_rness") is False
+    assert _compile_contains_pattern.cache_info().misses == 0
+
+    assert ilike_contains("harness", "h_rness", wildcard=True) is True
+    assert ilike_contains("hrness", "h_rness", wildcard=True) is False
+    assert ilike_contains("harness", "har%ss", wildcard=True) is True
+    assert ilike_contains("haess", "har%ss", wildcard=True) is False
 
     cache_info = _compile_contains_pattern.cache_info()
     assert cache_info.misses == 2

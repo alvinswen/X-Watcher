@@ -3,25 +3,32 @@
   <div v-else class="browse-view" data-testid="browse-view">
     <Teleport to="#header-toolbar-outlet" defer>
       <div v-show="!isFullscreen" class="header-toolbar">
+        <span class="long-tweet-group">
+          <el-switch
+            v-model="longTweetFilterEnabled"
+            active-text="长推"
+            size="small"
+            data-testid="browse-long-tweet-filter"
+          />
+          <el-input-number
+            v-if="longTweetFilterEnabled"
+            v-model="longTweetMinLength"
+            :min="1"
+            :step="50"
+            size="small"
+            style="width: 130px"
+            :prefix-icon="undefined"
+            controls-position="right"
+          >
+            <template #prefix>≥</template>
+          </el-input-number>
+        </span>
         <el-switch
-          v-model="longTweetFilterEnabled"
-          active-text="长推"
+          v-model="readingLayerEnabled"
+          active-text="精读"
           size="small"
-          style="margin-right: 8px"
-          data-testid="browse-long-tweet-filter"
+          data-testid="browse-reading-filter"
         />
-        <el-input-number
-          v-if="longTweetFilterEnabled"
-          v-model="longTweetMinLength"
-          :min="1"
-          :step="50"
-          size="small"
-          style="width: 130px; margin-right: 12px"
-          :prefix-icon="undefined"
-          controls-position="right"
-        >
-          <template #prefix>≥</template>
-        </el-input-number>
         <el-button
           text
           :icon="FullScreen"
@@ -37,21 +44,29 @@
     <div v-if="isFullscreen" class="fullscreen-toolbar">
       <span class="fullscreen-title">{{ mode === 'timeline' ? `${timelineAuthorInfo?.author_display_name || timelineAuthor} 的时间线` : '推文浏览' }}</span>
       <span class="fullscreen-spacer"></span>
+      <span class="long-tweet-group">
+        <el-switch
+          v-model="longTweetFilterEnabled"
+          active-text="长推"
+          size="small"
+        />
+        <el-input-number
+          v-if="longTweetFilterEnabled"
+          v-model="longTweetMinLength"
+          :min="1"
+          :step="50"
+          size="small"
+          style="width: 130px"
+          controls-position="right"
+        />
+      </span>
       <el-switch
-        v-model="longTweetFilterEnabled"
-        active-text="长推"
+        v-model="readingLayerEnabled"
+        active-text="精读"
         size="small"
-        style="margin-right: 8px;"
+        data-testid="browse-reading-filter-fullscreen"
       />
-      <el-input-number
-        v-if="longTweetFilterEnabled"
-        v-model="longTweetMinLength"
-        :min="1"
-        :step="50"
-        size="small"
-        style="width: 130px; margin-right: 12px;"
-        controls-position="right"
-      />
+      <ThemeToggle testid="theme-toggle-fullscreen" />
       <el-button
         text
         :icon="CloseBold"
@@ -85,6 +100,7 @@
         :active-preset="activeTimelinePreset"
         :date-range="timelineDateRange"
         :total="timelineTotal"
+        :reading-layer="!!effectiveReadingLayer"
         @back="exitTimelineMode"
         @preset="applyPreset"
         @update:date-range="timelineDateRange = $event"
@@ -98,6 +114,14 @@
           <span class="selected-author-name">{{ selectedAuthorInfo.author_display_name || selectedAuthorInfo.author_username }}</span>
           <span class="selected-author-handle">@{{ selectedAuthorInfo.author_username }}</span>
           <span v-if="selectedAuthorInfo.reason" class="selected-author-reason">{{ selectedAuthorInfo.reason }}</span>
+          <el-tag
+            v-if="effectiveReadingLayer"
+            size="small"
+            class="reading-tag"
+            data-testid="browse-reading-tag"
+          >
+            精读
+          </el-tag>
           <el-tag size="small" type="info">{{ selectedAuthorInfo.tweet_count }} 条推文</el-tag>
           <el-button text size="small" @click="enterTimelineMode(selectedAuthorInfo.author_username)">
             <el-icon :size="14"><User /></el-icon> 全部推文
@@ -105,6 +129,14 @@
         </div>
         <div v-else-if="mode === 'date' && !selectedAuthor" class="selected-author-header">
           <span class="selected-author-name">全部作者</span>
+          <el-tag
+            v-if="effectiveReadingLayer"
+            size="small"
+            class="reading-tag"
+            data-testid="browse-reading-tag"
+          >
+            精读
+          </el-tag>
           <el-tag size="small" type="info">{{ totalTweets }} 条推文</el-tag>
         </div>
 
@@ -113,7 +145,7 @@
           v-else-if="activeTweetsLoadError"
           :retry="retryActiveTweets"
         />
-        <el-empty v-else-if="activeTweets.length === 0" :description="mode === 'timeline' ? '该时间段暂无推文' : '该日期暂无推文'" />
+        <el-empty v-else-if="activeTweets.length === 0" :description="emptyDescription" />
         <div v-else class="tweet-list">
           <TweetCard
             v-for="(tweet, tweetIndex) in activeTweets"
@@ -153,6 +185,7 @@ import { ElMessage } from "element-plus"
 import { browseApi, followsApi } from "@/api"
 import ApiKeyGuideEmpty from "@/components/ApiKeyGuideEmpty.vue"
 import LoadErrorState from "@/components/LoadErrorState.vue"
+import ThemeToggle from "@/components/ThemeToggle.vue"
 import TweetCard from "@/components/TweetCard.vue"
 import AuthorPanel from "@/views/browse/AuthorPanel.vue"
 import CalendarPanel from "@/views/browse/CalendarPanel.vue"
@@ -170,11 +203,15 @@ const {
   isFullscreen,
   longTweetFilterEnabled,
   longTweetMinLength,
+  readingLayerEnabled,
 } = storeToRefs(layoutStore)
 
 const effectiveMinTextLength = computed(() => {
   return longTweetFilterEnabled.value ? longTweetMinLength.value : undefined
 })
+const effectiveReadingLayer = computed(() => (
+  readingLayerEnabled.value ? true : undefined
+))
 
 function exitFullscreen() {
   isFullscreen.value = false
@@ -244,6 +281,7 @@ const timelineTotal = ref(0)
 const timelinePage = ref(1)
 const timelineLoading = ref(false)
 const timelineLoadError = ref(false)
+const readingEmptyTotal = ref<number | null>(null)
 
 const timelinePresets: { label: string; days: number | null }[] = [
   { label: "1周", days: 7 },
@@ -262,6 +300,13 @@ const activeTweetsLoading = computed(() => mode.value === "timeline" ? timelineL
 const activeTweetsLoadError = computed(() => (
   mode.value === "timeline" ? timelineLoadError.value : tweetsLoadError.value
 ))
+const emptyDescription = computed(() => {
+  const fallback = mode.value === "timeline" ? "该时间段暂无推文" : "该日期暂无推文"
+  if (!effectiveReadingLayer.value || !readingEmptyTotal.value) return fallback
+  return mode.value === "timeline"
+    ? `该时间段精读层无内容，关闭「精读」可见 ${readingEmptyTotal.value} 条`
+    : `该日期精读层无内容，关闭「精读」可见 ${readingEmptyTotal.value} 条`
+})
 const activePage = computed({
   get: () => mode.value === "timeline" ? timelinePage.value : page.value,
   set: (val: number) => {
@@ -387,7 +432,10 @@ async function handleShareTweet(tweet: TweetCardData) {
 async function loadDailyStats() {
   const d = selectedDate.value
   try {
-    const resp = await browseApi.getDailyStats(d.getFullYear(), d.getMonth() + 1, effectiveMinTextLength.value)
+    const resp = await browseApi.getDailyStats(
+      d.getFullYear(), d.getMonth() + 1,
+      effectiveMinTextLength.value, effectiveReadingLayer.value,
+    )
     const map: Record<string, number> = {}
     for (const item of resp.days) {
       map[item.date] = item.count
@@ -402,7 +450,11 @@ async function loadDailyStats() {
 async function loadAuthors() {
   authorsLoading.value = true
   try {
-    const resp = await browseApi.getAuthors({ date: selectedDateStr.value, min_text_length: effectiveMinTextLength.value })
+    const resp = await browseApi.getAuthors({
+      date: selectedDateStr.value,
+      min_text_length: effectiveMinTextLength.value,
+      reading_layer: effectiveReadingLayer.value,
+    })
     authors.value = resp.authors
   } catch (error) {
     console.error("加载作者列表失败:", error)
@@ -425,14 +477,18 @@ async function loadTweets(preserveError = false) {
       page: page.value,
       page_size: pageSize,
       min_text_length: effectiveMinTextLength.value,
+      reading_layer: effectiveReadingLayer.value,
     })
     tweets.value = resp.items
     total.value = resp.total
+    if (resp.total === 0 && effectiveReadingLayer.value) await probeReadingEmptyTotal()
+    else readingEmptyTotal.value = null
     tweetsLoadError.value = false
   } catch (error) {
     console.error("加载推文列表失败:", error)
     tweets.value = []
     total.value = 0
+    readingEmptyTotal.value = null
     tweetsLoadError.value = true
   } finally {
     tweetsLoading.value = false
@@ -509,9 +565,12 @@ async function loadTimelineTweets(preserveError = false) {
       page: timelinePage.value,
       page_size: pageSize,
       min_text_length: effectiveMinTextLength.value,
+      reading_layer: effectiveReadingLayer.value,
     })
     timelineTweets.value = resp.items
     timelineTotal.value = resp.total
+    if (resp.total === 0 && effectiveReadingLayer.value) await probeReadingEmptyTotal()
+    else readingEmptyTotal.value = null
     timelineLoadError.value = false
     if (!timelineAuthorInfo.value) {
       timelineAuthorInfo.value = {
@@ -524,9 +583,36 @@ async function loadTimelineTweets(preserveError = false) {
     console.error("加载时间线推文失败:", error)
     timelineTweets.value = []
     timelineTotal.value = 0
+    readingEmptyTotal.value = null
     timelineLoadError.value = true
   } finally {
     timelineLoading.value = false
+  }
+}
+
+async function probeReadingEmptyTotal() {
+  readingEmptyTotal.value = null
+  try {
+    const base = {
+      page: 1,
+      page_size: 1,
+      min_text_length: effectiveMinTextLength.value,
+    }
+    const resp = mode.value === "timeline"
+      ? await browseApi.getAuthorTimeline({
+          author: timelineAuthor.value!,
+          since: formatDateStr(timelineDateRange.value[0]),
+          until: formatDateStr(addDays(timelineDateRange.value[1], 1)),
+          ...base,
+        })
+      : await browseApi.getTweets({
+          date: selectedDateStr.value,
+          author: selectedAuthor.value || undefined,
+          ...base,
+        })
+    readingEmptyTotal.value = resp.total
+  } catch {
+    readingEmptyTotal.value = null
   }
 }
 
@@ -581,8 +667,8 @@ function syncTimelineToUrl() {
   router.replace({ query })
 }
 
-/** 监听长推文过滤变化 */
-watch(effectiveMinTextLength, () => {
+/** 监听长推文与精读层过滤变化 */
+watch([effectiveMinTextLength, effectiveReadingLayer], () => {
   if (mode.value === "timeline") {
     timelinePage.value = 1
     loadTimelineTweets()
@@ -655,6 +741,7 @@ onUnmounted(() => {
 .fullscreen-toolbar {
   display: flex;
   align-items: center;
+  gap: 12px;
   padding: 8px 16px;
   background: var(--bg-card);
   border-bottom: 1px solid var(--border-light);
@@ -674,6 +761,13 @@ onUnmounted(() => {
 .header-toolbar {
   display: flex;
   align-items: center;
+  gap: 12px;
+}
+
+.long-tweet-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 /* ========== 推文面板 ========== */
@@ -713,6 +807,13 @@ onUnmounted(() => {
 .selected-author-reason {
   font-size: var(--small-font-size);
   color: var(--text-secondary);
+}
+
+.reading-tag {
+  color: var(--color-primary);
+  background: var(--color-primary-lighter);
+  border-color: var(--el-color-primary-light-7);
+  border-radius: var(--el-border-radius-small);
 }
 
 /* ========== 推文列表 ========== */

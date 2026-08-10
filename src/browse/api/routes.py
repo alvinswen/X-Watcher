@@ -39,13 +39,16 @@ async def get_daily_stats(
     month: int = Query(..., ge=1, le=12, description="月份（1-12）"),
     tz_offset: int = Query(0, ge=-720, le=840, description="时区偏移（分钟），来自 JS getTimezoneOffset()"),
     min_text_length: int | None = Query(None, ge=1, description="最小推文长度（字符数）"),
+    reading_layer: bool = Query(False, description="精读层过滤：true 时仅返回原创与引用（quoted）推文，隐藏回复（replied_to）与转推（retweeted）"),
     _user: UserDomain = Depends(get_current_user),
 ) -> DailyStatsResponse:
     """按年月查询该月内每天的推文数量（按用户本地时区分组）。"""
     try:
         from src.data_layer.provider import get_browse_repo
 
-        days = await get_browse_repo().get_daily_stats(year, month, tz_offset, min_text_length)
+        days = await get_browse_repo().get_daily_stats(
+            year, month, tz_offset, min_text_length, reading_layer=reading_layer
+        )
         return DailyStatsResponse(
             year=year,
             month=month,
@@ -70,6 +73,7 @@ async def get_authors(
     date: str = Query(..., description="日期，YYYY-MM-DD 格式"),
     tz_offset: int = Query(0, ge=-720, le=840, description="时区偏移（分钟），来自 JS getTimezoneOffset()"),
     min_text_length: int | None = Query(None, ge=1, description="最小推文长度（字符数）"),
+    reading_layer: bool = Query(False, description="精读层过滤：true 时仅返回原创与引用（quoted）推文，隐藏回复（replied_to）与转推（retweeted）"),
     _user: UserDomain = Depends(get_current_user),
 ) -> AuthorListResponse:
     """查询指定日期有推文的所有作者。"""
@@ -82,7 +86,9 @@ async def get_authors(
     try:
         from src.data_layer.provider import get_browse_repo
 
-        authors = await get_browse_repo().get_authors(date, tz_offset, min_text_length)
+        authors = await get_browse_repo().get_authors(
+            date, tz_offset, min_text_length, reading_layer=reading_layer
+        )
         return AuthorListResponse(
             authors=[AuthorInfo(**a) for a in authors],
             total=len(authors),
@@ -109,6 +115,7 @@ async def get_tweets(
     page_size: int = Query(20, ge=1, le=100, description="每页条数"),
     tz_offset: int = Query(0, ge=-720, le=840, description="时区偏移（分钟），来自 JS getTimezoneOffset()"),
     min_text_length: int | None = Query(None, ge=1, description="最小推文长度（字符数）"),
+    reading_layer: bool = Query(False, description="精读层过滤：true 时仅返回原创与引用（quoted）推文，隐藏回复（replied_to）与转推（retweeted）"),
     _user: UserDomain = Depends(get_current_user),
 ) -> BrowseTweetListResponse:
     """查询指定日期（可选作者）的推文列表，含摘要和翻译。"""
@@ -121,7 +128,10 @@ async def get_tweets(
     try:
         from src.data_layer.provider import get_browse_repo
 
-        items, total = await get_browse_repo().get_tweets(date, author, page, page_size, tz_offset, min_text_length)
+        items, total = await get_browse_repo().get_tweets(
+            date, author, page, page_size, tz_offset, min_text_length,
+            reading_layer=reading_layer,
+        )
         total_pages = math.ceil(total / page_size) if total > 0 else 0
 
         return BrowseTweetListResponse(
@@ -154,6 +164,7 @@ async def get_author_timeline(
     page_size: int = Query(20, ge=1, le=100, description="每页条数"),
     tz_offset: int = Query(0, ge=-720, le=840, description="时区偏移（分钟），来自 JS getTimezoneOffset()"),
     min_text_length: int | None = Query(None, ge=1, description="最小推文长度（字符数）"),
+    reading_layer: bool = Query(False, description="精读层过滤：true 时仅返回原创与引用（quoted）推文，隐藏回复（replied_to）与转推（retweeted）"),
     _user: UserDomain = Depends(get_current_user),
 ) -> AuthorTimelineResponse:
     """查询指定作者在时间范围内的推文列表，含摘要和翻译。"""
@@ -172,7 +183,8 @@ async def get_author_timeline(
         from src.data_layer.provider import get_browse_repo
 
         author_meta, items, total = await get_browse_repo().get_author_timeline(
-            author, since_utc, until_utc, page, page_size, min_text_length
+            author, since_utc, until_utc, page, page_size, min_text_length,
+            reading_layer=reading_layer,
         )
         total_pages = math.ceil(total / page_size) if total > 0 else 0
 

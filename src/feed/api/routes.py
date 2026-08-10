@@ -41,8 +41,9 @@ async def get_feed(
         None, description="按多个作者筛选（逗号分隔，大小写不敏感）"
     ),
     keyword: str | None = Query(
-        None, description="关键词过滤（搜索推文正文、摘要、翻译）"
+        None, description="关键词过滤（搜索推文正文、摘要、翻译；默认字面匹配）"
     ),
+    wildcard: bool = Query(False, description="将关键词中的 %/_ 解释为 SQL LIKE 通配符（%=任意串、_=任意单字符）；默认关闭=字面匹配"),
     current_user: UserDomain = Depends(get_current_user),
 ) -> FeedResponse:
     """获取指定时间区间内的推文列表。"""
@@ -92,6 +93,7 @@ async def get_feed(
             author=author,
             authors=authors_list,
             keyword=keyword,
+            wildcard=wildcard,
         )
 
         # 构建响应
