@@ -129,7 +129,7 @@ async def test_get_feed_file_mode_keyword(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_get_feed_file_mode_keyword_like_wildcard(monkeypatch, tmp_path):
-    """keyword 内 `_` 复刻 SQL LIKE 通配(任意单字符),非 naive substring。"""
+    """keyword 默认字面，wildcard=True 复刻 SQL LIKE 通配。"""
     monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
     now = datetime.now(UTC)
     base = now - timedelta(days=1)
@@ -145,9 +145,13 @@ async def test_get_feed_file_mode_keyword_like_wildcard(monkeypatch, tmp_path):
     ], summaries=())
     from src.data_layer.provider import get_feed_repo
 
-    # keyword "a_c":LIKE `_`=任意单字符 → w1(abc)+w2(axc),非 w3(ac);naive `in` 会全不中
-    r = await get_feed_repo().get_feed(keyword="a_c", include_summary=False, **win)
-    assert {i["tweet_id"] for i in r.items} == {"w1", "w2"} and r.total == 2
+    literal = await get_feed_repo().get_feed(keyword="a_c", include_summary=False, **win)
+    assert literal.items == [] and literal.total == 0
+
+    wildcard = await get_feed_repo().get_feed(
+        keyword="a_c", include_summary=False, wildcard=True, **win
+    )
+    assert {i["tweet_id"] for i in wildcard.items} == {"w1", "w2"} and wildcard.total == 2
 
 
 @pytest.mark.asyncio

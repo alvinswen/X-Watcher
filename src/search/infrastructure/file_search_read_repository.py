@@ -3,7 +3,7 @@
 组合 FileTweetStore(窗口快路径 get_feed[since 提供] / 全扫 get_all_tweets[since 无])+
 FileSummaryStore.get_all_summaries(全量摘要建 map 左连接)。复刻旧 SearchService.search_tweets
 形态(14 字段 item,DESC + offset 分页)。
-- keyword:复用 src.shared.like_match.ilike_contains 复刻 PG ILIKE(LIKE 通配 + 非 ASCII case-fold 对齐 PG)。
+- keyword:默认字面匹配，wildcard 显式开启 PG ILIKE 通配语义。
 - db_created_at:文件层无 DB 入库时间 → None(同 feed)。
 - created_at aware(+00:00)/ media exclude_none(承 browse/feed)。
 - perf:无 since → get_all_tweets 全扫(~1.6s deferred);有 since → by-day 窗口快路径。
@@ -65,7 +65,8 @@ class FileSearchReadStore:
         }
 
     async def search_tweets(self, q: Any, page: Any = 1, page_size: Any = 20, include_summary: Any = True,
-                            author: Any = None, authors: Any = None, since: Any = None, until: Any = None) -> SearchResult:
+                            author: Any = None, authors: Any = None, since: Any = None, until: Any = None,
+                            wildcard: Any = False) -> SearchResult:
         keywords = q.split()
         tweets = await self._candidates(since, until)
         # author/authors 过滤(互斥,author 优先,镜像 oracle)
@@ -80,12 +81,14 @@ class FileSearchReadStore:
         # 多词 AND:每词命中 text/ref(+summary/translation if include_summary)至少一字段
         if keywords:
             def _match_kw(t: Any, kw: Any) -> bool:
-                if ilike_contains(t.text, kw) or ilike_contains(t.referenced_tweet_text, kw):
+                if ilike_contains(t.text, kw, wildcard=wildcard) or ilike_contains(
+                    t.referenced_tweet_text, kw, wildcard=wildcard
+                ):
                     return True
                 if include_summary:
                     rec = smap.get(t.tweet_id)
-                    if rec and (ilike_contains(rec.summary_text, kw)
-                                or ilike_contains(rec.translation_text, kw)):
+                    if rec and (ilike_contains(rec.summary_text, kw, wildcard=wildcard)
+                                or ilike_contains(rec.translation_text, kw, wildcard=wildcard)):
                         return True
                 return False
             tweets = [t for t in tweets if all(_match_kw(t, kw) for kw in keywords)]

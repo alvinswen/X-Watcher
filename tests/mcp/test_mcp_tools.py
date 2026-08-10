@@ -91,6 +91,21 @@ class TestGetFeed:
         data = json.loads(result)
         assert data["success"] is True
 
+    @pytest.mark.asyncio
+    async def test_get_feed_passes_wildcard_to_repository(self, tool_funcs):
+        mock_result = MagicMock(items=[], count=0, total=0, has_more=False)
+        with patch(
+            "src.feed.infrastructure.file_feed_read_repository.FileFeedReadStore.get_feed",
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mocked:
+            result = await tool_funcs["get_feed"](
+                since="2026-02-24T00:00:00Z", wildcard=True
+            )
+
+        assert json.loads(result)["success"] is True
+        assert mocked.await_args.kwargs["wildcard"] is True
+
 
 # ── search_tweets 测试 ────────────────────────────────────────────
 
@@ -130,6 +145,19 @@ class TestSearchTweets:
         data = json.loads(result)
         assert data["success"] is False
         assert data["error_type"] == "validation"
+
+    @pytest.mark.asyncio
+    async def test_search_passes_wildcard_to_repository(self, tool_funcs):
+        mock_result = MagicMock(items=[], total=0)
+        with patch(
+            "src.search.infrastructure.file_search_read_repository.FileSearchReadStore.search_tweets",
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mocked:
+            result = await tool_funcs["search_tweets"](q="a_c", wildcard=True)
+
+        assert json.loads(result)["success"] is True
+        assert mocked.await_args.kwargs["wildcard"] is True
 
 
 # ── get_daily_stats 测试 ──────────────────────────────────────────

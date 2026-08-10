@@ -6,10 +6,10 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 
-def _tweet(tid, author, created_at, text="hello world"):
+def _tweet(tid, author, created_at, text="hello world", reference_type=None):
     from src.scraper.domain.models import Tweet
     return Tweet(tweet_id=tid, text=text, created_at=created_at, author_username=author,
-                 author_display_name=f"{author} disp")
+                 author_display_name=f"{author} disp", reference_type=reference_type)
 
 
 def _summary(tid):
@@ -75,6 +75,55 @@ async def test_get_author_timeline_file_mode(monkeypatch, tmp_path):
     assert [i["tweet_id"] for i in items] == ["a2", "a1"]
     assert meta == {"author_username": "alice", "author_display_name": "alice disp", "reason": "AI 研究者"}
     assert items[0]["summary_text"] == "摘要a2"
+
+
+@pytest.mark.asyncio
+async def test_reading_layer_filters_all_browse_methods_and_preserves_default(monkeypatch, tmp_path):
+    monkeypatch.setenv("XWATCHER_DATA_ROOT", str(tmp_path))
+    from src.scraper.domain.models import ReferenceType
+
+    day = datetime(2026, 5, 12, 3, 0, tzinfo=UTC)
+    tweets = [
+        _tweet("original", "alice", day),
+        _tweet("quoted", "alice", day + timedelta(minutes=1), reference_type=ReferenceType.quoted),
+        _tweet("reply", "alice", day + timedelta(minutes=2), reference_type=ReferenceType.replied_to),
+        _tweet("retweet", "alice", day + timedelta(minutes=3), reference_type=ReferenceType.retweeted),
+    ]
+    await _seed_file(tmp_path, tweets)
+    from src.data_layer.provider import get_browse_repo
+    repo = get_browse_repo()
+
+    default_items, default_total = await repo.get_tweets(
+        "2026-05-12", None, page=1, page_size=20, tz_offset=0
+    )
+    reading_items, reading_total = await repo.get_tweets(
+        "2026-05-12", None, page=1, page_size=20, tz_offset=0, reading_layer=True
+    )
+    assert default_total == 4
+    assert {item["tweet_id"] for item in default_items} == {t.tweet_id for t in tweets}
+    assert reading_total == 2
+    assert {item["tweet_id"] for item in reading_items} == {"original", "quoted"}
+
+    default_days = await repo.get_daily_stats(2026, 5, tz_offset=0)
+    reading_days = await repo.get_daily_stats(2026, 5, tz_offset=0, reading_layer=True)
+    assert default_days == [{"date": "2026-05-12", "count": 4}]
+    assert reading_days == [{"date": "2026-05-12", "count": 2}]
+
+    default_authors = await repo.get_authors("2026-05-12", tz_offset=0)
+    reading_authors = await repo.get_authors("2026-05-12", tz_offset=0, reading_layer=True)
+    assert default_authors[0]["tweet_count"] == 4
+    assert reading_authors[0]["tweet_count"] == 2
+
+    since, until = day - timedelta(hours=1), day + timedelta(hours=1)
+    _, default_timeline, default_timeline_total = await repo.get_author_timeline(
+        "alice", since, until, page=1, page_size=1
+    )
+    _, reading_timeline, reading_timeline_total = await repo.get_author_timeline(
+        "alice", since, until, page=1, page_size=1, reading_layer=True
+    )
+    assert default_timeline_total == 4 and len(default_timeline) == 1
+    assert reading_timeline_total == 2 and len(reading_timeline) == 1
+    assert reading_timeline[0]["reference_type"] in {None, "quoted"}
 
 
 @pytest.mark.asyncio

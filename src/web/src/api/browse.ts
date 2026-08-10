@@ -25,10 +25,11 @@ export const browseApi = {
     year: number,
     month: number,
     min_text_length?: number,
+    reading_layer?: boolean,
   ): Promise<DailyStatsResponse> {
     const response = await client.get<DailyStatsResponse>(
       `${BROWSE_PREFIX}/stats/daily`,
-      { params: { year, month, tz_offset: getTzOffset(), min_text_length } },
+      { params: { year, month, tz_offset: getTzOffset(), min_text_length, reading_layer } },
     )
     return response.data
   },
@@ -37,6 +38,7 @@ export const browseApi = {
   async getAuthors(params: {
     date: string
     min_text_length?: number
+    reading_layer?: boolean
   }): Promise<AuthorListResponse> {
     const response = await client.get<AuthorListResponse>(
       `${BROWSE_PREFIX}/authors`,

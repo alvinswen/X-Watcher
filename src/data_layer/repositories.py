@@ -119,6 +119,7 @@ class BrowseReadStore(Protocol):
         page_size: Any,
         tz_offset: Any = 0,
         min_text_length: Any = None,
+        reading_layer: Any = False,
     ) -> tuple[list[dict[str, Any]], int]: ...
 
     async def get_author_timeline(
@@ -129,14 +130,17 @@ class BrowseReadStore(Protocol):
         page: Any,
         page_size: Any,
         min_text_length: Any = None,
+        reading_layer: Any = False,
     ) -> tuple[dict[str, Any], list[dict[str, Any]], int]: ...
 
     async def get_daily_stats(
-        self, year: Any, month: Any, tz_offset: Any = 0, min_text_length: Any = None
+        self, year: Any, month: Any, tz_offset: Any = 0, min_text_length: Any = None,
+        reading_layer: Any = False,
     ) -> list[dict[str, Any]]: ...
 
     async def get_authors(
-        self, date: Any, tz_offset: Any = 0, min_text_length: Any = None
+        self, date: Any, tz_offset: Any = 0, min_text_length: Any = None,
+        reading_layer: Any = False,
     ) -> list[dict[str, Any]]: ...
 
 
@@ -152,6 +156,7 @@ class FeedReadStore(Protocol):
         author: Any = None,
         authors: Any = None,
         keyword: Any = None,
+        wildcard: Any = False,
     ) -> FeedResult: ...
 
 
@@ -168,6 +173,7 @@ class SearchReadStore(Protocol):
         authors: Any = None,
         since: Any = None,
         until: Any = None,
+        wildcard: Any = False,
     ) -> SearchResult: ...
 
 
