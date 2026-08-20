@@ -304,3 +304,36 @@ describe("SubjectReviewTab citation cards", () => {
     expect(wrapper.findAll(".review-skeleton")).toHaveLength(2)
   })
 })
+
+describe("SubjectReviewTab paragraph rendering", () => {
+  it("renders a multi-paragraph body with stable paragraph hooks", async () => {
+    const wrapper = mountTab()
+    await wrapper.setProps({
+      sections: [{ title: "论点一", body: "第一段\n\n第二段\n\n第三段", cited_tweet_ids: ids }],
+    })
+
+    expect(wrapper.get("[data-para-count]").attributes("data-para-count")).toBe("3")
+    expect(wrapper.findAll("[data-para]").map((paragraph) => paragraph.text()))
+      .toEqual(["第一段", "第二段", "第三段"])
+    expect(wrapper.findAll("[data-para]").map((paragraph) => paragraph.attributes("data-para")))
+      .toEqual(["0", "1", "2"])
+  })
+
+  it("keeps a body without blank lines as one paragraph", () => {
+    const wrapper = mountTab()
+
+    expect(wrapper.get("[data-para-count]").attributes("data-para-count")).toBe("1")
+    expect(wrapper.findAll("[data-para]")).toHaveLength(1)
+    expect(wrapper.get("[data-para]").text()).toBe("正文一")
+  })
+
+  it.each(["", "   \n\n  "])("does not render a body container for %j", async (body) => {
+    const wrapper = mountTab()
+    await wrapper.setProps({
+      sections: [{ title: "论点一", body, cited_tweet_ids: ids }],
+    })
+
+    expect(wrapper.find("[data-para-count]").exists()).toBe(false)
+    expect(wrapper.find("[data-para]").exists()).toBe(false)
+  })
+})
