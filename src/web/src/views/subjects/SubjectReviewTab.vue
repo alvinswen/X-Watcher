@@ -5,7 +5,7 @@ import { ArrowDown, CircleClose, Document, Refresh } from "@element-plus/icons-v
 import LoadErrorState from "@/components/LoadErrorState.vue"
 import TweetCard from "@/components/TweetCard.vue"
 import { formatRelativeTime } from "@/utils/format"
-import { formatAbsoluteDateTime } from "@/views/subjects/subjectFormat"
+import { formatAbsoluteDateTime, splitParagraphs } from "@/views/subjects/subjectFormat"
 import type {
   SubjectReview,
   SubjectReviewHistoryItem,
@@ -58,6 +58,9 @@ const citedTweetMap = computed(
   () => new Map<string, TweetCardData>(
     (props.review?.cited_tweets ?? []).map((tweet) => [tweet.tweet_id, tweet]),
   ),
+)
+const sectionParagraphs = computed(
+  () => props.sections.map((section) => splitParagraphs(section.body)),
 )
 
 function reviewSectionName(index: number): string {
@@ -295,7 +298,18 @@ function goToDetail(id: string): void {
               </span>
             </template>
 
-            <p class="review-section-body">{{ section.body }}</p>
+            <div
+              v-if="sectionParagraphs[index]?.length"
+              class="review-section-body"
+              :data-para-count="sectionParagraphs[index]?.length"
+            >
+              <p
+                v-for="(paragraph, paraIndex) in sectionParagraphs[index] ?? []"
+                :key="paraIndex"
+                class="body-para"
+                :data-para="paraIndex"
+              >{{ paragraph }}</p>
+            </div>
 
             <el-collapse
               v-if="section.cited_tweet_ids.length"
@@ -339,6 +353,7 @@ function goToDetail(id: string): void {
 
 <style scoped>
 .review-pane {
+  max-width: 720px; /* CHG-064 阅读列 · 与 BrowseView/SearchView .tweet-list 同口径 · 靠左（禁加 margin auto） */
   padding: 24px 28px;
   background: var(--bg-card);
   border: 1px solid var(--border-light);
@@ -743,6 +758,14 @@ function goToDetail(id: string): void {
   line-height: var(--reading-line-height);
   letter-spacing: var(--reading-letter-spacing);
   overflow-wrap: anywhere;
+}
+
+.review-section-body .body-para {
+  margin: 0 0 calc(0.8 * var(--reading-line-height) * 1em);
+}
+
+.review-section-body .body-para:last-child {
+  margin-bottom: 0;
 }
 
 .review-cite-collapse {
