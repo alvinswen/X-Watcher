@@ -14,6 +14,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+from src.mcp import handoff
 from src.mcp.auth import require_admin
 from src.mcp.helpers import (
     error_response,
@@ -49,6 +50,52 @@ _REASON_NOT_FOUND = (
     "该推文不在推文库中，疑似虚构，请勿手工构造 tweet_id；"
     "如确信应存在请先抓取入库"
 )
+
+# ── CHG-066 · save_summaries 文件交接通道批级拒绝文案 ──
+_GUIDANCE_COMBO_BOTH = (
+    "summaries 与 summaries_file 只能二选一（互斥）：单条修补走 summaries，"
+    "批量走 summaries_file + file_sha256。请去掉其中一个后重提。"
+)
+_GUIDANCE_COMBO_NEITHER = (
+    "缺少提交内容：单条修补传 summaries；批量提交传 summaries_file + file_sha256（成对）。"
+)
+_GUIDANCE_COMBO_NO_SHA = (
+    "走文件通道必须成对提供 file_sha256（对交接文件原始字节整体计算的 sha256，"
+    "64 位十六进制）。请补 file_sha256 后重提。"
+)
+_GUIDANCE_COMBO_NO_FILE = (
+    "提供了 file_sha256 但缺 summaries_file：文件通道两参数成对；"
+    "参数通道无需指纹。请补 summaries_file 或去掉 file_sha256 后重提。"
+)
+_GUIDANCE_NOT_AN_ARRAY = (
+    "交接文件 JSON 顶层必须是数组（与 summaries 参数同构：每项含 "
+    "tweet_id/summary/translation）。请把顶层改为数组写入新文件后重提；"
+    "内容无需重新生成。"
+)
+
+
+def _batch_reject(
+    category: str,
+    guidance: str,
+    summaries_file: str | None,
+    file_sha256: str | None,
+) -> str:
+    """批级拒绝：审计 failure（服务端侧可记提交原值路径）+ 拒绝响应（不回显内部路径）。"""
+    from src.mcp.security import audit_log
+
+    audit_log(
+        "save_summaries",
+        "save",
+        params={
+            "channel": "file" if summaries_file is not None else "param",
+            "summaries_file": summaries_file,
+            "file_sha256": file_sha256,
+            "batch_category": category,
+        },
+        result="failure",
+        error=category,
+    )
+    return handoff.batch_error_response(category, guidance)
 
 
 def register(mcp: FastMCP) -> None:
@@ -100,43 +147,148 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool()
     async def save_summaries(
-        summaries: list[Any] | str,
+        summaries: list[Any] | str | None = None,
+        summaries_file: str | None = None,
+        file_sha256: str | None = None,
     ) -> str:
         """保存外部生成的摘要/翻译结果到数据库。需要管理员权限。
 
-        tweet_id 必须从 get_unsummarized_tweets 返回原样复制（字符串），
-        勿手工拼装、凭记忆重构或改类型；不在推文库中的 tweet_id 会被拒绝
-        （fail-closed）。被拒条目在返回 rejected 数组结构化列出（不截断），
-        每项含 category（transcription_error=转写错误，重抄 ID 后重提 /
-        not_found=库内不存在，丢弃勿再构造 / verification_failed=译文验证
-        未过，重译后回灌）与 reason，请按 category 机器分流。
+        两条提交通道（互斥二选一）：
+        - 参数通道 summaries：仅限单条随手修补。⚠️ 强警示：以 \\uXXXX 转义构造本参数
+          已实证必然产生等长形近字转录漂移（单字被换成码点相近的另一字，长度不变、
+          验证门不可见）。≥5 条或含中文正文的批量提交一律改走文件通道。
+        - 文件通道 summaries_file + file_sha256（成对必填）：批量提交标准路径，正文
+          不经参数转写，指纹比对 fail-closed，杜绝转录漂移。
+
+        文件通道操作序列（三步，顺序固定）：
+        1. 用 Write 工具把 JSON 数组以 UTF-8 直写（非 ASCII 一律原样字符，禁用
+           \\uXXXX 转义）为交接目录直下的新 .json 文件。交接目录 = 服务端数据根
+           （部署配置的数据目录：生产默认 data_migrated/，灰度为其隔离数据目录）
+           直下的 handoff/ 子目录。文件名带时间戳唯一化（如
+           summaries_20260828T101500.json）；被拒后重提必须换新文件名（被拒原文件
+           保留作排查物证，勿覆盖）。
+        2. 对该文件的原始字节整体计算 sha256（对字节而非文本、整体而非逐条），
+           得 64 位十六进制指纹。
+        3. 调用本工具：summaries_file 传文件绝对路径（相对路径按服务端工作目录
+           解析，与调用方所在目录多半不同，勿用），file_sha256 传指纹。
+
+        文件格式：UTF-8 无 BOM；顶层为数组，与 summaries 参数同构。
+        同机要求：文件通道要求调用方与服务端同机（stdio 形态）；sse 跨机接入递不了
+        本地文件，批量场景请在同机侧提交。
+
+        批级校验 fail-closed：任一批级闸不过则整批拒绝、库内零写入，返回
+        error_type=validation，并附 batch_category（稳定机器可读分类）与改正指引。
+        分类枚举（8 值）：invalid_param_combo（参数组合非法：双给/双缺/有路径缺
+        指纹/有指纹缺路径）/ path_not_allowed（路径不在白名单：只认交接目录直下
+        的 .json，不收子目录、不跟符号链接）/ file_unreadable（文件不存在或读取
+        失败）/ file_too_large（超 10MB=10,485,760 字节，拆多个文件分批）/
+        sha256_mismatch（指纹不符或非 64 位十六进制；并发覆盖同名文件也表现为
+        此类）/ escaped_unicode_found（文件含真转义 \\uXXXX：单反斜杠+u+4 位
+        十六进制；双反斜杠字面文本与 \\n、\\t 等短转义不在此列）/ invalid_json
+        （不是合法 JSON，含带 BOM/非 UTF-8）/ not_an_array（顶层不是数组）。
+        任何批级拒绝：内容无需重新生成，按指引重写文件/重算指纹即可。
+
+        条目级校验与拒绝（两通道一致，零变化）：tweet_id 必须从
+        get_unsummarized_tweets 返回原样复制（字符串），勿手工拼装、凭记忆重构
+        或改类型；不在推文库中的 tweet_id 会被拒绝（fail-closed）。被拒条目在
+        返回 rejected 数组结构化列出（不截断），每项含 category
+        （transcription_error=转写错误，重抄 ID 后重提 / not_found=库内不存在，
+        丢弃勿再构造 / verification_failed=译文验证未过，重译后回灌）与 reason，
+        请按 category 机器分流。
+
+        文件通道成功回执附 file_receipt（file_sha256=服务端对实际处理文件重算的
+        指纹 + item_count=实际处理条数）供端到端对账；成功后服务端不动交接文件，
+        由调用方自清理。
 
         Args:
-            summaries: 数组，每项包含：
+            summaries: 参数通道（与 summaries_file 互斥二选一）。数组，每项包含：
                        - tweet_id (必填): 推文 ID（字符串 · 从
                          get_unsummarized_tweets 返回原样复制）
                        - summary (必填): 中文摘要（≤500字符）
                        - translation (可选): 中文翻译
-                       优先以原生数组形式传入；也兼容 JSON 字符串
-                       （为兼容旧调用方保留，但不推荐——手工拼装 JSON 字符串
-                       容易出现引号转义错位类错误）。
+                       原生数组优先；也兼容 JSON 字符串（不推荐）。
+            summaries_file: 文件通道（与 summaries 互斥二选一）。交接目录直下
+                            .json 文件的绝对路径，文件内容与 summaries 同构。
+            file_sha256: 走文件通道时必填。交接文件原始字节的 sha256 指纹
+                         （64 位十六进制，大小写不敏感）。
         """
         perm_err = require_admin()
         if perm_err:
             return perm_err
 
-        # 支持两种形态:原生 list(推荐) 或 JSON 字符串(兼容旧调用方)。
-        # 原生 list 由 MCP 层 / Pydantic 直接反序列化,杜绝引号转义错位类错误。
-        if isinstance(summaries, str):
-            try:
-                items = json.loads(summaries)
-            except json.JSONDecodeError as e:
-                return error_response(f"JSON 解析失败: {e}", "validation")
-        else:
-            items = summaries
+        # ── CHG-066 批级闸 · 通道路由与参数组合（四种非法组合全拒 · Q2）──
+        file_receipt: dict[str, Any] | None = None
+        audit_file_params: dict[str, Any] = {}
+        if summaries_file is not None:
+            if summaries is not None:
+                return _batch_reject(
+                    handoff.BATCH_INVALID_PARAM_COMBO,
+                    _GUIDANCE_COMBO_BOTH,
+                    summaries_file,
+                    file_sha256,
+                )
+            if file_sha256 is None:
+                return _batch_reject(
+                    handoff.BATCH_INVALID_PARAM_COMBO,
+                    _GUIDANCE_COMBO_NO_SHA,
+                    summaries_file,
+                    file_sha256,
+                )
+            from src.data_layer.provider import data_root
 
-        if not isinstance(items, list):
-            return error_response("summaries 必须是数组", "validation")
+            loaded = handoff.load_handoff_file(
+                data_root(), summaries_file, file_sha256
+            )
+            if isinstance(loaded, handoff.HandoffRejection):
+                return _batch_reject(
+                    loaded.category,
+                    loaded.guidance,
+                    summaries_file,
+                    file_sha256,
+                )
+            if not isinstance(loaded.parsed, list):
+                return _batch_reject(
+                    handoff.BATCH_NOT_AN_ARRAY,
+                    _GUIDANCE_NOT_AN_ARRAY,
+                    summaries_file,
+                    file_sha256,
+                )
+            items = loaded.parsed
+            file_receipt = {
+                "file_sha256": loaded.file_sha256,
+                "item_count": len(items),
+            }
+            audit_file_params = {
+                "channel": "file",
+                "summaries_file": summaries_file,
+                "file_sha256": loaded.file_sha256,
+            }
+        else:
+            if file_sha256 is not None:
+                return _batch_reject(
+                    handoff.BATCH_INVALID_PARAM_COMBO,
+                    _GUIDANCE_COMBO_NO_FILE,
+                    summaries_file,
+                    file_sha256,
+                )
+            if summaries is None:
+                return _batch_reject(
+                    handoff.BATCH_INVALID_PARAM_COMBO,
+                    _GUIDANCE_COMBO_NEITHER,
+                    summaries_file,
+                    file_sha256,
+                )
+            # ── 参数通道：现状零改动（形态归一 + 数组判定，文案原样）──
+            if isinstance(summaries, str):
+                try:
+                    items = json.loads(summaries)
+                except json.JSONDecodeError as e:
+                    return error_response(f"JSON 解析失败: {e}", "validation")
+            else:
+                items = summaries
+
+            if not isinstance(items, list):
+                return error_response("summaries 必须是数组", "validation")
 
         try:
             from src.config import get_settings
@@ -295,17 +447,21 @@ def register(mcp: FastMCP) -> None:
                     "rejected_not_found": category_counts[CATEGORY_NOT_FOUND],
                     "rejected_verification_failed":
                         category_counts[CATEGORY_VERIFICATION_FAILED],
+                    **audit_file_params,
                 },
             )
 
-            return success_response({
+            data: dict[str, Any] = {
                 "saved": saved,
                 "failed": failed,
                 "total": len(items),
                 "errors": errors[:10] if errors else [],
                 # 验证门拒绝项（结构化），供 /scrape-and-translate 回灌重生成
                 "rejected": rejected,
-            })
+            }
+            if file_receipt is not None:
+                data["file_receipt"] = file_receipt
+            return success_response(data)
 
         except Exception as e:
             logger.error("save_summaries 失败: %s", e, exc_info=True)
