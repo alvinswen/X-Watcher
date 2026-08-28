@@ -37,7 +37,11 @@ DAILY_SUMMARY_RECIPE = """\
 - 如果有待处理推文 → 在 Claude Code 上下文中生成中文摘要和翻译
 
 ### Step 4：保存结果
-调用 `save_summaries(summaries=[...])` 回写生成结果。保存前检查摘要、翻译是否完整。
+调用 save_summaries 走文件通道（批量标准路径；参数通道 summaries=[...] 仅限单条随手修补——
+转义序列构造参数已实证必漂移）：用 Write 工具把 JSON 数组以 UTF-8 直写（非 ASCII 原样字符，
+禁转义序列）为服务端数据根直下 `handoff/` 子目录的新 `.json` 文件（文件名带时间戳唯一化）→
+对文件原始字节整体算 sha256 → 调用 `save_summaries(summaries_file=<绝对路径>, file_sha256=<指纹>)`。
+保存前检查摘要、翻译是否完整；批级被拒（回执 batch_category）按改正指引处理，内容无需重新生成。
 - tweet_id 必须从 `get_unsummarized_tweets` 返回原样复制（字符串），勿手工拼装、凭记忆重构或改类型
 - `save_summaries` 对库内不存在的 tweet_id fail-closed，被拒条目在 `rejected` 数组完整返回
 - 按 `rejected[].category` 分流：`transcription_error`=重抄 ID 后重提 / `not_found`=丢弃勿再构造 / `verification_failed`=重译后回灌
@@ -59,7 +63,7 @@ DAILY_SUMMARY_RECIPE = """\
 | 触发抓取 | trigger_scrape | - |
 | 监控抓取进度 | get_task_status | task_id |
 | 获取摘要缺口 | get_unsummarized_tweets | limit, since, until |
-| 保存摘要 | save_summaries | summaries (tweet_id 原样复制;被拒看 rejected[].category) |
+| 保存摘要 | save_summaries | 批量:summaries_file+file_sha256(文件通道);单条修补:summaries(tweet_id 原样复制;被拒看 rejected[].category) |
 | 浏览验证 | browse_tweets / get_feed | date / since |
 """
 
@@ -97,14 +101,16 @@ CLAUDE_CODE_SUMMARIZE_RECIPE = """\
   - 混合语言：完整翻译
 
 ### Step 5：保存结果
-调用 `save_summaries(summaries=[...])`
-- 入参：原生数组 `[{"tweet_id": "...", "summary": "...", "translation": "..."}]`
-  （推荐原生数组形态；为兼容旧调用方也接受 JSON 字符串，但不推荐——
-  手工拼装 JSON 字符串容易出现引号转义错位类错误）
+调用 `save_summaries(summaries_file=<绝对路径>, file_sha256=<指纹>)`（批量 · 文件通道）
+- 交接文件：用 Write 工具以 UTF-8 直写（非 ASCII 原样字符，禁转义序列）JSON 数组
+  `[{"tweet_id": "...", "summary": "...", "translation": "..."}]` 到服务端数据根直下
+  `handoff/` 子目录（文件名带时间戳唯一化）；指纹 = 文件原始字节整体 sha256
+- 参数通道 `summaries=[...]` 仅限单条随手修补（转义序列构造参数已实证必漂移，勿用于批量）
 - 支持批量保存，单条失败不影响其他条目
 - tweet_id 必须从 `get_unsummarized_tweets` 返回原样复制（字符串），勿手工拼装、凭记忆重构或改类型
 - `save_summaries` 对库内不存在的 tweet_id fail-closed，被拒条目在 `rejected` 数组完整返回
 - 按 `rejected[].category` 分流：`transcription_error`=重抄 ID 后重提 / `not_found`=丢弃勿再构造 / `verification_failed`=重译后回灌
+- 批级被拒（回执 batch_category）→ 按改正指引处理（重写文件/重算指纹），内容无需重新生成
 - 结果以 model_provider="claude_code" 存储
 
 ### Step 6：验证
@@ -121,7 +127,7 @@ CLAUDE_CODE_SUMMARIZE_RECIPE = """\
 | 抓取 | trigger_scrape | usernames, limit |
 | 等待 | get_task_status | task_id |
 | 获取待翻译 | get_unsummarized_tweets | limit, since, until |
-| 保存结果 | save_summaries | summaries (原生数组,亦兼容 JSON 字符串;tweet_id 原样复制) |
+| 保存结果 | save_summaries | 批量:summaries_file+file_sha256(文件通道);单条修补:summaries(tweet_id 原样复制) |
 | 验证 | browse_tweets | date |
 """
 
