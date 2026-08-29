@@ -987,8 +987,8 @@
   "signature": "(subject_id: 'str | None' = None, since: 'str | None' = None, until: 'str | None' = None, min_citations: 'int' = 3, min_sources: 'int' = 2, top_n: 'int' = 20) -> 'str'"
  },
  "put_subject_digest": {
-  "description": "写回区间滚动新闻；publish 按 created_at 圈候选并校验 cited/highlights 引用。\n\n        highlights 可传 JSON 字符串或对象数组；publish 成功时返回 skipped_no_publish_time。\n        溯源写成时返回 provenance_key，可填入 eval 的 target_provenance_ref。\n        ",
-  "docstring": "写回区间滚动新闻；publish 按 created_at 圈候选并校验 cited/highlights 引用。\n\nhighlights 可传 JSON 字符串或对象数组；publish 成功时返回 skipped_no_publish_time。\n溯源写成时返回 provenance_key，可填入 eval 的 target_provenance_ref。",
+  "description": "写回议题区间滚动新闻（L1 · append-only）。需要 subjects:write 权限。\n\n        两条提交通道（互斥二选一）：\n        - 文件通道 digest_file + file_sha256（成对必填）：正常写回标准路径。正文\n          （digest_text/highlights/cited）装进交接文件，不经参数转写，指纹比对\n          fail-closed，杜绝转录漂移。走文件通道时该三个参数一律不传，传任一即拒。\n        - 参数通道 digest_text（+ 可选 highlights/cited）：仅限应急/极短篇幅修补，\n          直传 UTF-8 原样字符。⚠️ 强警示：以 \\uXXXX 转义构造参数已实证必然产生\n          等长形近字转录漂移（单字被换成码点相近的另一字，长度不变），严禁转义构造。\n\n        文件通道操作序列（三步，顺序固定）：\n        1. 用 Write 工具把载荷对象以 UTF-8 直写（非 ASCII 一律原样字符，禁用 \\uXXXX\n           转义）为交接目录直下的新 .json 文件。交接目录 = 服务端数据根（部署配置的\n           数据目录）直下的 handoff/ 子目录。文件名带工具域前缀 + 时间戳唯一化（如\n           digest_s_ai_20260828T233000.json）；被拒后重提必须换新文件名（被拒原文件\n           保留作排查物证，勿覆盖）。\n        2. 对该文件的原始字节整体计算 sha256（对字节而非文本、整体而非逐条），得\n           64 位十六进制指纹。\n        3. 调用本工具：digest_file 传文件绝对路径（相对路径按服务端工作目录解析，与\n           调用方所在目录多半不同，勿用），file_sha256 传指纹；subject_id /\n           interval_start / interval_end / time_axis 与溯源参数照常走参数。\n\n        文件格式：UTF-8 无 BOM；顶层为单个 JSON 对象，键全集从严校验（缺必需键、含\n        未知键均整次拒绝）：\n        - digest_text（必需）：字符串，区间主文（≤4000 字）\n        - highlights（可选）：数组，每项 {\"point\": 要点, \"cited_tweet_ids\":\n          [要点引用推文 ID]}\n        - cited（可选）：字符串数组，区间引用推文 ID（注意：文件内为数组，不是参数\n          通道的逗号分隔串）\n        同机要求：文件通道要求调用方与服务端同机（stdio 形态）；sse 跨机接入递不了\n        本地文件，请在同机侧提交。\n\n        批级校验 fail-closed：任一批级闸不过则整次拒绝、库内零写入，返回\n        error_type=validation，并附 batch_category（稳定机器可读分类）与改正指引。\n        分类枚举（8 值）：invalid_param_combo（参数组合非法：文件通道与正文参数双给/\n        有路径缺指纹/有指纹缺路径）/ path_not_allowed（路径不在白名单：只认交接目录\n        直下的 .json 常规文件）/ file_unreadable（文件不存在或读取失败）/\n        file_too_large（超 10MB=10,485,760 字节）/ sha256_mismatch（指纹不符或非\n        64 位十六进制；并发覆盖同名文件也表现为此类）/ escaped_unicode_found（文件含\n        真转义：单反斜杠+u+4 位十六进制；双反斜杠字面文本与 \\n、\\t 等短转义不在\n        此列）/ invalid_json（不是合法 JSON，含带 BOM/非 UTF-8）/\n        invalid_payload_shape（顶层不是 JSON 对象、缺必需键或含未知键——顶层误写成\n        数组也归此类）。任何批级拒绝：内容无需重新生成。\n\n        被拒后文件复用规则（按拒绝类别）：\n        - 批级内容类被拒（sha256_mismatch / escaped_unicode_found / invalid_json /\n          invalid_payload_shape）：换新文件名重写，勿覆盖（被拒原文件保留作排查物证）。\n        - 业务闸被拒（文件本身合格：区间/轴非法、引用越界、超 4000 字、主文为空）：\n          内容不变仅改参数重提，可复用同文件同指纹；凡需修改文件内容重提，换新文件名\n          并重算指纹。\n\n        既有业务规则零变化（两通道一致）：append-only（同区间重跑追加新记录）；\n        time_axis 必须与取候选集时同值；digest_text 不能为空且 ≤4000 字；cited 与\n        要点引用必须属于该议题命中推文；publish 轴成功时返回 skipped_no_publish_time。\n\n        文件通道成功回执附 file_receipt（file_sha256=服务端对实际处理文件重算的指纹 +\n        item_count=本次写入要点条数，可为 0）供端到端对账；成功后服务端不动交接文件，\n        由调用方自清理；任何拒绝响应不附 file_receipt。\n\n        Args:\n            subject_id: 议题 ID。\n            interval_start: 区间起点（ISO 8601）。\n            interval_end: 区间终点（ISO 8601）。\n            time_axis: 时间轴（ingest/publish），必须与取候选集时同值。\n            digest_text: 参数通道（与 digest_file 互斥）。区间主文字符串。仅限\n                         应急/极短修补。\n            highlights: 参数通道可选。JSON 数组或其字符串形态，每项含\n                        point/cited_tweet_ids。\n            cited: 参数通道可选。逗号分隔的引用推文 ID 串。\n            digest_file: 文件通道（与 digest_text/highlights/cited 互斥）。交接\n                         目录直下 .json 文件的绝对路径。\n            file_sha256: 走文件通道时必填。交接文件原始字节的 sha256 指纹\n                         （64 位十六进制，大小写不敏感）。\n            playbook_id: 溯源参数，与现状一致（以下 7 参含义零变化）。\n            playbook_version: 溯源参数。\n            prompt_hash: 溯源参数。\n            candidate_set_hash: 溯源参数（服务端重算比对，不符整次拒绝）。\n            candidate_ids: 溯源参数（逗号分隔 ID 串）。\n            model_name: 溯源参数。\n            model_version: 溯源参数。\n        ",
+  "docstring": "写回议题区间滚动新闻（L1 · append-only）。需要 subjects:write 权限。\n\n两条提交通道（互斥二选一）：\n- 文件通道 digest_file + file_sha256（成对必填）：正常写回标准路径。正文\n  （digest_text/highlights/cited）装进交接文件，不经参数转写，指纹比对\n  fail-closed，杜绝转录漂移。走文件通道时该三个参数一律不传，传任一即拒。\n- 参数通道 digest_text（+ 可选 highlights/cited）：仅限应急/极短篇幅修补，\n  直传 UTF-8 原样字符。⚠️ 强警示：以 \\uXXXX 转义构造参数已实证必然产生\n  等长形近字转录漂移（单字被换成码点相近的另一字，长度不变），严禁转义构造。\n\n文件通道操作序列（三步，顺序固定）：\n1. 用 Write 工具把载荷对象以 UTF-8 直写（非 ASCII 一律原样字符，禁用 \\uXXXX\n   转义）为交接目录直下的新 .json 文件。交接目录 = 服务端数据根（部署配置的\n   数据目录）直下的 handoff/ 子目录。文件名带工具域前缀 + 时间戳唯一化（如\n   digest_s_ai_20260828T233000.json）；被拒后重提必须换新文件名（被拒原文件\n   保留作排查物证，勿覆盖）。\n2. 对该文件的原始字节整体计算 sha256（对字节而非文本、整体而非逐条），得\n   64 位十六进制指纹。\n3. 调用本工具：digest_file 传文件绝对路径（相对路径按服务端工作目录解析，与\n   调用方所在目录多半不同，勿用），file_sha256 传指纹；subject_id /\n   interval_start / interval_end / time_axis 与溯源参数照常走参数。\n\n文件格式：UTF-8 无 BOM；顶层为单个 JSON 对象，键全集从严校验（缺必需键、含\n未知键均整次拒绝）：\n- digest_text（必需）：字符串，区间主文（≤4000 字）\n- highlights（可选）：数组，每项 {\"point\": 要点, \"cited_tweet_ids\":\n  [要点引用推文 ID]}\n- cited（可选）：字符串数组，区间引用推文 ID（注意：文件内为数组，不是参数\n  通道的逗号分隔串）\n同机要求：文件通道要求调用方与服务端同机（stdio 形态）；sse 跨机接入递不了\n本地文件，请在同机侧提交。\n\n批级校验 fail-closed：任一批级闸不过则整次拒绝、库内零写入，返回\nerror_type=validation，并附 batch_category（稳定机器可读分类）与改正指引。\n分类枚举（8 值）：invalid_param_combo（参数组合非法：文件通道与正文参数双给/\n有路径缺指纹/有指纹缺路径）/ path_not_allowed（路径不在白名单：只认交接目录\n直下的 .json 常规文件）/ file_unreadable（文件不存在或读取失败）/\nfile_too_large（超 10MB=10,485,760 字节）/ sha256_mismatch（指纹不符或非\n64 位十六进制；并发覆盖同名文件也表现为此类）/ escaped_unicode_found（文件含\n真转义：单反斜杠+u+4 位十六进制；双反斜杠字面文本与 \\n、\\t 等短转义不在\n此列）/ invalid_json（不是合法 JSON，含带 BOM/非 UTF-8）/\ninvalid_payload_shape（顶层不是 JSON 对象、缺必需键或含未知键——顶层误写成\n数组也归此类）。任何批级拒绝：内容无需重新生成。\n\n被拒后文件复用规则（按拒绝类别）：\n- 批级内容类被拒（sha256_mismatch / escaped_unicode_found / invalid_json /\n  invalid_payload_shape）：换新文件名重写，勿覆盖（被拒原文件保留作排查物证）。\n- 业务闸被拒（文件本身合格：区间/轴非法、引用越界、超 4000 字、主文为空）：\n  内容不变仅改参数重提，可复用同文件同指纹；凡需修改文件内容重提，换新文件名\n  并重算指纹。\n\n既有业务规则零变化（两通道一致）：append-only（同区间重跑追加新记录）；\ntime_axis 必须与取候选集时同值；digest_text 不能为空且 ≤4000 字；cited 与\n要点引用必须属于该议题命中推文；publish 轴成功时返回 skipped_no_publish_time。\n\n文件通道成功回执附 file_receipt（file_sha256=服务端对实际处理文件重算的指纹 +\nitem_count=本次写入要点条数，可为 0）供端到端对账；成功后服务端不动交接文件，\n由调用方自清理；任何拒绝响应不附 file_receipt。\n\nArgs:\n    subject_id: 议题 ID。\n    interval_start: 区间起点（ISO 8601）。\n    interval_end: 区间终点（ISO 8601）。\n    time_axis: 时间轴（ingest/publish），必须与取候选集时同值。\n    digest_text: 参数通道（与 digest_file 互斥）。区间主文字符串。仅限\n                 应急/极短修补。\n    highlights: 参数通道可选。JSON 数组或其字符串形态，每项含\n                point/cited_tweet_ids。\n    cited: 参数通道可选。逗号分隔的引用推文 ID 串。\n    digest_file: 文件通道（与 digest_text/highlights/cited 互斥）。交接\n                 目录直下 .json 文件的绝对路径。\n    file_sha256: 走文件通道时必填。交接文件原始字节的 sha256 指纹\n                 （64 位十六进制，大小写不敏感）。\n    playbook_id: 溯源参数，与现状一致（以下 7 参含义零变化）。\n    playbook_version: 溯源参数。\n    prompt_hash: 溯源参数。\n    candidate_set_hash: 溯源参数（服务端重算比对，不符整次拒绝）。\n    candidate_ids: 溯源参数（逗号分隔 ID 串）。\n    model_name: 溯源参数。\n    model_version: 溯源参数。",
   "parameters": {
    "properties": {
     "candidate_ids": {
@@ -1027,10 +1027,41 @@
      "default": null,
      "title": "Cited"
     },
+    "digest_file": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Digest File"
+    },
     "digest_text": {
-     "default": "",
-     "title": "Digest Text",
-     "type": "string"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Digest Text"
+    },
+    "file_sha256": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "File Sha256"
     },
     "highlights": {
      "anyOf": [
@@ -1137,7 +1168,7 @@
    "title": "put_subject_digestArguments",
    "type": "object"
   },
-  "signature": "(subject_id: 'str', interval_start: 'str', interval_end: 'str', time_axis: 'str' = 'ingest', digest_text: 'str' = '', highlights: 'str | list[dict[str, Any]] | None' = None, cited: 'str | None' = None, playbook_id: 'str | None' = None, playbook_version: 'str | None' = None, prompt_hash: 'str | None' = None, candidate_set_hash: 'str | None' = None, candidate_ids: 'str | None' = None, model_name: 'str | None' = None, model_version: 'str | None' = None) -> 'str'"
+  "signature": "(subject_id: 'str', interval_start: 'str', interval_end: 'str', time_axis: 'str' = 'ingest', digest_text: 'str | None' = None, highlights: 'str | list[dict[str, Any]] | None' = None, cited: 'str | None' = None, digest_file: 'str | None' = None, file_sha256: 'str | None' = None, playbook_id: 'str | None' = None, playbook_version: 'str | None' = None, prompt_hash: 'str | None' = None, candidate_set_hash: 'str | None' = None, candidate_ids: 'str | None' = None, model_name: 'str | None' = None, model_version: 'str | None' = None) -> 'str'"
  },
  "put_subject_eval": {
   "description": "写 judge/human eval 记录；hygiene 档请调 run_subject_hygiene_check。\n\n        target_id 示例：match::<sid>::<tweet_id> /\n        digest::<sid>::<interval_start>::<time_axis> / review::<sid>::<version>。\n        eval 纯追加，评错再评一条；读侧按 when 取最新。\n        ",
@@ -1498,8 +1529,8 @@
   "signature": "(subject_id: 'str', tweet_ids: 'str', relevance: 'float | None' = None, reason: 'str | None' = None, playbook_id: 'str | None' = None, playbook_version: 'str | None' = None, prompt_hash: 'str | None' = None, candidate_set_hash: 'str | None' = None, candidate_ids: 'str | None' = None, model_name: 'str | None' = None, model_version: 'str | None' = None) -> 'str'"
  },
  "put_subject_review": {
-  "description": "写回累积综述；sections 收 JSON 字符串或数组，trend 收字符串或对象。\n\n        溯源写成时返回 provenance_key，可填入 eval 的 target_provenance_ref。\n        ",
-  "docstring": "写回累积综述；sections 收 JSON 字符串或数组，trend 收字符串或对象。\n\n溯源写成时返回 provenance_key，可填入 eval 的 target_provenance_ref。",
+  "description": "写回议题累积综述（L2 · 乐观锁全量演进）。需要 subjects:write 权限。\n\n        两条提交通道（互斥二选一）：\n        - 文件通道 review_file + file_sha256（成对必填）：正常写回标准路径。整篇正文\n          （sections/trend/cited）装进交接文件，不经参数转写，指纹比对 fail-closed，\n          杜绝转录漂移。走文件通道时 sections/trend/cited 参数一律不传，传任一即拒。\n        - 参数通道 sections（+ 可选 trend/cited）：仅限应急且正文极短的场景。review 为\n          全量覆盖写入，参数通道提交的 sections 仍须是完整全集——整篇篇幅可观时一律走\n          文件通道。⚠️ 强警示：以 \\uXXXX 转义构造参数已实证必然产生等长形近字转录\n          漂移（单字被换成码点相近的另一字，长度不变、肉眼难察），严禁转义构造。\n\n        文件通道操作序列（三步，顺序固定）：\n        1. 用 Write 工具把载荷对象以 UTF-8 直写（非 ASCII 一律原样字符，禁用 \\uXXXX\n           转义）为交接目录直下的新 .json 文件。交接目录 = 服务端数据根（部署配置的\n           数据目录）直下的 handoff/ 子目录。文件名带工具域前缀 + 时间戳唯一化（如\n           review_s_ai_20260828T233000.json）；被拒后重提必须换新文件名（被拒原文件\n           保留作排查物证，勿覆盖）。\n        2. 对该文件的原始字节整体计算 sha256（对字节而非文本、整体而非逐条），得\n           64 位十六进制指纹。\n        3. 调用本工具：review_file 传文件绝对路径（相对路径按服务端工作目录解析，与\n           调用方所在目录多半不同，勿用），file_sha256 传指纹；subject_id /\n           prev_version / covered_until 与溯源参数照常走参数。\n\n        文件格式：UTF-8 无 BOM；顶层为单个 JSON 对象，键全集从严校验（缺必需键、含\n        未知键均整次拒绝）：\n        - sections（必需）：数组，每项 {\"title\": 节标题, \"body\": 节正文（≤4000 字），\n          \"cited_tweet_ids\": [节内引用推文 ID]}\n        - trend（可选）：对象 {\"emerging\": [新兴短语], \"fading\": [退潮短语]}\n        - cited（可选）：字符串数组，整篇引用推文 ID（注意：文件内为数组，不是参数\n          通道的逗号分隔串）\n        同机要求：文件通道要求调用方与服务端同机（stdio 形态）；sse 跨机接入递不了\n        本地文件，请在同机侧提交。\n\n        批级校验 fail-closed：任一批级闸不过则整次拒绝、库内零写入，返回\n        error_type=validation，并附 batch_category（稳定机器可读分类）与改正指引。\n        分类枚举（8 值）：invalid_param_combo（参数组合非法：文件通道与正文参数双给/\n        双缺/有路径缺指纹/有指纹缺路径）/ path_not_allowed（路径不在白名单：只认交接\n        目录直下的 .json 常规文件）/ file_unreadable（文件不存在或读取失败）/\n        file_too_large（超 10MB=10,485,760 字节）/ sha256_mismatch（指纹不符或非\n        64 位十六进制；并发覆盖同名文件也表现为此类）/ escaped_unicode_found（文件含\n        真转义：单反斜杠+u+4 位十六进制；双反斜杠字面文本与 \\n、\\t 等短转义不在\n        此列）/ invalid_json（不是合法 JSON，含带 BOM/非 UTF-8）/\n        invalid_payload_shape（顶层不是 JSON 对象、缺必需键或含未知键——顶层误写成\n        数组也归此类）。任何批级拒绝：内容无需重新生成。\n\n        被拒后文件复用规则（按拒绝类别）：\n        - 批级内容类被拒（sha256_mismatch / escaped_unicode_found / invalid_json /\n          invalid_payload_shape）：换新文件名重写，勿覆盖（被拒原文件保留作排查物证）。\n        - 业务闸被拒（文件本身合格：版本冲突/引用越界/超 4000 字/正文为空）：内容不变\n          仅改参数重提，可复用同文件同指纹；凡需修改文件内容重提，换新文件名并重算指纹。\n\n        既有业务规则零变化（两通道一致）：乐观锁 prev_version 不匹配返回 conflict\n        （含 latest_version 与 covered_until，重读最新版合并后重试）；cited 与节内\n        引用必须属于该议题命中推文；每节 body ≤4000 字且不能为空；sections 不能为空。\n\n        文件通道成功回执附 file_receipt（file_sha256=服务端对实际处理文件重算的指纹 +\n        item_count=本次写入分节数）供端到端对账；成功后服务端不动交接文件，由调用方\n        自清理；任何拒绝响应（批级/业务级/conflict）不附 file_receipt。\n\n        Args:\n            subject_id: 议题 ID。\n            prev_version: 乐观锁版本（当前综述 version；从未生成过传 0）。\n            covered_until: 本次综述覆盖截止时间（ISO 8601）。\n            sections: 参数通道（与 review_file 互斥）。JSON 数组或其字符串形态，\n                      每项含 title/body/cited_tweet_ids。仅限应急且极短场景。\n            trend: 参数通道可选。JSON 对象或其字符串形态 {emerging, fading}。\n            cited: 参数通道可选。逗号分隔的引用推文 ID 串。\n            review_file: 文件通道（与 sections/trend/cited 互斥）。交接目录直下\n                         .json 文件的绝对路径。\n            file_sha256: 走文件通道时必填。交接文件原始字节的 sha256 指纹\n                         （64 位十六进制，大小写不敏感）。\n            playbook_id: 溯源参数，与现状一致（以下 7 参含义零变化）。\n            playbook_version: 溯源参数。\n            prompt_hash: 溯源参数。\n            candidate_set_hash: 溯源参数（服务端重算比对，不符整次拒绝）。\n            candidate_ids: 溯源参数（逗号分隔 ID 串）。\n            model_name: 溯源参数。\n            model_version: 溯源参数。\n        ",
+  "docstring": "写回议题累积综述（L2 · 乐观锁全量演进）。需要 subjects:write 权限。\n\n两条提交通道（互斥二选一）：\n- 文件通道 review_file + file_sha256（成对必填）：正常写回标准路径。整篇正文\n  （sections/trend/cited）装进交接文件，不经参数转写，指纹比对 fail-closed，\n  杜绝转录漂移。走文件通道时 sections/trend/cited 参数一律不传，传任一即拒。\n- 参数通道 sections（+ 可选 trend/cited）：仅限应急且正文极短的场景。review 为\n  全量覆盖写入，参数通道提交的 sections 仍须是完整全集——整篇篇幅可观时一律走\n  文件通道。⚠️ 强警示：以 \\uXXXX 转义构造参数已实证必然产生等长形近字转录\n  漂移（单字被换成码点相近的另一字，长度不变、肉眼难察），严禁转义构造。\n\n文件通道操作序列（三步，顺序固定）：\n1. 用 Write 工具把载荷对象以 UTF-8 直写（非 ASCII 一律原样字符，禁用 \\uXXXX\n   转义）为交接目录直下的新 .json 文件。交接目录 = 服务端数据根（部署配置的\n   数据目录）直下的 handoff/ 子目录。文件名带工具域前缀 + 时间戳唯一化（如\n   review_s_ai_20260828T233000.json）；被拒后重提必须换新文件名（被拒原文件\n   保留作排查物证，勿覆盖）。\n2. 对该文件的原始字节整体计算 sha256（对字节而非文本、整体而非逐条），得\n   64 位十六进制指纹。\n3. 调用本工具：review_file 传文件绝对路径（相对路径按服务端工作目录解析，与\n   调用方所在目录多半不同，勿用），file_sha256 传指纹；subject_id /\n   prev_version / covered_until 与溯源参数照常走参数。\n\n文件格式：UTF-8 无 BOM；顶层为单个 JSON 对象，键全集从严校验（缺必需键、含\n未知键均整次拒绝）：\n- sections（必需）：数组，每项 {\"title\": 节标题, \"body\": 节正文（≤4000 字），\n  \"cited_tweet_ids\": [节内引用推文 ID]}\n- trend（可选）：对象 {\"emerging\": [新兴短语], \"fading\": [退潮短语]}\n- cited（可选）：字符串数组，整篇引用推文 ID（注意：文件内为数组，不是参数\n  通道的逗号分隔串）\n同机要求：文件通道要求调用方与服务端同机（stdio 形态）；sse 跨机接入递不了\n本地文件，请在同机侧提交。\n\n批级校验 fail-closed：任一批级闸不过则整次拒绝、库内零写入，返回\nerror_type=validation，并附 batch_category（稳定机器可读分类）与改正指引。\n分类枚举（8 值）：invalid_param_combo（参数组合非法：文件通道与正文参数双给/\n双缺/有路径缺指纹/有指纹缺路径）/ path_not_allowed（路径不在白名单：只认交接\n目录直下的 .json 常规文件）/ file_unreadable（文件不存在或读取失败）/\nfile_too_large（超 10MB=10,485,760 字节）/ sha256_mismatch（指纹不符或非\n64 位十六进制；并发覆盖同名文件也表现为此类）/ escaped_unicode_found（文件含\n真转义：单反斜杠+u+4 位十六进制；双反斜杠字面文本与 \\n、\\t 等短转义不在\n此列）/ invalid_json（不是合法 JSON，含带 BOM/非 UTF-8）/\ninvalid_payload_shape（顶层不是 JSON 对象、缺必需键或含未知键——顶层误写成\n数组也归此类）。任何批级拒绝：内容无需重新生成。\n\n被拒后文件复用规则（按拒绝类别）：\n- 批级内容类被拒（sha256_mismatch / escaped_unicode_found / invalid_json /\n  invalid_payload_shape）：换新文件名重写，勿覆盖（被拒原文件保留作排查物证）。\n- 业务闸被拒（文件本身合格：版本冲突/引用越界/超 4000 字/正文为空）：内容不变\n  仅改参数重提，可复用同文件同指纹；凡需修改文件内容重提，换新文件名并重算指纹。\n\n既有业务规则零变化（两通道一致）：乐观锁 prev_version 不匹配返回 conflict\n（含 latest_version 与 covered_until，重读最新版合并后重试）；cited 与节内\n引用必须属于该议题命中推文；每节 body ≤4000 字且不能为空；sections 不能为空。\n\n文件通道成功回执附 file_receipt（file_sha256=服务端对实际处理文件重算的指纹 +\nitem_count=本次写入分节数）供端到端对账；成功后服务端不动交接文件，由调用方\n自清理；任何拒绝响应（批级/业务级/conflict）不附 file_receipt。\n\nArgs:\n    subject_id: 议题 ID。\n    prev_version: 乐观锁版本（当前综述 version；从未生成过传 0）。\n    covered_until: 本次综述覆盖截止时间（ISO 8601）。\n    sections: 参数通道（与 review_file 互斥）。JSON 数组或其字符串形态，\n              每项含 title/body/cited_tweet_ids。仅限应急且极短场景。\n    trend: 参数通道可选。JSON 对象或其字符串形态 {emerging, fading}。\n    cited: 参数通道可选。逗号分隔的引用推文 ID 串。\n    review_file: 文件通道（与 sections/trend/cited 互斥）。交接目录直下\n                 .json 文件的绝对路径。\n    file_sha256: 走文件通道时必填。交接文件原始字节的 sha256 指纹\n                 （64 位十六进制，大小写不敏感）。\n    playbook_id: 溯源参数，与现状一致（以下 7 参含义零变化）。\n    playbook_version: 溯源参数。\n    prompt_hash: 溯源参数。\n    candidate_set_hash: 溯源参数（服务端重算比对，不符整次拒绝）。\n    candidate_ids: 溯源参数（逗号分隔 ID 串）。\n    model_name: 溯源参数。\n    model_version: 溯源参数。",
   "parameters": {
    "properties": {
     "candidate_ids": {
@@ -1541,6 +1572,18 @@
     "covered_until": {
      "title": "Covered Until",
      "type": "string"
+    },
+    "file_sha256": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "File Sha256"
     },
     "model_name": {
      "anyOf": [
@@ -1606,6 +1649,18 @@
      "default": null,
      "title": "Prompt Hash"
     },
+    "review_file": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Review File"
+    },
     "sections": {
      "anyOf": [
       {
@@ -1617,8 +1672,12 @@
         "type": "object"
        },
        "type": "array"
+      },
+      {
+       "type": "null"
       }
      ],
+     "default": null,
      "title": "Sections"
     },
     "subject_id": {
@@ -1645,13 +1704,12 @@
    "required": [
     "subject_id",
     "prev_version",
-    "sections",
     "covered_until"
    ],
    "title": "put_subject_reviewArguments",
    "type": "object"
   },
-  "signature": "(subject_id: 'str', prev_version: 'int', sections: 'str | list[dict[str, Any]]', covered_until: 'str', trend: 'str | dict[str, Any] | None' = None, cited: 'str | None' = None, playbook_id: 'str | None' = None, playbook_version: 'str | None' = None, prompt_hash: 'str | None' = None, candidate_set_hash: 'str | None' = None, candidate_ids: 'str | None' = None, model_name: 'str | None' = None, model_version: 'str | None' = None) -> 'str'"
+  "signature": "(subject_id: 'str', prev_version: 'int', covered_until: 'str', sections: 'str | list[dict[str, Any]] | None' = None, trend: 'str | dict[str, Any] | None' = None, cited: 'str | None' = None, review_file: 'str | None' = None, file_sha256: 'str | None' = None, playbook_id: 'str | None' = None, playbook_version: 'str | None' = None, prompt_hash: 'str | None' = None, candidate_set_hash: 'str | None' = None, candidate_ids: 'str | None' = None, model_name: 'str | None' = None, model_version: 'str | None' = None) -> 'str'"
  },
  "refresh_subject_review": {
   "description": "单议题刷新改为挂待综述；全量入口保持占位。",

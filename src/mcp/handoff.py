@@ -29,6 +29,7 @@ BATCH_SHA256_MISMATCH = "sha256_mismatch"
 BATCH_ESCAPED_UNICODE_FOUND = "escaped_unicode_found"
 BATCH_INVALID_JSON = "invalid_json"
 BATCH_NOT_AN_ARRAY = "not_an_array"
+BATCH_INVALID_PAYLOAD_SHAPE = "invalid_payload_shape"
 
 _SHA256_HEX_RE = re.compile(r"^[0-9a-f]{64}$")
 # 真转义扫描（Q4 边界 1 精确扫）：从非反斜杠边界起，吃偶数对反斜杠后仍剩
@@ -79,6 +80,12 @@ GUIDANCE_JSON_NOT_UTF8 = (
 )
 GUIDANCE_JSON_SYNTAX = (
     "交接文件不是合法 JSON：请重新序列化为规范 JSON（UTF-8 无 BOM）写入新文件后重提"
+    "（勿覆盖原文件——被拒文件保留作排查物证）；内容无需重新生成。"
+)
+GUIDANCE_INVALID_PAYLOAD_SHAPE_TEMPLATE = (
+    "交接文件顶层结构不符：{problem}。文件顶层必须是单个 JSON 对象；"
+    "必需键与可选键的全集见工具说明书，键全集之外的未知键一律拒收"
+    "（防键名转写错导致正文静默丢失）。请按说明书键全集重写为新文件后重提"
     "（勿覆盖原文件——被拒文件保留作排查物证）；内容无需重新生成。"
 )
 

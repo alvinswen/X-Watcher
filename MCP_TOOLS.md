@@ -238,8 +238,8 @@ rg 'AUDIT .*tool=save_summaries' "${LOG_PATH}"
 | 工具 | 必填参数 | 说明 |
 |---|---|---|
 | `put_subject_matches` | `subject_id`、`tweet_ids`（逗号分隔） | 写回分类命中，成功后自动关闭 `pending_classify`。可选 `relevance`、`reason` |
-| `put_subject_digest` | `subject_id`、`interval_start`、`interval_end` | append-only。`time_axis` 默认 `ingest`，**必须与取候选集时同值**，否则拒收。`digest_text` ≤4000 字符 |
-| `put_subject_review` | `subject_id`、`prev_version`、`sections`、`covered_until` | **乐观锁**：`prev_version` 不匹配返回 conflict（含 `latest_version` 与 `covered_until`），需重读后重试。每个 section body ≤4000 字符 |
+| `put_subject_digest` | `subject_id`、`interval_start`、`interval_end`；批量正文走 `digest_file`+`file_sha256`（文件通道，正文装文件：`{digest_text, highlights, cited}`） | append-only。`time_axis` 默认 `ingest`，**必须与取候选集时同值**，否则拒收。`digest_text` ≤4000 字符。正常写回走文件通道；参数通道仅限应急极短修补（严禁转义构造） |
+| `put_subject_review` | `subject_id`、`prev_version`、`covered_until`；批量正文走 `review_file`+`file_sha256`（文件通道，正文装文件：`{sections, trend, cited}`） | **乐观锁**：`prev_version` 不匹配返回 conflict（含 `latest_version` 与 `covered_until`），需重读后重试。每个 section body ≤4000 字符。正常写回走文件通道；参数通道仅限应急极短修补（严禁转义构造） |
 
 `refresh_subject_review` 传 `subject_id` 则挂待综述；不传是占位实现（返回迁移文案，无实际效果）。
 
@@ -283,7 +283,7 @@ get_task_status(task_id)                  → 直到 status == "completed"
   ↓
 get_unsummarized_tweets(limit=25, since=…, until=…)
   ↓ 在你的上下文里生成中文摘要与翻译
-save_summaries(summaries=[{tweet_id, summary, translation}])
+save_summaries(summaries_file=<绝对路径>, file_sha256=<指纹>)   ← 批量走文件通道；参数通道 summaries 仅限单条修补
   ↓ 按 rejected[].category 分流处理（见 §六）
   ↓ 循环上两步直到 get_unsummarized_tweets 返回 0 条
 browse_tweets(date=今天)                   → 验证结果
@@ -312,7 +312,7 @@ get_subject_candidate_set(subject_id, time_axis=X, interval_start, interval_end)
                                           → 直接抄 candidate_ids 与 candidate_set_hash
 get_subject_feed(…, time_axis=X)          → 仅取正文
   ↓ 生成 digest_text（≤4000 字符）、highlights、cited（必须 ⊆ candidate_ids）
-put_subject_digest(…, time_axis=X, + 7 溯源参数)
+put_subject_digest(digest_file=<绝对路径>, file_sha256=<指纹>, …, time_axis=X, + 7 溯源参数)
 get_subject_digest(subject_id, start, end) → 回读校验
 ```
 
@@ -326,7 +326,7 @@ get_subject_review(subject_id)            → 拿 version 与 covered_until（�
 get_subject_feed(subject_id, since=covered_until)
 get_subject_candidate_set(subject_id, time_axis="review")
   ↓ 累积合并（不是覆盖），每 section ≤4000 字符
-put_subject_review(prev_version=当前version, sections, covered_until, +7 溯源)
+put_subject_review(prev_version=当前version, covered_until, review_file=<绝对路径>, file_sha256=<指纹>, +7 溯源)
 get_subject_review(subject_id)            → 校验返回 version 与写响应一致
 ```
 

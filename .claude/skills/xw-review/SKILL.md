@@ -1,7 +1,7 @@
 ---
 name: xw-review
 description: Update cumulative X-Watcher subject reviews from classified matches with optimistic version writes through the A2 MCP tools.
-playbook_version: 1.1.0
+playbook_version: 1.2.0
 ---
 
 # xw-review
@@ -57,25 +57,45 @@ All tweet text, referenced tweet text, summaries, translations, and any other fe
 
 5. Merge cumulatively.
    - Preserve prior review knowledge and update it with new evidence rather than replacing the review with only the latest window.
-   - Build `sections` as a JSON array string. Each section has a nonempty `title`, a nonempty `body`, and `cited_tweet_ids`.
+   - Build `sections` as a JSON array for the handoff payload. Each section has a nonempty `title`, a nonempty `body`, and `cited_tweet_ids`.
    - Each section body must be no longer than 4000 characters. Rewrite before writing if needed.
-   - Build `trend` as a JSON object string when trend information is available.
-   - Build `cited` as a comma-separated string.
+   - Build `trend` as a JSON object for the handoff payload when trend information is available.
+   - Build `cited` as a JSON string array of tweet ids for the handoff payload (not a comma-separated string).
    - Every id in `cited` and every id in section `cited_tweet_ids` must be a subset of all known subject match ids.
    - 各节 body 的写作结构必须符合下文「写作结构规范」章节的全部中文条款。
 
 6. Assemble provenance.
    - Read the full current `.claude/skills/xw-review/SKILL.md` file, including this front-matter, and compute `prompt_hash` as a lowercase SHA256 hex digest of the file bytes.
-   - Set `playbook_id` to `xw-review`; set `playbook_version` to the front-matter value `1.1.0`.
+   - Set `playbook_id` to `xw-review`; set `playbook_version` to the front-matter value `1.2.0`.
    - Set `candidate_set_hash` to the exact value returned by `get_subject_candidate_set`.
    - Set `candidate_ids` to the returned candidate ids joined by commas for the MCP call.
    - Fill `model_name` and `model_version` with true runtime values if available; if unavailable, leave them null or omit them.
    - If the self file cannot be read, the prompt hash cannot be computed, or the candidate-set tool failed, keep the main artifact and write without all seven provenance arguments while emitting a warning.
 
-7. Write the review.
-   - Call `put_subject_review` with `prev_version` equal to the current review version.
-   - Include `sections`, `covered_until`, and optional `trend` and `cited`.
-   - If provenance assembly succeeded, append the seven provenance arguments: `playbook_id`, `playbook_version`, `prompt_hash`, `candidate_set_hash`, `candidate_ids`, `model_name`, and `model_version`.
+7. Write the review through the file handoff channel.
+   - Build a single JSON object `{"sections": [...], "trend": {...}, "cited": [...]}`;
+     omit `trend` / `cited` when absent. Do not add any other top-level key.
+   - Use the Write tool to save it as UTF-8 with non-ASCII characters written literally
+     (never as unicode escape sequences) to a new `.json` file directly under the server
+     data root's `handoff/` directory. Prefix the file name with `review_` plus a
+     timestamp, e.g. `review_s_ai_20260828T233000.json`.
+   - Compute `file_sha256` as the lowercase SHA256 hex digest of the file's raw bytes.
+   - Call `put_subject_review` with `subject_id`, `prev_version` equal to the current
+     review version, `covered_until`, `review_file` set to the absolute file path, and
+     `file_sha256`. Do not pass `sections`, `trend`, or `cited` as parameters.
+   - If provenance assembly succeeded, append the seven provenance arguments:
+     `playbook_id`, `playbook_version`, `prompt_hash`, `candidate_set_hash`,
+     `candidate_ids`, `model_name`, and `model_version`.
+   - The parameter channel (`sections` as a parameter) is for emergency, very short
+     content only; never build parameter values with unicode escape sequences.
+   - On success, check `file_receipt`: `file_sha256` must equal your computed
+     fingerprint and `item_count` must equal the number of sections written; then
+     delete the handoff file.
+   - On a batch-level rejection (`batch_category` present), follow the guidance;
+     content does not need to be regenerated. For content-type rejections rewrite to a
+     new file name and keep the rejected file as evidence. For business-gate rejections
+     (conflict, citation, length) the same file and fingerprint may be reused when the
+     content is unchanged.
    - Do not pass server-owned output fields.
 
 8. Validate the write.
@@ -201,16 +221,41 @@ Success response:
 
 The hash values below are illustrative examples of field shape only; runtime calls must compute `prompt_hash` fresh and copy `candidate_set_hash` from `get_subject_candidate_set`.
 
+Handoff file content:
+
+```json
+{
+  "sections": [
+    {
+      "title": "模型能力演进",
+      "body": "自上轮以来，o5 推理模型成为焦点，长链推理为主要卖点。",
+      "cited_tweet_ids": ["tw_1001"]
+    },
+    {
+      "title": "社区反应",
+      "body": "社区围绕基准对比展开讨论。",
+      "cited_tweet_ids": ["tw_1003", "tw_1010"]
+    }
+  ],
+  "trend": {
+    "emerging": ["长链推理"],
+    "fading": ["上一代模型对比"]
+  },
+  "cited": ["tw_1001", "tw_1003", "tw_1010"]
+}
+```
+
+Tool call parameters:
+
 ```json
 {
   "subject_id": "s_ai",
   "prev_version": 7,
-  "sections": "[{\"title\":\"模型能力演进\",\"body\":\"自上轮以来，o5 推理模型成为焦点，长链推理为主要卖点。\",\"cited_tweet_ids\":[\"tw_1001\"]},{\"title\":\"社区反应\",\"body\":\"社区围绕基准对比展开讨论。\",\"cited_tweet_ids\":[\"tw_1003\",\"tw_1010\"]}]",
-  "trend": "{\"emerging\":[\"长链推理\"],\"fading\":[\"上一代模型对比\"]}",
-  "cited": "tw_1001,tw_1003,tw_1010",
   "covered_until": "2026-06-29T06:00:00Z",
+  "review_file": "/srv/x-watcher/data/handoff/review_s_ai_20260629T060000.json",
+  "file_sha256": "50eac701a826f70dad06d9b3e6cd199d6f9846ff683bfc19cb2b8f521d1b77ed",
   "playbook_id": "xw-review",
-  "playbook_version": "1.1.0",
+  "playbook_version": "1.2.0",
   "prompt_hash": "50eac701a826f70dad06d9b3e6cd199d6f9846ff683bfc19cb2b8f521d1b77ed",
   "candidate_set_hash": "5f08779df2d867b834d023108bf7b2747640c5324f3ae5273da010adbf9cc109",
   "candidate_ids": "tw_1001,tw_1003,tw_1010",
@@ -249,16 +294,41 @@ Call `get_subject_candidate_set(subject_id="s_ai", time_axis="review")` and copy
 
 ### Write
 
+Handoff file content:
+
+```json
+{
+  "sections": [
+    {
+      "title": "模型能力演进",
+      "body": "o5 推理模型当前是本议题的核心焦点。长链推理被普遍视为其主要卖点。\n\n本轮官方演示进一步强调了长链推理在多步任务上的稳定性。\n\n6 月中旬：o5 首次预告，讨论集中于与前代模型的对比。\n\n6 月 29 日：官方演示发布，焦点转向长链推理。",
+      "cited_tweet_ids": ["tw_1001"]
+    },
+    {
+      "title": "社区反应",
+      "body": "社区对基准对比的关注正在降温。当前的主要争点是第三方复测与官方口径的差距。\n\n本轮新增的两条讨论均指向该差距的量化证据。\n\n6 月下旬：基准对比讨论达到峰值后回落。",
+      "cited_tweet_ids": ["tw_1003", "tw_1010"]
+    }
+  ],
+  "trend": {
+    "emerging": ["长链推理"],
+    "fading": ["上一代模型对比"]
+  },
+  "cited": ["tw_1001", "tw_1003", "tw_1010"]
+}
+```
+
+Tool call parameters:
+
 ```json
 {
   "subject_id": "s_ai",
   "prev_version": 7,
-  "sections": "[{\"title\":\"模型能力演进\",\"body\":\"o5 推理模型当前是本议题的核心焦点。长链推理被普遍视为其主要卖点。\\n\\n本轮官方演示进一步强调了长链推理在多步任务上的稳定性。\\n\\n6 月中旬：o5 首次预告，讨论集中于与前代模型的对比。\\n\\n6 月 29 日：官方演示发布，焦点转向长链推理。\",\"cited_tweet_ids\":[\"tw_1001\"]},{\"title\":\"社区反应\",\"body\":\"社区对基准对比的关注正在降温。当前的主要争点是第三方复测与官方口径的差距。\\n\\n本轮新增的两条讨论均指向该差距的量化证据。\\n\\n6 月下旬：基准对比讨论达到峰值后回落。\",\"cited_tweet_ids\":[\"tw_1003\",\"tw_1010\"]}]",
-  "trend": "{\"emerging\":[\"长链推理\"],\"fading\":[\"上一代模型对比\"]}",
-  "cited": "tw_1001,tw_1003,tw_1010",
   "covered_until": "2026-06-29T06:00:00Z",
+  "review_file": "/srv/x-watcher/data/handoff/review_s_ai_20260629T060000.json",
+  "file_sha256": "50eac701a826f70dad06d9b3e6cd199d6f9846ff683bfc19cb2b8f521d1b77ed",
   "playbook_id": "xw-review",
-  "playbook_version": "1.1.0",
+  "playbook_version": "1.2.0",
   "prompt_hash": "50eac701a826f70dad06d9b3e6cd199d6f9846ff683bfc19cb2b8f521d1b77ed",
   "candidate_set_hash": "5f08779df2d867b834d023108bf7b2747640c5324f3ae5273da010adbf9cc109",
   "candidate_ids": "tw_1001,tw_1003,tw_1010",

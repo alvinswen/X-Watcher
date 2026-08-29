@@ -782,7 +782,7 @@ def test_tc_mcp_397_locked_terms_have_expected_footprint() -> None:
         if re.search(r"\bhandoff\b", path.read_text())
     }
     assert len(summaries_file_hits) == 4
-    assert len(handoff_hits) == 5
+    assert len(handoff_hits) == 7  # CHG-067: +subject_tools.py +test_chg067 文件
 
     fallback_sources = [summary_source]
     fallback_sources.extend(
