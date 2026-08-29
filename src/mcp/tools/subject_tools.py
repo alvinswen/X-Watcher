@@ -10,6 +10,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+from src.mcp import handoff
 from src.mcp.auth import require_scope
 from src.mcp.helpers import error_response, parse_datetime_optional, success_response
 from src.mcp.security import audit_log
@@ -153,6 +154,134 @@ def _conflict_response(error: ReviewConflictError) -> str:
     )
 
 
+class _BatchRejectError(Exception):
+    """批级拒绝信号：由 run_subject_tool 统一翻译为批级拒绝响应（CHG-067）。"""
+
+    def __init__(self, category: str, guidance: str) -> None:
+        super().__init__(guidance)
+        self.category = category
+        self.guidance = guidance
+
+
+_JSON_TYPE_NAMES = {
+    list: "数组",
+    str: "字符串",
+    int: "数字",
+    float: "数字",
+    bool: "布尔值",
+    type(None): "null",
+}
+
+_REVIEW_REQUIRED_KEYS = frozenset({"sections"})
+_REVIEW_ALLOWED_KEYS = frozenset({"sections", "trend", "cited"})
+_DIGEST_REQUIRED_KEYS = frozenset({"digest_text"})
+_DIGEST_ALLOWED_KEYS = frozenset({"digest_text", "highlights", "cited"})
+
+_GUIDANCE_REVIEW_COMBO_BOTH = (
+    "review_file 与正文参数（sections/trend/cited）只能二选一（互斥）："
+    "走文件通道时整篇正文一律装进交接文件，不再传正文参数。请去掉正文参数后重提。"
+)
+_GUIDANCE_REVIEW_COMBO_NEITHER = (
+    "缺少提交内容：正常写回走文件通道传 review_file + file_sha256（成对）；"
+    "应急且正文极短时走参数通道传 sections。"
+)
+_GUIDANCE_REVIEW_COMBO_NO_SHA = (
+    "走文件通道必须成对提供 file_sha256（对交接文件原始字节整体计算的 sha256，"
+    "64 位十六进制）。请补 file_sha256 后重提。"
+)
+_GUIDANCE_REVIEW_COMBO_NO_FILE = (
+    "提供了 file_sha256 但缺 review_file：文件通道两参数成对；参数通道无需指纹。"
+    "请补 review_file 或去掉 file_sha256 后重提。"
+)
+_GUIDANCE_DIGEST_COMBO_BOTH = (
+    "digest_file 与正文参数（digest_text/highlights/cited）只能二选一（互斥）："
+    "走文件通道时正文一律装进交接文件，不再传正文参数。请去掉正文参数后重提。"
+)
+_GUIDANCE_DIGEST_COMBO_NO_SHA = (
+    "走文件通道必须成对提供 file_sha256（对交接文件原始字节整体计算的 sha256，"
+    "64 位十六进制）。请补 file_sha256 后重提。"
+)
+_GUIDANCE_DIGEST_COMBO_NO_FILE = (
+    "提供了 file_sha256 但缺 digest_file：文件通道两参数成对；参数通道无需指纹。"
+    "请补 digest_file 或去掉 file_sha256 后重提。"
+)
+
+
+def _payload_shape_problem(
+    parsed: Any,
+    required_keys: frozenset[str],
+    allowed_keys: frozenset[str],
+) -> str | None:
+    """顶层形状判定（invalid_payload_shape 三合一）。判定顺序固定：非对象 → 缺键 → 未知键。"""
+    if not isinstance(parsed, dict):
+        type_name = _JSON_TYPE_NAMES.get(type(parsed), "其他类型")
+        return f"顶层是{type_name}，不是 JSON 对象"
+    keys = set(parsed)
+    missing = sorted(required_keys - keys)
+    if missing:
+        return "缺必需键 " + "、".join(missing)
+    unknown = sorted(keys - allowed_keys)
+    if unknown:
+        return "含未知键 " + "、".join(unknown)
+    return None
+
+
+def _load_handoff_payload(
+    raw_path: str,
+    claimed_sha256: str,
+    *,
+    required_keys: frozenset[str],
+    allowed_keys: frozenset[str],
+) -> tuple[dict[str, Any], str]:
+    """文件通道批级闸 2~7（handoff helper 零改动）+ 顶层形状闸（工具侧）。
+
+    全过返回 (载荷对象, 服务端重算指纹)；任一不过 raise _BatchRejectError。
+    """
+    from src.data_layer.provider import data_root
+
+    loaded = handoff.load_handoff_file(data_root(), raw_path, claimed_sha256)
+    if isinstance(loaded, handoff.HandoffRejection):
+        raise _BatchRejectError(loaded.category, loaded.guidance)
+    problem = _payload_shape_problem(loaded.parsed, required_keys, allowed_keys)
+    if problem is not None:
+        raise _BatchRejectError(
+            handoff.BATCH_INVALID_PAYLOAD_SHAPE,
+            handoff.GUIDANCE_INVALID_PAYLOAD_SHAPE_TEMPLATE.format(problem=problem),
+        )
+    payload: dict[str, Any] = loaded.parsed
+    return payload, loaded.file_sha256
+
+
+def _file_sections(value: Any) -> list[SubjectReviewSection]:
+    if not isinstance(value, list):
+        raise ValueError("sections 必须是 JSON 数组")
+    return _parse_sections(value)
+
+
+def _file_highlights(value: Any) -> list[SubjectHighlight]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("highlights 必须是 JSON 数组")
+    return _parse_highlights(value)
+
+
+def _file_trend(value: Any) -> SubjectReviewTrend | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError("trend 必须是 JSON 对象")
+    return _parse_trend(value)
+
+
+def _cited_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise ValueError("cited 必须是字符串数组")
+    return [item.strip() for item in value if item.strip()]
+
+
 async def run_subject_tool(
     tool_name: str,
     action: str,
@@ -179,6 +308,9 @@ async def run_subject_tool(
     except ReviewConflictError as e:
         audit_log(tool_name, action, params=params, result="failure", error=str(e))
         return _conflict_response(e)
+    except _BatchRejectError as e:
+        audit_log(tool_name, action, params=params, result="failure", error=e.category)
+        return handoff.batch_error_response(e.category, e.guidance)
     except LookupError as e:
         audit_log(tool_name, action, params=params, result="failure", error=str(e))
         return error_response(str(e), "not_found")
@@ -375,9 +507,11 @@ def register(mcp: FastMCP) -> None:
         interval_start: str,
         interval_end: str,
         time_axis: str = "ingest",
-        digest_text: str = "",
+        digest_text: str | None = None,
         highlights: str | list[dict[str, Any]] | None = None,
         cited: str | None = None,
+        digest_file: str | None = None,
+        file_sha256: str | None = None,
         playbook_id: str | None = None,
         playbook_version: str | None = None,
         prompt_hash: str | None = None,
@@ -386,35 +520,155 @@ def register(mcp: FastMCP) -> None:
         model_name: str | None = None,
         model_version: str | None = None,
     ) -> str:
-        """写回区间滚动新闻；publish 按 created_at 圈候选并校验 cited/highlights 引用。
+        """写回议题区间滚动新闻（L1 · append-only）。需要 subjects:write 权限。
 
-        highlights 可传 JSON 字符串或对象数组；publish 成功时返回 skipped_no_publish_time。
-        溯源写成时返回 provenance_key，可填入 eval 的 target_provenance_ref。
+        两条提交通道（互斥二选一）：
+        - 文件通道 digest_file + file_sha256（成对必填）：正常写回标准路径。正文
+          （digest_text/highlights/cited）装进交接文件，不经参数转写，指纹比对
+          fail-closed，杜绝转录漂移。走文件通道时该三个参数一律不传，传任一即拒。
+        - 参数通道 digest_text（+ 可选 highlights/cited）：仅限应急/极短篇幅修补，
+          直传 UTF-8 原样字符。⚠️ 强警示：以 \\uXXXX 转义构造参数已实证必然产生
+          等长形近字转录漂移（单字被换成码点相近的另一字，长度不变），严禁转义构造。
+
+        文件通道操作序列（三步，顺序固定）：
+        1. 用 Write 工具把载荷对象以 UTF-8 直写（非 ASCII 一律原样字符，禁用 \\uXXXX
+           转义）为交接目录直下的新 .json 文件。交接目录 = 服务端数据根（部署配置的
+           数据目录）直下的 handoff/ 子目录。文件名带工具域前缀 + 时间戳唯一化（如
+           digest_s_ai_20260828T233000.json）；被拒后重提必须换新文件名（被拒原文件
+           保留作排查物证，勿覆盖）。
+        2. 对该文件的原始字节整体计算 sha256（对字节而非文本、整体而非逐条），得
+           64 位十六进制指纹。
+        3. 调用本工具：digest_file 传文件绝对路径（相对路径按服务端工作目录解析，与
+           调用方所在目录多半不同，勿用），file_sha256 传指纹；subject_id /
+           interval_start / interval_end / time_axis 与溯源参数照常走参数。
+
+        文件格式：UTF-8 无 BOM；顶层为单个 JSON 对象，键全集从严校验（缺必需键、含
+        未知键均整次拒绝）：
+        - digest_text（必需）：字符串，区间主文（≤4000 字）
+        - highlights（可选）：数组，每项 {"point": 要点, "cited_tweet_ids":
+          [要点引用推文 ID]}
+        - cited（可选）：字符串数组，区间引用推文 ID（注意：文件内为数组，不是参数
+          通道的逗号分隔串）
+        同机要求：文件通道要求调用方与服务端同机（stdio 形态）；sse 跨机接入递不了
+        本地文件，请在同机侧提交。
+
+        批级校验 fail-closed：任一批级闸不过则整次拒绝、库内零写入，返回
+        error_type=validation，并附 batch_category（稳定机器可读分类）与改正指引。
+        分类枚举（8 值）：invalid_param_combo（参数组合非法：文件通道与正文参数双给/
+        有路径缺指纹/有指纹缺路径）/ path_not_allowed（路径不在白名单：只认交接目录
+        直下的 .json 常规文件）/ file_unreadable（文件不存在或读取失败）/
+        file_too_large（超 10MB=10,485,760 字节）/ sha256_mismatch（指纹不符或非
+        64 位十六进制；并发覆盖同名文件也表现为此类）/ escaped_unicode_found（文件含
+        真转义：单反斜杠+u+4 位十六进制；双反斜杠字面文本与 \\n、\\t 等短转义不在
+        此列）/ invalid_json（不是合法 JSON，含带 BOM/非 UTF-8）/
+        invalid_payload_shape（顶层不是 JSON 对象、缺必需键或含未知键——顶层误写成
+        数组也归此类）。任何批级拒绝：内容无需重新生成。
+
+        被拒后文件复用规则（按拒绝类别）：
+        - 批级内容类被拒（sha256_mismatch / escaped_unicode_found / invalid_json /
+          invalid_payload_shape）：换新文件名重写，勿覆盖（被拒原文件保留作排查物证）。
+        - 业务闸被拒（文件本身合格：区间/轴非法、引用越界、超 4000 字、主文为空）：
+          内容不变仅改参数重提，可复用同文件同指纹；凡需修改文件内容重提，换新文件名
+          并重算指纹。
+
+        既有业务规则零变化（两通道一致）：append-only（同区间重跑追加新记录）；
+        time_axis 必须与取候选集时同值；digest_text 不能为空且 ≤4000 字；cited 与
+        要点引用必须属于该议题命中推文；publish 轴成功时返回 skipped_no_publish_time。
+
+        文件通道成功回执附 file_receipt（file_sha256=服务端对实际处理文件重算的指纹 +
+        item_count=本次写入要点条数，可为 0）供端到端对账；成功后服务端不动交接文件，
+        由调用方自清理；任何拒绝响应不附 file_receipt。
+
+        Args:
+            subject_id: 议题 ID。
+            interval_start: 区间起点（ISO 8601）。
+            interval_end: 区间终点（ISO 8601）。
+            time_axis: 时间轴（ingest/publish），必须与取候选集时同值。
+            digest_text: 参数通道（与 digest_file 互斥）。区间主文字符串。仅限
+                         应急/极短修补。
+            highlights: 参数通道可选。JSON 数组或其字符串形态，每项含
+                        point/cited_tweet_ids。
+            cited: 参数通道可选。逗号分隔的引用推文 ID 串。
+            digest_file: 文件通道（与 digest_text/highlights/cited 互斥）。交接
+                         目录直下 .json 文件的绝对路径。
+            file_sha256: 走文件通道时必填。交接文件原始字节的 sha256 指纹
+                         （64 位十六进制，大小写不敏感）。
+            playbook_id: 溯源参数，与现状一致（以下 7 参含义零变化）。
+            playbook_version: 溯源参数。
+            prompt_hash: 溯源参数。
+            candidate_set_hash: 溯源参数（服务端重算比对，不符整次拒绝）。
+            candidate_ids: 溯源参数（逗号分隔 ID 串）。
+            model_name: 溯源参数。
+            model_version: 溯源参数。
         """
         async def _op() -> dict[str, Any]:
+            provenance = _collect_provenance(
+                playbook_id,
+                playbook_version,
+                prompt_hash,
+                candidate_set_hash,
+                candidate_ids,
+                model_name,
+                model_version,
+            )
+            if digest_file is not None:
+                if digest_text is not None or highlights is not None or cited is not None:
+                    raise _BatchRejectError(
+                        handoff.BATCH_INVALID_PARAM_COMBO, _GUIDANCE_DIGEST_COMBO_BOTH
+                    )
+                if file_sha256 is None:
+                    raise _BatchRejectError(
+                        handoff.BATCH_INVALID_PARAM_COMBO, _GUIDANCE_DIGEST_COMBO_NO_SHA
+                    )
+                payload, receipt_sha256 = _load_handoff_payload(
+                    digest_file,
+                    file_sha256,
+                    required_keys=_DIGEST_REQUIRED_KEYS,
+                    allowed_keys=_DIGEST_ALLOWED_KEYS,
+                )
+                text_value = payload["digest_text"]
+                if not isinstance(text_value, str):
+                    raise ValueError("digest_text 必须是字符串")
+                highlight_items = _file_highlights(payload.get("highlights"))
+                data = await SubjectDigestService(default_subject_repo()).write_digest(
+                    subject_id=subject_id,
+                    interval_start=_required_datetime(interval_start, "interval_start"),
+                    interval_end=_required_datetime(interval_end, "interval_end"),
+                    time_axis=time_axis,
+                    digest_text=text_value,
+                    highlights=highlight_items,
+                    cited_tweet_ids=_cited_list(payload.get("cited")),
+                    provenance=provenance,
+                )
+                data["file_receipt"] = {
+                    "file_sha256": receipt_sha256,
+                    "item_count": len(highlight_items),
+                }
+                return data
+            if file_sha256 is not None:
+                raise _BatchRejectError(
+                    handoff.BATCH_INVALID_PARAM_COMBO, _GUIDANCE_DIGEST_COMBO_NO_FILE
+                )
             return await SubjectDigestService(default_subject_repo()).write_digest(
                 subject_id=subject_id,
                 interval_start=_required_datetime(interval_start, "interval_start"),
                 interval_end=_required_datetime(interval_end, "interval_end"),
                 time_axis=time_axis,
-                digest_text=digest_text,
+                digest_text=digest_text if digest_text is not None else "",
                 highlights=_parse_highlights(highlights),
                 cited_tweet_ids=_csv_ids(cited),
-                provenance=_collect_provenance(
-                    playbook_id,
-                    playbook_version,
-                    prompt_hash,
-                    candidate_set_hash,
-                    candidate_ids,
-                    model_name,
-                    model_version,
-                ),
+                provenance=provenance,
             )
 
+        audit_params: dict[str, Any] = {"subject_id": subject_id}
+        if digest_file is not None or file_sha256 is not None:
+            audit_params["channel"] = "file" if digest_file is not None else "param"
+            audit_params["digest_file"] = digest_file
+            audit_params["file_sha256"] = file_sha256
         return await run_subject_tool(
             "put_subject_digest",
             "write",
-            {"subject_id": subject_id},
+            audit_params,
             _op,
             scope="subjects:write",
         )
@@ -423,10 +677,12 @@ def register(mcp: FastMCP) -> None:
     async def put_subject_review(
         subject_id: str,
         prev_version: int,
-        sections: str | list[dict[str, Any]],
         covered_until: str,
+        sections: str | list[dict[str, Any]] | None = None,
         trend: str | dict[str, Any] | None = None,
         cited: str | None = None,
+        review_file: str | None = None,
+        file_sha256: str | None = None,
         playbook_id: str | None = None,
         playbook_version: str | None = None,
         prompt_hash: str | None = None,
@@ -435,11 +691,134 @@ def register(mcp: FastMCP) -> None:
         model_name: str | None = None,
         model_version: str | None = None,
     ) -> str:
-        """写回累积综述；sections 收 JSON 字符串或数组，trend 收字符串或对象。
+        """写回议题累积综述（L2 · 乐观锁全量演进）。需要 subjects:write 权限。
 
-        溯源写成时返回 provenance_key，可填入 eval 的 target_provenance_ref。
+        两条提交通道（互斥二选一）：
+        - 文件通道 review_file + file_sha256（成对必填）：正常写回标准路径。整篇正文
+          （sections/trend/cited）装进交接文件，不经参数转写，指纹比对 fail-closed，
+          杜绝转录漂移。走文件通道时 sections/trend/cited 参数一律不传，传任一即拒。
+        - 参数通道 sections（+ 可选 trend/cited）：仅限应急且正文极短的场景。review 为
+          全量覆盖写入，参数通道提交的 sections 仍须是完整全集——整篇篇幅可观时一律走
+          文件通道。⚠️ 强警示：以 \\uXXXX 转义构造参数已实证必然产生等长形近字转录
+          漂移（单字被换成码点相近的另一字，长度不变、肉眼难察），严禁转义构造。
+
+        文件通道操作序列（三步，顺序固定）：
+        1. 用 Write 工具把载荷对象以 UTF-8 直写（非 ASCII 一律原样字符，禁用 \\uXXXX
+           转义）为交接目录直下的新 .json 文件。交接目录 = 服务端数据根（部署配置的
+           数据目录）直下的 handoff/ 子目录。文件名带工具域前缀 + 时间戳唯一化（如
+           review_s_ai_20260828T233000.json）；被拒后重提必须换新文件名（被拒原文件
+           保留作排查物证，勿覆盖）。
+        2. 对该文件的原始字节整体计算 sha256（对字节而非文本、整体而非逐条），得
+           64 位十六进制指纹。
+        3. 调用本工具：review_file 传文件绝对路径（相对路径按服务端工作目录解析，与
+           调用方所在目录多半不同，勿用），file_sha256 传指纹；subject_id /
+           prev_version / covered_until 与溯源参数照常走参数。
+
+        文件格式：UTF-8 无 BOM；顶层为单个 JSON 对象，键全集从严校验（缺必需键、含
+        未知键均整次拒绝）：
+        - sections（必需）：数组，每项 {"title": 节标题, "body": 节正文（≤4000 字），
+          "cited_tweet_ids": [节内引用推文 ID]}
+        - trend（可选）：对象 {"emerging": [新兴短语], "fading": [退潮短语]}
+        - cited（可选）：字符串数组，整篇引用推文 ID（注意：文件内为数组，不是参数
+          通道的逗号分隔串）
+        同机要求：文件通道要求调用方与服务端同机（stdio 形态）；sse 跨机接入递不了
+        本地文件，请在同机侧提交。
+
+        批级校验 fail-closed：任一批级闸不过则整次拒绝、库内零写入，返回
+        error_type=validation，并附 batch_category（稳定机器可读分类）与改正指引。
+        分类枚举（8 值）：invalid_param_combo（参数组合非法：文件通道与正文参数双给/
+        双缺/有路径缺指纹/有指纹缺路径）/ path_not_allowed（路径不在白名单：只认交接
+        目录直下的 .json 常规文件）/ file_unreadable（文件不存在或读取失败）/
+        file_too_large（超 10MB=10,485,760 字节）/ sha256_mismatch（指纹不符或非
+        64 位十六进制；并发覆盖同名文件也表现为此类）/ escaped_unicode_found（文件含
+        真转义：单反斜杠+u+4 位十六进制；双反斜杠字面文本与 \\n、\\t 等短转义不在
+        此列）/ invalid_json（不是合法 JSON，含带 BOM/非 UTF-8）/
+        invalid_payload_shape（顶层不是 JSON 对象、缺必需键或含未知键——顶层误写成
+        数组也归此类）。任何批级拒绝：内容无需重新生成。
+
+        被拒后文件复用规则（按拒绝类别）：
+        - 批级内容类被拒（sha256_mismatch / escaped_unicode_found / invalid_json /
+          invalid_payload_shape）：换新文件名重写，勿覆盖（被拒原文件保留作排查物证）。
+        - 业务闸被拒（文件本身合格：版本冲突/引用越界/超 4000 字/正文为空）：内容不变
+          仅改参数重提，可复用同文件同指纹；凡需修改文件内容重提，换新文件名并重算指纹。
+
+        既有业务规则零变化（两通道一致）：乐观锁 prev_version 不匹配返回 conflict
+        （含 latest_version 与 covered_until，重读最新版合并后重试）；cited 与节内
+        引用必须属于该议题命中推文；每节 body ≤4000 字且不能为空；sections 不能为空。
+
+        文件通道成功回执附 file_receipt（file_sha256=服务端对实际处理文件重算的指纹 +
+        item_count=本次写入分节数）供端到端对账；成功后服务端不动交接文件，由调用方
+        自清理；任何拒绝响应（批级/业务级/conflict）不附 file_receipt。
+
+        Args:
+            subject_id: 议题 ID。
+            prev_version: 乐观锁版本（当前综述 version；从未生成过传 0）。
+            covered_until: 本次综述覆盖截止时间（ISO 8601）。
+            sections: 参数通道（与 review_file 互斥）。JSON 数组或其字符串形态，
+                      每项含 title/body/cited_tweet_ids。仅限应急且极短场景。
+            trend: 参数通道可选。JSON 对象或其字符串形态 {emerging, fading}。
+            cited: 参数通道可选。逗号分隔的引用推文 ID 串。
+            review_file: 文件通道（与 sections/trend/cited 互斥）。交接目录直下
+                         .json 文件的绝对路径。
+            file_sha256: 走文件通道时必填。交接文件原始字节的 sha256 指纹
+                         （64 位十六进制，大小写不敏感）。
+            playbook_id: 溯源参数，与现状一致（以下 7 参含义零变化）。
+            playbook_version: 溯源参数。
+            prompt_hash: 溯源参数。
+            candidate_set_hash: 溯源参数（服务端重算比对，不符整次拒绝）。
+            candidate_ids: 溯源参数（逗号分隔 ID 串）。
+            model_name: 溯源参数。
+            model_version: 溯源参数。
         """
         async def _op() -> dict[str, Any]:
+            # 溯源组装前置（_collect_provenance 纯组装不抛错，前置不改变可观测错误次序）
+            provenance = _collect_provenance(
+                playbook_id,
+                playbook_version,
+                prompt_hash,
+                candidate_set_hash,
+                candidate_ids,
+                model_name,
+                model_version,
+            )
+            if review_file is not None:
+                if sections is not None or trend is not None or cited is not None:
+                    raise _BatchRejectError(
+                        handoff.BATCH_INVALID_PARAM_COMBO, _GUIDANCE_REVIEW_COMBO_BOTH
+                    )
+                if file_sha256 is None:
+                    raise _BatchRejectError(
+                        handoff.BATCH_INVALID_PARAM_COMBO, _GUIDANCE_REVIEW_COMBO_NO_SHA
+                    )
+                payload, receipt_sha256 = _load_handoff_payload(
+                    review_file,
+                    file_sha256,
+                    required_keys=_REVIEW_REQUIRED_KEYS,
+                    allowed_keys=_REVIEW_ALLOWED_KEYS,
+                )
+                section_items = _file_sections(payload["sections"])
+                data = await SubjectReviewService(default_subject_repo()).write_review(
+                    subject_id=subject_id,
+                    prev_version=prev_version,
+                    sections=section_items,
+                    covered_until=_required_datetime(covered_until, "covered_until"),
+                    trend=_file_trend(payload.get("trend")),
+                    cited_tweet_ids=_cited_list(payload.get("cited")),
+                    provenance=provenance,
+                )
+                data["file_receipt"] = {
+                    "file_sha256": receipt_sha256,
+                    "item_count": len(section_items),
+                }
+                return data
+            if file_sha256 is not None:
+                raise _BatchRejectError(
+                    handoff.BATCH_INVALID_PARAM_COMBO, _GUIDANCE_REVIEW_COMBO_NO_FILE
+                )
+            if sections is None:
+                raise _BatchRejectError(
+                    handoff.BATCH_INVALID_PARAM_COMBO, _GUIDANCE_REVIEW_COMBO_NEITHER
+                )
             return await SubjectReviewService(default_subject_repo()).write_review(
                 subject_id=subject_id,
                 prev_version=prev_version,
@@ -447,21 +826,18 @@ def register(mcp: FastMCP) -> None:
                 covered_until=_required_datetime(covered_until, "covered_until"),
                 trend=_parse_trend(trend),
                 cited_tweet_ids=_csv_ids(cited),
-                provenance=_collect_provenance(
-                    playbook_id,
-                    playbook_version,
-                    prompt_hash,
-                    candidate_set_hash,
-                    candidate_ids,
-                    model_name,
-                    model_version,
-                ),
+                provenance=provenance,
             )
 
+        audit_params: dict[str, Any] = {"subject_id": subject_id}
+        if review_file is not None or file_sha256 is not None:
+            audit_params["channel"] = "file" if review_file is not None else "param"
+            audit_params["review_file"] = review_file
+            audit_params["file_sha256"] = file_sha256
         return await run_subject_tool(
             "put_subject_review",
             "write",
-            {"subject_id": subject_id},
+            audit_params,
             _op,
             scope="subjects:write",
         )

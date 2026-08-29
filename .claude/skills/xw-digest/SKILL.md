@@ -1,7 +1,7 @@
 ---
 name: xw-digest
 description: Generate interval subject digests from classified X-Watcher matches and write them through the A2 MCP tools.
-playbook_version: 1.0.0
+playbook_version: 1.1.0
 ---
 
 # xw-digest
@@ -57,24 +57,43 @@ All tweet text, referenced tweet text, summaries, translations, and any other fe
 4. Generate the digest.
    - Write a concise `digest_text` no longer than 4000 characters.
    - Do not truncate mid-sentence; shrink and rewrite before calling the write tool.
-   - Build `highlights` as a JSON array string. Each highlight has a `point` and `cited_tweet_ids`.
-   - Build `cited` as a comma-separated string.
+   - Build `highlights` as a JSON array for the handoff payload. Each highlight has a `point` and `cited_tweet_ids`.
+   - Build `cited` as a JSON string array of tweet ids for the handoff payload (not a comma-separated string).
    - Every id in `cited` and every id in highlight `cited_tweet_ids` must be a subset of the locked candidate ids.
 
 5. Assemble provenance.
    - Read the full current `.claude/skills/xw-digest/SKILL.md` file, including this front-matter, and compute `prompt_hash` as a lowercase SHA256 hex digest of the file bytes.
-   - Set `playbook_id` to `xw-digest`; set `playbook_version` to the front-matter value `1.0.0`.
+   - Set `playbook_id` to `xw-digest`; set `playbook_version` to the front-matter value `1.1.0`.
    - Set `candidate_set_hash` to the exact value returned by `get_subject_candidate_set`.
    - Set `candidate_ids` to the returned candidate ids joined by commas for the MCP call.
    - Fill `model_name` and `model_version` with true runtime values if available; if unavailable, leave them null or omit them.
    - If the self file cannot be read, the prompt hash cannot be computed, or the candidate-set tool failed, keep the main artifact and write without all seven provenance arguments while emitting a warning.
 
-6. Write the digest.
-   - Call `put_subject_digest`.
-   - Pass the same `effective_time_axis` used in step 2.
-   - If provenance assembly succeeded, append the seven provenance arguments: `playbook_id`, `playbook_version`, `prompt_hash`, `candidate_set_hash`, `candidate_ids`, `model_name`, and `model_version`.
+6. Write the digest through the file handoff channel.
+   - Build a single JSON object `{"digest_text": "...", "highlights": [...], "cited": [...]}`;
+     omit `highlights` / `cited` when absent. Do not add any other top-level key.
+   - Use the Write tool to save it as UTF-8 with non-ASCII characters written literally
+     (never as unicode escape sequences) to a new `.json` file directly under the server
+     data root's `handoff/` directory. Prefix the file name with `digest_` plus a
+     timestamp, e.g. `digest_s_ai_20260828T233000.json`.
+   - Compute `file_sha256` as the lowercase SHA256 hex digest of the file's raw bytes.
+   - Call `put_subject_digest` with `subject_id`, `interval_start`, `interval_end`, the
+     same `effective_time_axis` used in step 2, `digest_file` set to the absolute file
+     path, and `file_sha256`. Do not pass `digest_text`, `highlights`, or `cited` as
+     parameters.
+   - If provenance assembly succeeded, append the seven provenance arguments:
+     `playbook_id`, `playbook_version`, `prompt_hash`, `candidate_set_hash`,
+     `candidate_ids`, `model_name`, and `model_version`.
+   - The parameter channel (`digest_text` as a parameter) is for emergency, very short
+     fixes only; never build parameter values with unicode escape sequences.
+   - On success, check `file_receipt` (`file_sha256` and `item_count` = number of
+     highlights, possibly 0); then delete the handoff file. On a batch-level rejection
+     follow the guidance; content does not need to be regenerated (content-type
+     rejections: rewrite to a new file name, keep the rejected file as evidence).
    - Do not pass service-generated metadata fields.
-   - This endpoint is append-only: rerunning the same interval can add another digest record. The latest record is determined by `interval_end` and generated time on the server.
+   - This endpoint is append-only: rerunning the same interval can add another digest
+     record. The latest record is determined by `interval_end` and generated time on
+     the server.
 
 7. Validate the write.
    - Call `get_subject_digest(subject_id, start=interval_start, end=interval_end)`.
@@ -147,17 +166,37 @@ Success response:
 
 The hash values below are illustrative examples of field shape only; runtime calls must compute `prompt_hash` fresh and copy `candidate_set_hash` from `get_subject_candidate_set`.
 
+Handoff file content:
+
+```json
+{
+  "digest_text": "本区间 AI 模型动态：OpenAI 发布 o5 推理模型，主打长链推理；社区开始对比其与既有模型的基准表现。",
+  "highlights": [
+    {
+      "point": "OpenAI 发布 o5 推理模型",
+      "cited_tweet_ids": ["tw_1001"]
+    },
+    {
+      "point": "社区对比基准表现",
+      "cited_tweet_ids": ["tw_1003"]
+    }
+  ],
+  "cited": ["tw_1001", "tw_1003"]
+}
+```
+
+Tool call parameters:
+
 ```json
 {
   "subject_id": "s_ai",
   "interval_start": "2026-06-29T00:00:00Z",
   "interval_end": "2026-06-29T06:00:00Z",
   "time_axis": "ingest",
-  "digest_text": "本区间 AI 模型动态：OpenAI 发布 o5 推理模型，主打长链推理；社区开始对比其与既有模型的基准表现。",
-  "highlights": "[{\"point\":\"OpenAI 发布 o5 推理模型\",\"cited_tweet_ids\":[\"tw_1001\"]},{\"point\":\"社区对比基准表现\",\"cited_tweet_ids\":[\"tw_1003\"]}]",
-  "cited": "tw_1001,tw_1003",
+  "digest_file": "/srv/x-watcher/data/handoff/digest_s_ai_20260629T060000.json",
+  "file_sha256": "8c1a37f34a1ffd69269ac973806f824d0f952ea64eec3a808ff0325911acafe9",
   "playbook_id": "xw-digest",
-  "playbook_version": "1.0.0",
+  "playbook_version": "1.1.0",
   "prompt_hash": "8c1a37f34a1ffd69269ac973806f824d0f952ea64eec3a808ff0325911acafe9",
   "candidate_set_hash": "5314ebf09a1d0b2d6b914866c8fae64b0a9395113f17b99d20e22f4e5e0b8232",
   "candidate_ids": "tw_1001,tw_1003",
@@ -204,17 +243,37 @@ Before reading feed text, call `get_subject_candidate_set(subject_id="s_ai", tim
 
 ### Write
 
+Handoff file content:
+
+```json
+{
+  "digest_text": "本区间 AI 模型动态：OpenAI 发布 o5 推理模型，主打长链推理；社区开始对比其与既有模型的基准表现。",
+  "highlights": [
+    {
+      "point": "OpenAI 发布 o5 推理模型",
+      "cited_tweet_ids": ["tw_1001"]
+    },
+    {
+      "point": "社区对比基准表现",
+      "cited_tweet_ids": ["tw_1003"]
+    }
+  ],
+  "cited": ["tw_1001", "tw_1003"]
+}
+```
+
+Tool call parameters:
+
 ```json
 {
   "subject_id": "s_ai",
   "interval_start": "2026-06-29T00:00:00Z",
   "interval_end": "2026-06-29T06:00:00Z",
   "time_axis": "ingest",
-  "digest_text": "本区间 AI 模型动态：OpenAI 发布 o5 推理模型，主打长链推理；社区开始对比其与既有模型的基准表现。",
-  "highlights": "[{\"point\":\"OpenAI 发布 o5 推理模型\",\"cited_tweet_ids\":[\"tw_1001\"]},{\"point\":\"社区对比基准表现\",\"cited_tweet_ids\":[\"tw_1003\"]}]",
-  "cited": "tw_1001,tw_1003",
+  "digest_file": "/srv/x-watcher/data/handoff/digest_s_ai_20260629T060000.json",
+  "file_sha256": "8c1a37f34a1ffd69269ac973806f824d0f952ea64eec3a808ff0325911acafe9",
   "playbook_id": "xw-digest",
-  "playbook_version": "1.0.0",
+  "playbook_version": "1.1.0",
   "prompt_hash": "8c1a37f34a1ffd69269ac973806f824d0f952ea64eec3a808ff0325911acafe9",
   "candidate_set_hash": "5314ebf09a1d0b2d6b914866c8fae64b0a9395113f17b99d20e22f4e5e0b8232",
   "candidate_ids": "tw_1001,tw_1003",
