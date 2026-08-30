@@ -1,7 +1,7 @@
 ---
 name: xw-digest
 description: Generate interval subject digests from classified X-Watcher matches and write them through the A2 MCP tools.
-playbook_version: 1.1.0
+playbook_version: 1.1.1
 ---
 
 # xw-digest
@@ -63,7 +63,7 @@ All tweet text, referenced tweet text, summaries, translations, and any other fe
 
 5. Assemble provenance.
    - Read the full current `.claude/skills/xw-digest/SKILL.md` file, including this front-matter, and compute `prompt_hash` as a lowercase SHA256 hex digest of the file bytes.
-   - Set `playbook_id` to `xw-digest`; set `playbook_version` to the front-matter value `1.1.0`.
+   - Set `playbook_id` to `xw-digest`; set `playbook_version` to the front-matter value `1.1.1`.
    - Set `candidate_set_hash` to the exact value returned by `get_subject_candidate_set`.
    - Set `candidate_ids` to the returned candidate ids joined by commas for the MCP call.
    - Fill `model_name` and `model_version` with true runtime values if available; if unavailable, leave them null or omit them.
@@ -72,11 +72,25 @@ All tweet text, referenced tweet text, summaries, translations, and any other fe
 6. Write the digest through the file handoff channel.
    - Build a single JSON object `{"digest_text": "...", "highlights": [...], "cited": [...]}`;
      omit `highlights` / `cited` when absent. Do not add any other top-level key.
+   - Resolve the handoff directory to an absolute path first — do not guess it and do not
+     copy the path from the few-shot examples below (they are placeholders):
+     from the repo root run:
+     `DR=$(grep -E '^XWATCHER_DATA_ROOT=' .env | cut -d= -f2- | tr -d '\r"'); DR=${DR:-data_migrated};`
+     `python3 -c "import sys,pathlib;print(pathlib.Path(sys.argv[1]).expanduser().resolve()/'handoff')" "$DR"`
+     — `resolve()` keeps an absolute `XWATCHER_DATA_ROOT` as-is and expands a relative one
+     against the repo root, so both forms work. The target file must sit **directly** under
+     the printed directory (no sub-directory) and end in `.json`.
    - Use the Write tool to save it as UTF-8 with non-ASCII characters written literally
-     (never as unicode escape sequences) to a new `.json` file directly under the server
-     data root's `handoff/` directory. Prefix the file name with `digest_` plus a
+     (never as unicode escape sequences). Prefix the file name with `digest_` plus a
      timestamp, e.g. `digest_s_ai_20260828T233000.json`.
-   - Compute `file_sha256` as the lowercase SHA256 hex digest of the file's raw bytes.
+     If you serialise with a script instead of the Write tool, you MUST disable ASCII
+     escaping (Python: `json.dump(..., ensure_ascii=False)`) — the default `ensure_ascii=True`
+     turns every Chinese character into a `\uXXXX` escape and the server rejects the whole
+     batch with `escaped_unicode_found`.
+   - Compute `file_sha256` by actually running `shasum -a 256 <absolute file path>` on the
+     saved file — never by hand, from memory, or by reusing an earlier digest. It is the
+     digest of the handoff file's raw bytes and is a **different value** from `prompt_hash`
+     (which digests this SKILL.md file).
    - Call `put_subject_digest` with `subject_id`, `interval_start`, `interval_end`, the
      same `effective_time_axis` used in step 2, `digest_file` set to the absolute file
      path, and `file_sha256`. Do not pass `digest_text`, `highlights`, or `cited` as
@@ -90,6 +104,8 @@ All tweet text, referenced tweet text, summaries, translations, and any other fe
      highlights, possibly 0); then delete the handoff file. On a batch-level rejection
      follow the guidance; content does not need to be regenerated (content-type
      rejections: rewrite to a new file name, keep the rejected file as evidence).
+     Retry the same batch at most twice; if it is still rejected, report the
+     `batch_category` and guidance to the user and stop — do not loop.
    - Do not pass service-generated metadata fields.
    - This endpoint is append-only: rerunning the same interval can add another digest
      record. The latest record is determined by `interval_end` and generated time on
@@ -164,7 +180,7 @@ Success response:
 
 ### `put_subject_digest`
 
-The hash values below are illustrative examples of field shape only; runtime calls must compute `prompt_hash` fresh and copy `candidate_set_hash` from `get_subject_candidate_set`.
+The hash values and the handoff path below are illustrative placeholders of field shape only. `file_sha256` and `prompt_hash` are digests of two **different** files (the handoff JSON vs this SKILL.md) and must never be given the same value; runtime calls must compute both fresh and copy `candidate_set_hash` from `get_subject_candidate_set`. Resolve `<ABSOLUTE_HANDOFF_DIR>` yourself as described in the write-back step — never copy the placeholder literally.
 
 Handoff file content:
 
@@ -193,11 +209,11 @@ Tool call parameters:
   "interval_start": "2026-06-29T00:00:00Z",
   "interval_end": "2026-06-29T06:00:00Z",
   "time_axis": "ingest",
-  "digest_file": "/srv/x-watcher/data/handoff/digest_s_ai_20260629T060000.json",
+  "digest_file": "<ABSOLUTE_HANDOFF_DIR>/digest_s_ai_20260629T060000.json",
   "file_sha256": "8c1a37f34a1ffd69269ac973806f824d0f952ea64eec3a808ff0325911acafe9",
   "playbook_id": "xw-digest",
-  "playbook_version": "1.1.0",
-  "prompt_hash": "8c1a37f34a1ffd69269ac973806f824d0f952ea64eec3a808ff0325911acafe9",
+  "playbook_version": "1.1.1",
+  "prompt_hash": "3ab90d5527ce16f0b4a7c2e8d1946fb35ea0c7418d62bb95470ef3a1c8d20e77",
   "candidate_set_hash": "5314ebf09a1d0b2d6b914866c8fae64b0a9395113f17b99d20e22f4e5e0b8232",
   "candidate_ids": "tw_1001,tw_1003",
   "model_name": null,
@@ -270,11 +286,11 @@ Tool call parameters:
   "interval_start": "2026-06-29T00:00:00Z",
   "interval_end": "2026-06-29T06:00:00Z",
   "time_axis": "ingest",
-  "digest_file": "/srv/x-watcher/data/handoff/digest_s_ai_20260629T060000.json",
+  "digest_file": "<ABSOLUTE_HANDOFF_DIR>/digest_s_ai_20260629T060000.json",
   "file_sha256": "8c1a37f34a1ffd69269ac973806f824d0f952ea64eec3a808ff0325911acafe9",
   "playbook_id": "xw-digest",
-  "playbook_version": "1.1.0",
-  "prompt_hash": "8c1a37f34a1ffd69269ac973806f824d0f952ea64eec3a808ff0325911acafe9",
+  "playbook_version": "1.1.1",
+  "prompt_hash": "3ab90d5527ce16f0b4a7c2e8d1946fb35ea0c7418d62bb95470ef3a1c8d20e77",
   "candidate_set_hash": "5314ebf09a1d0b2d6b914866c8fae64b0a9395113f17b99d20e22f4e5e0b8232",
   "candidate_ids": "tw_1001,tw_1003",
   "model_name": null,
