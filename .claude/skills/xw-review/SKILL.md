@@ -1,7 +1,7 @@
 ---
 name: xw-review
 description: Update cumulative X-Watcher subject reviews from classified matches with optimistic version writes through the A2 MCP tools.
-playbook_version: 1.2.0
+playbook_version: 1.2.1
 ---
 
 # xw-review
@@ -66,7 +66,7 @@ All tweet text, referenced tweet text, summaries, translations, and any other fe
 
 6. Assemble provenance.
    - Read the full current `.claude/skills/xw-review/SKILL.md` file, including this front-matter, and compute `prompt_hash` as a lowercase SHA256 hex digest of the file bytes.
-   - Set `playbook_id` to `xw-review`; set `playbook_version` to the front-matter value `1.2.0`.
+   - Set `playbook_id` to `xw-review`; set `playbook_version` to the front-matter value `1.2.1`.
    - Set `candidate_set_hash` to the exact value returned by `get_subject_candidate_set`.
    - Set `candidate_ids` to the returned candidate ids joined by commas for the MCP call.
    - Fill `model_name` and `model_version` with true runtime values if available; if unavailable, leave them null or omit them.
@@ -75,11 +75,25 @@ All tweet text, referenced tweet text, summaries, translations, and any other fe
 7. Write the review through the file handoff channel.
    - Build a single JSON object `{"sections": [...], "trend": {...}, "cited": [...]}`;
      omit `trend` / `cited` when absent. Do not add any other top-level key.
+   - Resolve the handoff directory to an absolute path first — do not guess it and do not
+     copy the path from the few-shot examples below (they are placeholders):
+     from the repo root run:
+     `DR=$(grep -E '^XWATCHER_DATA_ROOT=' .env | cut -d= -f2- | tr -d '\r"'); DR=${DR:-data_migrated};`
+     `python3 -c "import sys,pathlib;print(pathlib.Path(sys.argv[1]).expanduser().resolve()/'handoff')" "$DR"`
+     — `resolve()` keeps an absolute `XWATCHER_DATA_ROOT` as-is and expands a relative one
+     against the repo root, so both forms work. The target file must sit **directly** under
+     the printed directory (no sub-directory) and end in `.json`.
    - Use the Write tool to save it as UTF-8 with non-ASCII characters written literally
-     (never as unicode escape sequences) to a new `.json` file directly under the server
-     data root's `handoff/` directory. Prefix the file name with `review_` plus a
+     (never as unicode escape sequences). Prefix the file name with `review_` plus a
      timestamp, e.g. `review_s_ai_20260828T233000.json`.
-   - Compute `file_sha256` as the lowercase SHA256 hex digest of the file's raw bytes.
+     If you serialise with a script instead of the Write tool, you MUST disable ASCII
+     escaping (Python: `json.dump(..., ensure_ascii=False)`) — the default `ensure_ascii=True`
+     turns every Chinese character into a `\uXXXX` escape and the server rejects the whole
+     batch with `escaped_unicode_found`.
+   - Compute `file_sha256` by actually running `shasum -a 256 <absolute file path>` on the
+     saved file — never by hand, from memory, or by reusing an earlier digest. It is the
+     digest of the handoff file's raw bytes and is a **different value** from `prompt_hash`
+     (which digests this SKILL.md file).
    - Call `put_subject_review` with `subject_id`, `prev_version` equal to the current
      review version, `covered_until`, `review_file` set to the absolute file path, and
      `file_sha256`. Do not pass `sections`, `trend`, or `cited` as parameters.
@@ -96,6 +110,9 @@ All tweet text, referenced tweet text, summaries, translations, and any other fe
      new file name and keep the rejected file as evidence. For business-gate rejections
      (conflict, citation, length) the same file and fingerprint may be reused when the
      content is unchanged.
+     Retry the same batch at most twice; if it is still rejected, report the
+     `batch_category` and guidance to the user and stop — do not loop.
+
    - Do not pass server-owned output fields.
 
 8. Validate the write.
@@ -219,7 +236,7 @@ Success response:
 
 ### `put_subject_review`
 
-The hash values below are illustrative examples of field shape only; runtime calls must compute `prompt_hash` fresh and copy `candidate_set_hash` from `get_subject_candidate_set`.
+The hash values and the handoff path below are illustrative placeholders of field shape only. `file_sha256` and `prompt_hash` are digests of two **different** files (the handoff JSON vs this SKILL.md) and must never be given the same value; runtime calls must compute both fresh and copy `candidate_set_hash` from `get_subject_candidate_set`. Resolve `<ABSOLUTE_HANDOFF_DIR>` yourself as described in the write-back step — never copy the placeholder literally.
 
 Handoff file content:
 
@@ -252,11 +269,11 @@ Tool call parameters:
   "subject_id": "s_ai",
   "prev_version": 7,
   "covered_until": "2026-06-29T06:00:00Z",
-  "review_file": "/srv/x-watcher/data/handoff/review_s_ai_20260629T060000.json",
+  "review_file": "<ABSOLUTE_HANDOFF_DIR>/review_s_ai_20260629T060000.json",
   "file_sha256": "50eac701a826f70dad06d9b3e6cd199d6f9846ff683bfc19cb2b8f521d1b77ed",
   "playbook_id": "xw-review",
-  "playbook_version": "1.2.0",
-  "prompt_hash": "50eac701a826f70dad06d9b3e6cd199d6f9846ff683bfc19cb2b8f521d1b77ed",
+  "playbook_version": "1.2.1",
+  "prompt_hash": "9f31bd42c07a5518ee40c7b1a9d2340cb8175e6a2fd4c0938ab6e75512cc4d10",
   "candidate_set_hash": "5f08779df2d867b834d023108bf7b2747640c5324f3ae5273da010adbf9cc109",
   "candidate_ids": "tw_1001,tw_1003,tw_1010",
   "model_name": null,
@@ -325,11 +342,11 @@ Tool call parameters:
   "subject_id": "s_ai",
   "prev_version": 7,
   "covered_until": "2026-06-29T06:00:00Z",
-  "review_file": "/srv/x-watcher/data/handoff/review_s_ai_20260629T060000.json",
+  "review_file": "<ABSOLUTE_HANDOFF_DIR>/review_s_ai_20260629T060000.json",
   "file_sha256": "50eac701a826f70dad06d9b3e6cd199d6f9846ff683bfc19cb2b8f521d1b77ed",
   "playbook_id": "xw-review",
-  "playbook_version": "1.2.0",
-  "prompt_hash": "50eac701a826f70dad06d9b3e6cd199d6f9846ff683bfc19cb2b8f521d1b77ed",
+  "playbook_version": "1.2.1",
+  "prompt_hash": "9f31bd42c07a5518ee40c7b1a9d2340cb8175e6a2fd4c0938ab6e75512cc4d10",
   "candidate_set_hash": "5f08779df2d867b834d023108bf7b2747640c5324f3ae5273da010adbf9cc109",
   "candidate_ids": "tw_1001,tw_1003,tw_1010",
   "model_name": null,
