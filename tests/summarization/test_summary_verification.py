@@ -1,9 +1,9 @@
 """summary_verification 验证门纯函数测试。"""
 
+from src.summarization.domain.language_utils import content_len
 from src.summarization.domain.summary_verification import (
     LENGTH_RATIO_MAX,
     LENGTH_RATIO_MIN,
-    _content_len,
     _ends_with_ellipsis,
     original_basis,
     verify_translation,
@@ -24,10 +24,15 @@ ZH_GOOD = (
 # ---------- 辅助函数 ----------
 
 def test_content_len_strips_urls_and_whitespace():
-    assert _content_len("hello https://t.co/abc world") == len("helloworld")
-    assert _content_len("  a b\nc ") == 3
-    assert _content_len(None) == 0
-    assert _content_len("") == 0
+    assert content_len("hello https://t.co/abc world") == len("helloworld")
+    assert content_len("  a b\nc ") == 3
+    assert content_len(None) == 0
+    assert content_len("") == 0
+    # CHG-069 统一口径：剥 @用户名 / #话题（与中文占比同源）
+    assert content_len("@foo Agreed, this is huge") == len("Agreed,thisishuge")
+    assert content_len("#AI #ML 2025") == 4
+    # CHG-069 问题 B：URL 不再吞掉紧贴的汉字与中文标点
+    assert content_len("新模型发布https://t.co/abc性能翻倍") == len("新模型发布性能翻倍")
 
 
 def test_ends_with_ellipsis_unicode_and_ascii():
@@ -63,11 +68,6 @@ def test_missing_original_degrades_to_pass():
     assert verify_translation("任意译文", None, None, None) is None
 
 
-def test_short_english_without_translation_skipped():
-    # 极短英文（正文 < MIN_BASIS_LEN）跳过缺译检查
-    assert verify_translation(None, "ok", None, None) is None
-
-
 def test_translation_ellipsis_allowed_when_original_truncated():
     # 原文本身被 Twitter 截断以 … 结尾 → 译文同样结尾应放行
     truncated_en = (
@@ -89,6 +89,12 @@ def test_retweet_uses_referenced_text_for_basis():
 
 
 # ---------- 失败场景 ----------
+
+def test_short_english_without_translation_rejected():
+    # CHG-069 行为反转：缺译检查不再设 20 字豁免，短外文推文缺译同样拒
+    reason = verify_translation(None, "ok", None, None)
+    assert reason is not None and "缺少翻译" in reason
+
 
 def test_substantive_english_missing_translation_fails():
     reason = verify_translation(None, EN_ORIGINAL, None, None)

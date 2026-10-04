@@ -377,7 +377,9 @@ def register(mcp: FastMCP) -> None:
                         })
                         continue
 
-                    # 确定性验证门：三规则 0 改动。origin 已保证非 None——
+                    # 确定性验证门（CHG-069 口径：可译内容谓词 + 统一计长，
+                    # 受控打破 CHG-046「三规则 0 改动」承诺；三闸结构不变）。
+                    # origin 已保证非 None——
                     # verify_translation 的"原文基准为空即放行"分支自此仅由
                     # "推文存在但正文与被引用文均为空"（纯媒体推文）触达（Q2=A）。
                     reject_reason = verify_translation(

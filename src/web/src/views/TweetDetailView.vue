@@ -54,7 +54,7 @@
               <strong>中文翻译：</strong>{{ tweet.summary.translation_text }}
             </p>
             <p v-else class="summary-empty-translation">
-              原文已是中文，无需翻译
+              无需翻译
             </p>
           </template>
           <template v-else>
@@ -63,7 +63,7 @@
               <strong>中文翻译：</strong>{{ tweet.summary.translation_text }}
             </p>
             <p v-else class="summary-empty-translation">
-              原文已是中文，无需翻译
+              无需翻译
             </p>
           </template>
         </div>

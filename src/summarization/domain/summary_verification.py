@@ -6,15 +6,25 @@
 规则源自 ``/scrape-and-translate`` 与项目 CLAUDE.md 的翻译约定，
 但**长度比经实测重新校准**（见下方常量注释）。
 
-长度基准统一为"剥 URL 后正文字符数"（已用户确认），
-英文原文与中译文都按同一口径计算后再求比值。
+长度基准统一为"剥链接/@用户名/#话题后正文字符数"（CHG-069 与中文占比
+口径同源，见 ``language_utils.content_len``），英文原文与中译文都按同一
+口径计算后再求比值。
+
+CHG-069 口径（受控打破 CHG-046「三规则 0 改动」承诺）：
+- 缺译检查不再设 20 字豁免，改用「可译内容」谓词
+  （``language_utils.has_translatable_content``，单一事实源，包3 复用）；
+- 无可译内容（纯 @串/链接/emoji/符号/数字/话题标签）不要求译文：
+  留空放行、照抄原文亦放行（宽容门 · G1-3=C）；
+- 长度比检查保留"正文 ≥20 字才查"的防噪豁免（G1-2=A）。
 """
 
-import re
+from src.summarization.domain.language_utils import (
+    chinese_char_ratio,
+    content_len,
+    has_translatable_content,
+)
 
-from src.summarization.domain.language_utils import chinese_char_ratio
-
-# 长度比 = 中译文正文字符数 / 英文原文正文字符数（均剥 URL、去空白后计）。
+# 长度比 = 中译文正文字符数 / 英文原文正文字符数（均按统一正文口径计）。
 # ⚠️ 中文信息密度高于英文，忠实英译中的字符比通常落在 ~0.30-0.50
 #    （实测样本约 0.33），因此 slash-command 字面的 "60%-120%" 当硬门会
 #    误杀几乎所有合法翻译。此处是"截断 / 失控兜底带"而非字面阈值，
@@ -22,18 +32,11 @@ from src.summarization.domain.language_utils import chinese_char_ratio
 LENGTH_RATIO_MIN = 0.25   # 低于此判为疑似截断
 LENGTH_RATIO_MAX = 1.50   # 高于此判为疑似失控 / 过度生成
 
-# 原文正文短于此阈值时，跳过"长度比"与"缺译"检查，避免在极短推文上产生噪声。
+# 原文正文短于此阈值时，跳过"长度比"检查，避免在极短推文上产生噪声。
+# （CHG-069 起缺译检查不再使用本阈值，改用可译内容谓词。）
 MIN_BASIS_LEN = 20
 
-_URL_RE = re.compile(r"https?://\S+")
 _ELLIPSIS_SUFFIXES = ("…", "...")
-
-
-def _content_len(text: str | None) -> int:
-    """正文字符数：剥 URL、去所有空白后的字符长度。"""
-    if not text:
-        return 0
-    return len(re.sub(r"\s", "", _URL_RE.sub("", text)))
 
 
 def _ends_with_ellipsis(text: str | None) -> bool:
@@ -86,13 +89,15 @@ def verify_translation(
     if not basis.strip():
         return None  # 原文缺失 → 降级放行
 
-    basis_len = _content_len(basis)
+    basis_len = content_len(basis)
     english_dominant = chinese_char_ratio(basis) < 0.5
     has_translation = bool(translation and translation.strip())
 
-    # 规则 1：实质英文推文必须有翻译
-    if english_dominant and basis_len >= MIN_BASIS_LEN and not has_translation:
-        return "英文推文缺少翻译"
+    # 规则 1（CHG-069）：外文主导且含可译内容 → 必须有译文（不设长度豁免）
+    if english_dominant and not has_translation:
+        if has_translatable_content(basis):
+            return "英文推文缺少翻译"
+        return None  # 无可译内容（纯 @串/链接/emoji/符号/数字/话题标签）→ 放行
 
     # 非英文且无翻译（纯中文可为 null）→ 放行
     if not has_translation:
@@ -102,9 +107,9 @@ def verify_translation(
     if _ends_with_ellipsis(translation) and not _ends_with_ellipsis(basis):
         return "译文以省略号结尾但原文未如此（疑似截断）"
 
-    # 规则 3：长度比兜底（仅对英文主导且足够长的原文）
+    # 规则 3：长度比兜底（仅对英文主导且足够长的原文 · 20 字豁免保留 G1-2=A）
     if english_dominant and basis_len >= MIN_BASIS_LEN:
-        ratio = _content_len(translation) / basis_len
+        ratio = content_len(translation) / basis_len
         if ratio < LENGTH_RATIO_MIN:
             return (
                 f"译文过短（长度比 {ratio:.0%} < {LENGTH_RATIO_MIN:.0%}，疑似截断）"
