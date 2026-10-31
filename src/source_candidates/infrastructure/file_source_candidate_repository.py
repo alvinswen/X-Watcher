@@ -12,6 +12,7 @@ from src.source_candidates.models import (
     CitationSignal,
     MiningSignal,
     SourceCandidate,
+    tweet_id_order,
 )
 from src.storage.atomic import shard_lock
 from src.storage.doc_store import atomic_write_doc, read_doc
@@ -193,11 +194,24 @@ class FileSourceCandidateStore:
                     continue
                 bucket = candidates.setdefault(
                     target_lower,
-                    {"username_display": target, "citations": {}},
+                    {
+                        "username_display": target,
+                        "citations": {},
+                        "last_cited_at": None,
+                        "max_cited_tweet_id": "",
+                    },
                 )
                 bucket["username_display"] = target
                 source_ids = bucket["citations"].setdefault(source_lower, set())
                 source_ids.add(tweet_id)
+                if created_at is not None and (
+                    bucket["last_cited_at"] is None or created_at > bucket["last_cited_at"]
+                ):
+                    bucket["last_cited_at"] = created_at
+                if not bucket["max_cited_tweet_id"] or tweet_id_order(
+                    tweet_id
+                ) > tweet_id_order(bucket["max_cited_tweet_id"]):
+                    bucket["max_cited_tweet_id"] = tweet_id
         return {"scanned_tweets": scanned_tweets, "candidates": candidates}
 
     async def rebuild_index(self) -> None:
