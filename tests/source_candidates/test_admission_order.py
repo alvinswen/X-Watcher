@@ -287,9 +287,12 @@ _THRESHOLD_ROWS = {
 _THRESHOLD_TIMES = dict.fromkeys(_THRESHOLD_ROWS, "2026-10-10T00:00:00Z")
 
 
-def _quad_groups() -> list[list[dict[str, Any]]]:
-    """2-② 的 6 分片布局：首现序 s00..s03 = alpha / juliet / sierra / quebec。"""
-    groups = _rows_for(_QUAD_ROWS, _QUAD_TIMES)
+def _quad_groups(rename: dict[str, str] | None = None) -> list[list[dict[str, Any]]]:
+    """2-② 的 6 分片布局：首现序 s00..s03 = alpha / juliet / sierra / quebec。
+
+    rename：只改「被引用账号名」，编号 / 时刻 / 引用构成一律不动（断言 5 的换名步）。
+    """
+    groups = _rows_for(_QUAD_ROWS, _QUAD_TIMES, rename)
     by_target = dict(zip(_QUAD_ROWS, groups, strict=True))
     return [
         by_target["alpha_src"][:2],
@@ -388,6 +391,37 @@ async def test_fourth_key_uses_numeric_order_on_tie(tmp_path):
     _write_groups(tmp_path, _quad_groups(), _dirs(6))
 
     assert _ids(await _service(tmp_path).mine(top_n=2)) == ["sierra_src", "quebec_src"]
+
+
+@pytest.mark.asyncio
+async def test_rename_on_tie_keeps_admission_identity(tmp_path):
+    """断言 5（v8 · P1-1）：两个同刻候选互换名字后，准入身份不变。
+
+    为什么非有这条：2-② 里 quebec 与 juliet 同刻，而「名字的字母序」与
+    「编号的数值序」在这对候选上**同向**（q > j 且 1.000000000000000006e18 > 7.2e17）。
+    于是「第四段 = 账号名降序」的实现（最省事的一行 sort(key=(..., name), reverse=True)）
+    在原语料上四条断言全绿——它的前三个键都跟正确实现一样，第四个把名字带进来、
+    方向也是降序。只有换名能把它和「按编号数值序」区分开：
+    名字一换，按名字选人的实现在同一个位置会选到另一个人。
+    """
+    plain = tmp_path / "plain"
+    swapped = tmp_path / "swapped"
+    _write_groups(plain, _quad_groups(), _dirs(6))
+    _write_groups(
+        swapped,
+        _quad_groups({"quebec_src": "juliet_src", "juliet_src": "quebec_src"}),
+        _dirs(6),
+    )
+
+    before = _ids(await _service(plain).mine(top_n=2))
+    after = _ids(await _service(swapped).mine(top_n=2))
+
+    # 换名不改身份：选中的仍是 1000000000000000005 与 1000000000000000006 那两位，
+    # 只是后一位现在叫 juliet_src。
+    assert before == ["sierra_src", "quebec_src"]
+    assert after == ["sierra_src", "juliet_src"]
+    # 名字变了、结果跟着名字变 → 说明选的不是身份，是名字。
+    assert before != after
 
 
 @pytest.mark.asyncio
