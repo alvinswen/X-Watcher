@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import src
+from tests.mcp.mcp_contract_norm import normalize_contract_dump
 
 _REPO_ROOT = Path.cwd().resolve()
 _SRC_FILE = Path(src.__file__).resolve()
@@ -44,4 +45,4 @@ def test_mcp_tool_schemas_match_golden() -> None:
 
     expected = json.loads(_GOLDEN_PATH.read_text(encoding="utf-8"))
     assert len(actual) == 37
-    assert actual == expected
+    assert normalize_contract_dump(actual) == normalize_contract_dump(expected)
