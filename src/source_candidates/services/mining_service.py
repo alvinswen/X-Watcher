@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
 from src.data_layer.repositories import SourceCandidateStore
 from src.preference.infrastructure.follow_store import FollowStore
-from src.source_candidates.models import CitationSignal, MiningSignal, SourceCandidate
+from src.source_candidates.models import (
+    CitationSignal,
+    MiningSignal,
+    SourceCandidate,
+    tweet_id_order,
+)
 from src.subjects.protocol import SubjectRepoProtocol
 
 
@@ -23,6 +29,31 @@ def _aware_utc(value: datetime | None) -> datetime | None:
     if value is None:
         return None
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+_MISSING_CITED_AT = datetime.min.replace(tzinfo=UTC)
+
+# (引用总数, 信源数, 最近被引用时刻, 引用推文编号最大值, 候选账号名小写, 显示名, 信号)
+EligibleEntry = tuple[int, int, datetime | None, str, str, str, MiningSignal]
+
+
+def admission_sort_key(entry: EligibleEntry) -> tuple[int, int, datetime, tuple[int, str]]:
+    """四段键（均为降序；配合 sorted(..., reverse=True) 使用）。
+
+    时刻缺失 → _MISSING_CITED_AT（排最后，不排除该候选）。
+    """
+    cited_at = entry[2] if entry[2] is not None else _MISSING_CITED_AT
+    return (entry[0], entry[1], cited_at, tweet_id_order(entry[3]))
+
+
+def order_for_admission(entries: Sequence[EligibleEntry]) -> list[EligibleEntry]:
+    """按四段键降序排准入候选。仅测试可见：不得进返回体 / 日志 / 落盘。"""
+    return sorted(entries, key=admission_sort_key, reverse=True)
+
+
+def admission_quadruple(entry: EligibleEntry) -> tuple[int, int, datetime | None, str]:
+    """四段键原始值（A4 全序断言用）。仅测试可见。"""
+    return (entry[0], entry[1], entry[2], entry[3])
 
 
 class MiningService:
@@ -90,7 +121,7 @@ class MiningService:
         raw_candidates: dict[str, dict[str, Any]] = scan["candidates"]
         now = datetime.now(UTC)
         merged_refreshed: list[str] = []
-        eligible: list[tuple[int, int, str, str, MiningSignal]] = []
+        eligible: list[EligibleEntry] = []
         suppressed_in_library = 0
         suppressed_pool_terminal = 0
 
@@ -134,15 +165,25 @@ class MiningService:
                     (
                         signal.citation_total,
                         signal.source_diversity,
+                        raw.get("last_cited_at"),
+                        str(raw.get("max_cited_tweet_id", "")),
                         username_lower,
                         str(raw["username_display"]),
                         signal,
                     )
                 )
 
-        eligible.sort(key=lambda item: (-item[0], -item[1], item[2]))
+        ordered = order_for_admission(eligible)
         admitted: list[dict[str, Any]] = []
-        for total, diversity, candidate_id, display_name, signal in eligible[:top_n]:
+        for (
+            total,
+            diversity,
+            _last_cited_at,
+            _max_id,
+            candidate_id,
+            display_name,
+            signal,
+        ) in ordered[:top_n]:
             candidate = SourceCandidate(
                 candidate_id=candidate_id,
                 username=display_name,

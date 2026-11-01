@@ -15,6 +15,13 @@ def _require_aware(value: datetime | None) -> datetime | None:
     return value
 
 
+def tweet_id_order(value: str) -> tuple[int, str]:
+    """推文编号的比较键：纯数字按数值序，非纯数字恒小于任何纯数字编号。"""
+    if value.isascii() and value.isdigit():
+        return (int(value), "")
+    return (0, value.zfill(20))
+
+
 class CandidateStatus(StrEnum):
     DISCOVERED = "discovered"
     ASSESSED = "assessed"
