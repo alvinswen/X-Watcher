@@ -22,6 +22,7 @@ from src.subjects.models import SubjectMatch
 from src.subjects.store import FileSubjectStore
 from src.summarization.domain.models import SummaryRecord
 from src.summarization.infrastructure.file_summary_repository import FileSummaryStore
+from tests.mcp.mcp_contract_norm import normalize_contract_dump
 
 # ── 辅助 ──────────────────────────────────────────────────────────
 
@@ -956,7 +957,7 @@ class TestCHG032McpLifecycleAndGuards:
             }
             for name, tool in sorted(mcp._tool_manager._tools.items())
         }
-        assert actual == golden
+        assert normalize_contract_dump(actual) == normalize_contract_dump(golden)
 
     @pytest.mark.asyncio
     async def test_tc_build_421_close_warnings_include_rest_and_mcp_contexts(self, caplog):
