@@ -10,12 +10,21 @@
 
 import logging
 import os
+import sys
 import tempfile
 from logging.handlers import QueueHandler
 
 import dotenv
 import pytest
 from fastapi.testclient import TestClient
+
+# 导入顺序守卫（CHG-DSH-004）：必须早于下方 .env 隔离层的第一个动作。
+if "src.config" in sys.modules:
+    raise RuntimeError(
+        "导入顺序守卫失败：配置模块（src.config）在测试入口配置执行隔离之前已被导入，疑似更早的 pytest 插件或配置抢先导入。\n"
+        "后果：本机 .env 隔离层已失效，本次测试结果不可信；不允许静默继续。\n"
+        "处置：移除或禁用抢先导入的插件/配置后重跑（例如用 -p no:<插件名> 临时排除）；不要在此状态下继续测试。"
+    )
 
 # ══ .env 隔离层（CHG-DSH-003）· 必须早于任何 src.* 导入 ═════════════════════
 # 测试基座的承诺：本机 .env 有无、值为何均不改变测试行为（见下方 load_dotenv 段注释）。
