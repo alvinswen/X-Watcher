@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from mcp.server.fastmcp import FastMCP
 
+from src.config import get_settings
 from src.scraper.domain.scrape_group_state import (
     GroupAlert,
     ReconcileOutcome,
@@ -16,6 +17,8 @@ from src.scraper.domain.scrape_group_state import (
 from src.scraper.infrastructure.file_scrape_group_state_repository import (
     FileScrapeGroupStateStore,
 )
+
+CONSECUTIVE_CLEAN_ROUNDS = 3
 
 
 @pytest.mark.asyncio
@@ -28,7 +31,7 @@ async def test_status_has_exact_six_top_level_keys_and_incremental_state(monkeyp
             usernames=["alice"],
             since_id="200",
             last_path="dual",
-            consecutive_clean_rounds=3,
+            consecutive_clean_rounds=CONSECUTIVE_CLEAN_ROUNDS,
             last_round=RoundOutcome(fetched=2, new=1, duplicate_discarded=1),
             last_reconcile=ReconcileOutcome(extra=1, extra_ids=["201"]),
             alerts=[GroupAlert(kind="example", group_id="g1", advice="inspect")],
@@ -50,7 +53,10 @@ async def test_status_has_exact_six_top_level_keys_and_incremental_state(monkeyp
         "incremental_scrape",
     }
     section = data["incremental_scrape"]
-    assert section["groups"][0]["clean_rounds"] == "3/7"
+    expected_clean_rounds = (
+        f"{CONSECUTIVE_CLEAN_ROUNDS}/{get_settings().scraper_incremental_clean_rounds_required}"
+    )
+    assert section["groups"][0]["clean_rounds"] == expected_clean_rounds
     assert section["groups"][0]["last_reconcile"]["extra"] == 1
     assert section["alerts"][0]["kind"] == "example"
 

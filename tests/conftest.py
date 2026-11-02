@@ -13,13 +13,32 @@ import os
 import tempfile
 from logging.handlers import QueueHandler
 
+import dotenv
 import pytest
 from fastapi.testclient import TestClient
 
-from src.config import clear_settings_cache, get_settings
+# ══ .env 隔离层（CHG-DSH-003）· 必须早于任何 src.* 导入 ═════════════════════
+# 测试基座的承诺：本机 .env 有无、值为何均不改变测试行为（见下方 load_dotenv 段注释）。
+# 三条注入路径在此逐个堵死，全部是**进程内**动作，不读 / 不移动 / 不改名 / 不删除 .env：
+#   ① src/config.py:14   load_dotenv()       —— import src.config 时执行
+#   ② src/config.py:165  env_file=".env"     —— Settings() 实例化时读文件
+#   ③ tests/conftest.py:49 load_dotenv()     —— 测试基座自己读（下方已整段删除）
+# 已知边界：用户 shell 里导出的同名变量不在本层处理（需求 §4.6-8 / 裁决 Q3）。
+os.environ["TWITTER_API_KEY"] = "test-twitter-key"  # 硬钉：setdefault 会被导入期注入抢先
+
+
+def _load_dotenv_disabled_under_tests(*_args: object, **_kwargs: object) -> bool:
+    """隔离期替代 dotenv.load_dotenv：禁止从 .env 向 os.environ 注入任何键。"""
+    return False
+
+
+dotenv.load_dotenv = _load_dotenv_disabled_under_tests  # ①③ 一并关闭
+
+from src.config import Settings, clear_settings_cache, get_settings
 from src.logging_config import shutdown_logging
 
-os.environ.setdefault("TWITTER_API_KEY", "test-twitter-key")
+# ② 关掉 pydantic-settings 的 env_file 文件直读：此后 Settings() 只认 os.environ + 代码默认值。
+Settings.model_config["env_file"] = None
 # 全局一次性临时数据目录：所有未显式 opt-in 覆盖 XWATCHER_DATA_ROOT 的测试都落在这里，
 # 杜绝任何测试路径读写真实生产数据目录（data_migrated）。
 _session_data_root = tempfile.mkdtemp(prefix="xwatcher-conftest-data-")
@@ -43,12 +62,10 @@ def _remove_file_handlers() -> None:
 
 _remove_file_handlers()
 
-# 在测试开始时加载 .env 文件
-from dotenv import load_dotenv
+# 本文件**不再**加载 .env：三条注入路径已在文件顶部关闭（CHG-DSH-003）。
+# 历史实现在此处 load_dotenv()，与下方「测试套件必须 env-无关」的承诺相反，已删除。
 
-load_dotenv()
-
-# ⚠️ load_dotenv（默认不覆盖已有 env）后再显式钉一次，双保险：
+# 隔离层之后（不再有 .env 注入）再显式钉一次，双保险：
 # 测试套件必须 env-无关（本机 .env 有无、值为何均不改变测试行为）。
 os.environ["XWATCHER_DATA_ROOT"] = _session_data_root
 clear_settings_cache()
@@ -58,10 +75,10 @@ clear_settings_cache()
 def reset_env_before_each_test():
     """在每个测试前重置环境变量。
 
-    这确保测试不依赖本地 .env 文件中的值。
-    但保留 .env 中加载的 API 密钥用于集成测试。
+    这确保测试不依赖本地 .env 文件中的值：进程环境已在导入期与 .env 隔离
+    （见文件顶部隔离层），因此本 fixture 抓到的基线是「不含 .env 注入」的干净态。
     """
-    # 保存原始环境变量（包括从 .env 加载的）
+    # 保存原始环境变量（已与 .env 隔离）
     original_env = os.environ.copy()
 
     yield
