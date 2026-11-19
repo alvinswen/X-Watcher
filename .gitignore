@@ -33,6 +33,7 @@ env/
 
 # 本地 MCP 配置（含绝对路径，不提交）
 .mcp.json
+.mcp.json.bak-*
 
 # 数据库
 *.db
@@ -106,3 +107,8 @@ docs/
 
 # 本地 AI 工具工作目录（memory 等，不提交）
 .workbuddy/
+
+# 本地启动辅助脚本（本机专用，不提交）
+/scripts/start-backend.sh
+/scripts/start-frontend.sh
+/scripts/stop-services.sh
